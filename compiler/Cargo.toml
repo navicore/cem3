@@ -1,0 +1,16 @@
+[package]
+name = "cem3-compiler"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cem3"
+path = "src/main.rs"
+
+[dependencies]
+cem3-runtime = { path = "../runtime" }
+clap = { version = "4.5", features = ["derive"] }
+
+[lib]
+name = "cem3c"
+path = "src/lib.rs"

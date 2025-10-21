@@ -90,6 +90,17 @@ pub unsafe fn drop(stack: Stack) -> Stack {
     rest
 }
 
+/// Alias for drop to avoid LLVM keyword conflicts
+///
+/// LLVM uses "drop" as a reserved word, so codegen calls this as drop_op
+///
+/// # Safety
+/// Stack must not be null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn drop_op(stack: Stack) -> Stack {
+    unsafe { drop(stack) }
+}
+
 /// Swap the top two values: ( a b -- b a )
 ///
 /// # Safety
@@ -136,7 +147,8 @@ pub unsafe fn rot(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least two values
-pub unsafe fn nip(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nip(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "nip: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "nip: stack has only one value");
@@ -148,7 +160,8 @@ pub unsafe fn nip(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least two values
-pub unsafe fn tuck(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tuck(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "tuck: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "tuck: stack has only one value");

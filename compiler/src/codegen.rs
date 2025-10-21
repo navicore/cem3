@@ -137,6 +137,8 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @swap(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @over(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
 
         // User-defined words and main
@@ -226,10 +228,15 @@ impl CodeGen {
                 let result_var = self.fresh_temp();
                 // Check if it's a runtime built-in, otherwise it's a user word
                 let function_name = match name.as_str() {
-                    "write_line" | "read_line" | "add" | "subtract" | "multiply" | "divide"
-                    | "dup" | "swap" | "over" | "rot" => name.to_string(),
+                    // I/O operations
+                    "write_line" | "read_line" => name.to_string(),
+                    // Arithmetic operations
+                    "add" | "subtract" | "multiply" | "divide" => name.to_string(),
+                    // Stack operations (simple - no parameters)
+                    "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
                     "drop" => "drop_op".to_string(), // drop is reserved in LLVM
-                    _ => format!("cem_{}", name),    // User-defined word
+                    // User-defined word
+                    _ => format!("cem_{}", name),
                 };
                 writeln!(
                     &mut self.output,

@@ -41,13 +41,17 @@ impl Program {
     /// Validate that all word calls reference either a defined word or a built-in
     pub fn validate_word_calls(&self) -> Result<(), String> {
         // List of known runtime built-ins
+        // IMPORTANT: Keep this in sync with codegen.rs WordCall matching
         let builtins = [
+            // I/O operations
             "write_line",
             "read_line",
+            // Arithmetic operations
             "add",
             "subtract",
             "multiply",
             "divide",
+            // Stack operations (simple - no parameters)
             "dup",
             "drop",
             "swap",
@@ -55,7 +59,7 @@ impl Program {
             "rot",
             "nip",
             "tuck",
-            "pick",
+            // Note: pick is omitted - requires parameter support in AST
         ];
 
         for word in &self.words {

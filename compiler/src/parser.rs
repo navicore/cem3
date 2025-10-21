@@ -102,11 +102,9 @@ impl Parser {
 
         // Try to parse as string literal
         if token.starts_with('"') {
-            let s = token
-                .trim_start_matches('"')
-                .trim_end_matches('"')
-                .to_string();
-            return Ok(Statement::StringLiteral(s));
+            let raw = token.trim_start_matches('"').trim_end_matches('"');
+            let unescaped = unescape_string(raw)?;
+            return Ok(Statement::StringLiteral(unescaped));
         }
 
         // Otherwise it's a word call
@@ -181,6 +179,48 @@ impl Parser {
     fn is_at_end(&self) -> bool {
         self.pos >= self.tokens.len()
     }
+}
+
+/// Process escape sequences in a string literal
+///
+/// Supported escape sequences:
+/// - `\"` -> `"`  (quote)
+/// - `\\` -> `\`  (backslash)
+/// - `\n` -> newline
+/// - `\r` -> carriage return
+/// - `\t` -> tab
+///
+/// # Errors
+/// Returns error if an unknown escape sequence is encountered
+fn unescape_string(s: &str) -> Result<String, String> {
+    let mut result = String::new();
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('"') => result.push('"'),
+                Some('\\') => result.push('\\'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some(c) => {
+                    return Err(format!(
+                        "Unknown escape sequence '\\{}' in string literal. \
+                         Supported: \\\" \\\\ \\n \\r \\t",
+                        c
+                    ));
+                }
+                None => {
+                    return Err("String ends with incomplete escape sequence '\\'".to_string());
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    Ok(result)
 }
 
 fn tokenize(source: &str) -> Vec<String> {
@@ -301,9 +341,34 @@ mod tests {
         assert_eq!(program.words[0].body.len(), 2);
 
         match &program.words[0].body[0] {
-            Statement::StringLiteral(s) => assert_eq!(s, r#"Say \"hello\" there"#),
+            // Escape sequences should be processed: \" becomes actual quote
+            Statement::StringLiteral(s) => assert_eq!(s, "Say \"hello\" there"),
             _ => panic!("Expected StringLiteral with escaped quotes"),
         }
+    }
+
+    #[test]
+    fn test_escape_sequences() {
+        let source = r#": main ( -- ) "Line 1\nLine 2\tTabbed" write_line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => assert_eq!(s, "Line 1\nLine 2\tTabbed"),
+            _ => panic!("Expected StringLiteral"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_escape_sequence() {
+        let source = r#": main ( -- ) "Bad \x sequence" write_line ;"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown escape sequence"));
     }
 
     #[test]

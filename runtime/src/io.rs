@@ -1,11 +1,19 @@
 //! I/O Operations for cem3
 //!
 //! These functions are exported with C ABI for LLVM codegen to call.
+//!
+//! # String Handling
+//! String literals from the compiler must be valid UTF-8 C strings (null-terminated).
+//! The compiler is responsible for ensuring string literal validity.
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use std::ffi::CStr;
 use std::io::{self, Write};
+
+/// Valid exit code range for Unix compatibility
+const EXIT_CODE_MIN: i64 = 0;
+const EXIT_CODE_MAX: i64 = 255;
 
 /// Write a string to stdout followed by a newline
 ///
@@ -89,8 +97,12 @@ pub unsafe extern "C" fn exit_op(stack: Stack) -> ! {
 
     match value {
         Value::Int(code) => {
-            if !(0..=255).contains(&code) {
-                panic!("exit_op: exit code must be in range 0-255, got {}", code);
+            // Explicitly validate exit code is in Unix-compatible range
+            if !(EXIT_CODE_MIN..=EXIT_CODE_MAX).contains(&code) {
+                panic!(
+                    "exit_op: exit code must be in range {}-{}, got {}",
+                    EXIT_CODE_MIN, EXIT_CODE_MAX, code
+                );
             }
             std::process::exit(code as i32);
         }
@@ -122,6 +134,39 @@ mod tests {
 
             let (stack, value) = pop(stack);
             assert_eq!(value, Value::String("Test".to_string()));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_empty_string() {
+        unsafe {
+            // Empty string should be handled correctly
+            let stack = std::ptr::null_mut();
+            let empty_str = CString::new("").unwrap();
+            let stack = push_string(stack, empty_str.as_ptr());
+
+            let (stack, value) = pop(stack);
+            assert_eq!(value, Value::String(String::new()));
+            assert!(stack.is_null());
+
+            // Write empty string should work without panic
+            let stack = push(stack, Value::String(String::new()));
+            let stack = write_line(stack);
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_unicode_strings() {
+        unsafe {
+            // Test that Unicode strings are handled correctly
+            let stack = std::ptr::null_mut();
+            let unicode_str = CString::new("Hello, 世界! 🌍").unwrap();
+            let stack = push_string(stack, unicode_str.as_ptr());
+
+            let (stack, value) = pop(stack);
+            assert_eq!(value, Value::String("Hello, 世界! 🌍".to_string()));
             assert!(stack.is_null());
         }
     }

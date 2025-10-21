@@ -617,4 +617,214 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_arbitrary_depth_operations() {
+        // Property: Operations should work at any stack depth
+        // Test with 100-deep stack, then manipulate top elements
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+
+            // Build a 100-deep stack
+            for i in 0..100 {
+                stack = push(stack, Value::Int(i));
+            }
+
+            // Operations on top should work regardless of depth below
+            stack = dup(stack); // [99, 99, 98, 97, ..., 0]
+            stack = swap(stack); // [99, 99, 98, 97, ..., 0]
+            stack = over(stack); // [99, 99, 99, 98, 97, ..., 0]
+            stack = rot(stack); // [99, 99, 99, 98, 97, ..., 0]
+            stack = drop(stack); // [99, 99, 98, 97, ..., 0]
+
+            // Verify we can still access deep values with pick
+            stack = pick(stack, 50); // Should copy value at depth 50
+
+            // Pop and verify stack is still intact
+            let mut count = 0;
+            while !is_empty(stack) {
+                let (rest, _val) = pop(stack);
+                stack = rest;
+                count += 1;
+            }
+
+            // Started with 100, added 1 with dup, added 1 with over, dropped 1, picked 1
+            assert_eq!(count, 102);
+        }
+    }
+
+    #[test]
+    fn test_operation_composition_completeness() {
+        // Property: Any valid sequence of operations should succeed
+        // Test complex composition with multiple operation types
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+
+            // Build initial state
+            for i in 1..=10 {
+                stack = push(stack, Value::Int(i));
+            }
+
+            // Complex composition: mix all operation types
+            // [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+            stack = dup(stack); // [10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+            stack = over(stack); // [10, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+            stack = rot(stack); // [10, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+            stack = swap(stack); // Top two swapped
+            stack = nip(stack); // Remove second
+            stack = tuck(stack); // Copy top below second
+            stack = pick(stack, 5); // Copy from depth 5
+            stack = drop(stack); // Remove top
+
+            // If we get here without panic, composition works
+            // Verify stack still has values and is traversable
+            let mut depth = 0;
+            let mut current = stack;
+            while !current.is_null() {
+                depth += 1;
+                current = (*current).next;
+            }
+
+            assert!(depth > 0, "Stack should not be empty after operations");
+        }
+    }
+
+    #[test]
+    fn test_pick_at_arbitrary_depths() {
+        // Property: pick(n) should work for any n < stack_depth
+        // Verify pick can access any depth without corruption
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+
+            // Build stack with identifiable values
+            for i in 0..50 {
+                stack = push(stack, Value::Int(i * 10));
+            }
+
+            // Pick from various depths and verify values
+            // Stack is: [490, 480, 470, ..., 20, 10, 0]
+            //            0    1    2         47  48  49
+
+            stack = pick(stack, 0); // Should get 490
+            let (mut stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(490));
+
+            stack = pick(stack, 10); // Should get value at depth 10
+            let (mut stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(390)); // (49-10) * 10
+
+            stack = pick(stack, 40); // Deep pick
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(90)); // (49-40) * 10
+
+            // After all these operations, stack should still be intact
+            let mut count = 0;
+            let mut current = stack;
+            while !current.is_null() {
+                count += 1;
+                current = (*current).next;
+            }
+
+            assert_eq!(count, 50, "Stack depth should be unchanged");
+        }
+    }
+
+    #[test]
+    fn test_operations_preserve_stack_integrity() {
+        // Property: After any operation, walking the stack should never loop
+        // This catches next pointer corruption
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+
+            for i in 0..20 {
+                stack = push(stack, Value::Int(i));
+            }
+
+            // Apply operations that manipulate next pointers heavily
+            stack = swap(stack);
+            stack = rot(stack);
+            stack = swap(stack);
+            stack = rot(stack);
+            stack = over(stack);
+            stack = tuck(stack);
+
+            // Walk stack and verify:
+            // 1. No cycles (walk completes)
+            // 2. No null mid-stack (all nodes valid until end)
+            let mut visited = std::collections::HashSet::new();
+            let mut current = stack;
+            let mut count = 0;
+
+            while !current.is_null() {
+                // Check for cycle
+                assert!(
+                    visited.insert(current as usize),
+                    "Detected cycle in stack - next pointer corruption!"
+                );
+
+                count += 1;
+                current = (*current).next;
+
+                // Safety: prevent infinite loop in case of corruption
+                assert!(count < 1000, "Stack walk exceeded reasonable depth - likely corrupted");
+            }
+
+            assert!(count > 0, "Stack should have elements");
+        }
+    }
+
+    #[test]
+    fn test_nested_variants_with_deep_stacks() {
+        // Property: Variants with nested variants survive deep stack operations
+        // This combines depth + complex data structures
+        use crate::value::VariantData;
+
+        unsafe {
+            // Build deeply nested variant: Cons(1, Cons(2, Cons(3, Nil)))
+            let nil = Value::Variant(Box::new(VariantData::new(0, vec![])));
+            let cons3 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(3), nil])));
+            let cons2 =
+                Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(2), cons3])));
+            let cons1 =
+                Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(1), cons2])));
+
+            // Put on deep stack
+            let mut stack = std::ptr::null_mut();
+            for i in 0..30 {
+                stack = push(stack, Value::Int(i));
+            }
+            stack = push(stack, cons1.clone());
+            for i in 30..60 {
+                stack = push(stack, Value::Int(i));
+            }
+
+            // Heavy shuffling in the region containing the variant
+            for _ in 0..10 {
+                stack = rot(stack);
+                stack = swap(stack);
+                stack = over(stack);
+                stack = drop(stack);
+            }
+
+            // Find and verify the nested variant is intact
+            let mut found_variant = None;
+            while !is_empty(stack) {
+                let (rest, val) = pop(stack);
+                stack = rest;
+                if let Value::Variant(ref vdata) = val {
+                    if vdata.tag == 1 && vdata.fields.len() == 2 {
+                        if let Value::Int(1) = vdata.fields[0] {
+                            found_variant = Some(val);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            assert!(
+                found_variant.is_some(),
+                "Nested variant lost during deep stack operations"
+            );
+        }
+    }
 }

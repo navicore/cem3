@@ -24,6 +24,11 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Program, String> {
         let mut program = Program::new();
 
+        // Check for unclosed string error from tokenizer
+        if self.tokens.iter().any(|t| t == "<<<UNCLOSED_STRING>>>") {
+            return Err("Unclosed string literal - missing closing quote".to_string());
+        }
+
         while !self.is_at_end() {
             self.skip_comments();
             if self.is_at_end() {
@@ -182,15 +187,23 @@ fn tokenize(source: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
-    let chars = source.chars().peekable();
+    let mut prev_was_backslash = false;
 
-    for ch in chars {
+    for ch in source.chars() {
         if in_string {
             current.push(ch);
-            if ch == '"' {
+            if ch == '"' && !prev_was_backslash {
+                // Unescaped quote ends the string
                 in_string = false;
                 tokens.push(current.clone());
                 current.clear();
+                prev_was_backslash = false;
+            } else if ch == '\\' && !prev_was_backslash {
+                // Start of escape sequence
+                prev_was_backslash = true;
+            } else {
+                // Regular character or escaped character
+                prev_was_backslash = false;
             }
         } else if ch == '"' {
             if !current.is_empty() {
@@ -199,6 +212,7 @@ fn tokenize(source: &str) -> Vec<String> {
             }
             in_string = true;
             current.push(ch);
+            prev_was_backslash = false;
         } else if ch.is_whitespace() {
             if !current.is_empty() {
                 tokens.push(current.clone());
@@ -219,7 +233,12 @@ fn tokenize(source: &str) -> Vec<String> {
         }
     }
 
-    if !current.is_empty() {
+    // Check for unclosed string literal
+    if in_string {
+        // Return error by adding a special error token
+        // The parser will handle this as a parse error
+        tokens.push("<<<UNCLOSED_STRING>>>".to_string());
+    } else if !current.is_empty() {
         tokens.push(current);
     }
 
@@ -269,5 +288,72 @@ mod tests {
             program.words[0].body[2],
             Statement::WordCall("add".to_string())
         );
+    }
+
+    #[test]
+    fn test_parse_escaped_quotes() {
+        let source = r#": main ( -- ) "Say \"hello\" there" write_line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].body.len(), 2);
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => assert_eq!(s, r#"Say \"hello\" there"#),
+            _ => panic!("Expected StringLiteral with escaped quotes"),
+        }
+    }
+
+    #[test]
+    fn test_unclosed_string_literal() {
+        let source = r#": main ( -- ) "unclosed string ;"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unclosed string literal"));
+    }
+
+    #[test]
+    fn test_multiple_word_definitions() {
+        let source = r#"
+: double ( n -- n*2 )
+  2 multiply ;
+
+: quadruple ( n -- n*4 )
+  double double ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 2);
+        assert_eq!(program.words[0].name, "double");
+        assert_eq!(program.words[1].name, "quadruple");
+    }
+
+    #[test]
+    fn test_user_word_calling_user_word() {
+        let source = r#"
+: helper ( -- )
+  "helper called" write_line ;
+
+: main ( -- )
+  helper ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 2);
+
+        // Check main calls helper
+        match &program.words[1].body[0] {
+            Statement::WordCall(name) => assert_eq!(name, "helper"),
+            _ => panic!("Expected WordCall to helper"),
+        }
     }
 }

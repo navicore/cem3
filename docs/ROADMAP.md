@@ -10,6 +10,8 @@
 
 **Learn from cem2:** Reference cem2 for "what not to do" and working examples.
 
+**Concurrency is Core:** cem3 will be non-blocking from the start, inheriting cem2's proven CSP model (spawn/send/receive) with May coroutines. This is a defining characteristic of the language.
+
 ## Phase 0: Project Setup
 
 ### Goals
@@ -350,6 +352,68 @@ fn test_cons_with_list_reverse_shuffle() {
 
 ---
 
+## Phase 10: Concurrency with Strands (CSP Model)
+
+### Goals
+- Bring cem2's proven CSP implementation to cem3
+- Non-blocking I/O using May coroutines
+- Erlang-inspired strands with Go-style channels
+
+### Background
+cem2 successfully implemented a concurrency model using:
+- **Strands**: Lightweight processes (like Erlang processes)
+- **CSP Communication**: Go-style channels for send/receive
+- **May Coroutines**: Green threads for efficient concurrency
+- **Non-blocking I/O**: All I/O operations yield instead of blocking OS threads
+
+This model worked well in cem2 and will be brought forward to cem3.
+
+### Tasks
+- [ ] Initialize May runtime in generated `main()` function
+- [ ] Make all I/O operations non-blocking (yield to scheduler)
+  - [ ] Update `write_line` to use async I/O
+  - [ ] Update `read_line` to use async I/O
+- [ ] Add scheduler infrastructure to runtime
+- [ ] Implement core concurrency operations:
+  - [ ] `spawn: ( [quotation] -- strand-id )` - Create new strand
+  - [ ] `send: ( value channel -- )` - Send to channel
+  - [ ] `receive: ( channel -- value )` - Receive from channel (blocks strand, not thread)
+- [ ] Add channel creation and management
+- [ ] Test basic strand spawning and communication
+- [ ] Test complex patterns (many strands, message passing)
+- [ ] Verify no OS thread blocking on I/O
+
+### Success Criteria
+✓ Can spawn multiple strands
+✓ Strands communicate via channels
+✓ I/O operations are non-blocking (use May's async primitives)
+✓ Thousands of strands can run efficiently
+✓ No OS thread starvation
+✓ CSP patterns from cem2 port cleanly
+
+### Architecture Notes
+- LLVM-generated code calls runtime functions (already in place)
+- Runtime functions are May-aware (yield appropriately)
+- Each strand has its own stack pointer
+- Stack-threading model works naturally with strands
+- No changes needed to codegen - it's all in the runtime
+
+### Example Usage
+```cem
+: worker ( channel -- )
+  receive        # Block this strand until message arrives
+  write_line     # Print the message
+;
+
+: main ( -- )
+  make-channel   # Create a channel
+  [ worker ] spawn  # Spawn worker strand with channel
+  "Hello from main!" swap send  # Send message to worker
+;
+```
+
+---
+
 ## Validation Throughout
 
 At each phase, we MUST:
@@ -386,6 +450,8 @@ At the end, we should be able to say:
 - ✓ No memory leaks, no crashes
 - ✓ Clear ownership model throughout
 - ✓ Easy to add new features without breaking core
+- ✓ Non-blocking I/O with efficient strand-based concurrency (CSP model)
+- ✓ Thousands of strands can run concurrently without OS thread starvation
 
 ## Timeline
 
@@ -398,7 +464,10 @@ No pressure, no rush. Each phase is "done when it's done."
 - Phase 6: Multi-field variants - 1-2 sessions (this is the critical test)
 - Phase 7: List operations - 1 session
 - Phase 8+: Compiler and beyond - TBD
+- Phase 10: Concurrency/Strands - 2-3 sessions (after conditionals are settled)
 
 **Total to prove foundation:** ~6-8 sessions to get to validated list operations.
+
+**To non-blocking concurrency:** Add 2-3 sessions after current conditional/comparison work is merged.
 
 If that feels right, we can proceed with confidence to build anything on top.

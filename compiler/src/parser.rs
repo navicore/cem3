@@ -117,10 +117,9 @@ impl Parser {
     }
 
     fn parse_if(&mut self) -> Result<Statement, String> {
-        let mut true_branch = Vec::new();
-        let mut false_branch: Option<Vec<Statement>> = None;
+        let mut then_branch = Vec::new();
 
-        // Parse true branch until 'else' or 'then'
+        // Parse then branch until 'else' or 'then'
         loop {
             if self.is_at_end() {
                 return Err("Unexpected end of file in 'if' statement".to_string());
@@ -134,8 +133,7 @@ impl Parser {
 
             if self.check("else") {
                 self.advance();
-                // Parse false branch
-                false_branch = Some(Vec::new());
+                // Parse else branch
                 break;
             }
 
@@ -143,40 +141,37 @@ impl Parser {
                 self.advance();
                 // End of if without else
                 return Ok(Statement::If {
-                    true_branch,
-                    false_branch: None,
+                    then_branch,
+                    else_branch: None,
                 });
             }
 
-            true_branch.push(self.parse_statement()?);
+            then_branch.push(self.parse_statement()?);
         }
 
-        // Parse false branch until 'then'
-        if let Some(ref mut fb) = false_branch {
-            loop {
-                if self.is_at_end() {
-                    return Err("Unexpected end of file in 'else' branch".to_string());
-                }
-
-                // Skip newlines
-                if self.check("\n") {
-                    self.advance();
-                    continue;
-                }
-
-                if self.check("then") {
-                    self.advance();
-                    return Ok(Statement::If {
-                        true_branch,
-                        false_branch,
-                    });
-                }
-
-                fb.push(self.parse_statement()?);
+        // Parse else branch until 'then'
+        let mut else_branch = Vec::new();
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in 'else' branch".to_string());
             }
-        }
 
-        unreachable!()
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("then") {
+                self.advance();
+                return Ok(Statement::If {
+                    then_branch,
+                    else_branch: Some(else_branch),
+                });
+            }
+
+            else_branch.push(self.parse_statement()?);
+        }
     }
 
     fn skip_stack_effect(&mut self) -> Result<(), String> {

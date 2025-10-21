@@ -17,7 +17,9 @@ pub use stack::{
 pub use value::{Value, VariantData};
 
 // Arithmetic operations (exported for LLVM linking)
-pub use arithmetic::{add, divide, eq, gt, gte, lt, lte, multiply, neq, push_bool, push_int, subtract};
+pub use arithmetic::{
+    add, divide, eq, gt, gte, lt, lte, multiply, neq, push_bool, push_int, subtract,
+};
 
 // I/O operations (exported for LLVM linking)
 pub use io::{exit_op, push_string, read_line, write_line};

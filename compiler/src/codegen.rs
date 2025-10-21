@@ -312,6 +312,10 @@ impl CodeGen {
                 for stmt in then_branch {
                     then_stack = self.codegen_statement(&then_stack, stmt)?;
                 }
+                // Capture the actual predecessor block (might have changed due to nested ifs)
+                let then_predecessor = self.fresh_block("if_then_end");
+                writeln!(&mut self.output, "  br label %{}", then_predecessor).unwrap();
+                writeln!(&mut self.output, "{}:", then_predecessor).unwrap();
                 writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
 
                 // Else branch (executed when condition is zero)
@@ -326,6 +330,10 @@ impl CodeGen {
                     // No else clause - stack unchanged
                     stack_var.to_string()
                 };
+                // Capture the actual predecessor block
+                let else_predecessor = self.fresh_block("if_else_end");
+                writeln!(&mut self.output, "  br label %{}", else_predecessor).unwrap();
+                writeln!(&mut self.output, "{}:", else_predecessor).unwrap();
                 writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
 
                 // Merge block - phi node to merge stack pointers from both paths
@@ -334,7 +342,7 @@ impl CodeGen {
                 writeln!(
                     &mut self.output,
                     "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
-                    result_var, then_stack, then_block, else_stack, else_block
+                    result_var, then_stack, then_predecessor, else_stack, else_predecessor
                 )
                 .unwrap();
 

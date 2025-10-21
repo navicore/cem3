@@ -107,8 +107,76 @@ impl Parser {
             return Ok(Statement::StringLiteral(unescaped));
         }
 
+        // Check for conditional
+        if token == "if" {
+            return self.parse_if();
+        }
+
         // Otherwise it's a word call
         Ok(Statement::WordCall(token))
+    }
+
+    fn parse_if(&mut self) -> Result<Statement, String> {
+        let mut true_branch = Vec::new();
+        let mut false_branch: Option<Vec<Statement>> = None;
+
+        // Parse true branch until 'else' or 'then'
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in 'if' statement".to_string());
+            }
+
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("else") {
+                self.advance();
+                // Parse false branch
+                false_branch = Some(Vec::new());
+                break;
+            }
+
+            if self.check("then") {
+                self.advance();
+                // End of if without else
+                return Ok(Statement::If {
+                    true_branch,
+                    false_branch: None,
+                });
+            }
+
+            true_branch.push(self.parse_statement()?);
+        }
+
+        // Parse false branch until 'then'
+        if let Some(ref mut fb) = false_branch {
+            loop {
+                if self.is_at_end() {
+                    return Err("Unexpected end of file in 'else' branch".to_string());
+                }
+
+                // Skip newlines
+                if self.check("\n") {
+                    self.advance();
+                    continue;
+                }
+
+                if self.check("then") {
+                    self.advance();
+                    return Ok(Statement::If {
+                        true_branch,
+                        false_branch,
+                    });
+                }
+
+                fb.push(self.parse_statement()?);
+            }
+        }
+
+        unreachable!()
     }
 
     fn skip_stack_effect(&mut self) -> Result<(), String> {

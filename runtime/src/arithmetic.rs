@@ -142,9 +142,10 @@ pub unsafe extern "C" fn divide(stack: Stack) -> Stack {
     }
 }
 
-/// Integer equality
+/// Integer equality: =
 ///
-/// Stack effect: ( a b -- a==b )
+/// Returns 1 if equal, 0 if not (Forth-style boolean)
+/// Stack effect: ( a b -- flag )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -157,15 +158,16 @@ pub unsafe extern "C" fn eq(stack: Stack) -> Stack {
 
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Bool(a_val == b_val))
+            push(rest, Value::Int(if a_val == b_val { 1 } else { 0 }))
         },
         _ => panic!("eq: expected two integers on stack"),
     }
 }
 
-/// Less than
+/// Less than: <
 ///
-/// Stack effect: ( a b -- a<b )
+/// Returns 1 if a < b, 0 otherwise (Forth-style boolean)
+/// Stack effect: ( a b -- flag )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -177,14 +179,17 @@ pub unsafe extern "C" fn lt(stack: Stack) -> Stack {
     let (rest, a) = unsafe { pop(rest) };
 
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => unsafe { push(rest, Value::Bool(a_val < b_val)) },
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(if a_val < b_val { 1 } else { 0 }))
+        },
         _ => panic!("lt: expected two integers on stack"),
     }
 }
 
-/// Greater than
+/// Greater than: >
 ///
-/// Stack effect: ( a b -- a>b )
+/// Returns 1 if a > b, 0 otherwise (Forth-style boolean)
+/// Stack effect: ( a b -- flag )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -196,8 +201,96 @@ pub unsafe extern "C" fn gt(stack: Stack) -> Stack {
     let (rest, a) = unsafe { pop(rest) };
 
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => unsafe { push(rest, Value::Bool(a_val > b_val)) },
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(if a_val > b_val { 1 } else { 0 }))
+        },
         _ => panic!("gt: expected two integers on stack"),
+    }
+}
+
+/// Less than or equal: <=
+///
+/// Returns 1 if a <= b, 0 otherwise (Forth-style boolean)
+/// Stack effect: ( a b -- flag )
+///
+/// # Safety
+/// Stack must have two Int values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lte(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "lte: stack is empty");
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "lte: stack has only one value");
+    let (rest, a) = unsafe { pop(rest) };
+
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(if a_val <= b_val { 1 } else { 0 }))
+        },
+        _ => panic!("lte: expected two integers on stack"),
+    }
+}
+
+/// Greater than or equal: >=
+///
+/// Returns 1 if a >= b, 0 otherwise (Forth-style boolean)
+/// Stack effect: ( a b -- flag )
+///
+/// # Safety
+/// Stack must have two Int values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gte(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "gte: stack is empty");
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "gte: stack has only one value");
+    let (rest, a) = unsafe { pop(rest) };
+
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(if a_val >= b_val { 1 } else { 0 }))
+        },
+        _ => panic!("gte: expected two integers on stack"),
+    }
+}
+
+/// Not equal: <>
+///
+/// Returns 1 if a != b, 0 otherwise (Forth-style boolean)
+/// Stack effect: ( a b -- flag )
+///
+/// # Safety
+/// Stack must have two Int values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn neq(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "neq: stack is empty");
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "neq: stack has only one value");
+    let (rest, a) = unsafe { pop(rest) };
+
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(if a_val != b_val { 1 } else { 0 }))
+        },
+        _ => panic!("neq: expected two integers on stack"),
+    }
+}
+
+/// Helper for extracting an integer value from the stack (for conditionals)
+///
+/// Pops the top value and returns just the integer (not wrapped in Value).
+/// This is used by LLVM codegen for if statements that need to test the condition.
+///
+/// Stack effect: ( n -- ) returns n
+///
+/// # Safety
+/// Stack must have an Int value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_int_value(stack: Stack) -> i64 {
+    assert!(!stack.is_null(), "pop_int_value: stack is empty");
+    let (_rest, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::Int(n) => n,
+        _ => panic!("pop_int_value: expected Int on stack"),
     }
 }
 
@@ -264,13 +357,13 @@ mod tests {
     #[test]
     fn test_comparisons() {
         unsafe {
-            // Test eq
+            // Test eq (returns 1 for true, 0 for false - Forth style)
             let stack = std::ptr::null_mut();
             let stack = push_int(stack, 5);
             let stack = push_int(stack, 5);
             let stack = eq(stack);
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1)); // 1 = true
             assert!(stack.is_null());
 
             // Test lt
@@ -278,7 +371,7 @@ mod tests {
             let stack = push_int(stack, 5);
             let stack = lt(stack);
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1)); // 1 = true
             assert!(stack.is_null());
 
             // Test gt
@@ -286,7 +379,7 @@ mod tests {
             let stack = push_int(stack, 5);
             let stack = gt(stack);
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1)); // 1 = true
             assert!(stack.is_null());
         }
     }

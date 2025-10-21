@@ -272,8 +272,8 @@ impl CodeGen {
             }
 
             Statement::If {
-                true_branch,
-                false_branch,
+                then_branch,
+                else_branch,
             } => {
                 // Pop the condition from the stack and extract the integer value
                 let cond_temp = self.fresh_temp();
@@ -284,7 +284,7 @@ impl CodeGen {
                 )
                 .unwrap();
 
-                // Compare with 0 (0 = false, non-zero = true)
+                // Compare with 0 (0 = zero, non-zero = non-zero)
                 let cmp_temp = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -294,47 +294,47 @@ impl CodeGen {
                 .unwrap();
 
                 // Generate unique block labels
-                let true_block = self.fresh_block("if_true");
-                let false_block = self.fresh_block("if_false");
+                let then_block = self.fresh_block("if_then");
+                let else_block = self.fresh_block("if_else");
                 let merge_block = self.fresh_block("if_merge");
 
                 // Conditional branch
                 writeln!(
                     &mut self.output,
                     "  br i1 %{}, label %{}, label %{}",
-                    cmp_temp, true_block, false_block
+                    cmp_temp, then_block, else_block
                 )
                 .unwrap();
 
-                // True branch
-                writeln!(&mut self.output, "{}:", true_block).unwrap();
-                let mut true_stack = stack_var.to_string();
-                for stmt in true_branch {
-                    true_stack = self.codegen_statement(&true_stack, stmt)?;
+                // Then branch (executed when condition is non-zero)
+                writeln!(&mut self.output, "{}:", then_block).unwrap();
+                let mut then_stack = stack_var.to_string();
+                for stmt in then_branch {
+                    then_stack = self.codegen_statement(&then_stack, stmt)?;
                 }
                 writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
 
-                // False branch
-                writeln!(&mut self.output, "{}:", false_block).unwrap();
-                let false_stack = if let Some(fb) = false_branch {
-                    let mut fs = stack_var.to_string();
-                    for stmt in fb {
-                        fs = self.codegen_statement(&fs, stmt)?;
+                // Else branch (executed when condition is zero)
+                writeln!(&mut self.output, "{}:", else_block).unwrap();
+                let else_stack = if let Some(eb) = else_branch {
+                    let mut es = stack_var.to_string();
+                    for stmt in eb {
+                        es = self.codegen_statement(&es, stmt)?;
                     }
-                    fs
+                    es
                 } else {
-                    // No else branch - stack unchanged
+                    // No else clause - stack unchanged
                     stack_var.to_string()
                 };
                 writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
 
-                // Merge block - phi node to merge stack pointers
+                // Merge block - phi node to merge stack pointers from both paths
                 writeln!(&mut self.output, "{}:", merge_block).unwrap();
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
-                    result_var, true_stack, true_block, false_stack, false_block
+                    result_var, then_stack, then_block, else_stack, else_block
                 )
                 .unwrap();
 

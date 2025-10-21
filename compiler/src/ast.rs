@@ -30,13 +30,13 @@ pub enum Statement {
 
     /// Conditional: if/else/then
     ///
-    /// Pops an integer from the stack (0 = false, non-zero = true)
+    /// Pops an integer from the stack (0 = zero, non-zero = non-zero)
     /// and executes the appropriate branch
     If {
-        /// Statements to execute if condition is true (non-zero)
-        true_branch: Vec<Statement>,
-        /// Optional statements to execute if condition is false (zero)
-        false_branch: Option<Vec<Statement>>,
+        /// Statements to execute when condition is non-zero (the 'then' clause)
+        then_branch: Vec<Statement>,
+        /// Optional statements to execute when condition is zero (the 'else' clause)
+        else_branch: Option<Vec<Statement>>,
     },
 }
 
@@ -113,13 +113,13 @@ impl Program {
                     ));
                 }
                 Statement::If {
-                    true_branch,
-                    false_branch,
+                    then_branch,
+                    else_branch,
                 } => {
                     // Recursively validate both branches
-                    self.validate_statements(true_branch, word_name, builtins)?;
-                    if let Some(fb) = false_branch {
-                        self.validate_statements(fb, word_name, builtins)?;
+                    self.validate_statements(then_branch, word_name, builtins)?;
+                    if let Some(eb) = else_branch {
+                        self.validate_statements(eb, word_name, builtins)?;
                     }
                 }
                 _ => {} // Literals don't need validation

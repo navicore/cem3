@@ -343,8 +343,9 @@ fn test_cons_with_list_reverse_shuffle() {
 ### Tasks
 - [ ] Quotations with full closure support
 - [ ] Pattern matching with complex patterns
-- [ ] String operations
-- [ ] I/O
+- [ ] String operations and formatting
+- [ ] **String optimization** - Consider interning or static references (see `docs/STRING_INTERNING_DESIGN.md`)
+- [ ] I/O enhancements
 - [ ] Module system
 
 ---

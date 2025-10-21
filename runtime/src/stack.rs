@@ -72,6 +72,10 @@ pub unsafe fn peek<'a>(stack: Stack) -> &'a Value {
 /// Stack must not be null
 pub unsafe fn dup(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "dup: stack is empty");
+    // SAFETY NOTE: In Rust 2024 edition, even within `unsafe fn`, the body is not
+    // automatically an unsafe context. Explicit `unsafe {}` blocks are required for
+    // all unsafe operations (dereferencing raw pointers, calling unsafe functions).
+    // This is intentional and follows best practices for clarity about what's unsafe.
     let value = unsafe { (*stack).value.clone() };
     unsafe { push(stack, value) }
 }
@@ -197,6 +201,43 @@ pub unsafe fn pick(stack: Stack, n: usize) -> Stack {
 mod tests {
     use super::*;
 
+    /// Test helper: Create a stack with integer values
+    fn make_stack(values: &[i64]) -> Stack {
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            for &val in values {
+                stack = push(stack, Value::Int(val));
+            }
+            stack
+        }
+    }
+
+    /// Test helper: Pop all values from stack and return as Vec
+    fn drain_stack(mut stack: Stack) -> Vec<Value> {
+        unsafe {
+            let mut values = Vec::new();
+            while !is_empty(stack) {
+                let (rest, val) = pop(stack);
+                stack = rest;
+                values.push(val);
+            }
+            values
+        }
+    }
+
+    /// Test helper: Assert stack contains expected integer values (top to bottom)
+    fn assert_stack_ints(stack: Stack, expected: &[i64]) {
+        let values = drain_stack(stack);
+        let ints: Vec<i64> = values
+            .into_iter()
+            .map(|v| match v {
+                Value::Int(n) => n,
+                _ => panic!("Expected Int, got {:?}", v),
+            })
+            .collect();
+        assert_eq!(ints, expected);
+    }
+
     #[test]
     fn test_push_pop() {
         unsafe {
@@ -309,36 +350,22 @@ mod tests {
 
     #[test]
     fn test_composition() {
-        // Test: 1 2 3 swap drop dup
-        // Expected: 1 2 swap -> 1 2 (wait, 2 is on top, then 3)
-        // Let me trace this more carefully:
-        // Start: empty
-        // push 1: [1]
+        // Test: compose swap + drop + dup to verify operations work together
+        // Trace:
+        // Start:  [1]
         // push 2: [2, 1]
         // push 3: [3, 2, 1]
-        // swap: [2, 3, 1]
-        // drop: [3, 1]
-        // dup: [3, 3, 1]
+        // swap:   [2, 3, 1]  (swap top two)
+        // drop:   [3, 1]     (remove top)
+        // dup:    [3, 3, 1]  (duplicate top)
         unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
+            let mut stack = make_stack(&[1, 2, 3]);
 
-            stack = swap(stack); // [2, 3, 1]
-            stack = drop(stack); // [3, 1]
-            stack = dup(stack); // [3, 3, 1]
+            stack = swap(stack);
+            stack = drop(stack);
+            stack = dup(stack);
 
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
+            assert_stack_ints(stack, &[3, 3, 1]);
         }
     }
 
@@ -432,41 +459,57 @@ mod tests {
     #[test]
     fn test_critical_shuffle_pattern() {
         // This is THE CRITICAL TEST that failed in cem2!
-        // Pattern: rot swap rot rot swap
-        // Start with: [1, 2, 3, 4, 5]
-        // This pattern should not corrupt the stack structure
+        // In cem2, this shuffle pattern caused variant field corruption because
+        // StackCell.next pointers were used for BOTH stack linking AND variant fields.
+        // When the stack was shuffled, next pointers became stale, corrupting variants.
+        //
+        // In cem3, this CANNOT happen because:
+        // - StackNode.next is ONLY for stack structure
+        // - Variant fields are stored in Box<[Value]> arrays
+        // - Values are independent of stack position
+        //
+        // Shuffle pattern: rot swap rot rot swap
+        // This was extracted from the list-reverse-helper function
+
         unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-            stack = push(stack, Value::Int(4));
-            stack = push(stack, Value::Int(5));
+            let mut stack = make_stack(&[1, 2, 3, 4, 5]);
 
-            // Apply the critical shuffle pattern
-            stack = rot(stack); // [3, 5, 4, 2, 1]
-            stack = swap(stack); // [5, 3, 4, 2, 1]
-            stack = rot(stack); // [4, 5, 3, 2, 1]
-            stack = rot(stack); // [3, 4, 5, 2, 1]
-            stack = swap(stack); // [4, 3, 5, 2, 1]
+            // Initial state: [5, 4, 3, 2, 1] (top to bottom)
+            //
+            // Apply the critical shuffle pattern:
+            stack = rot(stack);
+            // rot: ( a b c -- b c a )
+            // Before: [5, 4, 3, 2, 1]
+            //          ^  ^  ^
+            // After:  [3, 5, 4, 2, 1]
 
-            // Verify all values are intact and in expected order
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(4));
+            stack = swap(stack);
+            // swap: ( a b -- b a )
+            // Before: [3, 5, 4, 2, 1]
+            //          ^  ^
+            // After:  [5, 3, 4, 2, 1]
 
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
+            stack = rot(stack);
+            // rot: ( a b c -- b c a )
+            // Before: [5, 3, 4, 2, 1]
+            //          ^  ^  ^
+            // After:  [4, 5, 3, 2, 1]
 
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(5));
+            stack = rot(stack);
+            // rot: ( a b c -- b c a )
+            // Before: [4, 5, 3, 2, 1]
+            //          ^  ^  ^
+            // After:  [3, 4, 5, 2, 1]
 
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
+            stack = swap(stack);
+            // swap: ( a b -- b a )
+            // Before: [3, 4, 5, 2, 1]
+            //          ^  ^
+            // After:  [4, 3, 5, 2, 1]
 
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
+            // Final state: [4, 3, 5, 2, 1] (top to bottom)
+            // Verify every value is intact - no corruption
+            assert_stack_ints(stack, &[4, 3, 5, 2, 1]);
         }
     }
 

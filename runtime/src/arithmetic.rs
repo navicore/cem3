@@ -274,23 +274,42 @@ pub unsafe extern "C" fn neq(stack: Stack) -> Stack {
     }
 }
 
-/// Helper for extracting an integer value from the stack (for conditionals)
+/// Helper for popping and extracting an integer value (for conditionals)
 ///
-/// Pops the top value and returns just the integer (not wrapped in Value).
-/// This is used by LLVM codegen for if statements that need to test the condition.
+/// Pops the top value and returns the new stack pointer.
+/// The integer value can be extracted separately via peek_int_value.
 ///
-/// Stack effect: ( n -- ) returns n
+/// Stack effect: ( n -- )
 ///
 /// # Safety
 /// Stack must have an Int value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_int_value(stack: Stack) -> i64 {
-    assert!(!stack.is_null(), "pop_int_value: stack is empty");
-    let (_rest, value) = unsafe { pop(stack) };
+pub unsafe extern "C" fn pop_stack(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "pop_stack: stack is empty");
+    let (rest, _value) = unsafe { pop(stack) };
+    rest
+}
 
-    match value {
-        Value::Int(n) => n,
-        _ => panic!("pop_int_value: expected Int on stack"),
+/// Helper for peeking at the top integer value without popping
+///
+/// Returns the integer value on top of the stack without modifying the stack.
+/// This is used with pop_stack to extract condition values for if statements.
+///
+/// Stack effect: ( n -- n ) returns n
+///
+/// # Safety
+/// Stack must have an Int value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn peek_int_value(stack: Stack) -> i64 {
+    assert!(!stack.is_null(), "peek_int_value: stack is empty");
+
+    let node = unsafe { &*stack };
+    match &node.value {
+        Value::Int(n) => *n,
+        _ => panic!(
+            "peek_int_value: expected Int on stack, got {:?}",
+            node.value
+        ),
     }
 }
 

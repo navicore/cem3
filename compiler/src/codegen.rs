@@ -154,8 +154,9 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
-        writeln!(&mut ir, "; Helper for extracting Int value").unwrap();
-        writeln!(&mut ir, "declare i64 @pop_int_value(ptr)").unwrap();
+        writeln!(&mut ir, "; Helpers for conditionals").unwrap();
+        writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
 
         // User-defined words and main
@@ -275,12 +276,21 @@ impl CodeGen {
                 then_branch,
                 else_branch,
             } => {
-                // Pop the condition from the stack and extract the integer value
+                // Peek the condition value (doesn't pop yet)
                 let cond_temp = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call i64 @pop_int_value(ptr %{})",
+                    "  %{} = call i64 @peek_int_value(ptr %{})",
                     cond_temp, stack_var
+                )
+                .unwrap();
+
+                // Pop the condition from the stack (frees the node)
+                let popped_stack = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @pop_stack(ptr %{})",
+                    popped_stack, stack_var
                 )
                 .unwrap();
 
@@ -308,7 +318,7 @@ impl CodeGen {
 
                 // Then branch (executed when condition is non-zero)
                 writeln!(&mut self.output, "{}:", then_block).unwrap();
-                let mut then_stack = stack_var.to_string();
+                let mut then_stack = popped_stack.clone();
                 for stmt in then_branch {
                     then_stack = self.codegen_statement(&then_stack, stmt)?;
                 }
@@ -321,14 +331,14 @@ impl CodeGen {
                 // Else branch (executed when condition is zero)
                 writeln!(&mut self.output, "{}:", else_block).unwrap();
                 let else_stack = if let Some(eb) = else_branch {
-                    let mut es = stack_var.to_string();
+                    let mut es = popped_stack.clone();
                     for stmt in eb {
                         es = self.codegen_statement(&es, stmt)?;
                     }
                     es
                 } else {
                     // No else clause - stack unchanged
-                    stack_var.to_string()
+                    popped_stack.clone()
                 };
                 // Capture the actual predecessor block
                 let else_predecessor = self.fresh_block("if_else_end");

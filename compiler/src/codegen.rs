@@ -26,6 +26,7 @@ pub struct CodeGen {
     string_globals: String,
     temp_counter: usize,
     string_counter: usize,
+    block_counter: usize, // For generating unique block labels
     string_constants: HashMap<String, String>, // string content -> global name
 }
 
@@ -36,6 +37,7 @@ impl CodeGen {
             string_globals: String::new(),
             temp_counter: 0,
             string_counter: 0,
+            block_counter: 0,
             string_constants: HashMap::new(),
         }
     }
@@ -44,6 +46,13 @@ impl CodeGen {
     fn fresh_temp(&mut self) -> String {
         let name = format!("{}", self.temp_counter);
         self.temp_counter += 1;
+        name
+    }
+
+    /// Generate a fresh block label
+    fn fresh_block(&mut self, prefix: &str) -> String {
+        let name = format!("{}{}", prefix, self.block_counter);
+        self.block_counter += 1;
         name
     }
 
@@ -132,6 +141,12 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @subtract(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @multiply(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @divide(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @eq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @lt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @gt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @lte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @gte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @neq(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @dup(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @drop_op(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @swap(ptr)").unwrap();
@@ -139,6 +154,8 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
+        writeln!(&mut ir, "; Helper for extracting Int value").unwrap();
+        writeln!(&mut ir, "declare i64 @pop_int_value(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
 
         // User-defined words and main
@@ -232,6 +249,13 @@ impl CodeGen {
                     "write_line" | "read_line" => name.to_string(),
                     // Arithmetic operations
                     "add" | "subtract" | "multiply" | "divide" => name.to_string(),
+                    // Comparison operations (return 0 or 1)
+                    "=" => "eq".to_string(),
+                    "<" => "lt".to_string(),
+                    ">" => "gt".to_string(),
+                    "<=" => "lte".to_string(),
+                    ">=" => "gte".to_string(),
+                    "<>" => "neq".to_string(),
                     // Stack operations (simple - no parameters)
                     "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
                     "drop" => "drop_op".to_string(), // drop is reserved in LLVM
@@ -244,6 +268,76 @@ impl CodeGen {
                     result_var, function_name, stack_var
                 )
                 .unwrap();
+                Ok(result_var)
+            }
+
+            Statement::If {
+                true_branch,
+                false_branch,
+            } => {
+                // Pop the condition from the stack and extract the integer value
+                let cond_temp = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call i64 @pop_int_value(ptr %{})",
+                    cond_temp, stack_var
+                )
+                .unwrap();
+
+                // Compare with 0 (0 = false, non-zero = true)
+                let cmp_temp = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp ne i64 %{}, 0",
+                    cmp_temp, cond_temp
+                )
+                .unwrap();
+
+                // Generate unique block labels
+                let true_block = self.fresh_block("if_true");
+                let false_block = self.fresh_block("if_false");
+                let merge_block = self.fresh_block("if_merge");
+
+                // Conditional branch
+                writeln!(
+                    &mut self.output,
+                    "  br i1 %{}, label %{}, label %{}",
+                    cmp_temp, true_block, false_block
+                )
+                .unwrap();
+
+                // True branch
+                writeln!(&mut self.output, "{}:", true_block).unwrap();
+                let mut true_stack = stack_var.to_string();
+                for stmt in true_branch {
+                    true_stack = self.codegen_statement(&true_stack, stmt)?;
+                }
+                writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+
+                // False branch
+                writeln!(&mut self.output, "{}:", false_block).unwrap();
+                let false_stack = if let Some(fb) = false_branch {
+                    let mut fs = stack_var.to_string();
+                    for stmt in fb {
+                        fs = self.codegen_statement(&fs, stmt)?;
+                    }
+                    fs
+                } else {
+                    // No else branch - stack unchanged
+                    stack_var.to_string()
+                };
+                writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+
+                // Merge block - phi node to merge stack pointers
+                writeln!(&mut self.output, "{}:", merge_block).unwrap();
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
+                    result_var, true_stack, true_block, false_stack, false_block
+                )
+                .unwrap();
+
                 Ok(result_var)
             }
         }

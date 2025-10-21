@@ -37,10 +37,134 @@ impl Program {
     pub fn find_word(&self, name: &str) -> Option<&WordDef> {
         self.words.iter().find(|w| w.name == name)
     }
+
+    /// Validate that all word calls reference either a defined word or a built-in
+    pub fn validate_word_calls(&self) -> Result<(), String> {
+        // List of known runtime built-ins
+        // IMPORTANT: Keep this in sync with codegen.rs WordCall matching
+        let builtins = [
+            // I/O operations
+            "write_line",
+            "read_line",
+            // Arithmetic operations
+            "add",
+            "subtract",
+            "multiply",
+            "divide",
+            // Stack operations (simple - no parameters)
+            "dup",
+            "drop",
+            "swap",
+            "over",
+            "rot",
+            "nip",
+            "tuck",
+            // Note: pick is omitted - requires parameter support in AST
+        ];
+
+        for word in &self.words {
+            for statement in &word.body {
+                if let Statement::WordCall(name) = statement {
+                    // Check if it's a built-in
+                    if builtins.contains(&name.as_str()) {
+                        continue;
+                    }
+                    // Check if it's a user-defined word
+                    if self.find_word(name).is_some() {
+                        continue;
+                    }
+                    // Undefined word!
+                    return Err(format!(
+                        "Undefined word '{}' called in word '{}'. \
+                         Did you forget to define it or misspell a built-in?",
+                        name, word.name
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for Program {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_builtin_words() {
+        let program = Program {
+            words: vec![WordDef {
+                name: "main".to_string(),
+                body: vec![
+                    Statement::IntLiteral(2),
+                    Statement::IntLiteral(3),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("write_line".to_string()),
+                ],
+            }],
+        };
+
+        // Should succeed - add and write_line are built-ins
+        assert!(program.validate_word_calls().is_ok());
+    }
+
+    #[test]
+    fn test_validate_user_defined_words() {
+        let program = Program {
+            words: vec![
+                WordDef {
+                    name: "helper".to_string(),
+                    body: vec![Statement::IntLiteral(42)],
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    body: vec![Statement::WordCall("helper".to_string())],
+                },
+            ],
+        };
+
+        // Should succeed - helper is defined
+        assert!(program.validate_word_calls().is_ok());
+    }
+
+    #[test]
+    fn test_validate_undefined_word() {
+        let program = Program {
+            words: vec![WordDef {
+                name: "main".to_string(),
+                body: vec![Statement::WordCall("undefined_word".to_string())],
+            }],
+        };
+
+        // Should fail - undefined_word is not a built-in or user-defined word
+        let result = program.validate_word_calls();
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.contains("undefined_word"));
+        assert!(error.contains("main"));
+    }
+
+    #[test]
+    fn test_validate_misspelled_builtin() {
+        let program = Program {
+            words: vec![WordDef {
+                name: "main".to_string(),
+                body: vec![Statement::WordCall("wrte_line".to_string())], // typo
+            }],
+        };
+
+        // Should fail with helpful message
+        let result = program.validate_word_calls();
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.contains("wrte_line"));
+        assert!(error.contains("misspell"));
     }
 }

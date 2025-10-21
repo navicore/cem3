@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testing
+
 [dependencies]
 
 [dev-dependencies]

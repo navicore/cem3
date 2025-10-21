@@ -766,7 +766,10 @@ mod tests {
                 current = (*current).next;
 
                 // Safety: prevent infinite loop in case of corruption
-                assert!(count < 1000, "Stack walk exceeded reasonable depth - likely corrupted");
+                assert!(
+                    count < 1000,
+                    "Stack walk exceeded reasonable depth - likely corrupted"
+                );
             }
 
             assert!(count > 0, "Stack should have elements");
@@ -783,10 +786,8 @@ mod tests {
             // Build deeply nested variant: Cons(1, Cons(2, Cons(3, Nil)))
             let nil = Value::Variant(Box::new(VariantData::new(0, vec![])));
             let cons3 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(3), nil])));
-            let cons2 =
-                Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(2), cons3])));
-            let cons1 =
-                Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(1), cons2])));
+            let cons2 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(2), cons3])));
+            let cons1 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(1), cons2])));
 
             // Put on deep stack
             let mut stack = std::ptr::null_mut();
@@ -811,13 +812,13 @@ mod tests {
             while !is_empty(stack) {
                 let (rest, val) = pop(stack);
                 stack = rest;
-                if let Value::Variant(ref vdata) = val {
-                    if vdata.tag == 1 && vdata.fields.len() == 2 {
-                        if let Value::Int(1) = vdata.fields[0] {
-                            found_variant = Some(val);
-                            break;
-                        }
-                    }
+                if let Value::Variant(ref vdata) = val
+                    && vdata.tag == 1
+                    && vdata.fields.len() == 2
+                    && let Value::Int(1) = vdata.fields[0]
+                {
+                    found_variant = Some(val);
+                    break;
                 }
             }
 

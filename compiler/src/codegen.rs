@@ -88,7 +88,8 @@ impl CodeGen {
         )
         .unwrap();
 
-        self.string_constants.insert(s.to_string(), global_name.clone());
+        self.string_constants
+            .insert(s.to_string(), global_name.clone());
         global_name
     }
 
@@ -148,7 +149,12 @@ impl CodeGen {
     fn codegen_word(&mut self, word: &WordDef) -> Result<(), String> {
         // Prefix word names with "cem_" to avoid conflicts with C symbols
         let function_name = format!("cem_{}", word.name);
-        writeln!(&mut self.output, "define ptr @{}(ptr %stack) {{", function_name).unwrap();
+        writeln!(
+            &mut self.output,
+            "define ptr @{}(ptr %stack) {{",
+            function_name
+        )
+        .unwrap();
         writeln!(&mut self.output, "entry:").unwrap();
 
         let mut stack_var = "stack".to_string();
@@ -166,7 +172,11 @@ impl CodeGen {
     }
 
     /// Generate code for a single statement
-    fn codegen_statement(&mut self, stack_var: &str, statement: &Statement) -> Result<String, String> {
+    fn codegen_statement(
+        &mut self,
+        stack_var: &str,
+        statement: &Statement,
+    ) -> Result<String, String> {
         match statement {
             Statement::IntLiteral(n) => {
                 let result_var = self.fresh_temp();
@@ -216,10 +226,10 @@ impl CodeGen {
                 let result_var = self.fresh_temp();
                 // Check if it's a runtime built-in, otherwise it's a user word
                 let function_name = match name.as_str() {
-                    "write_line" | "read_line" | "add" | "subtract" | "multiply" | "divide" |
-                    "dup" | "swap" | "over" | "rot" => name.to_string(),
+                    "write_line" | "read_line" | "add" | "subtract" | "multiply" | "divide"
+                    | "dup" | "swap" | "over" | "rot" => name.to_string(),
                     "drop" => "drop_op".to_string(), // drop is reserved in LLVM
-                    _ => format!("cem_{}", name), // User-defined word
+                    _ => format!("cem_{}", name),    // User-defined word
                 };
                 writeln!(
                     &mut self.output,
@@ -305,7 +315,7 @@ mod tests {
         let ir = codegen.codegen_program(&program).unwrap();
 
         assert!(ir.contains("define i32 @main()"));
-        assert!(ir.contains("define ptr @main(ptr %stack)"));
+        assert!(ir.contains("define ptr @cem_main(ptr %stack)"));
         assert!(ir.contains("call ptr @push_string"));
         assert!(ir.contains("call ptr @write_line"));
         assert!(ir.contains("\"Hello, World!\\00\""));

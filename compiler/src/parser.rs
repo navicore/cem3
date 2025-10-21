@@ -1,7 +1,7 @@
 //! Simple parser for cem3 syntax
 //!
 //! Syntax:
-//! ```
+//! ```text
 //! : word-name ( stack-effect )
 //!   statement1
 //!   statement2
@@ -47,7 +47,10 @@ impl Parser {
         }
 
         // Get word name
-        let name = self.advance().ok_or("Expected word name after ':'")?.clone();
+        let name = self
+            .advance()
+            .ok_or("Expected word name after ':'")?
+            .clone();
 
         // Skip stack effect comment if present: ( -- )
         if self.check("(") {
@@ -179,9 +182,9 @@ fn tokenize(source: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
-    let mut chars = source.chars().peekable();
+    let chars = source.chars().peekable();
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         if in_string {
             current.push(ch);
             if ch == '"' {

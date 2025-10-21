@@ -3,7 +3,6 @@
 //! Command-line interface for compiling .cem programs to executables.
 
 use clap::Parser as ClapParser;
-use cem3c;
 use std::path::PathBuf;
 use std::process;
 
@@ -28,7 +27,11 @@ fn main() {
 
     match cem3c::compile_file(&cli.input, &cli.output, cli.keep_ir) {
         Ok(_) => {
-            println!("Compiled {} -> {}", cli.input.display(), cli.output.display());
+            println!(
+                "Compiled {} -> {}",
+                cli.input.display(),
+                cli.output.display()
+            );
 
             if cli.keep_ir {
                 let ir_path = cli.output.with_extension("ll");

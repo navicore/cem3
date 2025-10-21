@@ -3,12 +3,12 @@
 //! Provides compilation from .cem source to LLVM IR and executable binaries.
 
 pub mod ast;
-pub mod parser;
 pub mod codegen;
+pub mod parser;
 
 pub use ast::Program;
-pub use parser::Parser;
 pub use codegen::CodeGen;
+pub use parser::Parser;
 
 use std::fs;
 use std::path::Path;
@@ -35,8 +35,7 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
 
     // Write IR to file
     let ir_path = output_path.with_extension("ll");
-    fs::write(&ir_path, ir)
-        .map_err(|e| format!("Failed to write IR file: {}", e))?;
+    fs::write(&ir_path, ir).map_err(|e| format!("Failed to write IR file: {}", e))?;
 
     // Compile IR to executable using clang
     let output = Command::new("clang")

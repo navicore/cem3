@@ -2,9 +2,21 @@
 //!
 //! These functions are exported with C ABI for LLVM codegen to call.
 //!
+//! # Safety Contract
+//!
+//! **IMPORTANT:** These functions are designed to be called ONLY by compiler-generated code,
+//! not by end users or arbitrary C code. The compiler is responsible for:
+//!
+//! - Ensuring stack has correct types (verified by type checker)
+//! - Passing valid, null-terminated C strings to `push_string`
+//! - Never calling these functions directly from user code
+//!
 //! # String Handling
+//!
 //! String literals from the compiler must be valid UTF-8 C strings (null-terminated).
-//! The compiler is responsible for ensuring string literal validity.
+//! Currently, each string literal is allocated as an owned `String`. See
+//! `docs/STRING_INTERNING_DESIGN.md` for discussion of future optimizations
+//! (interning, static references, etc.).
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;

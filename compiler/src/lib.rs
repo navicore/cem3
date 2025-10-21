@@ -29,6 +29,9 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
         return Err("No main word defined".to_string());
     }
 
+    // Validate all word calls reference defined words or built-ins
+    program.validate_word_calls()?;
+
     // Generate LLVM IR
     let mut codegen = CodeGen::new();
     let ir = codegen.codegen_program(&program)?;
@@ -36,6 +39,16 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
     // Write IR to file
     let ir_path = output_path.with_extension("ll");
     fs::write(&ir_path, ir).map_err(|e| format!("Failed to write IR file: {}", e))?;
+
+    // Validate runtime library exists
+    let runtime_lib = Path::new("target/release/libcem3_runtime.a");
+    if !runtime_lib.exists() {
+        return Err(format!(
+            "Runtime library not found at {}. \
+             Please run 'cargo build --release -p cem3-runtime' first.",
+            runtime_lib.display()
+        ));
+    }
 
     // Compile IR to executable using clang
     let output = Command::new("clang")

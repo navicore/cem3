@@ -129,7 +129,7 @@ impl TypeChecker {
     fn apply_builtin_effect(&self, name: &str, depth: StackDepth) -> Result<StackDepth, String> {
         match name {
             // I/O operations
-            "write_line" => depth.pop(), // ( str -- )
+            "write_line" => depth.pop(),     // ( str -- )
             "read_line" => Ok(depth.push()), // ( -- str )
 
             // Arithmetic operations ( a b -- result )
@@ -139,13 +139,13 @@ impl TypeChecker {
             "=" | "<" | ">" | "<=" | ">=" | "<>" => depth.pop()?.pop().map(|d| d.push()),
 
             // Stack operations
-            "dup" => Ok(depth.push()),              // ( a -- a a )
-            "drop" => depth.pop(),                  // ( a -- )
-            "swap" => Ok(depth),                    // ( a b -- b a )
-            "over" => Ok(depth.push()),             // ( a b -- a b a )
-            "rot" => Ok(depth),                     // ( a b c -- b c a )
-            "nip" => depth.pop(),                   // ( a b -- b )
-            "tuck" => Ok(depth.push()),             // ( a b -- b a b )
+            "dup" => Ok(depth.push()),  // ( a -- a a )
+            "drop" => depth.pop(),      // ( a -- )
+            "swap" => Ok(depth),        // ( a b -- b a )
+            "over" => Ok(depth.push()), // ( a b -- a b a )
+            "rot" => Ok(depth),         // ( a b c -- b c a )
+            "nip" => depth.pop(),       // ( a b -- b )
+            "tuck" => Ok(depth.push()), // ( a b -- b a b )
 
             // User-defined word - we don't know its effect yet
             // In a full type system, we'd look this up
@@ -194,10 +194,7 @@ mod tests {
                 body: vec![
                     Statement::IntLiteral(1),
                     Statement::If {
-                        then_branch: vec![
-                            Statement::IntLiteral(1),
-                            Statement::IntLiteral(2),
-                        ], // Pushes 2
+                        then_branch: vec![Statement::IntLiteral(1), Statement::IntLiteral(2)], // Pushes 2
                         else_branch: Some(vec![Statement::IntLiteral(1)]), // Pushes 1
                     },
                 ],
@@ -207,9 +204,7 @@ mod tests {
         let mut checker = TypeChecker::new();
         let result = checker.check_program(&program);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("incompatible stack effects"));
+        assert!(result.unwrap_err().contains("incompatible stack effects"));
     }
 
     #[test]

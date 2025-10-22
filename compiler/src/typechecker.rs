@@ -10,7 +10,7 @@ use crate::ast::{Program, Statement, WordDef};
 /// Simple stack depth tracker for validation
 #[derive(Debug, Clone, PartialEq)]
 struct StackDepth {
-    depth: i32, // Can be negative to represent "unknown + N"
+    depth: i32,
 }
 
 impl StackDepth {
@@ -26,7 +26,15 @@ impl StackDepth {
     }
 
     /// Pop a value from the stack
-    fn pop(&self) -> Result<Self, String> {
+    /// Returns an error if the stack is empty (depth <= 0)
+    fn pop(&self, operation: &str) -> Result<Self, String> {
+        if self.depth <= 0 {
+            return Err(format!(
+                "{}: stack underflow - requires {} value(s) on stack but stack is empty",
+                operation,
+                1
+            ));
+        }
         Ok(StackDepth {
             depth: self.depth - 1,
         })
@@ -96,9 +104,7 @@ impl TypeChecker {
                 else_branch,
             } => {
                 // Pop the condition
-                let depth_after_cond = depth.pop().map_err(|_| {
-                    "if: stack underflow - condition requires 1 value on stack".to_string()
-                })?;
+                let depth_after_cond = depth.pop("if")?;
 
                 // Check then branch
                 let then_depth = self.check_statements(then_branch, depth_after_cond.clone())?;
@@ -129,23 +135,27 @@ impl TypeChecker {
     fn apply_builtin_effect(&self, name: &str, depth: StackDepth) -> Result<StackDepth, String> {
         match name {
             // I/O operations
-            "write_line" => depth.pop(),     // ( str -- )
+            "write_line" => depth.pop(name),     // ( str -- )
             "read_line" => Ok(depth.push()), // ( -- str )
 
             // Arithmetic operations ( a b -- result )
-            "add" | "subtract" | "multiply" | "divide" => depth.pop()?.pop().map(|d| d.push()),
+            "add" | "subtract" | "multiply" | "divide" => {
+                depth.pop(name)?.pop(name).map(|d| d.push())
+            }
 
             // Comparison operations ( a b -- flag )
-            "=" | "<" | ">" | "<=" | ">=" | "<>" => depth.pop()?.pop().map(|d| d.push()),
+            "=" | "<" | ">" | "<=" | ">=" | "<>" => {
+                depth.pop(name)?.pop(name).map(|d| d.push())
+            }
 
             // Stack operations
-            "dup" => Ok(depth.push()),  // ( a -- a a )
-            "drop" => depth.pop(),      // ( a -- )
-            "swap" => Ok(depth),        // ( a b -- b a )
-            "over" => Ok(depth.push()), // ( a b -- a b a )
-            "rot" => Ok(depth),         // ( a b c -- b c a )
-            "nip" => depth.pop(),       // ( a b -- b )
-            "tuck" => Ok(depth.push()), // ( a b -- b a b )
+            "dup" => Ok(depth.push()),      // ( a -- a a )
+            "drop" => depth.pop(name),      // ( a -- )
+            "swap" => Ok(depth),            // ( a b -- b a )
+            "over" => Ok(depth.push()),     // ( a b -- a b a )
+            "rot" => Ok(depth),             // ( a b c -- b c a )
+            "nip" => depth.pop(name),       // ( a b -- b )
+            "tuck" => Ok(depth.push()),     // ( a b -- b a b )
 
             // User-defined word - we don't know its effect yet
             // In a full type system, we'd look this up
@@ -230,5 +240,119 @@ mod tests {
 
         let mut checker = TypeChecker::new();
         assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_underflow_empty_if() {
+        // if requires a condition value on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![Statement::If {
+                    then_branch: vec![Statement::IntLiteral(1)],
+                    else_branch: None,
+                }],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("if: stack underflow"));
+    }
+
+    #[test]
+    fn test_underflow_drop() {
+        // drop requires a value on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![Statement::WordCall("drop".to_string())],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("drop: stack underflow"));
+    }
+
+    #[test]
+    fn test_underflow_arithmetic() {
+        // add requires two values on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![
+                    Statement::IntLiteral(1),
+                    Statement::WordCall("add".to_string()),
+                ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("add: stack underflow"));
+    }
+
+    #[test]
+    fn test_underflow_write_line() {
+        // write_line requires a value on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![Statement::WordCall("write_line".to_string())],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("write_line: stack underflow"));
+    }
+
+    #[test]
+    fn test_underflow_in_then_branch() {
+        // Underflow can occur inside conditional branches
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![
+                    Statement::IntLiteral(1),
+                    Statement::If {
+                        then_branch: vec![
+                            Statement::WordCall("drop".to_string()),
+                            Statement::WordCall("drop".to_string()), // Underflow!
+                        ],
+                        else_branch: Some(vec![Statement::IntLiteral(1)]),
+                    },
+                ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("drop: stack underflow"));
+    }
+
+    #[test]
+    fn test_underflow_comparison() {
+        // Comparison operators require two values on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![
+                    Statement::IntLiteral(5),
+                    Statement::WordCall("=".to_string()),
+                ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("=: stack underflow"));
     }
 }

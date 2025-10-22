@@ -244,13 +244,18 @@ impl CodeGen {
 
             Statement::WordCall(name) => {
                 let result_var = self.fresh_temp();
-                // Check if it's a runtime built-in, otherwise it's a user word
+                // Map source-level word names to runtime function names
+                // Most built-ins use their source name directly, but some need mapping:
+                // - Symbolic operators (=, <, >) map to names (eq, lt, gt)
+                // - 'drop' maps to 'drop_op' (drop is LLVM reserved)
+                // - User words get 'cem_' prefix to avoid C symbol conflicts
                 let function_name = match name.as_str() {
                     // I/O operations
                     "write_line" | "read_line" => name.to_string(),
                     // Arithmetic operations
                     "add" | "subtract" | "multiply" | "divide" => name.to_string(),
-                    // Comparison operations (return 0 or 1)
+                    // Comparison operations (symbolic → named)
+                    // These return Int (0 or 1) for Forth-style boolean semantics
                     "=" => "eq".to_string(),
                     "<" => "lt".to_string(),
                     ">" => "gt".to_string(),
@@ -259,8 +264,8 @@ impl CodeGen {
                     "<>" => "neq".to_string(),
                     // Stack operations (simple - no parameters)
                     "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
-                    "drop" => "drop_op".to_string(), // drop is reserved in LLVM
-                    // User-defined word
+                    "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR
+                    // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };
                 writeln!(
@@ -276,7 +281,13 @@ impl CodeGen {
                 then_branch,
                 else_branch,
             } => {
-                // Peek the condition value (doesn't pop yet)
+                // NOTE: Stack effect validation is intentionally deferred to Phase 8 (type checker).
+                // Currently, branches may have different stack effects, which will be caught
+                // at runtime or by future static analysis. This matches Forth's dynamic nature.
+
+                // Peek the condition value first (doesn't modify stack)
+                // Then pop separately to properly free the stack node
+                // (prevents memory leak while allowing us to use the value for branching)
                 let cond_temp = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -322,7 +333,11 @@ impl CodeGen {
                 for stmt in then_branch {
                     then_stack = self.codegen_statement(&then_stack, stmt)?;
                 }
-                // Capture the actual predecessor block (might have changed due to nested ifs)
+                // Create landing block for phi node predecessor tracking.
+                // This is CRITICAL for nested conditionals: if then_branch contains
+                // another if statement, the actual control flow predecessor is the
+                // inner if's merge block, not then_block. The landing block ensures
+                // the phi node always references the correct immediate predecessor.
                 let then_predecessor = self.fresh_block("if_then_end");
                 writeln!(&mut self.output, "  br label %{}", then_predecessor).unwrap();
                 writeln!(&mut self.output, "{}:", then_predecessor).unwrap();
@@ -340,7 +355,7 @@ impl CodeGen {
                     // No else clause - stack unchanged
                     popped_stack.clone()
                 };
-                // Capture the actual predecessor block
+                // Landing block for else branch (same reasoning as then_branch)
                 let else_predecessor = self.fresh_block("if_else_end");
                 writeln!(&mut self.output, "  br label %{}", else_predecessor).unwrap();
                 writeln!(&mut self.output, "{}:", else_predecessor).unwrap();

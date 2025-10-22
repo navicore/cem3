@@ -274,26 +274,20 @@ pub unsafe extern "C" fn neq(stack: Stack) -> Stack {
     }
 }
 
-/// Helper for popping and extracting an integer value (for conditionals)
-///
-/// Pops the top value and returns the new stack pointer.
-/// The integer value can be extracted separately via peek_int_value.
-///
-/// Stack effect: ( n -- )
-///
-/// # Safety
-/// Stack must have an Int value on top
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_stack(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "pop_stack: stack is empty");
-    let (rest, _value) = unsafe { pop(stack) };
-    rest
-}
-
 /// Helper for peeking at the top integer value without popping
 ///
 /// Returns the integer value on top of the stack without modifying the stack.
-/// This is used with pop_stack to extract condition values for if statements.
+/// Used in conjunction with pop_stack for conditional branching.
+///
+/// **Why separate peek and pop?**
+/// In LLVM IR for conditionals, we need to:
+/// 1. Extract the integer value to test it (peek_int_value)
+/// 2. Branch based on that value (icmp + br)
+/// 3. Free the stack node in both branches (pop_stack)
+///
+/// A combined pop_int_value would leak memory since we'd need the value
+/// before branching but couldn't return the updated stack pointer through
+/// both branches. Separating these operations prevents memory leaks.
 ///
 /// Stack effect: ( n -- n ) returns n
 ///
@@ -311,6 +305,22 @@ pub unsafe extern "C" fn peek_int_value(stack: Stack) -> i64 {
             node.value
         ),
     }
+}
+
+/// Helper for popping without extracting the value (for conditionals)
+///
+/// Pops the top stack node and returns the updated stack pointer.
+/// Used after peek_int_value to free the condition value's stack node.
+///
+/// Stack effect: ( n -- )
+///
+/// # Safety
+/// Stack must not be empty
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pop_stack(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "pop_stack: stack is empty");
+    let (rest, _value) = unsafe { pop(stack) };
+    rest
 }
 
 #[cfg(test)]

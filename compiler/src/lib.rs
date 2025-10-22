@@ -5,10 +5,12 @@
 pub mod ast;
 pub mod codegen;
 pub mod parser;
+pub mod typechecker;
 
 pub use ast::Program;
 pub use codegen::CodeGen;
 pub use parser::Parser;
+pub use typechecker::TypeChecker;
 
 use std::fs;
 use std::path::Path;
@@ -31,6 +33,10 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
 
     // Validate all word calls reference defined words or built-ins
     program.validate_word_calls()?;
+
+    // Type check (validates stack effects, especially for conditionals)
+    let mut type_checker = TypeChecker::new();
+    type_checker.check_program(&program)?;
 
     // Generate LLVM IR
     let mut codegen = CodeGen::new();
@@ -78,6 +84,11 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
 pub fn compile_to_ir(source: &str) -> Result<String, String> {
     let mut parser = Parser::new(source);
     let program = parser.parse()?;
+
+    program.validate_word_calls()?;
+
+    let mut type_checker = TypeChecker::new();
+    type_checker.check_program(&program)?;
 
     let mut codegen = CodeGen::new();
     codegen.codegen_program(&program)

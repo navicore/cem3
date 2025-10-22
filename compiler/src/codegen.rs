@@ -281,9 +281,9 @@ impl CodeGen {
                 then_branch,
                 else_branch,
             } => {
-                // NOTE: Stack effect validation is intentionally deferred to Phase 8 (type checker).
-                // Currently, branches may have different stack effects, which will be caught
-                // at runtime or by future static analysis. This matches Forth's dynamic nature.
+                // NOTE: Stack effect validation is performed by the type checker (see typechecker.rs).
+                // Both branches must produce the same stack depth, which is validated before
+                // we reach codegen. This ensures the phi node merges compatible stack pointers.
 
                 // Peek the condition value first (doesn't modify stack)
                 // Then pop separately to properly free the stack node

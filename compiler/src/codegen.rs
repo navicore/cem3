@@ -26,6 +26,7 @@ pub struct CodeGen {
     string_globals: String,
     temp_counter: usize,
     string_counter: usize,
+    block_counter: usize, // For generating unique block labels
     string_constants: HashMap<String, String>, // string content -> global name
 }
 
@@ -36,6 +37,7 @@ impl CodeGen {
             string_globals: String::new(),
             temp_counter: 0,
             string_counter: 0,
+            block_counter: 0,
             string_constants: HashMap::new(),
         }
     }
@@ -44,6 +46,13 @@ impl CodeGen {
     fn fresh_temp(&mut self) -> String {
         let name = format!("{}", self.temp_counter);
         self.temp_counter += 1;
+        name
+    }
+
+    /// Generate a fresh block label
+    fn fresh_block(&mut self, prefix: &str) -> String {
+        let name = format!("{}{}", prefix, self.block_counter);
+        self.block_counter += 1;
         name
     }
 
@@ -132,6 +141,12 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @subtract(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @multiply(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @divide(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @eq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @lt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @gt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @lte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @gte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @neq(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @dup(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @drop_op(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @swap(ptr)").unwrap();
@@ -139,6 +154,9 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
+        writeln!(&mut ir, "; Helpers for conditionals").unwrap();
+        writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
 
         // User-defined words and main
@@ -226,16 +244,28 @@ impl CodeGen {
 
             Statement::WordCall(name) => {
                 let result_var = self.fresh_temp();
-                // Check if it's a runtime built-in, otherwise it's a user word
+                // Map source-level word names to runtime function names
+                // Most built-ins use their source name directly, but some need mapping:
+                // - Symbolic operators (=, <, >) map to names (eq, lt, gt)
+                // - 'drop' maps to 'drop_op' (drop is LLVM reserved)
+                // - User words get 'cem_' prefix to avoid C symbol conflicts
                 let function_name = match name.as_str() {
                     // I/O operations
                     "write_line" | "read_line" => name.to_string(),
                     // Arithmetic operations
                     "add" | "subtract" | "multiply" | "divide" => name.to_string(),
+                    // Comparison operations (symbolic → named)
+                    // These return Int (0 or 1) for Forth-style boolean semantics
+                    "=" => "eq".to_string(),
+                    "<" => "lt".to_string(),
+                    ">" => "gt".to_string(),
+                    "<=" => "lte".to_string(),
+                    ">=" => "gte".to_string(),
+                    "<>" => "neq".to_string(),
                     // Stack operations (simple - no parameters)
                     "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
-                    "drop" => "drop_op".to_string(), // drop is reserved in LLVM
-                    // User-defined word
+                    "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR
+                    // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };
                 writeln!(
@@ -244,6 +274,103 @@ impl CodeGen {
                     result_var, function_name, stack_var
                 )
                 .unwrap();
+                Ok(result_var)
+            }
+
+            Statement::If {
+                then_branch,
+                else_branch,
+            } => {
+                // NOTE: Stack effect validation is performed by the type checker (see typechecker.rs).
+                // Both branches must produce the same stack depth, which is validated before
+                // we reach codegen. This ensures the phi node merges compatible stack pointers.
+
+                // Peek the condition value first (doesn't modify stack)
+                // Then pop separately to properly free the stack node
+                // (prevents memory leak while allowing us to use the value for branching)
+                let cond_temp = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call i64 @peek_int_value(ptr %{})",
+                    cond_temp, stack_var
+                )
+                .unwrap();
+
+                // Pop the condition from the stack (frees the node)
+                let popped_stack = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @pop_stack(ptr %{})",
+                    popped_stack, stack_var
+                )
+                .unwrap();
+
+                // Compare with 0 (0 = zero, non-zero = non-zero)
+                let cmp_temp = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp ne i64 %{}, 0",
+                    cmp_temp, cond_temp
+                )
+                .unwrap();
+
+                // Generate unique block labels
+                let then_block = self.fresh_block("if_then");
+                let else_block = self.fresh_block("if_else");
+                let merge_block = self.fresh_block("if_merge");
+
+                // Conditional branch
+                writeln!(
+                    &mut self.output,
+                    "  br i1 %{}, label %{}, label %{}",
+                    cmp_temp, then_block, else_block
+                )
+                .unwrap();
+
+                // Then branch (executed when condition is non-zero)
+                writeln!(&mut self.output, "{}:", then_block).unwrap();
+                let mut then_stack = popped_stack.clone();
+                for stmt in then_branch {
+                    then_stack = self.codegen_statement(&then_stack, stmt)?;
+                }
+                // Create landing block for phi node predecessor tracking.
+                // This is CRITICAL for nested conditionals: if then_branch contains
+                // another if statement, the actual control flow predecessor is the
+                // inner if's merge block, not then_block. The landing block ensures
+                // the phi node always references the correct immediate predecessor.
+                let then_predecessor = self.fresh_block("if_then_end");
+                writeln!(&mut self.output, "  br label %{}", then_predecessor).unwrap();
+                writeln!(&mut self.output, "{}:", then_predecessor).unwrap();
+                writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+
+                // Else branch (executed when condition is zero)
+                writeln!(&mut self.output, "{}:", else_block).unwrap();
+                let else_stack = if let Some(eb) = else_branch {
+                    let mut es = popped_stack.clone();
+                    for stmt in eb {
+                        es = self.codegen_statement(&es, stmt)?;
+                    }
+                    es
+                } else {
+                    // No else clause - stack unchanged
+                    popped_stack.clone()
+                };
+                // Landing block for else branch (same reasoning as then_branch)
+                let else_predecessor = self.fresh_block("if_else_end");
+                writeln!(&mut self.output, "  br label %{}", else_predecessor).unwrap();
+                writeln!(&mut self.output, "{}:", else_predecessor).unwrap();
+                writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+
+                // Merge block - phi node to merge stack pointers from both paths
+                writeln!(&mut self.output, "{}:", merge_block).unwrap();
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
+                    result_var, then_stack, then_predecessor, else_stack, else_predecessor
+                )
+                .unwrap();
+
                 Ok(result_var)
             }
         }

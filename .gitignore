@@ -9,9 +9,10 @@ Cargo.lock
 *.bc
 *.o
 
-# Compiled binaries (all built to target/examples/ now)
-/target/examples/
+# Compiled binaries (build to target/ or tmp/ only)
+# Never pollute root directory with test binaries!
 /test_*
+/test-*
 !tests/
 
 # IDE

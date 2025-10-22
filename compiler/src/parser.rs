@@ -107,8 +107,71 @@ impl Parser {
             return Ok(Statement::StringLiteral(unescaped));
         }
 
+        // Check for conditional
+        if token == "if" {
+            return self.parse_if();
+        }
+
         // Otherwise it's a word call
         Ok(Statement::WordCall(token))
+    }
+
+    fn parse_if(&mut self) -> Result<Statement, String> {
+        let mut then_branch = Vec::new();
+
+        // Parse then branch until 'else' or 'then'
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in 'if' statement".to_string());
+            }
+
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("else") {
+                self.advance();
+                // Parse else branch
+                break;
+            }
+
+            if self.check("then") {
+                self.advance();
+                // End of if without else
+                return Ok(Statement::If {
+                    then_branch,
+                    else_branch: None,
+                });
+            }
+
+            then_branch.push(self.parse_statement()?);
+        }
+
+        // Parse else branch until 'then'
+        let mut else_branch = Vec::new();
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in 'else' branch".to_string());
+            }
+
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("then") {
+                self.advance();
+                return Ok(Statement::If {
+                    then_branch,
+                    else_branch: Some(else_branch),
+                });
+            }
+
+            else_branch.push(self.parse_statement()?);
+        }
     }
 
     fn skip_stack_effect(&mut self) -> Result<(), String> {

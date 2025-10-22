@@ -1,0 +1,21 @@
+# Test simple if/then conditionals
+
+: test-if-true ( -- )
+  5 3 >
+  if
+    "Greater!" write_line
+  then
+;
+
+: test-if-false ( -- )
+  3 5 >
+  if
+    "This should not print" write_line
+  then
+  "After if" write_line
+;
+
+: main ( -- )
+  test-if-true
+  test-if-false
+;

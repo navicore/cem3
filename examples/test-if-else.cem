@@ -1,0 +1,34 @@
+# Test if/else/then conditionals
+
+: test-if-else-true ( -- )
+  5 3 >
+  if
+    "True branch" write_line
+  else
+    "False branch" write_line
+  then
+;
+
+: test-if-else-false ( -- )
+  3 5 >
+  if
+    "True branch" write_line
+  else
+    "False branch" write_line
+  then
+;
+
+: test-equality ( -- )
+  5 5 =
+  if
+    "Numbers are equal" write_line
+  else
+    "Numbers are not equal" write_line
+  then
+;
+
+: main ( -- )
+  test-if-else-true
+  test-if-else-false
+  test-equality
+;

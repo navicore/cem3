@@ -1,6 +1,7 @@
 # Rust
 /target/
 Cargo.lock
+claude.md
 **/*.rs.bk
 *.pdb
 

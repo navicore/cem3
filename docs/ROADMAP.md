@@ -316,23 +316,142 @@ fn test_cons_with_list_reverse_shuffle() {
 
 ---
 
-## Phase 8: Add Compiler
+## Phase 8: Add Compiler (Basic)
 
 ### Goals
 - Now that runtime is solid, add compiler
 - Keep runtime clean, compiler emits to clean runtime API
+- Minimal type checking for safety (stack underflow, branch compatibility)
 
 ### Tasks
-- [ ] Simple parser (reuse cem2's if suitable)
-- [ ] Type checker (reuse cem2's if suitable)
-- [ ] Codegen targeting clean runtime API
-- [ ] Ensure codegen emits correct operations
-- [ ] Test compiled programs match hand-written runtime tests
+- [x] Simple parser for basic constructs (word definitions, literals, calls)
+- [x] Minimal type checker:
+  - [x] Stack depth tracking
+  - [x] Conditional branch stack effect validation
+  - [x] Stack underflow detection
+- [x] Codegen targeting clean runtime API (LLVM IR)
+- [x] Basic control flow (if/else/then conditionals)
+- [x] Comparison operators (=, <, >, <=, >=, <>)
+- [x] Ensure codegen emits correct operations
+- [x] Test compiled programs match hand-written runtime tests
 
 ### Success Criteria
-✓ Can compile simple programs
+✓ Can compile simple programs with conditionals
 ✓ Compiled code behaves identically to runtime tests
-✓ Type checker catches errors
+✓ Type checker catches stack underflow at compile time
+✓ Type checker validates conditional branches have same stack effects
+
+### What's Missing
+The current type checker is **minimal** - it tracks stack *depth* but not actual *types*. This is sufficient for basic safety but lacks:
+- Type inference for user-defined words
+- Stack effect declarations
+- Full type tracking (distinguishing Int vs String at compile time)
+- Row polymorphism for extensible stack effects
+- Quotation types
+- Variant/ADT type checking
+
+These are addressed in Phase 8.5 below.
+
+---
+
+## Phase 8.5: Type System Design & Implementation
+
+### Goals
+- Design and implement a full type system for concatenative programming
+- Support row polymorphism and stack effect inference
+- Provide clear type error messages
+- Enable type-safe quotations and variants
+
+### Background
+Concatenative languages present unique type system challenges:
+- **Stack effects as types**: Functions are typed by their stack transformations
+- **Row polymorphism**: Operations work on stacks with unknown "rest" elements
+- **Quotation types**: Code-as-data requires first-class function types
+- **Inference**: Types should be inferred when possible, not always declared
+
+cem2's type system attempted this but had issues. We can learn from both its successes and failures.
+
+### Design Spike Tasks
+- [ ] **Review cem2's type system**
+  - What worked? (bidirectional type checking, basic inference)
+  - What didn't? (complexity, error messages, row polymorphism implementation)
+- [ ] **Survey concatenative type systems**
+  - Factor's effect system
+  - Kitten's row polymorphism approach
+  - Cat's compositional type system
+- [ ] **Design stack effect syntax**
+  - How to declare: `( a b -- c )` vs `( Int Int -- Int )`
+  - Row variables: `( ..a Int -- ..a Bool )`
+  - Quotation types: `( ..a [ ..b -- ..c ] -- ..d )`
+- [ ] **Choose type inference algorithm**
+  - Bidirectional type checking (cem2 approach)
+  - Hindley-Milner with extensions
+  - Constraint-based inference
+- [ ] **Design error messages**
+  - Show expected vs actual stack effects
+  - Highlight location of type errors
+  - Suggest fixes when possible
+
+### Implementation Tasks
+- [ ] **Extend AST with type annotations**
+  - Add stack effect declarations to word definitions
+  - Add type annotations for literals
+  - Support inline type assertions
+- [ ] **Implement type inference**
+  - Infer types for literals (Int, String, Bool)
+  - Infer stack effects for built-in operations
+  - Infer stack effects for user-defined words
+  - Handle recursive definitions
+- [ ] **Add row polymorphism**
+  - Support stack effects with row variables
+  - Unification with row types
+  - Constraints for row variable scope
+- [ ] **Add quotation types**
+  - Type quotations as `[ Stack1 -- Stack2 ]`
+  - Ensure quotations compose correctly
+  - Handle closures and captured values
+- [ ] **Add variant/ADT type checking**
+  - Type variant construction
+  - Type pattern matching with exhaustiveness checking
+  - Ensure variant fields have correct types
+- [ ] **Improve error messages**
+  - Show full stack effect context
+  - Use colors/formatting in CLI output
+  - Provide "did you mean?" suggestions
+
+### Testing Strategy
+- [ ] Create comprehensive type system test suite:
+  - [ ] Basic type inference tests
+  - [ ] Row polymorphism tests
+  - [ ] Quotation type tests
+  - [ ] Variant type tests
+  - [ ] Error message quality tests
+- [ ] Port cem2's type system tests (where applicable)
+- [ ] Test complex programs with nested quotations and variants
+- [ ] Ensure type checking performance scales to large programs
+
+### Success Criteria
+✓ Stack effects are inferred for all user-defined words
+✓ Row polymorphism works: `dup` has type `( ..a T -- ..a T T )`
+✓ Quotations are properly typed and compose
+✓ Variants are type-safe with exhaustive pattern matching
+✓ Type errors are clear and actionable
+✓ Type checking completes in reasonable time (< 1s for 1000 LOC)
+
+### References
+- cem2's type checker: `cem2/compiler/src/typechecker/`
+- Factor's effect system: [factorcode.org](https://factorcode.org)
+- Kitten language: [kittenlang.org](https://kittenlang.org)
+- "Type Inference for Concatenative Languages" (research)
+
+### Notes
+This phase may take several iterations to get right. The type system is a **defining feature** of the language and deserves careful attention. Don't rush it - a poor type system is worse than no type system.
+
+Consider splitting this into sub-phases:
+1. Basic type inference (no polymorphism)
+2. Row polymorphism
+3. Quotation types
+4. Variant types with exhaustiveness
 
 ---
 
@@ -458,16 +577,28 @@ At the end, we should be able to say:
 No pressure, no rush. Each phase is "done when it's done."
 
 **Estimated phases:**
-- Phase 0-2: Foundation (basic ops) - Could be 1-2 sessions
-- Phase 3: Combinators - 1 session
-- Phase 4-5: Values & simple variants - 1 session
-- Phase 6: Multi-field variants - 1-2 sessions (this is the critical test)
-- Phase 7: List operations - 1 session
-- Phase 8+: Compiler and beyond - TBD
-- Phase 10: Concurrency/Strands - 2-3 sessions (after conditionals are settled)
+- Phase 0-2: Foundation (basic ops) - Could be 1-2 sessions ✓ Complete
+- Phase 3: Combinators - 1 session ✓ Complete
+- Phase 4-5: Values & simple variants - 1 session ✓ Complete
+- Phase 6: Multi-field variants - 1-2 sessions (this is the critical test) ✓ Complete
+- Phase 7: List operations - 1 session ✓ Complete
+- Phase 8: Basic compiler - 2-3 sessions ✓ Complete
+  - Parser, minimal type checker, conditionals, comparisons
+- **Phase 8.5: Full type system - 4-6 sessions** (Design spike + implementation)
+  - Design: 1-2 sessions (research, design decisions)
+  - Basic inference: 1 session
+  - Row polymorphism: 1-2 sessions
+  - Quotation & variant types: 1-2 sessions
+- Phase 9: Advanced features - TBD
+- Phase 10: Concurrency/Strands - 2-3 sessions
 
-**Total to prove foundation:** ~6-8 sessions to get to validated list operations.
+**Total to prove foundation:** ~6-8 sessions to get to validated list operations. ✓ **DONE**
 
-**To non-blocking concurrency:** Add 2-3 sessions after current conditional/comparison work is merged.
+**Current status:** Phase 8 complete (basic compiler with minimal type checking)
 
-If that feels right, we can proceed with confidence to build anything on top.
+**Next major milestone:** Phase 8.5 (full type system) OR Phase 10 (concurrency)
+- Type system is important for language quality and developer experience
+- Concurrency is important for the non-blocking I/O vision
+- Both are foundational - prioritize based on immediate needs
+
+**Recommendation:** Consider tackling Phase 10 (concurrency) next while type system design percolates. The minimal type checker is sufficient for basic programs, and the runtime foundation for strands is proven in cem2. Full type system can follow once concurrency is working.

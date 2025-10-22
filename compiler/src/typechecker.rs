@@ -31,8 +31,7 @@ impl StackDepth {
         if self.depth <= 0 {
             return Err(format!(
                 "{}: stack underflow - requires {} value(s) on stack but stack is empty",
-                operation,
-                1
+                operation, 1
             ));
         }
         Ok(StackDepth {
@@ -135,7 +134,7 @@ impl TypeChecker {
     fn apply_builtin_effect(&self, name: &str, depth: StackDepth) -> Result<StackDepth, String> {
         match name {
             // I/O operations
-            "write_line" => depth.pop(name),     // ( str -- )
+            "write_line" => depth.pop(name), // ( str -- )
             "read_line" => Ok(depth.push()), // ( -- str )
 
             // Arithmetic operations ( a b -- result )
@@ -144,18 +143,16 @@ impl TypeChecker {
             }
 
             // Comparison operations ( a b -- flag )
-            "=" | "<" | ">" | "<=" | ">=" | "<>" => {
-                depth.pop(name)?.pop(name).map(|d| d.push())
-            }
+            "=" | "<" | ">" | "<=" | ">=" | "<>" => depth.pop(name)?.pop(name).map(|d| d.push()),
 
             // Stack operations
-            "dup" => Ok(depth.push()),      // ( a -- a a )
-            "drop" => depth.pop(name),      // ( a -- )
-            "swap" => Ok(depth),            // ( a b -- b a )
-            "over" => Ok(depth.push()),     // ( a b -- a b a )
-            "rot" => Ok(depth),             // ( a b c -- b c a )
-            "nip" => depth.pop(name),       // ( a b -- b )
-            "tuck" => Ok(depth.push()),     // ( a b -- b a b )
+            "dup" => Ok(depth.push()),  // ( a -- a a )
+            "drop" => depth.pop(name),  // ( a -- )
+            "swap" => Ok(depth),        // ( a b -- b a )
+            "over" => Ok(depth.push()), // ( a b -- a b a )
+            "rot" => Ok(depth),         // ( a b c -- b c a )
+            "nip" => depth.pop(name),   // ( a b -- b )
+            "tuck" => Ok(depth.push()), // ( a b -- b a b )
 
             // User-defined word - we don't know its effect yet
             // In a full type system, we'd look this up

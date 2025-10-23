@@ -78,6 +78,13 @@ impl Program {
             "nip",
             "tuck",
             // Note: pick is omitted - requires parameter support in AST
+            // Concurrency operations
+            "make-channel",
+            "send",
+            "receive",
+            "close-channel",
+            "yield",
+            // Note: spawn omitted - requires quotation support in AST
         ];
 
         for word in &self.words {

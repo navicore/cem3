@@ -1,0 +1,9 @@
+: main ( -- )
+  make-channel
+  dup "Message 1" swap send
+  dup "Message 2" swap send
+  dup "Message 3" swap send
+  dup receive write_line
+  dup receive write_line
+  receive write_line
+;

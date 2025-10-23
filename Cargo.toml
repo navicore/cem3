@@ -8,6 +8,10 @@ edition = "2024"
 authors = ["Ed Sweeney <ed@onextent.com>"]
 license = "MIT"
 
+[workspace.dependencies]
+# Concurrency
+may = "0.3"
+
 [profile.release]
 opt-level = 3
 lto = true

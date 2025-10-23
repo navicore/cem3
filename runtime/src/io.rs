@@ -80,6 +80,24 @@ pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
     unsafe { push(stack, Value::String(line)) }
 }
 
+/// Convert an integer to a string
+///
+/// Stack effect: ( Int -- String )
+///
+/// # Safety
+/// Stack must have an Int value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn int_to_string(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "int_to_string: stack is empty");
+
+    let (rest, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::Int(n) => unsafe { push(rest, Value::String(n.to_string())) },
+        _ => panic!("int_to_string: expected Int on stack, got {:?}", value),
+    }
+}
+
 /// Push a C string literal onto the stack (for compiler-generated code)
 ///
 /// Stack effect: ( -- str )

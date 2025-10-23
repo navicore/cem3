@@ -17,9 +17,17 @@ pub enum Value {
     /// Variant (sum type with tagged fields)
     Variant(Box<VariantData>),
 
-    /// Quotation (function pointer - will implement later)
-    Quotation(*const ()),
+    /// Quotation (function pointer stored as usize for Send safety)
+    /// Will be properly implemented later with quotation support
+    Quotation(usize),
 }
+
+// Safety: Value can be sent between strands (green threads)
+// - Int, Bool, String are all Send
+// - Variant contains only Send types (recursively)
+// - Quotation stores function pointer as usize (Send-safe)
+// This is required for channel communication between strands
+unsafe impl Send for Value {}
 
 /// VariantData: Composite values (sum types)
 ///

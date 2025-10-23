@@ -70,7 +70,8 @@ pub unsafe fn peek<'a>(stack: Stack) -> &'a Value {
 ///
 /// # Safety
 /// Stack must not be null
-pub unsafe fn dup(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dup(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "dup: stack is empty");
     // SAFETY NOTE: In Rust 2024 edition, even within `unsafe fn`, the body is not
     // automatically an unsafe context. Explicit `unsafe {}` blocks are required for
@@ -105,7 +106,8 @@ pub unsafe extern "C" fn drop_op(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least two values
-pub unsafe fn swap(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swap(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "swap: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "swap: stack has only one value");
@@ -118,7 +120,8 @@ pub unsafe fn swap(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least two values
-pub unsafe fn over(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn over(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "over: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "over: stack has only one value");
@@ -131,7 +134,8 @@ pub unsafe fn over(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least three values
-pub unsafe fn rot(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rot(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "rot: stack is empty");
     let (rest, c) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "rot: stack has only one value");

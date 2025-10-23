@@ -1,7 +1,22 @@
 //! Channel operations for CSP-style concurrency
 //!
 //! Channels are the primary communication mechanism between strands.
-//! They use May's `sync_channel` for bounded channels with blocking send/receive.
+//! They use May's mpsc channels with cooperative blocking.
+//!
+//! ## Non-Blocking Guarantee
+//!
+//! All channel operations (`send`, `receive`) cooperatively block using May's scheduler.
+//! They NEVER block OS threads - May handles scheduling other strands while waiting.
+//!
+//! ## Panic Behavior
+//!
+//! Channel operations panic on:
+//! - Invalid channel IDs (negative or non-existent)
+//! - Closed channels
+//! - Empty stacks or type mismatches
+//!
+//! This is intentional for the current implementation. Future versions may use
+//! Result-based error handling or error channels for more graceful degradation.
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;

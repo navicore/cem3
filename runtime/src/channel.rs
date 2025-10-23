@@ -71,10 +71,12 @@ pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
     let channel_id = NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed);
 
     // Store in registry
-    let mut guard = CHANNEL_REGISTRY.lock()
-        .expect("make_channel: channel registry lock poisoned - strand panicked while holding lock");
+    let mut guard = CHANNEL_REGISTRY.lock().expect(
+        "make_channel: channel registry lock poisoned - strand panicked while holding lock",
+    );
 
-    let registry = guard.as_mut()
+    let registry = guard
+        .as_mut()
         .expect("make_channel: channel registry not initialized - call init_registry first");
 
     registry.insert(
@@ -120,10 +122,12 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
     let (rest, value) = unsafe { pop(stack) };
 
     // Get sender from registry
-    let guard = CHANNEL_REGISTRY.lock()
+    let guard = CHANNEL_REGISTRY
+        .lock()
         .expect("send: channel registry lock poisoned - strand panicked while holding lock");
 
-    let registry = guard.as_ref()
+    let registry = guard
+        .as_ref()
         .expect("send: channel registry not initialized - call init_registry first");
 
     let pair = match registry.get(&channel_id) {
@@ -179,10 +183,12 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
 
     // Get receiver Arc from registry (don't hold lock during recv!)
     let receiver_arc = {
-        let guard = CHANNEL_REGISTRY.lock()
+        let guard = CHANNEL_REGISTRY
+            .lock()
             .expect("receive: channel registry lock poisoned - strand panicked while holding lock");
 
-        let registry = guard.as_ref()
+        let registry = guard
+            .as_ref()
             .expect("receive: channel registry not initialized - call init_registry first");
 
         let pair = match registry.get(&channel_id) {
@@ -196,8 +202,9 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
     // Receive a value (cooperatively blocks the strand until available)
     // May's recv() yields to the scheduler, not blocking the OS thread
     // We do NOT hold the global registry lock, avoiding deadlock
-    let receiver = receiver_arc.lock()
-        .expect("receive: receiver lock poisoned - strand panicked while receiving from this channel");
+    let receiver = receiver_arc.lock().expect(
+        "receive: receiver lock poisoned - strand panicked while receiving from this channel",
+    );
 
     let value = match receiver.recv() {
         Ok(v) => v,
@@ -232,10 +239,12 @@ pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
     };
 
     // Remove from registry
-    let mut guard = CHANNEL_REGISTRY.lock()
-        .expect("close_channel: channel registry lock poisoned - strand panicked while holding lock");
+    let mut guard = CHANNEL_REGISTRY.lock().expect(
+        "close_channel: channel registry lock poisoned - strand panicked while holding lock",
+    );
 
-    let registry = guard.as_mut()
+    let registry = guard
+        .as_mut()
         .expect("close_channel: channel registry not initialized - call init_registry first");
 
     registry.remove(&channel_id);

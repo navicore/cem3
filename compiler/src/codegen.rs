@@ -154,6 +154,12 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
+        writeln!(&mut ir, "; Concurrency operations").unwrap();
+        writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
@@ -265,6 +271,12 @@ impl CodeGen {
                     // Stack operations (simple - no parameters)
                     "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
                     "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR
+                    // Concurrency operations (hyphen → underscore for C compatibility)
+                    "make-channel" => "make_channel".to_string(),
+                    "send" => "send".to_string(),
+                    "receive" => "receive".to_string(),
+                    "close-channel" => "close_channel".to_string(),
+                    "yield" => "yield_strand".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };

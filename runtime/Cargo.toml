@@ -8,5 +8,7 @@ license.workspace = true
 crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testing
 
 [dependencies]
+# May - Erlang-style green threads / coroutines for CSP concurrency
+may.workspace = true
 
 [dev-dependencies]

@@ -137,6 +137,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @push_string(ptr, ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @write_line(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @read_line(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @int_to_string(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @add(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @subtract(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @multiply(ptr)").unwrap();
@@ -258,6 +259,7 @@ impl CodeGen {
                 let function_name = match name.as_str() {
                     // I/O operations
                     "write_line" | "read_line" => name.to_string(),
+                    "int->string" => "int_to_string".to_string(),
                     // Arithmetic operations
                     "add" | "subtract" | "multiply" | "divide" => name.to_string(),
                     // Comparison operations (symbolic → named)

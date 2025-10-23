@@ -136,6 +136,7 @@ impl TypeChecker {
             // I/O operations
             "write_line" => depth.pop(name), // ( str -- )
             "read_line" => Ok(depth.push()), // ( -- str )
+            "int->string" => depth.pop(name).map(|d| d.push()), // ( int -- str )
 
             // Arithmetic operations ( a b -- result )
             "add" | "subtract" | "multiply" | "divide" => {

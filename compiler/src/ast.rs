@@ -57,6 +57,7 @@ impl Program {
             // I/O operations
             "write_line",
             "read_line",
+            "int->string",
             // Arithmetic operations
             "add",
             "subtract",

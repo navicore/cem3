@@ -154,6 +154,13 @@ impl TypeChecker {
             "nip" => depth.pop(name),   // ( a b -- b )
             "tuck" => Ok(depth.push()), // ( a b -- b a b )
 
+            // Concurrency operations
+            "make-channel" => Ok(depth.push()), // ( -- channel_id )
+            "send" => depth.pop(name)?.pop(name), // ( value channel_id -- )
+            "receive" => Ok(depth),             // ( channel_id -- value )
+            "close-channel" => depth.pop(name), // ( channel_id -- )
+            "yield" => Ok(depth),               // ( -- )
+
             // User-defined word - we don't know its effect yet
             // In a full type system, we'd look this up
             _ => Ok(depth), // Assume net-zero for now

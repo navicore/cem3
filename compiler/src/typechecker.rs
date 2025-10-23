@@ -157,7 +157,7 @@ impl TypeChecker {
             // Concurrency operations
             "make-channel" => Ok(depth.push()), // ( -- channel_id )
             "send" => depth.pop(name)?.pop(name), // ( value channel_id -- )
-            "receive" => Ok(depth),             // ( channel_id -- value )
+            "receive" => depth.pop(name).map(|d| d.push()), // ( channel_id -- value )
             "close-channel" => depth.pop(name), // ( channel_id -- )
             "yield" => Ok(depth),               // ( -- )
 
@@ -358,5 +358,59 @@ mod tests {
         let result = checker.check_program(&program);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("=: stack underflow"));
+    }
+
+    #[test]
+    fn test_receive_requires_channel_id() {
+        // receive requires a channel_id on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![Statement::WordCall("receive".to_string())],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("receive: stack underflow"));
+    }
+
+    #[test]
+    fn test_receive_produces_value() {
+        // receive pops channel_id and pushes value (net zero depth change)
+        // This test ensures the stack effect is correct
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![
+                    Statement::WordCall("make-channel".to_string()), // Push channel_id
+                    Statement::WordCall("receive".to_string()),      // Pop channel_id, push value
+                    Statement::WordCall("write_line".to_string()),   // Pop value
+                ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_send_requires_two_values() {
+        // send requires value and channel_id on the stack
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                body: vec![
+                    Statement::IntLiteral(42), // Only one value
+                    Statement::WordCall("send".to_string()),
+                ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("send: stack underflow"));
     }
 }

@@ -130,7 +130,7 @@ pub unsafe extern "C" fn strand_spawn(
 
             // Debug assertion: validate stack pointer alignment and reasonable address
             debug_assert!(
-                stack_ptr.is_null() || stack_addr % std::mem::align_of::<StackNode>() == 0,
+                stack_ptr.is_null() || stack_addr.is_multiple_of(std::mem::align_of::<StackNode>()),
                 "Stack pointer must be null or properly aligned"
             );
             debug_assert!(

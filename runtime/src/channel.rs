@@ -8,7 +8,7 @@ use crate::value::Value;
 use may::sync::mpsc;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 
 /// Unique channel ID generation
 static NEXT_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
@@ -17,6 +17,9 @@ static NEXT_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
 /// Maps channel IDs to sender/receiver pairs
 static CHANNEL_REGISTRY: Mutex<Option<HashMap<u64, ChannelPair>>> = Mutex::new(None);
 
+/// Initialize the channel registry exactly once (lock-free after first call)
+static REGISTRY_INIT: Once = Once::new();
+
 /// A channel pair (sender and receiver)
 /// Receiver is Arc<Mutex<>> to allow access without holding global registry lock
 struct ChannelPair {
@@ -24,16 +27,15 @@ struct ChannelPair {
     receiver: Arc<Mutex<mpsc::Receiver<Value>>>,
 }
 
-/// Initialize the channel registry
+/// Initialize the channel registry (lock-free after first call)
 fn init_registry() {
-    let mut guard = match CHANNEL_REGISTRY.lock() {
-        Ok(g) => g,
-        Err(poisoned) => panic!("Channel registry lock poisoned: {}", poisoned),
-    };
-
-    if guard.is_none() {
+    REGISTRY_INIT.call_once(|| {
+        let mut guard = match CHANNEL_REGISTRY.lock() {
+            Ok(g) => g,
+            Err(poisoned) => panic!("Channel registry lock poisoned during init: {}", poisoned),
+        };
         *guard = Some(HashMap::new());
-    }
+    });
 }
 
 /// Create a new channel
@@ -94,7 +96,12 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
     // Pop channel ID
     let (stack, channel_id_value) = unsafe { pop(stack) };
     let channel_id = match channel_id_value {
-        Value::Int(id) => id as u64,
+        Value::Int(id) => {
+            if id < 0 {
+                panic!("send: channel ID must be positive, got {}", id);
+            }
+            id as u64
+        }
         _ => panic!("send: expected channel ID (Int) on stack"),
     };
 
@@ -137,6 +144,16 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
 /// Blocks the strand until a value is available.
 /// This is cooperative blocking - the strand yields and May handles scheduling.
 ///
+/// ## Multi-Consumer Limitation
+///
+/// The receiver mutex is held during the blocking recv() operation. This means
+/// multiple strands calling receive() on the same channel will be serialized -
+/// only one can block in recv() at a time. While this prevents deadlocks with
+/// the global registry lock, it does reduce throughput with multiple consumers.
+///
+/// For high-performance multi-consumer scenarios, consider using multiple channels
+/// or implementing a work-stealing pattern.
+///
 /// # Safety
 /// Stack must have a channel ID (Int) on top
 #[unsafe(no_mangle)]
@@ -146,7 +163,12 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
     // Pop channel ID
     let (rest, channel_id_value) = unsafe { pop(stack) };
     let channel_id = match channel_id_value {
-        Value::Int(id) => id as u64,
+        Value::Int(id) => {
+            if id < 0 {
+                panic!("receive: channel ID must be positive, got {}", id);
+            }
+            id as u64
+        }
         _ => panic!("receive: expected channel ID (Int) on stack"),
     };
 
@@ -201,7 +223,12 @@ pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
     // Pop channel ID
     let (rest, channel_id_value) = unsafe { pop(stack) };
     let channel_id = match channel_id_value {
-        Value::Int(id) => id as u64,
+        Value::Int(id) => {
+            if id < 0 {
+                panic!("close_channel: channel ID must be positive, got {}", id);
+            }
+            id as u64
+        }
         _ => panic!("close_channel: expected channel ID (Int) on stack"),
     };
 
@@ -356,4 +383,8 @@ mod tests {
             assert!(stack.is_null());
         }
     }
+
+    // Note: Cannot test negative channel ID panics with #[should_panic] because
+    // these are extern "C" functions which cannot unwind. The validation is still
+    // in place at runtime - see lines 100-102, 157-159, 217-219.
 }

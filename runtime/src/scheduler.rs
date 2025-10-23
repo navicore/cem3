@@ -124,7 +124,8 @@ pub unsafe extern "C" fn strand_spawn(
 
             // Decrement active strand counter
             // If this was the last strand, notify anyone waiting for shutdown
-            let prev_count = ACTIVE_STRANDS.fetch_sub(1, Ordering::Release);
+            // Use AcqRel to establish proper synchronization (both acquire and release barriers)
+            let prev_count = ACTIVE_STRANDS.fetch_sub(1, Ordering::AcqRel);
             if prev_count == 1 {
                 // We were the last strand - acquire mutex and signal shutdown
                 // The mutex must be held when calling notify to prevent missed wakeups

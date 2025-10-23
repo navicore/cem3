@@ -22,7 +22,7 @@ jobs:
     - name: Install Rust toolchain (edition 2024)
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: nightly  # Edition 2024 requires nightly for now
+        toolchain: stable
         components: rustfmt, clippy
 
     - name: Install Just
@@ -63,7 +63,7 @@ jobs:
     - name: Install Rust toolchain (edition 2024)
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: nightly  # Edition 2024 requires nightly for now
+        toolchain: stable
         components: rustfmt, clippy
 
     - name: Install Just

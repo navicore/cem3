@@ -69,12 +69,14 @@ pub unsafe extern "C" fn scheduler_init() {
 /// execution, so there's no contention on the hot path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scheduler_run() -> Stack {
-    let mut guard = SHUTDOWN_MUTEX.lock().unwrap();
+    let mut guard = SHUTDOWN_MUTEX.lock()
+        .expect("scheduler_run: shutdown mutex poisoned - strand panicked during shutdown synchronization");
 
     // Wait for all strands to complete
     // The condition variable will be notified when the last strand exits
     while ACTIVE_STRANDS.load(Ordering::Acquire) > 0 {
-        guard = SHUTDOWN_CONDVAR.wait(guard).unwrap();
+        guard = SHUTDOWN_CONDVAR.wait(guard)
+            .expect("scheduler_run: condvar wait failed - strand panicked during shutdown wait");
     }
 
     // All strands have completed
@@ -151,7 +153,8 @@ pub unsafe extern "C" fn strand_spawn(
             if prev_count == 1 {
                 // We were the last strand - acquire mutex and signal shutdown
                 // The mutex must be held when calling notify to prevent missed wakeups
-                let _guard = SHUTDOWN_MUTEX.lock().unwrap();
+                let _guard = SHUTDOWN_MUTEX.lock()
+                    .expect("strand_spawn: shutdown mutex poisoned - strand panicked during shutdown notification");
                 SHUTDOWN_CONDVAR.notify_all();
             }
         });
@@ -215,12 +218,14 @@ pub unsafe extern "C" fn yield_strand() {
 /// Uses event-driven synchronization via condition variable - no polling overhead.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wait_all_strands() {
-    let mut guard = SHUTDOWN_MUTEX.lock().unwrap();
+    let mut guard = SHUTDOWN_MUTEX.lock()
+        .expect("wait_all_strands: shutdown mutex poisoned - strand panicked during shutdown synchronization");
 
     // Wait for all strands to complete
     // The condition variable will be notified when the last strand exits
     while ACTIVE_STRANDS.load(Ordering::Acquire) > 0 {
-        guard = SHUTDOWN_CONDVAR.wait(guard).unwrap();
+        guard = SHUTDOWN_CONDVAR.wait(guard)
+            .expect("wait_all_strands: condvar wait failed - strand panicked during shutdown wait");
     }
 }
 

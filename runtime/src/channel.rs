@@ -45,10 +45,8 @@ struct ChannelPair {
 /// Initialize the channel registry (lock-free after first call)
 fn init_registry() {
     REGISTRY_INIT.call_once(|| {
-        let mut guard = match CHANNEL_REGISTRY.lock() {
-            Ok(g) => g,
-            Err(poisoned) => panic!("Channel registry lock poisoned during init: {}", poisoned),
-        };
+            let mut guard = CHANNEL_REGISTRY.lock()
+                .expect("init_registry: channel registry lock poisoned during initialization - strand panicked while holding lock");
         *guard = Some(HashMap::new());
     });
 }
@@ -73,15 +71,11 @@ pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
     let channel_id = NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed);
 
     // Store in registry
-    let mut guard = match CHANNEL_REGISTRY.lock() {
-        Ok(g) => g,
-        Err(poisoned) => panic!("Channel registry lock poisoned: {}", poisoned),
-    };
+    let mut guard = CHANNEL_REGISTRY.lock()
+        .expect("make_channel: channel registry lock poisoned - strand panicked while holding lock");
 
-    let registry = match guard.as_mut() {
-        Some(r) => r,
-        None => panic!("Channel registry not initialized"),
-    };
+    let registry = guard.as_mut()
+        .expect("make_channel: channel registry not initialized - call init_registry first");
 
     registry.insert(
         channel_id,
@@ -126,15 +120,11 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
     let (rest, value) = unsafe { pop(stack) };
 
     // Get sender from registry
-    let guard = match CHANNEL_REGISTRY.lock() {
-        Ok(g) => g,
-        Err(poisoned) => panic!("Channel registry lock poisoned: {}", poisoned),
-    };
+    let guard = CHANNEL_REGISTRY.lock()
+        .expect("send: channel registry lock poisoned - strand panicked while holding lock");
 
-    let registry = match guard.as_ref() {
-        Some(r) => r,
-        None => panic!("Channel registry not initialized"),
-    };
+    let registry = guard.as_ref()
+        .expect("send: channel registry not initialized - call init_registry first");
 
     let pair = match registry.get(&channel_id) {
         Some(p) => p,
@@ -189,15 +179,11 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
 
     // Get receiver Arc from registry (don't hold lock during recv!)
     let receiver_arc = {
-        let guard = match CHANNEL_REGISTRY.lock() {
-            Ok(g) => g,
-            Err(poisoned) => panic!("Channel registry lock poisoned: {}", poisoned),
-        };
+        let guard = CHANNEL_REGISTRY.lock()
+            .expect("receive: channel registry lock poisoned - strand panicked while holding lock");
 
-        let registry = match guard.as_ref() {
-            Some(r) => r,
-            None => panic!("Channel registry not initialized"),
-        };
+        let registry = guard.as_ref()
+            .expect("receive: channel registry not initialized - call init_registry first");
 
         let pair = match registry.get(&channel_id) {
             Some(p) => p,
@@ -210,10 +196,8 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
     // Receive a value (cooperatively blocks the strand until available)
     // May's recv() yields to the scheduler, not blocking the OS thread
     // We do NOT hold the global registry lock, avoiding deadlock
-    let receiver = match receiver_arc.lock() {
-        Ok(r) => r,
-        Err(poisoned) => panic!("Receiver lock poisoned: {}", poisoned),
-    };
+    let receiver = receiver_arc.lock()
+        .expect("receive: receiver lock poisoned - strand panicked while receiving from this channel");
 
     let value = match receiver.recv() {
         Ok(v) => v,
@@ -248,15 +232,11 @@ pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
     };
 
     // Remove from registry
-    let mut guard = match CHANNEL_REGISTRY.lock() {
-        Ok(g) => g,
-        Err(poisoned) => panic!("Channel registry lock poisoned: {}", poisoned),
-    };
+    let mut guard = CHANNEL_REGISTRY.lock()
+        .expect("close_channel: channel registry lock poisoned - strand panicked while holding lock");
 
-    let registry = match guard.as_mut() {
-        Some(r) => r,
-        None => panic!("Channel registry not initialized"),
-    };
+    let registry = guard.as_mut()
+        .expect("close_channel: channel registry not initialized - call init_registry first");
 
     registry.remove(&channel_id);
 

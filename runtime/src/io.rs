@@ -42,7 +42,7 @@ pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
     match value {
         Value::String(s) => {
             println!("{}", s);
-            io::stdout().flush().unwrap();
+            io::stdout().flush().expect("write_line: failed to flush stdout (stdout may be closed or redirected)");
             rest
         }
         _ => panic!("write_line: expected String on stack, got {:?}", value),
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
     let stdin = io::stdin();
     let mut line = String::new();
 
-    stdin.lock().read_line(&mut line).unwrap();
+    stdin.lock().read_line(&mut line).expect("read_line: failed to read from stdin (I/O error or EOF)");
 
     // Strip trailing newline(s)
     if line.ends_with('\n') {

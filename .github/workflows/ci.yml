@@ -22,8 +22,11 @@ jobs:
     - name: Install Rust toolchain (edition 2024)
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: stable
+        toolchain: 1.89.0  # Pin exact version to match local development
         components: rustfmt, clippy
+
+    - name: Verify Rust version
+      run: rustc --version && cargo --version && cargo clippy --version
 
     - name: Install Just
       uses: extractions/setup-just@v2
@@ -63,8 +66,11 @@ jobs:
     - name: Install Rust toolchain (edition 2024)
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: stable
+        toolchain: 1.89.0  # Pin exact version to match local development
         components: rustfmt, clippy
+
+    - name: Verify Rust version
+      run: rustc --version && cargo --version && cargo clippy --version
 
     - name: Install Just
       uses: extractions/setup-just@v2

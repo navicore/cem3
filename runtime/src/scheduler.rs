@@ -2,6 +2,18 @@
 //!
 //! CSP-style concurrency for cem3 using May coroutines.
 //! Each strand is a lightweight green thread that can communicate via channels.
+//!
+//! ## Non-Blocking Guarantee
+//!
+//! Channel operations (`send`, `receive`) use May's cooperative blocking and NEVER
+//! block OS threads. However, I/O operations (`write_line`, `read_line` in io.rs)
+//! currently use blocking syscalls. Future work will make all I/O non-blocking.
+//!
+//! ## Panic Behavior
+//!
+//! Functions panic on invalid input (null stacks, negative IDs, closed channels).
+//! In a production system, consider implementing error channels or Result-based
+//! error handling instead of panicking.
 
 use crate::stack::{Stack, StackNode};
 use may::coroutine;
@@ -115,6 +127,16 @@ pub unsafe extern "C" fn strand_spawn(
         coroutine::spawn(move || {
             // Reconstruct pointer from address
             let stack_ptr = stack_addr as *mut StackNode;
+
+            // Debug assertion: validate stack pointer alignment and reasonable address
+            debug_assert!(
+                stack_ptr.is_null() || stack_addr % std::mem::align_of::<StackNode>() == 0,
+                "Stack pointer must be null or properly aligned"
+            );
+            debug_assert!(
+                stack_ptr.is_null() || stack_addr > 0x1000,
+                "Stack pointer appears to be in invalid memory region (< 0x1000)"
+            );
 
             // Execute the entry function
             let final_stack = entry_fn(stack_ptr);

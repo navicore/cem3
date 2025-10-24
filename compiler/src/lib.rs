@@ -5,11 +5,13 @@
 pub mod ast;
 pub mod codegen;
 pub mod parser;
+pub mod types;
 pub mod typechecker;
 
 pub use ast::Program;
 pub use codegen::CodeGen;
 pub use parser::Parser;
+pub use types::{Effect, StackType, Type};
 pub use typechecker::TypeChecker;
 
 use std::fs;

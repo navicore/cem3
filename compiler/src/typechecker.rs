@@ -185,6 +185,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(5),
                     Statement::IntLiteral(3),
@@ -206,6 +207,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(1),
                     Statement::If {
@@ -227,6 +229,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(1),
                     Statement::If {
@@ -253,6 +256,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![Statement::If {
                     then_branch: vec![Statement::IntLiteral(1)],
                     else_branch: None,
@@ -272,6 +276,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![Statement::WordCall("drop".to_string())],
             }],
         };
@@ -288,6 +293,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(1),
                     Statement::WordCall("add".to_string()),
@@ -307,6 +313,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![Statement::WordCall("write_line".to_string())],
             }],
         };
@@ -323,6 +330,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(1),
                     Statement::If {
@@ -348,6 +356,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(5),
                     Statement::WordCall("=".to_string()),
@@ -367,6 +376,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![Statement::WordCall("receive".to_string())],
             }],
         };
@@ -384,6 +394,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::WordCall("make-channel".to_string()), // Push channel_id
                     Statement::WordCall("receive".to_string()),      // Pop channel_id, push value
@@ -402,6 +413,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "test".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(42), // Only one value
                     Statement::WordCall("send".to_string()),

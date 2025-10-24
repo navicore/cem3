@@ -73,7 +73,9 @@ impl StackType {
 
     /// Create a stack type from a vector of types (bottom to top)
     pub fn from_vec(types: Vec<Type>) -> Self {
-        types.into_iter().fold(StackType::Empty, |stack, ty| stack.push(ty))
+        types
+            .into_iter()
+            .fold(StackType::Empty, |stack, ty| stack.push(ty))
     }
 
     /// Pop a type from a stack type, returning (rest, top) if successful
@@ -116,9 +118,7 @@ mod tests {
 
     #[test]
     fn test_push_pop() {
-        let stack = StackType::empty()
-            .push(Type::Int)
-            .push(Type::Bool);
+        let stack = StackType::empty().push(Type::Int).push(Type::Bool);
 
         let (rest, top) = stack.pop().unwrap();
         assert_eq!(top, Type::Bool);

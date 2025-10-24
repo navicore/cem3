@@ -193,7 +193,10 @@ impl Parser {
                 return Err("Unclosed stack effect declaration".to_string());
             }
 
-            let token = self.advance().ok_or("Unexpected end in stack effect")?.clone();
+            let token = self
+                .advance()
+                .ok_or("Unexpected end in stack effect")?
+                .clone();
 
             // Check for row variable: ..name
             if token.starts_with("..") {
@@ -222,7 +225,10 @@ impl Parser {
                 return Err("Unclosed stack effect declaration".to_string());
             }
 
-            let token = self.advance().ok_or("Unexpected end in stack effect")?.clone();
+            let token = self
+                .advance()
+                .ok_or("Unexpected end in stack effect")?
+                .clone();
 
             // Check for row variable: ..name
             if token.starts_with("..") {
@@ -263,7 +269,10 @@ impl Parser {
                     if first_char.is_uppercase() {
                         Ok(Type::Var(token.to_string()))
                     } else {
-                        Err(format!("Unknown type: '{}'. Expected Int, Bool, String, or a type variable (uppercase)", token))
+                        Err(format!(
+                            "Unknown type: '{}'. Expected Int, Bool, String, or a type variable (uppercase)",
+                            token
+                        ))
                     }
                 } else {
                     Err(format!("Invalid type: '{}'", token))

@@ -3,15 +3,41 @@
 //! Uses bumpalo for fast bump allocation of Strings and Variants.
 //! Each OS thread has an arena that's used by strands executing on it.
 //!
-//! Design:
+//! # Design
 //! - Thread-local Bump allocator
 //! - Fast allocation (~5ns vs ~100ns for malloc)
 //! - Periodic reset to prevent unbounded growth
 //! - Manual reset when strand completes
 //!
-//! Note: This is thread-local, not strand-local. If a strand migrates
-//! to another thread (rare with May), it will use that thread's arena.
-//! This is acceptable for most workloads.
+//! # ⚠️ IMPORTANT: Thread-Local, Not Strand-Local
+//!
+//! The arena is **thread-local**, not strand-local. This has implications
+//! if May's scheduler migrates a strand to a different thread:
+//!
+//! **What happens:**
+//! - Strand starts on Thread A, allocates strings from Arena A
+//! - May migrates strand to Thread B (rare, but possible)
+//! - Strand now allocates from Arena B
+//! - When strand exits, Arena B is reset (not Arena A)
+//! - Arena A still contains the strings from earlier allocation
+//!
+//! **Why this is safe:**
+//! - Arena reset only happens on strand exit (see `scheduler.rs:203`)
+//! - A migrated strand continues executing, doesn't trigger reset of Arena A
+//! - Arena A will be reset when the *next* strand on Thread A exits
+//! - Channel sends clone to global allocator (see `cemstring.rs:73-76`)
+//!
+//! **Performance impact:**
+//! - Minimal in practice - May rarely migrates strands
+//! - If migration occurs, some memory stays in old arena until next reset
+//! - Auto-reset at 10MB threshold prevents unbounded growth
+//!
+//! **Alternative considered:**
+//! Strand-local arenas would require passing arena pointer with every
+//! strand migration. This adds complexity and overhead for a rare case.
+//! Thread-local is simpler and faster for the common case.
+//!
+//! See: `docs/ARENA_ALLOCATION_DESIGN.md` for full design rationale.
 
 use bumpalo::Bump;
 use std::cell::RefCell;

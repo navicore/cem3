@@ -22,7 +22,7 @@ const ARENA_RESET_THRESHOLD: usize = 10 * 1024 * 1024; // 10MB - reset when we e
 // Thread-local arena for value allocations
 thread_local! {
     static ARENA: RefCell<Bump> = RefCell::new(Bump::new());
-    static ARENA_BYTES_ALLOCATED: RefCell<usize> = RefCell::new(0);
+    static ARENA_BYTES_ALLOCATED: RefCell<usize> = const { RefCell::new(0) };
 }
 
 /// Execute a function with access to the thread-local arena
@@ -42,7 +42,7 @@ where
 {
     ARENA.with(|arena| {
         let bump = arena.borrow();
-        let result = f(&*bump);
+        let result = f(&bump);
 
         // Track allocation size
         let allocated = bump.allocated_bytes();

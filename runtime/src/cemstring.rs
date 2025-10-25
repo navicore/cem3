@@ -95,12 +95,7 @@ impl Drop for CemString {
 
 impl fmt::Debug for CemString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "CemString({:?}, global={})",
-            self.as_str(),
-            self.global
-        )
+        write!(f, "CemString({:?}, global={})", self.as_str(), self.global)
     }
 }
 

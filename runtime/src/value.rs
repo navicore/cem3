@@ -1,3 +1,5 @@
+use crate::cemstring::CemString;
+
 /// Value: What the language talks about
 ///
 /// This is pure data with no pointers to other values.
@@ -11,8 +13,8 @@ pub enum Value {
     /// Boolean value
     Bool(bool),
 
-    /// String (heap-allocated, owned)
-    String(String),
+    /// String (arena or globally allocated via CemString)
+    String(CemString),
 
     /// Variant (sum type with tagged fields)
     Variant(Box<VariantData>),

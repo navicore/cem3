@@ -5,9 +5,12 @@
 //! - StackNode: Implementation detail (contains Value + next pointer)
 //! - Variant fields: Stored in arrays, NOT linked via next pointers
 
+pub mod arena;
 pub mod arithmetic;
+pub mod cemstring;
 pub mod channel;
 pub mod io;
+pub mod pool;
 pub mod scheduler;
 pub mod stack;
 pub mod value;

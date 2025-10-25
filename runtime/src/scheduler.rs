@@ -15,6 +15,7 @@
 //! In a production system, consider implementing error channels or Result-based
 //! error handling instead of panicking.
 
+use crate::pool;
 use crate::stack::{Stack, StackNode};
 use may::coroutine;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -171,25 +172,35 @@ pub unsafe extern "C" fn strand_spawn(
 /// - `stack` must be either:
 ///   - A null pointer (safe, will be a no-op)
 ///   - A valid pointer returned by runtime stack functions (push, etc.)
-///   - A pointer that was originally created via `Box::new(StackNode)` and converted with `Box::into_raw`
 /// - The pointer must not have been previously freed
 /// - After calling this function, the pointer is invalid and must not be used
-/// - This function takes ownership and drops the memory
+/// - This function takes ownership and returns nodes to the pool
 ///
-/// # Contract
-/// The caller MUST guarantee that `stack` was heap-allocated via Box.
-/// Passing a stack pointer that was not Box-allocated will cause undefined behavior.
+/// # Performance
+/// Returns nodes to thread-local pool for reuse instead of freeing to heap
 fn free_stack(mut stack: Stack) {
     if !stack.is_null() {
+        use crate::value::Value;
         unsafe {
-            // Walk the stack and free each node
+            // Walk the stack and return each node to the pool
             while !stack.is_null() {
-                let node = Box::from_raw(stack);
-                stack = node.next;
-                // node is dropped here, which drops the value inside
+                let next = (*stack).next;
+                // Drop the value, then return node to pool
+                // We need to drop the value to free any heap allocations (String, Variant)
+                drop(std::mem::replace(&mut (*stack).value, Value::Int(0)));
+                // Return node to pool for reuse
+                pool::pool_free(stack);
+                stack = next;
             }
         }
     }
+
+    // Reset the thread-local arena to free all arena-allocated strings
+    // This is safe because:
+    // - Any arena strings in Values have been dropped above
+    // - Global strings are unaffected (they have their own allocations)
+    // - Channel sends clone to global, so no cross-strand arena pointers
+    crate::arena::arena_reset();
 }
 
 /// Legacy spawn_strand function (kept for compatibility)
@@ -365,6 +376,206 @@ mod tests {
             assert!(
                 ids.iter().all(|&id| id > 0),
                 "All strand IDs should be positive"
+            );
+        }
+    }
+
+    #[test]
+    fn test_arena_reset_with_strands() {
+        unsafe {
+            use crate::arena;
+            use crate::cemstring::arena_string;
+
+            extern "C" fn create_temp_strings(stack: Stack) -> Stack {
+                // Create many temporary arena strings (simulating request parsing)
+                for i in 0..100 {
+                    let temp = arena_string(&format!("temporary string {}", i));
+                    // Use the string temporarily
+                    assert!(!temp.as_str().is_empty());
+                    // String is dropped, but memory stays in arena
+                }
+
+                // Arena should have allocated memory
+                let stats = arena::arena_stats();
+                assert!(stats.allocated_bytes > 0, "Arena should have allocations");
+
+                stack // Return empty stack
+            }
+
+            // Reset arena before test
+            arena::arena_reset();
+
+            // Spawn strand that creates many temp strings
+            strand_spawn(create_temp_strings, std::ptr::null_mut());
+
+            // Wait for strand to complete (which calls free_stack -> arena_reset)
+            wait_all_strands();
+
+            // After strand exits, arena should be reset
+            let stats_after = arena::arena_stats();
+            assert_eq!(
+                stats_after.allocated_bytes, 0,
+                "Arena should be reset after strand exits"
+            );
+        }
+    }
+
+    #[test]
+    fn test_arena_with_channel_send() {
+        unsafe {
+            use crate::channel::{close_channel, make_channel};
+            use crate::stack::{pop, push};
+            use crate::value::Value;
+            use std::sync::atomic::{AtomicU32, Ordering};
+
+            static RECEIVED_COUNT: AtomicU32 = AtomicU32::new(0);
+
+            // Create channel
+            let stack = std::ptr::null_mut();
+            let stack = make_channel(stack);
+            let (stack, chan_val) = pop(stack);
+            let chan_id = match chan_val {
+                Value::Int(id) => id,
+                _ => panic!("Expected channel ID"),
+            };
+
+            // Sender strand: creates arena string, sends through channel
+            extern "C" fn sender(stack: Stack) -> Stack {
+                use crate::cemstring::arena_string;
+                use crate::channel::send;
+                use crate::stack::{pop, push};
+                use crate::value::Value;
+
+                unsafe {
+                    // Extract channel ID from stack
+                    let (stack, chan_val) = pop(stack);
+                    let chan_id = match chan_val {
+                        Value::Int(id) => id,
+                        _ => panic!("Expected channel ID"),
+                    };
+
+                    // Create arena string
+                    let msg = arena_string("Hello from sender!");
+
+                    // Push string and channel ID for send
+                    let stack = push(stack, Value::String(msg));
+                    let stack = push(stack, Value::Int(chan_id));
+
+                    // Send (will clone to global)
+                    send(stack)
+                }
+            }
+
+            // Receiver strand: receives string from channel
+            extern "C" fn receiver(stack: Stack) -> Stack {
+                use crate::channel::receive;
+                use crate::stack::{pop, push};
+                use crate::value::Value;
+                use std::sync::atomic::Ordering;
+
+                unsafe {
+                    // Extract channel ID from stack
+                    let (stack, chan_val) = pop(stack);
+                    let chan_id = match chan_val {
+                        Value::Int(id) => id,
+                        _ => panic!("Expected channel ID"),
+                    };
+
+                    // Push channel ID for receive
+                    let stack = push(stack, Value::Int(chan_id));
+
+                    // Receive message
+                    let stack = receive(stack);
+
+                    // Pop and verify message
+                    let (stack, msg_val) = pop(stack);
+                    match msg_val {
+                        Value::String(s) => {
+                            assert_eq!(s.as_str(), "Hello from sender!");
+                            RECEIVED_COUNT.fetch_add(1, Ordering::SeqCst);
+                        }
+                        _ => panic!("Expected String"),
+                    }
+
+                    stack
+                }
+            }
+
+            // Spawn sender and receiver
+            let sender_stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+            strand_spawn(sender, sender_stack);
+
+            let receiver_stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+            strand_spawn(receiver, receiver_stack);
+
+            // Wait for both strands
+            wait_all_strands();
+
+            // Verify message was received
+            assert_eq!(
+                RECEIVED_COUNT.load(Ordering::SeqCst),
+                1,
+                "Receiver should have received message"
+            );
+
+            // Clean up channel
+            let stack = push(stack, Value::Int(chan_id));
+            close_channel(stack);
+        }
+    }
+
+    #[test]
+    fn test_no_memory_leak_over_many_iterations() {
+        // PR #11 feedback: Verify 10K+ strand iterations don't cause memory growth
+        unsafe {
+            use crate::arena;
+            use crate::cemstring::arena_string;
+
+            extern "C" fn allocate_strings_and_exit(stack: Stack) -> Stack {
+                // Simulate request processing: many temp allocations
+                for i in 0..50 {
+                    let temp = arena_string(&format!("request header {}", i));
+                    assert!(!temp.as_str().is_empty());
+                    // Strings dropped here but arena memory stays allocated
+                }
+                stack
+            }
+
+            // Run many iterations to detect leaks
+            let iterations = 10_000;
+
+            for i in 0..iterations {
+                // Reset arena before each iteration to start fresh
+                arena::arena_reset();
+
+                // Spawn strand, let it allocate strings, then exit
+                strand_spawn(allocate_strings_and_exit, std::ptr::null_mut());
+
+                // Wait for completion (triggers arena reset)
+                wait_all_strands();
+
+                // Every 1000 iterations, verify arena is actually reset
+                if i % 1000 == 0 {
+                    let stats = arena::arena_stats();
+                    assert_eq!(
+                        stats.allocated_bytes, 0,
+                        "Arena not reset after iteration {} (leaked {} bytes)",
+                        i, stats.allocated_bytes
+                    );
+                }
+            }
+
+            // Final verification: arena should be empty
+            let final_stats = arena::arena_stats();
+            assert_eq!(
+                final_stats.allocated_bytes, 0,
+                "Arena leaked memory after {} iterations ({} bytes)",
+                iterations, final_stats.allocated_bytes
+            );
+
+            println!(
+                "✓ Memory leak test passed: {} iterations with no growth",
+                iterations
             );
         }
     }

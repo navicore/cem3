@@ -7,7 +7,6 @@ pub mod builtins;
 pub mod codegen;
 pub mod parser;
 pub mod typechecker;
-pub mod typechecker_new;
 pub mod types;
 pub mod unification;
 

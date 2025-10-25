@@ -77,7 +77,7 @@ pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
         }
     }
 
-    unsafe { push(stack, Value::String(line)) }
+    unsafe { push(stack, Value::String(line.into())) }
 }
 
 /// Convert an integer to a string
@@ -93,7 +93,7 @@ pub unsafe extern "C" fn int_to_string(stack: Stack) -> Stack {
     let (rest, value) = unsafe { pop(stack) };
 
     match value {
-        Value::Int(n) => unsafe { push(rest, Value::String(n.to_string())) },
+        Value::Int(n) => unsafe { push(rest, Value::String(n.to_string().into())) },
         _ => panic!("int_to_string: expected Int on stack, got {:?}", value),
     }
 }
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
             .to_owned()
     };
 
-    unsafe { push(stack, Value::String(s)) }
+    unsafe { push(stack, Value::String(s.into())) }
 }
 
 /// Exit the program with a status code
@@ -155,7 +155,7 @@ mod tests {
     fn test_write_line() {
         unsafe {
             let stack = std::ptr::null_mut();
-            let stack = push(stack, Value::String("Hello, World!".to_string()));
+            let stack = push(stack, Value::String("Hello, World!".into()));
             let _stack = write_line(stack);
         }
     }
@@ -168,7 +168,7 @@ mod tests {
             let stack = push_string(stack, test_str.as_ptr());
 
             let (stack, value) = pop(stack);
-            assert_eq!(value, Value::String("Test".to_string()));
+            assert_eq!(value, Value::String("Test".into()));
             assert!(stack.is_null());
         }
     }
@@ -182,11 +182,11 @@ mod tests {
             let stack = push_string(stack, empty_str.as_ptr());
 
             let (stack, value) = pop(stack);
-            assert_eq!(value, Value::String(String::new()));
+            assert_eq!(value, Value::String("".into()));
             assert!(stack.is_null());
 
             // Write empty string should work without panic
-            let stack = push(stack, Value::String(String::new()));
+            let stack = push(stack, Value::String("".into()));
             let stack = write_line(stack);
             assert!(stack.is_null());
         }
@@ -201,7 +201,7 @@ mod tests {
             let stack = push_string(stack, unicode_str.as_ptr());
 
             let (stack, value) = pop(stack);
-            assert_eq!(value, Value::String("Hello, 世界! 🌍".to_string()));
+            assert_eq!(value, Value::String("Hello, 世界! 🌍".into()));
             assert!(stack.is_null());
         }
     }

@@ -8,6 +8,7 @@
 pub mod arithmetic;
 pub mod channel;
 pub mod io;
+pub mod pool;
 pub mod scheduler;
 pub mod stack;
 pub mod value;

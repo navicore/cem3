@@ -15,6 +15,7 @@
 //! In a production system, consider implementing error channels or Result-based
 //! error handling instead of panicking.
 
+use crate::pool;
 use crate::stack::{Stack, StackNode};
 use may::coroutine;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -171,22 +172,25 @@ pub unsafe extern "C" fn strand_spawn(
 /// - `stack` must be either:
 ///   - A null pointer (safe, will be a no-op)
 ///   - A valid pointer returned by runtime stack functions (push, etc.)
-///   - A pointer that was originally created via `Box::new(StackNode)` and converted with `Box::into_raw`
 /// - The pointer must not have been previously freed
 /// - After calling this function, the pointer is invalid and must not be used
-/// - This function takes ownership and drops the memory
+/// - This function takes ownership and returns nodes to the pool
 ///
-/// # Contract
-/// The caller MUST guarantee that `stack` was heap-allocated via Box.
-/// Passing a stack pointer that was not Box-allocated will cause undefined behavior.
+/// # Performance
+/// Returns nodes to thread-local pool for reuse instead of freeing to heap
 fn free_stack(mut stack: Stack) {
     if !stack.is_null() {
+        use crate::value::Value;
         unsafe {
-            // Walk the stack and free each node
+            // Walk the stack and return each node to the pool
             while !stack.is_null() {
-                let node = Box::from_raw(stack);
-                stack = node.next;
-                // node is dropped here, which drops the value inside
+                let next = (*stack).next;
+                // Drop the value, then return node to pool
+                // We need to drop the value to free any heap allocations (String, Variant)
+                drop(std::mem::replace(&mut (*stack).value, Value::Int(0)));
+                // Return node to pool for reuse
+                pool::pool_free(stack);
+                stack = next;
             }
         }
     }

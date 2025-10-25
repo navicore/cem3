@@ -523,4 +523,62 @@ mod tests {
             close_channel(stack);
         }
     }
+
+    #[test]
+    fn test_no_memory_leak_over_many_iterations() {
+        // PR #11 feedback: Verify 10K+ strand iterations don't cause memory growth
+        unsafe {
+            use crate::arena;
+            use crate::cemstring::arena_string;
+
+            extern "C" fn allocate_strings_and_exit(stack: Stack) -> Stack {
+                // Simulate request processing: many temp allocations
+                for i in 0..50 {
+                    let temp = arena_string(&format!("request header {}", i));
+                    assert!(!temp.as_str().is_empty());
+                    // Strings dropped here but arena memory stays allocated
+                }
+                stack
+            }
+
+            // Run many iterations to detect leaks
+            let iterations = 10_000;
+
+            for i in 0..iterations {
+                // Reset arena before each iteration to start fresh
+                arena::arena_reset();
+
+                // Spawn strand, let it allocate strings, then exit
+                strand_spawn(allocate_strings_and_exit, std::ptr::null_mut());
+
+                // Wait for completion (triggers arena reset)
+                wait_all_strands();
+
+                // Every 1000 iterations, verify arena is actually reset
+                if i % 1000 == 0 {
+                    let stats = arena::arena_stats();
+                    assert_eq!(
+                        stats.allocated_bytes, 0,
+                        "Arena not reset after iteration {} (leaked {} bytes)",
+                        i,
+                        stats.allocated_bytes
+                    );
+                }
+            }
+
+            // Final verification: arena should be empty
+            let final_stats = arena::arena_stats();
+            assert_eq!(
+                final_stats.allocated_bytes, 0,
+                "Arena leaked memory after {} iterations ({} bytes)",
+                iterations,
+                final_stats.allocated_bytes
+            );
+
+            println!(
+                "✓ Memory leak test passed: {} iterations with no growth",
+                iterations
+            );
+        }
+    }
 }

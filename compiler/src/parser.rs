@@ -115,6 +115,11 @@ impl Parser {
             return self.parse_if();
         }
 
+        // Check for loop
+        if token == "while" {
+            return self.parse_loop();
+        }
+
         // Otherwise it's a word call
         Ok(Statement::WordCall(token))
     }
@@ -174,6 +179,51 @@ impl Parser {
             }
 
             else_branch.push(self.parse_statement()?);
+        }
+    }
+
+    fn parse_loop(&mut self) -> Result<Statement, String> {
+        let mut condition = Vec::new();
+
+        // Parse condition until 'do'
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in 'while' condition".to_string());
+            }
+
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("do") {
+                self.advance();
+                break;
+            }
+
+            condition.push(self.parse_statement()?);
+        }
+
+        // Parse body until 'end'
+        let mut body = Vec::new();
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in loop body".to_string());
+            }
+
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("end") {
+                self.advance();
+                return Ok(Statement::Loop { condition, body });
+            }
+
+            body.push(self.parse_statement()?);
         }
     }
 
@@ -759,5 +809,120 @@ mod tests {
 
         assert_eq!(program.words.len(), 1);
         assert!(program.words[0].effect.is_none());
+    }
+
+    #[test]
+    fn test_parse_simple_loop() {
+        let source = r#"
+: countdown ( Int -- )
+  while dup 0 > do
+    1 subtract
+  end
+  drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].name, "countdown");
+
+        // Body should have: Loop, drop
+        assert_eq!(program.words[0].body.len(), 2);
+
+        match &program.words[0].body[0] {
+            Statement::Loop { condition, body } => {
+                // Condition: dup 0 >
+                assert_eq!(condition.len(), 3);
+                assert_eq!(condition[0], Statement::WordCall("dup".to_string()));
+                assert_eq!(condition[1], Statement::IntLiteral(0));
+                assert_eq!(condition[2], Statement::WordCall(">".to_string()));
+
+                // Body: 1 subtract
+                assert_eq!(body.len(), 2);
+                assert_eq!(body[0], Statement::IntLiteral(1));
+                assert_eq!(body[1], Statement::WordCall("subtract".to_string()));
+            }
+            _ => panic!("Expected Loop statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_loop_with_empty_check() {
+        let source = r#"
+: read-until-empty ( -- )
+  while read-line dup empty? not do
+    write-line
+  end
+  drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Loop { condition, body } => {
+                // Condition: read-line dup empty? not
+                assert_eq!(condition.len(), 4);
+                assert_eq!(condition[0], Statement::WordCall("read-line".to_string()));
+                assert_eq!(condition[1], Statement::WordCall("dup".to_string()));
+                assert_eq!(condition[2], Statement::WordCall("empty?".to_string()));
+                assert_eq!(condition[3], Statement::WordCall("not".to_string()));
+
+                // Body: write-line
+                assert_eq!(body.len(), 1);
+                assert_eq!(body[0], Statement::WordCall("write-line".to_string()));
+            }
+            _ => panic!("Expected Loop statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_loop() {
+        let source = r#"
+: nested ( -- )
+  while dup 0 > do
+    10 while dup 0 > do
+      1 subtract
+    end
+    drop
+    1 subtract
+  end
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Loop {
+                condition: outer_cond,
+                body: outer_body,
+            } => {
+                assert_eq!(outer_cond.len(), 3);
+
+                // Outer body should contain: 10, inner_loop, drop, 1, subtract
+                assert_eq!(outer_body.len(), 5);
+                assert_eq!(outer_body[0], Statement::IntLiteral(10));
+
+                match &outer_body[1] {
+                    Statement::Loop {
+                        condition: inner_cond,
+                        body: inner_body,
+                    } => {
+                        assert_eq!(inner_cond.len(), 3);
+                        assert_eq!(inner_body.len(), 2);
+                    }
+                    _ => panic!("Expected nested Loop"),
+                }
+            }
+            _ => panic!("Expected Loop statement"),
+        }
     }
 }

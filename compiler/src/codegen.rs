@@ -387,6 +387,11 @@ impl CodeGen {
 
                 Ok(result_var)
             }
+
+            Statement::Loop { .. } => {
+                // TODO: Implement loop code generation
+                Err("Loop code generation not yet implemented".to_string())
+            }
         }
     }
 

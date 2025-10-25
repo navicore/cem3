@@ -20,7 +20,7 @@ use std::fmt;
 pub struct CemString {
     ptr: *const u8,
     len: usize,
-    capacity: usize,  // Only meaningful for global strings
+    capacity: usize, // Only meaningful for global strings
     global: bool,
 }
 
@@ -88,7 +88,7 @@ impl Drop for CemString {
                 let _s = String::from_raw_parts(
                     self.ptr as *mut u8,
                     self.len,
-                    self.capacity,  // Use original capacity for correct deallocation
+                    self.capacity, // Use original capacity for correct deallocation
                 );
                 // _s is dropped here, freeing the memory with correct size
             }
@@ -122,7 +122,7 @@ pub fn arena_string(s: &str) -> CemString {
         CemString {
             ptr: arena_str.as_ptr(),
             len: arena_str.len(),
-            capacity: 0,  // Not used for arena strings
+            capacity: 0, // Not used for arena strings
             global: false,
         }
     })
@@ -144,7 +144,7 @@ pub fn global_string(s: String) -> CemString {
     CemString {
         ptr,
         len,
-        capacity,  // Store original capacity for correct deallocation
+        capacity, // Store original capacity for correct deallocation
         global: true,
     }
 }
@@ -293,7 +293,7 @@ mod tests {
 
         // Verify the CemString captured the original capacity
         assert_eq!(cem.len(), 2);
-        assert_eq!(cem.capacity, 100);  // Critical: Must be 100, not 2!
+        assert_eq!(cem.capacity, 100); // Critical: Must be 100, not 2!
         assert_eq!(cem.as_str(), "hi");
         assert!(cem.is_global());
 
@@ -307,7 +307,7 @@ mod tests {
     fn test_arena_string_capacity_zero() {
         // Arena strings don't use capacity field
         let s = arena_string("test");
-        assert_eq!(s.capacity, 0);  // Arena strings have capacity=0
+        assert_eq!(s.capacity, 0); // Arena strings have capacity=0
         assert!(!s.is_global());
     }
 }

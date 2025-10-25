@@ -510,6 +510,31 @@ Type checker verifies:
 Interning only needed if benchmarks show string *literals* are a bottleneck.
 **See:** `docs/STRING_INTERNING_DESIGN.md` (updated for Phase 9.2)
 
+### Future Enhancements (Post-Phase 9)
+
+**Observability & Monitoring:**
+- [ ] Expose pool/arena stats via runtime API
+- [ ] Log metrics for pool overflow events
+- [ ] Track arena reset frequency
+- [ ] Detect thread migration (if it occurs)
+
+**Performance Validation:**
+- [ ] Add benchmarks for stack operations (validate 10x claim)
+- [ ] Add benchmarks for string allocation (validate 20x claim)
+- [ ] Benchmark concurrent scenarios (many strands)
+- [ ] Compare vs cem2 performance
+
+**Configurability:**
+- [ ] Make arena auto-reset threshold configurable
+- [ ] Make pool size configurable (currently 256 initial, 1024 max)
+- [ ] Per-workload tuning support
+
+**Testing:**
+- [ ] More integration tests for concurrent scenarios
+- [ ] Stress test with mixed arena/global string patterns
+- [ ] Test arena behavior under thread migration
+- [ ] Valgrind verification (no leaks)
+
 ---
 
 ## Phase 10: Advanced Features

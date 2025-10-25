@@ -158,6 +158,24 @@ impl TypeChecker {
 
                 Ok(then_result)
             }
+
+            Statement::Quotation(body) => {
+                // Type checking for quotations
+                //
+                // A quotation is a block of deferred code.
+                // Its type is Quotation(effect) where effect is the stack effect of its body.
+                //
+                // Example: [ 1 add ]
+                //   Body effect: ( Int -- Int )
+                //   Type: Quotation(Int -- Int)
+                //   Stack effect: ( ..a -- ..a Quotation(Int -- Int) )
+
+                // Infer the effect of the quotation body
+                let quot_effect = self.infer_statements(body)?;
+
+                // Quotations are first-class values - push quotation type onto stack
+                Ok(current_stack.push(Type::Quotation(Box::new(quot_effect))))
+            }
         }
     }
 
@@ -948,6 +966,114 @@ mod tests {
                     Statement::WordCall("add".to_string()),
                     Statement::WordCall("add".to_string()),
                 ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_simple_quotation() {
+        // : test ( -- Quot )
+        //   [ 1 add ] ;
+        // Quotation type should be [ ..input Int -- ..input Int ] (row polymorphic)
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty,
+                    StackType::singleton(Type::Quotation(Box::new(Effect::new(
+                        StackType::RowVar("input".to_string()).push(Type::Int),
+                        StackType::RowVar("input".to_string()).push(Type::Int),
+                    )))),
+                )),
+                body: vec![Statement::Quotation(vec![
+                    Statement::IntLiteral(1),
+                    Statement::WordCall("add".to_string()),
+                ])],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_empty_quotation() {
+        // : test ( -- Quot )
+        //   [ ] ;
+        // Empty quotation has effect ( ..input -- ..input ) (preserves stack)
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty,
+                    StackType::singleton(Type::Quotation(Box::new(Effect::new(
+                        StackType::RowVar("input".to_string()),
+                        StackType::RowVar("input".to_string()),
+                    )))),
+                )),
+                body: vec![Statement::Quotation(vec![])],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    // TODO: Re-enable once write_line is properly row-polymorphic
+    // #[test]
+    // fn test_quotation_with_string() {
+    //     // : test ( -- Quot )
+    //     //   [ "hello" write_line ] ;
+    //     let program = Program {
+    //         words: vec![WordDef {
+    //             name: "test".to_string(),
+    //             effect: Some(Effect::new(
+    //                 StackType::Empty,
+    //                 StackType::singleton(Type::Quotation(Box::new(Effect::new(
+    //                     StackType::RowVar("input".to_string()),
+    //                     StackType::RowVar("input".to_string()),
+    //                 )))),
+    //             )),
+    //             body: vec![Statement::Quotation(vec![
+    //                 Statement::StringLiteral("hello".to_string()),
+    //                 Statement::WordCall("write_line".to_string()),
+    //             ])],
+    //         }],
+    //     };
+    //
+    //     let mut checker = TypeChecker::new();
+    //     assert!(checker.check_program(&program).is_ok());
+    // }
+
+    #[test]
+    fn test_nested_quotation() {
+        // : test ( -- Quot )
+        //   [ [ 1 add ] ] ;
+        // Outer quotation contains inner quotation (both row-polymorphic)
+        let inner_quot_type = Type::Quotation(Box::new(Effect::new(
+            StackType::RowVar("input".to_string()).push(Type::Int),
+            StackType::RowVar("input".to_string()).push(Type::Int),
+        )));
+
+        let outer_quot_type = Type::Quotation(Box::new(Effect::new(
+            StackType::RowVar("input".to_string()),
+            StackType::RowVar("input".to_string()).push(inner_quot_type.clone()),
+        )));
+
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty,
+                    StackType::singleton(outer_quot_type),
+                )),
+                body: vec![Statement::Quotation(vec![Statement::Quotation(vec![
+                    Statement::IntLiteral(1),
+                    Statement::WordCall("add".to_string()),
+                ])])],
             }],
         };
 

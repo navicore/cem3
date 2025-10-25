@@ -387,6 +387,11 @@ impl CodeGen {
 
                 Ok(result_var)
             }
+
+            Statement::Quotation(_) => {
+                // TODO: Implement quotation code generation
+                Err("Quotation code generation not yet implemented".to_string())
+            }
         }
     }
 

@@ -384,7 +384,7 @@ mod tests {
     fn test_arena_reset_with_strands() {
         unsafe {
             use crate::arena;
-            use crate::cemstring::{arena_string, global_string};
+            use crate::cemstring::arena_string;
 
             extern "C" fn create_temp_strings(stack: Stack) -> Stack {
                 // Create many temporary arena strings (simulating request parsing)
@@ -423,7 +423,6 @@ mod tests {
     #[test]
     fn test_arena_with_channel_send() {
         unsafe {
-            use crate::cemstring::{arena_string, global_string};
             use crate::channel::{close_channel, make_channel};
             use crate::stack::{pop, push};
             use crate::value::Value;

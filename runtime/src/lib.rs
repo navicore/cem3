@@ -11,6 +11,7 @@ pub mod cemstring;
 pub mod channel;
 pub mod io;
 pub mod pool;
+pub mod quotations;
 pub mod scheduler;
 pub mod stack;
 pub mod string_ops;
@@ -41,3 +42,6 @@ pub use channel::{close_channel, make_channel, receive, send};
 
 // String operations (exported for LLVM linking)
 pub use string_ops::{string_contains, string_empty, string_split, string_starts_with};
+
+// Quotation operations (exported for LLVM linking)
+pub use quotations::{call, push_quotation};

@@ -97,7 +97,9 @@ impl Program {
             "receive",
             "close-channel",
             "yield",
-            // Note: spawn omitted - requires quotation support in AST
+            // Quotation operations
+            "call",
+            // Note: spawn, times, while omitted - not yet implemented
         ];
 
         for word in &self.words {

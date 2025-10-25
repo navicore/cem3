@@ -13,6 +13,7 @@ pub mod io;
 pub mod pool;
 pub mod scheduler;
 pub mod stack;
+pub mod string_ops;
 pub mod value;
 
 // Re-export key types and functions
@@ -37,3 +38,6 @@ pub use scheduler::{
 
 // Channel operations (exported for LLVM linking)
 pub use channel::{close_channel, make_channel, receive, send};
+
+// String operations (exported for LLVM linking)
+pub use string_ops::{string_contains, string_empty, string_split, string_starts_with};

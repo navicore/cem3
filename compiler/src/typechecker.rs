@@ -158,6 +158,11 @@ impl TypeChecker {
 
                 Ok(then_result)
             }
+
+            Statement::Loop { .. } => {
+                // TODO: Implement loop type checking
+                Err("Loop type checking not yet implemented".to_string())
+            }
         }
     }
 

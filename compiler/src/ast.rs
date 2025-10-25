@@ -43,6 +43,14 @@ pub enum Statement {
         /// Optional statements to execute when condition is zero (the 'else' clause)
         else_branch: Option<Vec<Statement>>,
     },
+
+    /// Loop: while/do/end
+    ///
+    /// Evaluates condition, if non-zero executes body and repeats
+    Loop {
+        condition: Vec<Statement>,
+        body: Vec<Statement>,
+    },
 }
 
 impl Program {
@@ -134,6 +142,11 @@ impl Program {
                     if let Some(eb) = else_branch {
                         self.validate_statements(eb, word_name, builtins)?;
                     }
+                }
+                Statement::Loop { condition, body } => {
+                    // Recursively validate condition and body
+                    self.validate_statements(condition, word_name, builtins)?;
+                    self.validate_statements(body, word_name, builtins)?;
                 }
                 _ => {} // Literals don't need validation
             }

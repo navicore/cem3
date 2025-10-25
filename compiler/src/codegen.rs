@@ -27,7 +27,9 @@ pub struct CodeGen {
     temp_counter: usize,
     string_counter: usize,
     block_counter: usize, // For generating unique block labels
+    quot_counter: usize,  // For generating unique quotation function names
     string_constants: HashMap<String, String>, // string content -> global name
+    quotation_functions: String, // Accumulates generated quotation functions
 }
 
 impl CodeGen {
@@ -38,7 +40,9 @@ impl CodeGen {
             temp_counter: 0,
             string_counter: 0,
             block_counter: 0,
+            quot_counter: 0,
             string_constants: HashMap::new(),
+            quotation_functions: String::new(),
         }
     }
 
@@ -155,6 +159,9 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
+        writeln!(&mut ir, "; Quotation operations").unwrap();
+        writeln!(&mut ir, "declare ptr @push_quotation(ptr, i64)").unwrap();
+        writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
@@ -165,6 +172,13 @@ impl CodeGen {
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
+
+        // Quotation functions (generated from quotation literals)
+        if !self.quotation_functions.is_empty() {
+            writeln!(&mut ir, "; Quotation functions").unwrap();
+            ir.push_str(&self.quotation_functions);
+            writeln!(&mut ir).unwrap();
+        }
 
         // User-defined words and main
         ir.push_str(&self.output);
@@ -196,6 +210,45 @@ impl CodeGen {
         writeln!(&mut self.output).unwrap();
 
         Ok(())
+    }
+
+    /// Generate a quotation function
+    /// Returns the function name
+    fn codegen_quotation(&mut self, body: &[Statement]) -> Result<String, String> {
+        // Generate unique function name
+        let function_name = format!("cem_quot_{}", self.quot_counter);
+        self.quot_counter += 1;
+
+        // Save current output and switch to quotation_functions
+        let saved_output = std::mem::take(&mut self.output);
+
+        // Generate function
+        writeln!(
+            &mut self.output,
+            "define ptr @{}(ptr %stack) {{",
+            function_name
+        )
+        .unwrap();
+        writeln!(&mut self.output, "entry:").unwrap();
+
+        let mut stack_var = "stack".to_string();
+
+        // Generate code for each statement in the quotation body
+        for statement in body {
+            stack_var = self.codegen_statement(&stack_var, statement)?;
+        }
+
+        writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+        writeln!(&mut self.output, "}}").unwrap();
+        writeln!(&mut self.output).unwrap();
+
+        // Move generated function to quotation_functions
+        self.quotation_functions.push_str(&self.output);
+
+        // Restore original output
+        self.output = saved_output;
+
+        Ok(function_name)
     }
 
     /// Generate code for a single statement
@@ -279,6 +332,8 @@ impl CodeGen {
                     "receive" => "receive".to_string(),
                     "close-channel" => "close_channel".to_string(),
                     "yield" => "yield_strand".to_string(),
+                    // Quotation operations
+                    "call" => "call".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };
@@ -388,9 +443,29 @@ impl CodeGen {
                 Ok(result_var)
             }
 
-            Statement::Quotation(_) => {
-                // TODO: Implement quotation code generation
-                Err("Quotation code generation not yet implemented".to_string())
+            Statement::Quotation(body) => {
+                // Generate a function for the quotation body
+                let fn_name = self.codegen_quotation(body)?;
+
+                // Get function pointer as usize
+                let fn_ptr_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = ptrtoint ptr @{} to i64",
+                    fn_ptr_var, fn_name
+                )
+                .unwrap();
+
+                // Push the function pointer onto the stack
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
+                    result_var, stack_var, fn_ptr_var
+                )
+                .unwrap();
+
+                Ok(result_var)
             }
         }
     }

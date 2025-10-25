@@ -823,4 +823,135 @@ mod tests {
         let mut checker = TypeChecker::new();
         assert!(checker.check_program(&program).is_ok());
     }
+
+    #[test]
+    fn test_recursive_word_definitions() {
+        // Test mutually recursive words (type checking only, no runtime)
+        // : is-even ( Int -- Int ) dup 0 = if drop 1 else 1 subtract is-odd then ;
+        // : is-odd ( Int -- Int ) dup 0 = if drop 0 else 1 subtract is-even then ;
+        //
+        // Note: This tests that the checker can handle words that reference each other
+        let program = Program {
+            words: vec![
+                WordDef {
+                    name: "is-even".to_string(),
+                    effect: Some(Effect::new(
+                        StackType::singleton(Type::Int),
+                        StackType::singleton(Type::Int),
+                    )),
+                    body: vec![
+                        Statement::WordCall("dup".to_string()),
+                        Statement::IntLiteral(0),
+                        Statement::WordCall("=".to_string()),
+                        Statement::If {
+                            then_branch: vec![
+                                Statement::WordCall("drop".to_string()),
+                                Statement::IntLiteral(1),
+                            ],
+                            else_branch: Some(vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall("subtract".to_string()),
+                                Statement::WordCall("is-odd".to_string()),
+                            ]),
+                        },
+                    ],
+                },
+                WordDef {
+                    name: "is-odd".to_string(),
+                    effect: Some(Effect::new(
+                        StackType::singleton(Type::Int),
+                        StackType::singleton(Type::Int),
+                    )),
+                    body: vec![
+                        Statement::WordCall("dup".to_string()),
+                        Statement::IntLiteral(0),
+                        Statement::WordCall("=".to_string()),
+                        Statement::If {
+                            then_branch: vec![
+                                Statement::WordCall("drop".to_string()),
+                                Statement::IntLiteral(0),
+                            ],
+                            else_branch: Some(vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall("subtract".to_string()),
+                                Statement::WordCall("is-even".to_string()),
+                            ]),
+                        },
+                    ],
+                },
+            ],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_word_calling_word_with_row_polymorphism() {
+        // Test that row variables unify correctly through word calls
+        // : apply-twice ( Int -- Int ) dup add ;
+        // : quad ( Int -- Int ) apply-twice apply-twice ;
+        // Should work: both use row polymorphism correctly
+        let program = Program {
+            words: vec![
+                WordDef {
+                    name: "apply-twice".to_string(),
+                    effect: Some(Effect::new(
+                        StackType::singleton(Type::Int),
+                        StackType::singleton(Type::Int),
+                    )),
+                    body: vec![
+                        Statement::WordCall("dup".to_string()),
+                        Statement::WordCall("add".to_string()),
+                    ],
+                },
+                WordDef {
+                    name: "quad".to_string(),
+                    effect: Some(Effect::new(
+                        StackType::singleton(Type::Int),
+                        StackType::singleton(Type::Int),
+                    )),
+                    body: vec![
+                        Statement::WordCall("apply-twice".to_string()),
+                        Statement::WordCall("apply-twice".to_string()),
+                    ],
+                },
+            ],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_deep_stack_types() {
+        // Test with many values on stack (10+ items)
+        // : test ( Int Int Int Int Int Int Int Int Int Int -- Int )
+        //   add add add add add add add add add ;
+        let mut stack_type = StackType::Empty;
+        for _ in 0..10 {
+            stack_type = stack_type.push(Type::Int);
+        }
+
+        let program = Program {
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(stack_type, StackType::singleton(Type::Int))),
+                body: vec![
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall("add".to_string()),
+                ],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
 }

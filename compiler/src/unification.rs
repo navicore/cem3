@@ -86,6 +86,39 @@ impl Subst {
     }
 }
 
+/// Check if a type variable occurs in a type (for occurs check)
+///
+/// Prevents infinite types like: T = List<T>
+///
+/// NOTE: Currently we only have simple types (Int, String, Bool).
+/// When parametric types are added (e.g., List<T>, Option<T>), this function
+/// must be extended to recursively check type arguments:
+///
+/// ```ignore
+/// Type::Named { name: _, args } => {
+///     args.iter().any(|arg| occurs_in_type(var, arg))
+/// }
+/// ```
+fn occurs_in_type(var: &str, ty: &Type) -> bool {
+    match ty {
+        Type::Var(name) => name == var,
+        Type::Int | Type::Bool | Type::String => false,
+    }
+}
+
+/// Check if a row variable occurs in a stack type (for occurs check)
+fn occurs_in_stack(var: &str, stack: &StackType) -> bool {
+    match stack {
+        StackType::Empty => false,
+        StackType::RowVar(name) => name == var,
+        StackType::Cons { rest, top: _ } => {
+            // Row variables only occur in stack positions, not in type positions
+            // So we only need to check the rest of the stack
+            occurs_in_stack(var, rest)
+        }
+    }
+}
+
 /// Unify two types, returning a substitution or an error
 pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
     match (t1, t2) {
@@ -94,8 +127,22 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
             Ok(Subst::empty())
         }
 
-        // Type variable unifies with anything
+        // Type variable unifies with anything (with occurs check)
         (Type::Var(name), ty) | (ty, Type::Var(name)) => {
+            // If unifying a variable with itself, no substitution needed
+            if matches!(ty, Type::Var(ty_name) if ty_name == name) {
+                return Ok(Subst::empty());
+            }
+
+            // Occurs check: prevent infinite types
+            if occurs_in_type(name, ty) {
+                return Err(format!(
+                    "Occurs check failed: cannot unify {:?} with {:?} (would create infinite type)",
+                    Type::Var(name.clone()),
+                    ty
+                ));
+            }
+
             let mut subst = Subst::empty();
             subst.types.insert(name.clone(), ty.clone());
             Ok(subst)
@@ -115,8 +162,22 @@ pub fn unify_stacks(s1: &StackType, s2: &StackType) -> Result<Subst, String> {
         // Empty stacks unify
         (StackType::Empty, StackType::Empty) => Ok(Subst::empty()),
 
-        // Row variable unifies with any stack
+        // Row variable unifies with any stack (with occurs check)
         (StackType::RowVar(name), stack) | (stack, StackType::RowVar(name)) => {
+            // If unifying a row var with itself, no substitution needed
+            if matches!(stack, StackType::RowVar(stack_name) if stack_name == name) {
+                return Ok(Subst::empty());
+            }
+
+            // Occurs check: prevent infinite stack types
+            if occurs_in_stack(name, stack) {
+                return Err(format!(
+                    "Occurs check failed: cannot unify {:?} with {:?} (would create infinite stack type)",
+                    StackType::RowVar(name.clone()),
+                    stack
+                ));
+            }
+
             let mut subst = Subst::empty();
             subst.rows.insert(name.clone(), stack.clone());
             Ok(subst)
@@ -263,5 +324,107 @@ mod tests {
 
         assert_eq!(composed.types.get("T"), Some(&Type::Int));
         assert_eq!(composed.types.get("U"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn test_occurs_check_type_var_with_itself() {
+        // Unifying T with T should succeed (no substitution needed)
+        let result = unify_types(&Type::Var("T".to_string()), &Type::Var("T".to_string()));
+        assert!(result.is_ok());
+        let subst = result.unwrap();
+        // Should be empty - no substitution needed when unifying var with itself
+        assert!(subst.types.is_empty());
+    }
+
+    #[test]
+    fn test_occurs_check_row_var_with_itself() {
+        // Unifying ..a with ..a should succeed (no substitution needed)
+        let result = unify_stacks(
+            &StackType::RowVar("a".to_string()),
+            &StackType::RowVar("a".to_string()),
+        );
+        assert!(result.is_ok());
+        let subst = result.unwrap();
+        // Should be empty - no substitution needed when unifying var with itself
+        assert!(subst.rows.is_empty());
+    }
+
+    #[test]
+    fn test_occurs_check_prevents_infinite_stack() {
+        // Attempting to unify ..a with (..a Int) should fail
+        // This would create an infinite type: ..a = (..a Int) = ((..a Int) Int) = ...
+        let row_var = StackType::RowVar("a".to_string());
+        let infinite_stack = StackType::RowVar("a".to_string()).push(Type::Int);
+
+        let result = unify_stacks(&row_var, &infinite_stack);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Occurs check failed"));
+        assert!(err.contains("infinite"));
+    }
+
+    #[test]
+    fn test_occurs_check_allows_different_row_vars() {
+        // Unifying ..a with ..b should succeed (different variables)
+        let result = unify_stacks(
+            &StackType::RowVar("a".to_string()),
+            &StackType::RowVar("b".to_string()),
+        );
+        assert!(result.is_ok());
+        let subst = result.unwrap();
+        assert_eq!(
+            subst.rows.get("a"),
+            Some(&StackType::RowVar("b".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_occurs_check_allows_concrete_stack() {
+        // Unifying ..a with (Int String) should succeed (no occurs)
+        let row_var = StackType::RowVar("a".to_string());
+        let concrete = StackType::Empty.push(Type::Int).push(Type::String);
+
+        let result = unify_stacks(&row_var, &concrete);
+        assert!(result.is_ok());
+        let subst = result.unwrap();
+        assert_eq!(subst.rows.get("a"), Some(&concrete));
+    }
+
+    #[test]
+    fn test_occurs_in_type() {
+        // T occurs in T
+        assert!(occurs_in_type("T", &Type::Var("T".to_string())));
+
+        // T does not occur in U
+        assert!(!occurs_in_type("T", &Type::Var("U".to_string())));
+
+        // T does not occur in Int
+        assert!(!occurs_in_type("T", &Type::Int));
+        assert!(!occurs_in_type("T", &Type::String));
+        assert!(!occurs_in_type("T", &Type::Bool));
+    }
+
+    #[test]
+    fn test_occurs_in_stack() {
+        // ..a occurs in ..a
+        assert!(occurs_in_stack("a", &StackType::RowVar("a".to_string())));
+
+        // ..a does not occur in ..b
+        assert!(!occurs_in_stack("a", &StackType::RowVar("b".to_string())));
+
+        // ..a does not occur in Empty
+        assert!(!occurs_in_stack("a", &StackType::Empty));
+
+        // ..a occurs in (..a Int)
+        let stack = StackType::RowVar("a".to_string()).push(Type::Int);
+        assert!(occurs_in_stack("a", &stack));
+
+        // ..a does not occur in (..b Int)
+        let stack = StackType::RowVar("b".to_string()).push(Type::Int);
+        assert!(!occurs_in_stack("a", &stack));
+
+        // ..a does not occur in (Int String)
+        let stack = StackType::Empty.push(Type::Int).push(Type::String);
+        assert!(!occurs_in_stack("a", &stack));
     }
 }

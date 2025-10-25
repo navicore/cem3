@@ -9,6 +9,7 @@
 //! ```
 
 use crate::ast::{Program, Statement, WordDef};
+use crate::types::{Effect, StackType, Type};
 
 pub struct Parser {
     tokens: Vec<String>,
@@ -57,10 +58,12 @@ impl Parser {
             .ok_or("Expected word name after ':'")?
             .clone();
 
-        // Skip stack effect comment if present: ( -- )
-        if self.check("(") {
-            self.skip_stack_effect()?;
-        }
+        // Parse stack effect if present: ( ..a Int -- ..a Bool )
+        let effect = if self.check("(") {
+            Some(self.parse_stack_effect()?)
+        } else {
+            None
+        };
 
         // Parse body until ';'
         let mut body = Vec::new();
@@ -81,7 +84,7 @@ impl Parser {
         // Consume ';'
         self.consume(";");
 
-        Ok(WordDef { name, body })
+        Ok(WordDef { name, effect, body })
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
@@ -174,16 +177,120 @@ impl Parser {
         }
     }
 
-    fn skip_stack_effect(&mut self) -> Result<(), String> {
-        self.consume("(");
+    /// Parse a stack effect declaration: ( ..a Int -- ..a Bool )
+    fn parse_stack_effect(&mut self) -> Result<Effect, String> {
+        // Consume '('
+        if !self.consume("(") {
+            return Err("Expected '(' to start stack effect".to_string());
+        }
+
+        // Parse input stack types
+        let mut input_types = Vec::new();
+        let mut input_row_var = None;
+
+        while !self.check("--") && !self.check(")") {
+            if self.is_at_end() {
+                return Err("Unclosed stack effect declaration".to_string());
+            }
+
+            let token = self
+                .advance()
+                .ok_or("Unexpected end in stack effect")?
+                .clone();
+
+            // Check for row variable: ..name
+            if token.starts_with("..") {
+                let var_name = token.trim_start_matches("..").to_string();
+                if var_name.is_empty() {
+                    return Err("Row variable must have a name after '..'".to_string());
+                }
+                input_row_var = Some(var_name);
+            } else {
+                // Parse as concrete type
+                input_types.push(self.parse_type(&token)?);
+            }
+        }
+
+        // Consume '--'
+        if !self.consume("--") {
+            return Err("Expected '--' separator in stack effect".to_string());
+        }
+
+        // Parse output stack types
+        let mut output_types = Vec::new();
+        let mut output_row_var = None;
+
         while !self.check(")") {
             if self.is_at_end() {
-                return Err("Unclosed stack effect comment".to_string());
+                return Err("Unclosed stack effect declaration".to_string());
             }
-            self.advance();
+
+            let token = self
+                .advance()
+                .ok_or("Unexpected end in stack effect")?
+                .clone();
+
+            // Check for row variable: ..name
+            if token.starts_with("..") {
+                let var_name = token.trim_start_matches("..").to_string();
+                if var_name.is_empty() {
+                    return Err("Row variable must have a name after '..'".to_string());
+                }
+                output_row_var = Some(var_name);
+            } else {
+                // Parse as concrete type
+                output_types.push(self.parse_type(&token)?);
+            }
         }
-        self.consume(")");
-        Ok(())
+
+        // Consume ')'
+        if !self.consume(")") {
+            return Err("Expected ')' to end stack effect".to_string());
+        }
+
+        // Build input StackType
+        let inputs = self.build_stack_type(input_row_var, input_types);
+
+        // Build output StackType
+        let outputs = self.build_stack_type(output_row_var, output_types);
+
+        Ok(Effect::new(inputs, outputs))
+    }
+
+    /// Parse a single type token into a Type
+    fn parse_type(&self, token: &str) -> Result<Type, String> {
+        match token {
+            "Int" => Ok(Type::Int),
+            "Bool" => Ok(Type::Bool),
+            "String" => Ok(Type::String),
+            _ => {
+                // Check if it's a type variable (starts with uppercase)
+                if let Some(first_char) = token.chars().next() {
+                    if first_char.is_uppercase() {
+                        Ok(Type::Var(token.to_string()))
+                    } else {
+                        Err(format!(
+                            "Unknown type: '{}'. Expected Int, Bool, String, or a type variable (uppercase)",
+                            token
+                        ))
+                    }
+                } else {
+                    Err(format!("Invalid type: '{}'", token))
+                }
+            }
+        }
+    }
+
+    /// Build a StackType from an optional row variable and a list of types
+    /// Example: row_var="a", types=[Int, Bool] => RowVar("a") with Int on top of Bool
+    fn build_stack_type(&self, row_var: Option<String>, types: Vec<Type>) -> StackType {
+        let base = match row_var {
+            Some(name) => StackType::RowVar(name),
+            None => StackType::Empty,
+        };
+
+        // Push types onto the stack (bottom to top order)
+        types.into_iter().fold(base, |stack, ty| stack.push(ty))
     }
 
     fn skip_comments(&mut self) {
@@ -448,10 +555,10 @@ mod tests {
     #[test]
     fn test_multiple_word_definitions() {
         let source = r#"
-: double ( n -- n*2 )
+: double ( Int -- Int )
   2 multiply ;
 
-: quadruple ( n -- n*4 )
+: quadruple ( Int -- Int )
   double double ;
 "#;
 
@@ -461,6 +568,10 @@ mod tests {
         assert_eq!(program.words.len(), 2);
         assert_eq!(program.words[0].name, "double");
         assert_eq!(program.words[1].name, "quadruple");
+
+        // Verify stack effects were parsed
+        assert!(program.words[0].effect.is_some());
+        assert!(program.words[1].effect.is_some());
     }
 
     #[test]
@@ -483,5 +594,170 @@ mod tests {
             Statement::WordCall(name) => assert_eq!(name, "helper"),
             _ => panic!("Expected WordCall to helper"),
         }
+    }
+
+    #[test]
+    fn test_parse_simple_stack_effect() {
+        // Test: ( Int -- Bool )
+        let source = ": test ( Int -- Bool ) 1 ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        let word = &program.words[0];
+        assert!(word.effect.is_some());
+
+        let effect = word.effect.as_ref().unwrap();
+
+        // Input: Int on Empty
+        assert_eq!(
+            effect.inputs,
+            StackType::Cons {
+                rest: Box::new(StackType::Empty),
+                top: Type::Int
+            }
+        );
+
+        // Output: Bool on Empty
+        assert_eq!(
+            effect.outputs,
+            StackType::Cons {
+                rest: Box::new(StackType::Empty),
+                top: Type::Bool
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_row_polymorphic_stack_effect() {
+        // Test: ( ..a Int -- ..a Bool )
+        let source = ": test ( ..a Int -- ..a Bool ) 1 ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        let word = &program.words[0];
+        assert!(word.effect.is_some());
+
+        let effect = word.effect.as_ref().unwrap();
+
+        // Input: Int on RowVar("a")
+        assert_eq!(
+            effect.inputs,
+            StackType::Cons {
+                rest: Box::new(StackType::RowVar("a".to_string())),
+                top: Type::Int
+            }
+        );
+
+        // Output: Bool on RowVar("a")
+        assert_eq!(
+            effect.outputs,
+            StackType::Cons {
+                rest: Box::new(StackType::RowVar("a".to_string())),
+                top: Type::Bool
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple_types_stack_effect() {
+        // Test: ( Int String -- Bool )
+        let source = ": test ( Int String -- Bool ) 1 ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: String on Int on Empty
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        assert_eq!(top, Type::String);
+        let (rest2, top2) = rest.pop().unwrap();
+        assert_eq!(top2, Type::Int);
+        assert_eq!(rest2, StackType::Empty);
+
+        // Output: Bool on Empty
+        assert_eq!(
+            effect.outputs,
+            StackType::Cons {
+                rest: Box::new(StackType::Empty),
+                top: Type::Bool
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_type_variable() {
+        // Test: ( ..a T -- ..a T T ) for dup
+        let source = ": dup ( ..a T -- ..a T T ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: T on RowVar("a")
+        assert_eq!(
+            effect.inputs,
+            StackType::Cons {
+                rest: Box::new(StackType::RowVar("a".to_string())),
+                top: Type::Var("T".to_string())
+            }
+        );
+
+        // Output: T on T on RowVar("a")
+        let (rest, top) = effect.outputs.clone().pop().unwrap();
+        assert_eq!(top, Type::Var("T".to_string()));
+        let (rest2, top2) = rest.pop().unwrap();
+        assert_eq!(top2, Type::Var("T".to_string()));
+        assert_eq!(rest2, StackType::RowVar("a".to_string()));
+    }
+
+    #[test]
+    fn test_parse_empty_stack_effect() {
+        // Test: ( -- )
+        let source = ": test ( -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        assert_eq!(effect.inputs, StackType::Empty);
+        assert_eq!(effect.outputs, StackType::Empty);
+    }
+
+    #[test]
+    fn test_parse_invalid_type() {
+        // Test invalid type (lowercase, not a row var)
+        let source = ": test ( invalid -- Bool ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown type"));
+    }
+
+    #[test]
+    fn test_parse_unclosed_stack_effect() {
+        // Test unclosed stack effect - parser tries to parse all tokens until ')' or EOF
+        // In this case, it encounters "body" which is an invalid type
+        let source = ": test ( Int -- Bool body ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        // Parser will try to parse "body" as a type and fail
+        assert!(err_msg.contains("Unknown type"));
+    }
+
+    #[test]
+    fn test_parse_no_stack_effect() {
+        // Test word without stack effect (should still work)
+        let source = ": test 1 2 add ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert!(program.words[0].effect.is_none());
     }
 }

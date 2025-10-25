@@ -3,6 +3,8 @@
 //! Minimal AST sufficient for hello-world and basic programs.
 //! Will be extended as we add more language features.
 
+use crate::types::Effect;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub words: Vec<WordDef>,
@@ -11,6 +13,9 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WordDef {
     pub name: String,
+    /// Optional stack effect declaration
+    /// Example: ( ..a Int -- ..a Bool )
+    pub effect: Option<Effect>,
     pub body: Vec<Statement>,
 }
 
@@ -152,6 +157,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "main".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(2),
                     Statement::IntLiteral(3),
@@ -171,10 +177,12 @@ mod tests {
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
+                    effect: None,
                     body: vec![Statement::IntLiteral(42)],
                 },
                 WordDef {
                     name: "main".to_string(),
+                    effect: None,
                     body: vec![Statement::WordCall("helper".to_string())],
                 },
             ],
@@ -189,6 +197,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "main".to_string(),
+                effect: None,
                 body: vec![Statement::WordCall("undefined_word".to_string())],
             }],
         };
@@ -206,6 +215,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "main".to_string(),
+                effect: None,
                 body: vec![Statement::WordCall("wrte_line".to_string())], // typo
             }],
         };

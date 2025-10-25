@@ -16,9 +16,11 @@ use std::fmt;
 /// - If global=true: ptr points to global-allocated String, must be dropped
 /// - If global=false: ptr points to thread-local arena, no drop needed
 /// - ptr + len must form a valid UTF-8 string
+/// - For global strings: capacity must match the original String's capacity
 pub struct CemString {
     ptr: *const u8,
     len: usize,
+    capacity: usize,  // Only meaningful for global strings
     global: bool,
 }
 
@@ -80,13 +82,15 @@ impl Drop for CemString {
     fn drop(&mut self) {
         if self.global {
             // Reconstruct String and drop it
-            // Safety: We created this from String::as_ptr() in global_string()
+            // Safety: We created this from String in global_string() and stored
+            // the original ptr, len, and capacity. This ensures correct deallocation.
             unsafe {
-                // Note: We don't track capacity separately, so we use len as capacity.
-                // This means we lose any excess capacity the original String had.
-                // This is acceptable for now; future optimization could track capacity.
-                let _s = String::from_raw_parts(self.ptr as *mut u8, self.len, self.len);
-                // _s is dropped here, freeing the memory
+                let _s = String::from_raw_parts(
+                    self.ptr as *mut u8,
+                    self.len,
+                    self.capacity,  // Use original capacity for correct deallocation
+                );
+                // _s is dropped here, freeing the memory with correct size
             }
         }
         // Arena strings don't need explicit drop - arena reset frees them
@@ -118,6 +122,7 @@ pub fn arena_string(s: &str) -> CemString {
         CemString {
             ptr: arena_str.as_ptr(),
             len: arena_str.len(),
+            capacity: 0,  // Not used for arena strings
             global: false,
         }
     })
@@ -132,12 +137,14 @@ pub fn arena_string(s: &str) -> CemString {
 /// Same as regular String allocation
 pub fn global_string(s: String) -> CemString {
     let len = s.len();
+    let capacity = s.capacity();
     let ptr = s.as_ptr();
     std::mem::forget(s); // Transfer ownership, don't drop
 
     CemString {
         ptr,
         len,
+        capacity,  // Store original capacity for correct deallocation
         global: true,
     }
 }
@@ -271,5 +278,36 @@ mod tests {
         let s = arena_string("Hello, 世界! 🦀");
         assert_eq!(s.as_str(), "Hello, 世界! 🦀");
         assert!(s.len() > 10); // UTF-8 bytes, not chars
+    }
+
+    #[test]
+    fn test_global_string_preserves_capacity() {
+        // PR #11 Critical fix: Verify capacity is preserved for correct deallocation
+        let mut s = String::with_capacity(100);
+        s.push_str("hi");
+
+        assert_eq!(s.len(), 2);
+        assert_eq!(s.capacity(), 100);
+
+        let cem = global_string(s);
+
+        // Verify the CemString captured the original capacity
+        assert_eq!(cem.len(), 2);
+        assert_eq!(cem.capacity, 100);  // Critical: Must be 100, not 2!
+        assert_eq!(cem.as_str(), "hi");
+        assert!(cem.is_global());
+
+        // Drop cem - if capacity was wrong, this would cause heap corruption
+        drop(cem);
+
+        // If we get here without crash/UB, the fix worked
+    }
+
+    #[test]
+    fn test_arena_string_capacity_zero() {
+        // Arena strings don't use capacity field
+        let s = arena_string("test");
+        assert_eq!(s.capacity, 0);  // Arena strings have capacity=0
+        assert!(!s.is_global());
     }
 }

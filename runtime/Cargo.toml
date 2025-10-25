@@ -11,4 +11,7 @@ crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testi
 # May - Erlang-style green threads / coroutines for CSP concurrency
 may.workspace = true
 
+# Bumpalo - Fast bump allocation for strand-local arenas
+bumpalo.workspace = true
+
 [dev-dependencies]

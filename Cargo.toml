@@ -12,6 +12,9 @@ license = "MIT"
 # Concurrency
 may = "0.3"
 
+# Memory management
+bumpalo = "3.16"
+
 [profile.release]
 opt-level = 3
 lto = true

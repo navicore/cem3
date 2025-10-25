@@ -162,6 +162,8 @@ impl CodeGen {
         writeln!(&mut ir, "; Quotation operations").unwrap();
         writeln!(&mut ir, "declare ptr @push_quotation(ptr, i64)").unwrap();
         writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @times(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @while_loop(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
@@ -334,6 +336,8 @@ impl CodeGen {
                     "yield" => "yield_strand".to_string(),
                     // Quotation operations
                     "call" => "call".to_string(),
+                    "times" => "times".to_string(),
+                    "while" => "while_loop".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };

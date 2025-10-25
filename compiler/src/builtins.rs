@@ -223,6 +223,39 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // times: ( ..a Quotation Int -- ..a )
+    // Executes quotation n times. Quotation must have effect ( ..a -- ..a )
+    sigs.insert(
+        "times".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()),
+                ))))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // while: ( ..a Quotation Quotation -- ..a )
+    // First quotation is condition ( ..a -- ..a Int ), second is body ( ..a -- ..a )
+    sigs.insert(
+        "while".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()).push(Type::Int),
+                ))))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()),
+                )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
     sigs
 }
 

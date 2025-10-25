@@ -99,7 +99,9 @@ impl Program {
             "yield",
             // Quotation operations
             "call",
-            // Note: spawn, times, while omitted - not yet implemented
+            "times",
+            "while",
+            // Note: spawn omitted - not yet implemented
         ];
 
         for word in &self.words {

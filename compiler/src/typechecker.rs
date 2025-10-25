@@ -563,13 +563,17 @@ mod tests {
                         then_branch: vec![
                             Statement::WordCall(">".to_string()),
                             Statement::If {
-                                then_branch: vec![Statement::StringLiteral("both true".to_string())],
+                                then_branch: vec![Statement::StringLiteral(
+                                    "both true".to_string(),
+                                )],
                                 else_branch: Some(vec![Statement::StringLiteral(
                                     "first true".to_string(),
                                 )]),
                             },
                         ],
-                        else_branch: Some(vec![Statement::StringLiteral("first false".to_string())]),
+                        else_branch: Some(vec![Statement::StringLiteral(
+                            "first false".to_string(),
+                        )]),
                     },
                 ],
             }],

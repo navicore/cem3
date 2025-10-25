@@ -194,6 +194,13 @@ fn free_stack(mut stack: Stack) {
             }
         }
     }
+
+    // Reset the thread-local arena to free all arena-allocated strings
+    // This is safe because:
+    // - Any arena strings in Values have been dropped above
+    // - Global strings are unaffected (they have their own allocations)
+    // - Channel sends clone to global, so no cross-strand arena pointers
+    crate::arena::arena_reset();
 }
 
 /// Legacy spawn_strand function (kept for compatibility)
@@ -370,6 +377,151 @@ mod tests {
                 ids.iter().all(|&id| id > 0),
                 "All strand IDs should be positive"
             );
+        }
+    }
+
+    #[test]
+    fn test_arena_reset_with_strands() {
+        unsafe {
+            use crate::arena;
+            use crate::cemstring::{arena_string, global_string};
+
+            extern "C" fn create_temp_strings(stack: Stack) -> Stack {
+                // Create many temporary arena strings (simulating request parsing)
+                for i in 0..100 {
+                    let temp = arena_string(&format!("temporary string {}", i));
+                    // Use the string temporarily
+                    assert!(!temp.as_str().is_empty());
+                    // String is dropped, but memory stays in arena
+                }
+
+                // Arena should have allocated memory
+                let stats = arena::arena_stats();
+                assert!(stats.allocated_bytes > 0, "Arena should have allocations");
+
+                stack // Return empty stack
+            }
+
+            // Reset arena before test
+            arena::arena_reset();
+
+            // Spawn strand that creates many temp strings
+            strand_spawn(create_temp_strings, std::ptr::null_mut());
+
+            // Wait for strand to complete (which calls free_stack -> arena_reset)
+            wait_all_strands();
+
+            // After strand exits, arena should be reset
+            let stats_after = arena::arena_stats();
+            assert_eq!(
+                stats_after.allocated_bytes, 0,
+                "Arena should be reset after strand exits"
+            );
+        }
+    }
+
+    #[test]
+    fn test_arena_with_channel_send() {
+        unsafe {
+            use crate::cemstring::{arena_string, global_string};
+            use crate::channel::{close_channel, make_channel};
+            use crate::stack::{pop, push};
+            use crate::value::Value;
+            use std::sync::atomic::{AtomicU32, Ordering};
+
+            static RECEIVED_COUNT: AtomicU32 = AtomicU32::new(0);
+
+            // Create channel
+            let stack = std::ptr::null_mut();
+            let stack = make_channel(stack);
+            let (stack, chan_val) = pop(stack);
+            let chan_id = match chan_val {
+                Value::Int(id) => id,
+                _ => panic!("Expected channel ID"),
+            };
+
+            // Sender strand: creates arena string, sends through channel
+            extern "C" fn sender(stack: Stack) -> Stack {
+                use crate::cemstring::arena_string;
+                use crate::channel::send;
+                use crate::stack::{pop, push};
+                use crate::value::Value;
+
+                unsafe {
+                    // Extract channel ID from stack
+                    let (stack, chan_val) = pop(stack);
+                    let chan_id = match chan_val {
+                        Value::Int(id) => id,
+                        _ => panic!("Expected channel ID"),
+                    };
+
+                    // Create arena string
+                    let msg = arena_string("Hello from sender!");
+
+                    // Push string and channel ID for send
+                    let stack = push(stack, Value::String(msg));
+                    let stack = push(stack, Value::Int(chan_id));
+
+                    // Send (will clone to global)
+                    send(stack)
+                }
+            }
+
+            // Receiver strand: receives string from channel
+            extern "C" fn receiver(stack: Stack) -> Stack {
+                use crate::channel::receive;
+                use crate::stack::{pop, push};
+                use crate::value::Value;
+                use std::sync::atomic::Ordering;
+
+                unsafe {
+                    // Extract channel ID from stack
+                    let (stack, chan_val) = pop(stack);
+                    let chan_id = match chan_val {
+                        Value::Int(id) => id,
+                        _ => panic!("Expected channel ID"),
+                    };
+
+                    // Push channel ID for receive
+                    let stack = push(stack, Value::Int(chan_id));
+
+                    // Receive message
+                    let stack = receive(stack);
+
+                    // Pop and verify message
+                    let (stack, msg_val) = pop(stack);
+                    match msg_val {
+                        Value::String(s) => {
+                            assert_eq!(s.as_str(), "Hello from sender!");
+                            RECEIVED_COUNT.fetch_add(1, Ordering::SeqCst);
+                        }
+                        _ => panic!("Expected String"),
+                    }
+
+                    stack
+                }
+            }
+
+            // Spawn sender and receiver
+            let sender_stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+            strand_spawn(sender, sender_stack);
+
+            let receiver_stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+            strand_spawn(receiver, receiver_stack);
+
+            // Wait for both strands
+            wait_all_strands();
+
+            // Verify message was received
+            assert_eq!(
+                RECEIVED_COUNT.load(Ordering::SeqCst),
+                1,
+                "Receiver should have received message"
+            );
+
+            // Clean up channel
+            let stack = push(stack, Value::Int(chan_id));
+            close_channel(stack);
         }
     }
 }

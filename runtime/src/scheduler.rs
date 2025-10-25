@@ -560,8 +560,7 @@ mod tests {
                     assert_eq!(
                         stats.allocated_bytes, 0,
                         "Arena not reset after iteration {} (leaked {} bytes)",
-                        i,
-                        stats.allocated_bytes
+                        i, stats.allocated_bytes
                     );
                 }
             }
@@ -571,8 +570,7 @@ mod tests {
             assert_eq!(
                 final_stats.allocated_bytes, 0,
                 "Arena leaked memory after {} iterations ({} bytes)",
-                iterations,
-                final_stats.allocated_bytes
+                iterations, final_stats.allocated_bytes
             );
 
             println!(

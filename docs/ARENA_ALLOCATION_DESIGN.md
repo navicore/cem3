@@ -246,10 +246,41 @@ Called in `scheduler.rs` when strand exits (already implemented in `free_stack`)
 
 ### Future Optimizations
 
-1. **Track capacity** - Add `cap: usize` to CemString for proper String reconstruction
-2. **String interning** - Common strings (empty, whitespace) in static arena
+1. ✅ **Track capacity** - DONE (Phase 9.2 critical fix)
+2. **String interning** - Common strings (empty, whitespace) in static arena (Phase 10)
 3. **Copy-on-write** - Detect immutable strings, share backing data
 4. **Arena-aware Clone** - If cloning within same thread, could share arena allocation
+
+### Future Enhancements (From PR #11 Review)
+
+**Observability & Monitoring:**
+- Expose `pool_stats()` and `arena_stats()` via runtime C API
+- Add logging/metrics for:
+  - Pool overflow events (when capacity exceeded)
+  - Arena reset frequency
+  - Arena size at reset time
+  - Thread migration detection (if it occurs)
+- Consider integration with observability frameworks (Prometheus, etc.)
+
+**Performance Validation:**
+- Benchmark stack operations vs malloc (validate 10x claim)
+- Benchmark arena allocation vs global (validate 20x claim)
+- Benchmark concurrent scenarios (1000+ strands)
+- Compare memory usage vs cem2
+- Profile real HTTP server workload
+
+**Configurability:**
+- Make `ARENA_RESET_THRESHOLD` configurable (currently 10MB)
+- Make pool sizes configurable (currently 256 initial, 1024 max)
+- Per-workload tuning profiles (HTTP server, batch processing, etc.)
+- Environment variable or runtime API for configuration
+
+**Testing:**
+- More integration tests for concurrent scenarios
+- Stress test with mixed arena/global allocation patterns
+- Test arena behavior under thread migration (if May supports it)
+- Valgrind verification (zero leaks, correct deallocation)
+- Fuzzing for CemString construction/destruction
 
 ## Summary
 

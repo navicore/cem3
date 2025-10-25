@@ -455,7 +455,59 @@ Consider splitting this into sub-phases:
 
 ---
 
-## Phase 9: Advanced Features
+## Phase 9: Memory Management (Deterministic, Zero-Cost)
+
+### Goals
+- Stop leaking memory with deterministic, zero-cost management
+- **No garbage collection** - Forth-style pools + arena allocators
+- Maintain Rust-like deterministic performance
+
+### Background
+Currently (Phase 8), every stack operation leaks memory:
+- Stack nodes are allocated but never freed
+- String/Variant values are never freed
+- Works for short programs, fails for long-running services
+
+**See:** `docs/MEMORY_MANAGEMENT_DESIGN.md` for full analysis.
+
+### Strategy
+**Hybrid approach combining:**
+1. **Stack node pooling** (global per thread) - Forth approach
+   - Pre-allocated pools of nodes
+   - Recycle immediately after use
+   - ~10x faster than malloc
+2. **Arena allocator per strand** - CSP approach
+   - Bump allocator for String/Variant values
+   - Free entire arena when strand exits
+   - Very fast allocation
+
+### Tasks
+- [ ] Implement global stack node pool (thread-local)
+- [ ] Implement arena allocator
+- [ ] Integrate pool into stack operations (dup, swap, etc.)
+- [ ] Integrate arena into value allocations
+- [ ] Update strand lifecycle to free arena on exit
+- [ ] Run Valgrind to verify no leaks
+- [ ] Benchmark: verify no performance regression (expect improvement)
+- [ ] Test long-running programs
+
+### Success Criteria
+✓ Long-running programs don't exhaust memory
+✓ Valgrind shows no leaks
+✓ No performance regression (likely faster)
+✓ All existing tests pass
+✓ CSP strands can run indefinitely
+
+### Estimated Effort
+2-3 sessions
+
+### Non-Goals
+- **NOT implementing GC** - this is deterministic management
+- **NOT implementing linear types yet** - that's Phase 11+
+
+---
+
+## Phase 10: Advanced Features
 
 ### Goals
 - Add features that rely on solid foundation
@@ -471,11 +523,55 @@ Consider splitting this into sub-phases:
 
 ---
 
-## Phase 10: Concurrency with Strands (CSP Model)
+## Phase 11+: Linear Types (Aspirational)
 
 ### Goals
-- Bring cem2's proven CSP implementation to cem3
-- Non-blocking I/O using May coroutines
+- Use compile-time type system to prove when values can be freed
+- **Zero runtime cost** - all analysis at compile time
+- Like Rust's borrow checker, **NOT garbage collection**
+
+### Background
+Linear types enable compile-time memory safety without runtime overhead:
+- **Linear type**: Value used exactly once
+- **Affine type**: Value used at most once
+- Compiler inserts `free()` calls where values provably dead
+- Reject programs that violate linearity
+- Zero runtime cost - all checks at compile time
+
+**This is NOT GC:** No tracing, no pauses, no runtime overhead. Pure static analysis.
+
+### Prerequisites
+- Phase 8.5 (type system) complete
+- Phase 9 (memory management) working
+- Research Rust's borrow checker, Linear Haskell
+
+### Challenges
+- Very complex to implement (Rust took years)
+- User friction (error messages, learning curve)
+- Interaction with CSP (channel sends = moves)
+- Quotations complicate ownership
+
+### Research Questions
+1. Can linearity be optional (like Rust's `unsafe`)?
+2. Can we infer linearity without annotations?
+3. How does this interact with quotations?
+
+### Recommended Approach
+**Don't rush this.** Get Phase 9 working first. Linear types are cutting-edge PL research.
+
+**See:** `docs/MEMORY_MANAGEMENT_DESIGN.md` for detailed analysis.
+
+---
+
+## Completed Phases
+
+### ✅ Phase 10: Concurrency with Strands (CSP Model)
+
+**Status:** COMPLETE ✓
+
+**Implementation:**
+- Brought cem2's proven CSP model to cem3
+- May coroutines for efficient concurrency
 - Erlang-inspired strands with Go-style channels
 
 ### Background

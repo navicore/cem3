@@ -16,50 +16,54 @@ pub fn builtin_signature(name: &str) -> Option<Effect> {
 pub fn builtin_signatures() -> HashMap<String, Effect> {
     let mut sigs = HashMap::new();
 
-    // I/O operations
+    // I/O operations with row polymorphism
     sigs.insert(
         "write_line".to_string(),
         Effect::new(
-            StackType::singleton(Type::String), // ( String -- )
-            StackType::Empty,
+            StackType::RowVar("a".to_string()).push(Type::String), // ( ..a String -- ..a )
+            StackType::RowVar("a".to_string()),
         ),
     );
 
     sigs.insert(
         "read_line".to_string(),
         Effect::new(
-            StackType::Empty, // ( -- String )
-            StackType::singleton(Type::String),
+            StackType::RowVar("a".to_string()), // ( ..a -- ..a String )
+            StackType::RowVar("a".to_string()).push(Type::String),
         ),
     );
 
     sigs.insert(
         "int->string".to_string(),
         Effect::new(
-            StackType::singleton(Type::Int), // ( Int -- String )
-            StackType::singleton(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int), // ( ..a Int -- ..a String )
+            StackType::RowVar("a".to_string()).push(Type::String),
         ),
     );
 
-    // Arithmetic operations ( Int Int -- Int )
+    // Arithmetic operations ( ..a Int Int -- ..a Int )
     for op in &["add", "subtract", "multiply", "divide"] {
         sigs.insert(
             op.to_string(),
             Effect::new(
-                StackType::Empty.push(Type::Int).push(Type::Int), // ( Int Int -- Int )
-                StackType::singleton(Type::Int),
+                StackType::RowVar("a".to_string())
+                    .push(Type::Int)
+                    .push(Type::Int),
+                StackType::RowVar("a".to_string()).push(Type::Int),
             ),
         );
     }
 
-    // Comparison operations ( Int Int -- Int )
+    // Comparison operations ( ..a Int Int -- ..a Int )
     // Note: Comparisons return Int (0 or 1), not Bool, for Forth compatibility
     for op in &["=", "<", ">", "<=", ">=", "<>"] {
         sigs.insert(
             op.to_string(),
             Effect::new(
-                StackType::Empty.push(Type::Int).push(Type::Int), // ( Int Int -- Int )
-                StackType::singleton(Type::Int),
+                StackType::RowVar("a".to_string())
+                    .push(Type::Int)
+                    .push(Type::Int),
+                StackType::RowVar("a".to_string()).push(Type::Int),
             ),
         );
     }
@@ -152,12 +156,15 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // Concurrency operations
-    // make-channel: ( -- Int )
+    // Concurrency operations with row polymorphism
+    // make-channel: ( ..a -- ..a Int )
     // Returns channel ID as Int
     sigs.insert(
         "make-channel".to_string(),
-        Effect::new(StackType::Empty, StackType::singleton(Type::Int)),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
     );
 
     // send: ( ..a T Int -- ..a )
@@ -182,16 +189,22 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // close-channel: ( Int -- )
+    // close-channel: ( ..a Int -- ..a )
     sigs.insert(
         "close-channel".to_string(),
-        Effect::new(StackType::singleton(Type::Int), StackType::Empty),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
     );
 
-    // yield: ( -- )
+    // yield: ( ..a -- ..a )
     sigs.insert(
         "yield".to_string(),
-        Effect::new(StackType::Empty, StackType::Empty),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()),
+        ),
     );
 
     sigs
@@ -204,19 +217,26 @@ mod tests {
     #[test]
     fn test_builtin_signature_write_line() {
         let sig = builtin_signature("write_line").unwrap();
-        assert_eq!(sig.inputs, StackType::singleton(Type::String));
-        assert_eq!(sig.outputs, StackType::Empty);
+        // ( ..a String -- ..a )
+        let (rest, top) = sig.inputs.clone().pop().unwrap();
+        assert_eq!(top, Type::String);
+        assert_eq!(rest, StackType::RowVar("a".to_string()));
+        assert_eq!(sig.outputs, StackType::RowVar("a".to_string()));
     }
 
     #[test]
     fn test_builtin_signature_add() {
         let sig = builtin_signature("add").unwrap();
+        // ( ..a Int Int -- ..a Int )
         let (rest, top) = sig.inputs.clone().pop().unwrap();
         assert_eq!(top, Type::Int);
         let (rest2, top2) = rest.pop().unwrap();
         assert_eq!(top2, Type::Int);
-        assert_eq!(rest2, StackType::Empty);
-        assert_eq!(sig.outputs, StackType::singleton(Type::Int));
+        assert_eq!(rest2, StackType::RowVar("a".to_string()));
+
+        let (rest3, top3) = sig.outputs.clone().pop().unwrap();
+        assert_eq!(top3, Type::Int);
+        assert_eq!(rest3, StackType::RowVar("a".to_string()));
     }
 
     #[test]

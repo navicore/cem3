@@ -3,14 +3,18 @@
 //! Provides compilation from .cem source to LLVM IR and executable binaries.
 
 pub mod ast;
+pub mod builtins;
 pub mod codegen;
 pub mod parser;
 pub mod typechecker;
+pub mod types;
+pub mod unification;
 
 pub use ast::Program;
 pub use codegen::CodeGen;
 pub use parser::Parser;
 pub use typechecker::TypeChecker;
+pub use types::{Effect, StackType, Type};
 
 use std::fs;
 use std::path::Path;

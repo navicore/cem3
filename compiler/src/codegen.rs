@@ -453,6 +453,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "main".to_string(),
+                effect: None,
                 body: vec![
                     Statement::StringLiteral("Hello, World!".to_string()),
                     Statement::WordCall("write_line".to_string()),
@@ -476,6 +477,7 @@ mod tests {
         let program = Program {
             words: vec![WordDef {
                 name: "main".to_string(),
+                effect: None,
                 body: vec![
                     Statement::IntLiteral(2),
                     Statement::IntLiteral(3),

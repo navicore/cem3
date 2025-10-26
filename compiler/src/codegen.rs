@@ -167,7 +167,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @cem_send(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
@@ -175,6 +175,12 @@ impl CodeGen {
         writeln!(&mut ir, "declare void @scheduler_init()").unwrap();
         writeln!(&mut ir, "declare ptr @scheduler_run()").unwrap();
         writeln!(&mut ir, "declare i64 @strand_spawn(ptr, ptr)").unwrap();
+        writeln!(&mut ir, "; TCP operations").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_listen(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_accept(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_read(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_write(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_close(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
@@ -335,7 +341,7 @@ impl CodeGen {
                     "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "make_channel".to_string(),
-                    "send" => "send".to_string(),
+                    "send" => "cem_send".to_string(), // Prefixed to avoid collision with system send()
                     "receive" => "receive".to_string(),
                     "close-channel" => "close_channel".to_string(),
                     "yield" => "yield_strand".to_string(),
@@ -344,6 +350,12 @@ impl CodeGen {
                     "times" => "times".to_string(),
                     "while" => "while_loop".to_string(),
                     "spawn" => "spawn".to_string(),
+                    // TCP operations (hyphen → underscore for C compatibility)
+                    "tcp-listen" => "tcp_listen".to_string(),
+                    "tcp-accept" => "tcp_accept".to_string(),
+                    "tcp-read" => "tcp_read".to_string(),
+                    "tcp-write" => "tcp_write".to_string(),
+                    "tcp-close" => "tcp_close".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };

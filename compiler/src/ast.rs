@@ -102,6 +102,12 @@ impl Program {
             "times",
             "while",
             "spawn",
+            // TCP operations
+            "tcp-listen",
+            "tcp-accept",
+            "tcp-read",
+            "tcp-write",
+            "tcp-close",
         ];
 
         for word in &self.words {

@@ -270,6 +270,59 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // TCP operations with row polymorphism
+    // tcp-listen: ( ..a Int -- ..a Int )
+    // Takes port number, returns listener ID
+    sigs.insert(
+        "tcp-listen".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // tcp-accept: ( ..a Int -- ..a Int )
+    // Takes listener ID, returns client socket ID
+    sigs.insert(
+        "tcp-accept".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // tcp-read: ( ..a Int -- ..a String )
+    // Takes socket ID, returns data read as String
+    sigs.insert(
+        "tcp-read".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // tcp-write: ( ..a String Int -- ..a )
+    // Takes data String and socket ID, writes to socket
+    sigs.insert(
+        "tcp-write".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // tcp-close: ( ..a Int -- ..a )
+    // Takes socket ID, closes the socket
+    sigs.insert(
+        "tcp-close".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
     sigs
 }
 

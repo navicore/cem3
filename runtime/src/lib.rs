@@ -15,6 +15,8 @@ pub mod quotations;
 pub mod scheduler;
 pub mod stack;
 pub mod string_ops;
+pub mod tcp;
+pub mod tcp_test;
 pub mod value;
 
 // Re-export key types and functions
@@ -45,3 +47,6 @@ pub use string_ops::{string_contains, string_empty, string_split, string_starts_
 
 // Quotation operations (exported for LLVM linking)
 pub use quotations::{call, push_quotation, spawn, times, while_loop};
+
+// TCP operations (exported for LLVM linking)
+pub use tcp::{tcp_accept, tcp_close, tcp_listen, tcp_read, tcp_write};

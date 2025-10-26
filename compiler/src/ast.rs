@@ -114,6 +114,7 @@ impl Program {
             "until",
             "forever",
             "spawn",
+            "cond",
             // TCP operations
             "tcp-listen",
             "tcp-accept",

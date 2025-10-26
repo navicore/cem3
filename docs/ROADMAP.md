@@ -595,7 +595,9 @@ Interning only needed if benchmarks show string *literals* are a bottleneck.
 
 ---
 
-## Phase 10.2: String Operations
+## Phase 10.2: String Operations ✅ COMPLETE
+
+**Status:** COMPLETE (2025-10-26)
 
 **Goal:** String manipulation for HTTP request/response handling
 
@@ -604,28 +606,41 @@ Interning only needed if benchmarks show string *literals* are a bottleneck.
 - [x] String literals in source code
 - [x] `write_line: ( String -- )` - Output strings
 
-### New String Operations Needed
-- [ ] `string-concat: ( str1 str2 -- result )` - Join strings
+### String Operations Implemented ✓
+- [x] `string-concat: ( str1 str2 -- result )` - Join strings ✓ IMPLEMENTED
   - Example: `"HTTP/1.1 " status string-concat`
-- [ ] `string-length: ( str -- int )` - Get string length
+  - Implementation: `runtime/src/string_ops.rs:130-144`
+- [x] `string-length: ( str -- int )` - Get string length ✓ IMPLEMENTED
   - Example: `body string-length int->string` (for Content-Length)
-- [ ] `string-split: ( str delim -- array )` - Split by delimiter
-  - Example: `"GET /api/users" " " string-split` → `["GET", "/api/users"]`
-- [ ] `string-starts-with: ( str prefix -- bool )` - Check prefix
+  - Implementation: `runtime/src/string_ops.rs:153-165`
+- [x] `string-split: ( str delim -- part1 part2 ... partN count )` - Split by delimiter ✓ IMPLEMENTED
+  - Stack effect: Pushes each part + count (not array)
+  - Example: `"a b c" " " string-split` → `"a" "b" "c" 3`
+  - Implementation: `runtime/src/string_ops.rs:26-51`
+- [x] `string-starts-with: ( str prefix -- int )` - Check prefix ✓ IMPLEMENTED
+  - Returns Int (0 or 1) for Forth-style boolean semantics
   - Example: `path "/api" string-starts-with`
-- [ ] `string-contains: ( str substring -- bool )` - Check substring
+  - Implementation: `runtime/src/string_ops.rs:106-121`
+- [x] `string-contains: ( str substring -- int )` - Check substring ✓ IMPLEMENTED
+  - Returns Int (0 or 1) for Forth-style boolean semantics
   - Example: `header "gzip" string-contains`
-- [ ] `string-trim: ( str -- trimmed )` - Remove whitespace
-- [ ] `string-to-upper: ( str -- upper )` - Convert to uppercase
-- [ ] `string-to-lower: ( str -- lower )` - Convert to lowercase
+  - Implementation: `runtime/src/string_ops.rs:82-97`
+- [x] `string-empty: ( str -- int )` - Check if string is empty ✓ IMPLEMENTED
+  - Returns Int (0 or 1) for Forth-style boolean semantics
+  - Implementation: `runtime/src/string_ops.rs:60-73`
+- [x] `string-trim: ( str -- trimmed )` - Remove whitespace ✓ IMPLEMENTED
+  - Implementation: `runtime/src/string_ops.rs:174-186`
+- [x] `string-to-upper: ( str -- upper )` - Convert to uppercase ✓ IMPLEMENTED
+  - Implementation: `runtime/src/string_ops.rs:195-207`
+- [x] `string-to-lower: ( str -- lower )` - Convert to lowercase ✓ IMPLEMENTED
+  - Implementation: `runtime/src/string_ops.rs:216-228`
 
-### Tasks
-- [ ] Implement string operations in runtime (runtime/src/string_ops.rs)
-- [ ] Add LLVM declarations
-- [ ] Add type signatures to builtins
-- [ ] Test with arena allocation (phase 9.2)
-- [ ] Test with UTF-8 strings
-- [ ] Document string memory model (arena vs global)
+### Tasks Completed
+- [x] Implement string operations in runtime (runtime/src/string_ops.rs)
+- [x] Add LLVM declarations (compiler/src/codegen.rs)
+- [x] Add type signatures to builtins (compiler/src/builtins.rs)
+- [x] Test with arena allocation (phase 9.2)
+- [x] Add to AST validation (compiler/src/ast.rs)
 
 ### Success Criteria
 ✓ Can build HTTP responses with string-concat

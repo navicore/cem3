@@ -303,6 +303,20 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // cond: ( ..a -- ..b )
+    // Multi-way conditional combinator
+    // Actual stack effect: ( value [pred1] [body1] [pred2] [body2] ... [predN] [bodyN] count -- result )
+    // Each predicate quotation has effect: ( T -- T Int )
+    // Each body quotation has effect: ( T -- U )
+    // Note: Variable-arity makes precise typing difficult; using row polymorphism as approximation
+    sigs.insert(
+        "cond".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("b".to_string()),
+        ),
+    );
+
     // TCP operations with row polymorphism
     // tcp-listen: ( ..a Int -- ..a Int )
     // Takes port number, returns listener ID

@@ -407,6 +407,7 @@ These features are **deferred** to future phases:
 - ❌ **User-defined types**: Only Int and String currently (future phase)
 - ❌ **Variant type checking**: ADTs not yet implemented (future phase)
 - ❌ **Type inference**: Effects must be declared (acceptable for now)
+- ❌ **Diverging functions**: Functions like `forever` that never return are typed as if they do return (with unchanged stack). A proper "never" type (like Rust's `!`) would be more precise, but current behavior is safe and correct.
 
 ### Documentation
 - **User Guide**: `docs/TYPE_SYSTEM_GUIDE.md` - How to use the type system
@@ -548,19 +549,24 @@ Interning only needed if benchmarks show string *literals* are a bottleneck.
 - [x] `spawn: ( [quot] -- strand-id )` - Execute quotation in new strand
 
 ### New Combinators Needed
-- [ ] `forever: ( [quot] -- )` - Infinite loop (critical for servers)
+- [x] `forever: ( ..a [quot] -- ..a )` - Infinite loop (critical for servers) ✓ IMPLEMENTED
   - Example: `[ tcp-accept handle-client ] forever`
+  - **Type system note:** Currently typed as if it returns (with unchanged stack), but never returns in practice. A proper "never" type would be more precise. See Phase 8.5 limitations.
+  - Implementation: `runtime/src/quotations.rs:177-194`
 - [ ] `each: ( array [quot] -- )` - Iterate over array elements
   - Example: `routes [ match-route ] each`
 - [ ] `until: ( [body] [cond] -- )` - Loop until condition is true
   - Example: `[ read-chunk ] [ is-complete ] until`
 
 ### Tasks
-- [ ] Implement `forever` combinator in runtime
+- [x] Implement `forever` combinator in runtime ✓
+- [x] Add LLVM declaration for `forever` ✓
+- [x] Add type signature for `forever` to builtins ✓
+- [x] Test with HTTP server (handles multiple connections) ✓
 - [ ] Implement `each` combinator (requires array iteration)
 - [ ] Implement `until` combinator
-- [ ] Add LLVM declarations for new combinators
-- [ ] Add type signatures to builtins
+- [ ] Add LLVM declarations for `each` and `until`
+- [ ] Add type signatures to builtins for `each` and `until`
 - [ ] Test complex nesting (forever + spawn + times)
 - [ ] Test break/continue patterns (if needed)
 

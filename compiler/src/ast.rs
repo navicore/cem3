@@ -101,7 +101,7 @@ impl Program {
             "call",
             "times",
             "while",
-            // Note: spawn omitted - not yet implemented
+            "spawn",
         ];
 
         for word in &self.words {

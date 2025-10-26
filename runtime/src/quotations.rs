@@ -3,6 +3,7 @@
 //! Quotations are deferred code blocks (first-class functions).
 //! A quotation is represented as a function pointer stored as usize.
 
+use crate::scheduler::strand_spawn;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 
@@ -150,6 +151,40 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
         }
 
         stack
+    }
+}
+
+/// Spawn a quotation as a new strand (green thread)
+///
+/// Pops a quotation from the stack and spawns it as a new strand.
+/// The quotation executes concurrently with an empty initial stack.
+/// Returns the strand ID.
+///
+/// Stack effect: ( ..a quot -- ..a strand_id )
+/// where the quotation has effect ( -- )
+///
+/// # Safety
+/// - Stack must have at least 1 value
+/// - Top must be Quotation
+/// - Quotation must be safe to execute on any thread
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
+    unsafe {
+        // Pop quotation
+        let (stack, quot_value) = pop(stack);
+        let fn_ptr = match quot_value {
+            Value::Quotation(ptr) => ptr,
+            _ => panic!("spawn: expected Quotation, got {:?}", quot_value),
+        };
+
+        // Cast function pointer
+        let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+
+        // Spawn the strand with null initial stack
+        let strand_id = strand_spawn(fn_ref, std::ptr::null_mut());
+
+        // Push strand ID back onto stack
+        push(stack, Value::Int(strand_id))
     }
 }
 
@@ -311,6 +346,41 @@ mod tests {
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
             assert!(stack.is_null());
+        }
+    }
+
+    // Helper quotation for spawn test: does nothing, just completes
+    unsafe extern "C" fn noop_quot(_stack: Stack) -> Stack {
+        std::ptr::null_mut()
+    }
+
+    #[test]
+    fn test_spawn_quotation() {
+        unsafe {
+            // Initialize scheduler
+            crate::scheduler::scheduler_init();
+
+            let stack: Stack = std::ptr::null_mut();
+
+            // Push a quotation
+            let fn_ptr = noop_quot as usize;
+            let stack = push_quotation(stack, fn_ptr);
+
+            // Spawn it
+            let stack = spawn(stack);
+
+            // Should have strand ID on stack
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Int(strand_id) => {
+                    assert!(strand_id > 0, "Strand ID should be positive");
+                }
+                _ => panic!("Expected Int (strand ID), got {:?}", result),
+            }
+            assert!(stack.is_null());
+
+            // Wait for strand to complete
+            crate::scheduler::wait_all_strands();
         }
     }
 }

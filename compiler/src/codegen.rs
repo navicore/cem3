@@ -164,12 +164,16 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @times(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @while_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
+        writeln!(&mut ir, "; Scheduler operations").unwrap();
+        writeln!(&mut ir, "declare void @scheduler_init()").unwrap();
+        writeln!(&mut ir, "declare ptr @scheduler_run()").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
@@ -338,6 +342,7 @@ impl CodeGen {
                     "call" => "call".to_string(),
                     "times" => "times".to_string(),
                     "while" => "while_loop".to_string(),
+                    "spawn" => "spawn".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };
@@ -478,7 +483,16 @@ impl CodeGen {
     fn codegen_main(&mut self) -> Result<(), String> {
         writeln!(&mut self.output, "define i32 @main() {{").unwrap();
         writeln!(&mut self.output, "entry:").unwrap();
+
+        // Initialize scheduler
+        writeln!(&mut self.output, "  call void @scheduler_init()").unwrap();
+
+        // Call user's main function
         writeln!(&mut self.output, "  %0 = call ptr @cem_main(ptr null)").unwrap();
+
+        // Wait for all spawned strands to complete
+        writeln!(&mut self.output, "  %1 = call ptr @scheduler_run()").unwrap();
+
         writeln!(&mut self.output, "  ret i32 0").unwrap();
         writeln!(&mut self.output, "}}").unwrap();
 

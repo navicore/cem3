@@ -51,11 +51,14 @@ static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 ///
 /// # Safety
 /// Safe to call multiple times (idempotent via Once).
-/// May coroutines auto-initialize, so this is primarily a no-op marker.
+/// Configures May coroutines with appropriate stack size for LLVM-generated code.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scheduler_init() {
     SCHEDULER_INIT.call_once(|| {
-        // May coroutines auto-initialize, no explicit setup needed
+        // Configure stack size for coroutines
+        // Default is 0x1000 words (32KB on 64-bit), which is too small for LLVM-generated code
+        // Testing with 0x20000 words (1MB on 64-bit) to rule out stack size issues
+        may::config().set_stack_size(0x20000);
     });
 }
 

@@ -100,7 +100,7 @@ pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have a channel ID (Int) on top and a value below it
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "cem_send")]
 pub unsafe extern "C" fn send(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "send: stack is empty");
 

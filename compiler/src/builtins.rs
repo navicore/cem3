@@ -256,6 +256,20 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // forever: ( ..a Quotation -- ..a )
+    // Executes quotation infinitely. Quotation must have effect ( ..a -- ..a )
+    // Note: This never returns in practice, but type-wise it has same stack effect
+    sigs.insert(
+        "forever".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Quotation(Box::new(Effect::new(
+                StackType::RowVar("a".to_string()),
+                StackType::RowVar("a".to_string()),
+            )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
     // spawn: ( ..a Quotation -- ..a Int )
     // Spawns a quotation as a new strand, returns strand ID
     // The quotation should have effect ( -- ) (empty stack in, empty stack out)

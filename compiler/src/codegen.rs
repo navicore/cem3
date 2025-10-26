@@ -164,6 +164,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @times(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @while_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @forever(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
@@ -349,6 +350,7 @@ impl CodeGen {
                     "call" => "call".to_string(),
                     "times" => "times".to_string(),
                     "while" => "while_loop".to_string(),
+                    "forever" => "forever".to_string(),
                     "spawn" => "spawn".to_string(),
                     // TCP operations (hyphen → underscore for C compatibility)
                     "tcp-listen" => "tcp_listen".to_string(),

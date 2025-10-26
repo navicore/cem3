@@ -101,6 +101,7 @@ impl Program {
             "call",
             "times",
             "while",
+            "forever",
             "spawn",
             // TCP operations
             "tcp-listen",

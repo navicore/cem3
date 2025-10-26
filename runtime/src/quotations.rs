@@ -154,6 +154,45 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
     }
 }
 
+/// Execute a quotation forever (infinite loop)
+///
+/// Pops a quotation from the stack and executes it repeatedly in an infinite loop.
+/// This is useful for server accept loops and other continuous operations.
+///
+/// Stack effect: ( ..a quot -- ..a )
+/// where the quotation has effect ( ..a -- ..a )
+///
+/// # Example
+/// ```cem
+/// : server-loop ( listener -- )
+///   [ dup tcp-accept handle-client ] forever ;
+/// ```
+///
+/// # Safety
+/// - Stack must have at least 1 value
+/// - Top must be Quotation
+/// - Quotation must not cause stack underflow
+/// - This never returns! (infinite loop)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
+    unsafe {
+        // Pop quotation
+        let (mut stack, quot_value) = pop(stack);
+        let fn_ptr = match quot_value {
+            Value::Quotation(ptr) => ptr,
+            _ => panic!("forever: expected Quotation, got {:?}", quot_value),
+        };
+
+        // Cast function pointer
+        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+
+        // Infinite loop - execute body forever
+        loop {
+            stack = body_fn(stack);
+        }
+    }
+}
+
 /// Spawn a quotation as a new strand (green thread)
 ///
 /// Pops a quotation from the stack and spawns it as a new strand.

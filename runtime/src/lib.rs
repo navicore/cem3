@@ -46,7 +46,7 @@ pub use channel::{close_channel, make_channel, receive, send};
 pub use string_ops::{string_contains, string_empty, string_split, string_starts_with};
 
 // Quotation operations (exported for LLVM linking)
-pub use quotations::{call, push_quotation, spawn, times, while_loop};
+pub use quotations::{call, forever, push_quotation, spawn, times, while_loop};
 
 // TCP operations (exported for LLVM linking)
 pub use tcp::{tcp_accept, tcp_close, tcp_listen, tcp_read, tcp_write};

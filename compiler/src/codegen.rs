@@ -164,6 +164,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @times(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @while_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @until_loop(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @forever(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
@@ -182,6 +183,16 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @tcp_read(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tcp_write(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tcp_close(ptr)").unwrap();
+        writeln!(&mut ir, "; String operations").unwrap();
+        writeln!(&mut ir, "declare ptr @string_concat(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_length(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_split(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_contains(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_starts_with(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_empty(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_trim(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_to_upper(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_to_lower(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
@@ -350,6 +361,7 @@ impl CodeGen {
                     "call" => "call".to_string(),
                     "times" => "times".to_string(),
                     "while" => "while_loop".to_string(),
+                    "until" => "until_loop".to_string(),
                     "forever" => "forever".to_string(),
                     "spawn" => "spawn".to_string(),
                     // TCP operations (hyphen → underscore for C compatibility)
@@ -358,6 +370,16 @@ impl CodeGen {
                     "tcp-read" => "tcp_read".to_string(),
                     "tcp-write" => "tcp_write".to_string(),
                     "tcp-close" => "tcp_close".to_string(),
+                    // String operations (hyphen → underscore for C compatibility)
+                    "string-concat" => "string_concat".to_string(),
+                    "string-length" => "string_length".to_string(),
+                    "string-split" => "string_split".to_string(),
+                    "string-contains" => "string_contains".to_string(),
+                    "string-starts-with" => "string_starts_with".to_string(),
+                    "string-empty" => "string_empty".to_string(),
+                    "string-trim" => "string_trim".to_string(),
+                    "string-to-upper" => "string_to_upper".to_string(),
+                    "string-to-lower" => "string_to_lower".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };

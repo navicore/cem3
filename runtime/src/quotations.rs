@@ -193,6 +193,75 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
     }
 }
 
+/// Loop until a condition is true
+///
+/// Pops a condition quotation and a body quotation from the stack.
+/// Repeatedly executes: body quotation, then condition quotation, check result (Int: 0=false, non-zero=true),
+/// if false then continue loop, if true then exit.
+///
+/// This is the inverse of `while`: executes body at least once, then checks condition.
+///
+/// Stack effect: ( ..a body-quot cond-quot -- ..a )
+/// where body-quot has effect ( ..a -- ..a )
+/// and cond-quot has effect ( ..a -- ..a Int )
+///
+/// # Safety
+/// - Stack must have at least 2 values
+/// - Top must be Quotation (condition)
+/// - Second must be Quotation (body)
+/// - Condition quotation must push exactly one Int
+/// - Body quotation must preserve stack shape
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
+    unsafe {
+        // Pop condition quotation
+        let (stack_temp, cond_value) = pop(stack);
+        let cond_ptr = match cond_value {
+            Value::Quotation(ptr) => ptr,
+            _ => panic!("until: expected condition Quotation, got {:?}", cond_value),
+        };
+
+        // Pop body quotation
+        let (stack_temp2, body_value) = pop(stack_temp);
+        let body_ptr = match body_value {
+            Value::Quotation(ptr) => ptr,
+            _ => panic!("until: expected body Quotation, got {:?}", body_value),
+        };
+
+        // Cast function pointers
+        let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_ptr);
+        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
+
+        // Loop until condition is true (do-while style)
+        stack = stack_temp2;
+        loop {
+            // Execute body quotation
+            stack = body_fn(stack);
+
+            // Execute condition quotation
+            stack = cond_fn(stack);
+
+            // Pop the condition result
+            let (stack_after_cond, cond_result) = pop(stack);
+            let is_true = match cond_result {
+                Value::Int(n) => n != 0,
+                _ => panic!("until: condition must return Int, got {:?}", cond_result),
+            };
+
+            if is_true {
+                // Condition is true, exit loop
+                stack = stack_after_cond;
+                break;
+            }
+
+            // Condition is false, continue loop
+            stack = stack_after_cond;
+        }
+
+        stack
+    }
+}
+
 /// Spawn a quotation as a new strand (green thread)
 ///
 /// Pops a quotation from the stack and spawns it as a new strand.
@@ -384,6 +453,69 @@ mod tests {
             // Result should still be 0 (body never executed)
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    // Helper quotation: check if top value <= 0
+    // Corresponds to: [ dup 0 <= ]
+    unsafe extern "C" fn dup_lte_zero_quot(stack: Stack) -> Stack {
+        unsafe {
+            let stack = crate::stack::dup(stack);
+            let stack = push_int(stack, 0);
+            crate::arithmetic::lte(stack)
+        }
+    }
+
+    #[test]
+    fn test_until_countdown() {
+        unsafe {
+            let stack: Stack = std::ptr::null_mut();
+
+            // Countdown from 5 to 0 using until
+            // [ 1 subtract ] [ dup 0 <= ] until
+            let stack = push_int(stack, 5);
+
+            // Push body: subtract 1
+            let body_ptr = subtract_one_quot as usize;
+            let stack = push_quotation(stack, body_ptr);
+
+            // Push condition: dup 0 <=
+            let cond_ptr = dup_lte_zero_quot as usize;
+            let stack = push_quotation(stack, cond_ptr);
+
+            // Execute until
+            let stack = until_loop(stack);
+
+            // Result should be 0
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_until_executes_at_least_once() {
+        unsafe {
+            let stack: Stack = std::ptr::null_mut();
+
+            // Start with 0, so condition is immediately true, but body should execute once
+            let stack = push_int(stack, 0);
+
+            // Push body: subtract 1
+            let body_ptr = subtract_one_quot as usize;
+            let stack = push_quotation(stack, body_ptr);
+
+            // Push condition: dup 0 <=  (will be true after first iteration)
+            let cond_ptr = dup_lte_zero_quot as usize;
+            let stack = push_quotation(stack, cond_ptr);
+
+            // Execute until
+            let stack = until_loop(stack);
+
+            // Result should be -1 (body executed once)
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(-1));
             assert!(stack.is_null());
         }
     }

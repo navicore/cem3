@@ -65,7 +65,8 @@ pub unsafe extern "C" fn string_empty(stack: Stack) -> Stack {
     match value {
         Value::String(s) => {
             let is_empty = s.as_str().is_empty();
-            unsafe { push(stack, Value::Bool(is_empty)) }
+            let result = if is_empty { 1 } else { 0 };
+            unsafe { push(stack, Value::Int(result)) }
         }
         _ => panic!("string_empty: expected String on stack"),
     }
@@ -88,7 +89,8 @@ pub unsafe extern "C" fn string_contains(stack: Stack) -> Stack {
     match (str_val, substring_val) {
         (Value::String(s), Value::String(sub)) => {
             let contains = s.as_str().contains(sub.as_str());
-            unsafe { push(stack, Value::Bool(contains)) }
+            let result = if contains { 1 } else { 0 };
+            unsafe { push(stack, Value::Int(result)) }
         }
         _ => panic!("string_contains: expected two strings on stack"),
     }
@@ -111,9 +113,117 @@ pub unsafe extern "C" fn string_starts_with(stack: Stack) -> Stack {
     match (str_val, prefix_val) {
         (Value::String(s), Value::String(prefix)) => {
             let starts = s.as_str().starts_with(prefix.as_str());
-            unsafe { push(stack, Value::Bool(starts)) }
+            let result = if starts { 1 } else { 0 };
+            unsafe { push(stack, Value::Int(result)) }
         }
         _ => panic!("string_starts_with: expected two strings on stack"),
+    }
+}
+
+/// Concatenate two strings
+///
+/// Stack effect: ( str1 str2 -- result )
+///
+/// # Safety
+/// Stack must have two String values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn string_concat(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_concat: stack is empty");
+
+    let (stack, str2_val) = unsafe { pop(stack) };
+    assert!(!stack.is_null(), "string_concat: need two strings");
+    let (stack, str1_val) = unsafe { pop(stack) };
+
+    match (str1_val, str2_val) {
+        (Value::String(s1), Value::String(s2)) => {
+            let result = format!("{}{}", s1.as_str(), s2.as_str());
+            unsafe { push(stack, Value::String(global_string(result))) }
+        }
+        _ => panic!("string_concat: expected two strings on stack"),
+    }
+}
+
+/// Get the length of a string
+///
+/// Stack effect: ( str -- int )
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn string_length(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_length: stack is empty");
+
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match str_val {
+        Value::String(s) => {
+            let len = s.as_str().len() as i64;
+            unsafe { push(stack, Value::Int(len)) }
+        }
+        _ => panic!("string_length: expected String on stack"),
+    }
+}
+
+/// Trim whitespace from both ends of a string
+///
+/// Stack effect: ( str -- trimmed )
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn string_trim(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_trim: stack is empty");
+
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match str_val {
+        Value::String(s) => {
+            let trimmed = s.as_str().trim();
+            unsafe { push(stack, Value::String(global_string(trimmed.to_owned()))) }
+        }
+        _ => panic!("string_trim: expected String on stack"),
+    }
+}
+
+/// Convert a string to uppercase
+///
+/// Stack effect: ( str -- upper )
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn string_to_upper(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_to_upper: stack is empty");
+
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match str_val {
+        Value::String(s) => {
+            let upper = s.as_str().to_uppercase();
+            unsafe { push(stack, Value::String(global_string(upper))) }
+        }
+        _ => panic!("string_to_upper: expected String on stack"),
+    }
+}
+
+/// Convert a string to lowercase
+///
+/// Stack effect: ( str -- lower )
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn string_to_lower(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_to_lower: stack is empty");
+
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match str_val {
+        Value::String(s) => {
+            let lower = s.as_str().to_lowercase();
+            unsafe { push(stack, Value::String(global_string(lower))) }
+        }
+        _ => panic!("string_to_lower: expected String on stack"),
     }
 }
 
@@ -176,7 +286,7 @@ mod tests {
             let stack = string_empty(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1));
             assert!(stack.is_null());
         }
     }
@@ -190,7 +300,7 @@ mod tests {
             let stack = string_empty(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(false));
+            assert_eq!(result, Value::Int(0));
             assert!(stack.is_null());
         }
     }
@@ -208,7 +318,7 @@ mod tests {
             let stack = string_contains(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1));
             assert!(stack.is_null());
         }
     }
@@ -226,7 +336,7 @@ mod tests {
             let stack = string_contains(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(false));
+            assert_eq!(result, Value::Int(0));
             assert!(stack.is_null());
         }
     }
@@ -244,7 +354,7 @@ mod tests {
             let stack = string_starts_with(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1));
             assert!(stack.is_null());
         }
     }
@@ -262,7 +372,7 @@ mod tests {
             let stack = string_starts_with(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(false));
+            assert_eq!(result, Value::Int(0));
             assert!(stack.is_null());
         }
     }
@@ -308,7 +418,135 @@ mod tests {
             let stack = string_starts_with(stack);
 
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_concat() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("Hello, ".to_owned())));
+            let stack = push(stack, Value::String(global_string("World!".to_owned())));
+
+            let stack = string_concat(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("Hello, World!".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_length() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("Hello".to_owned())));
+
+            let stack = string_length(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(5));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_length_empty() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("".to_owned())));
+
+            let stack = string_length(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_trim() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("  Hello, World!  ".to_owned())),
+            );
+
+            let stack = string_trim(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("Hello, World!".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_upper() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("Hello, World!".to_owned())),
+            );
+
+            let stack = string_to_upper(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("HELLO, WORLD!".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_lower() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("Hello, World!".to_owned())),
+            );
+
+            let stack = string_to_lower(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("hello, world!".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_http_header_content_length() {
+        // Real-world use case: Build "Content-Length: 42" header
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("Content-Length: ".to_owned())),
+            );
+            let stack = push(stack, Value::String(global_string("42".to_owned())));
+
+            let stack = string_concat(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("Content-Length: 42".to_owned()))
+            );
             assert!(stack.is_null());
         }
     }

@@ -70,6 +70,16 @@ impl Program {
             "write_line",
             "read_line",
             "int->string",
+            // String operations
+            "string-concat",
+            "string-length",
+            "string-split",
+            "string-contains",
+            "string-starts-with",
+            "string-empty",
+            "string-trim",
+            "string-to-upper",
+            "string-to-lower",
             // Arithmetic operations
             "add",
             "subtract",
@@ -101,6 +111,7 @@ impl Program {
             "call",
             "times",
             "while",
+            "until",
             "forever",
             "spawn",
             // TCP operations

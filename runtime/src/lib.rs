@@ -44,8 +44,8 @@ pub use channel::{close_channel, make_channel, receive, send};
 
 // String operations (exported for LLVM linking)
 pub use string_ops::{
-    string_concat, string_contains, string_empty, string_length, string_split,
-    string_starts_with, string_to_lower, string_to_upper, string_trim,
+    string_concat, string_contains, string_empty, string_length, string_split, string_starts_with,
+    string_to_lower, string_to_upper, string_trim,
 };
 
 // Quotation operations (exported for LLVM linking)

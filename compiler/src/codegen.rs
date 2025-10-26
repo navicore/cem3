@@ -174,6 +174,7 @@ impl CodeGen {
         writeln!(&mut ir, "; Scheduler operations").unwrap();
         writeln!(&mut ir, "declare void @scheduler_init()").unwrap();
         writeln!(&mut ir, "declare ptr @scheduler_run()").unwrap();
+        writeln!(&mut ir, "declare i64 @strand_spawn(ptr, ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
@@ -487,10 +488,15 @@ impl CodeGen {
         // Initialize scheduler
         writeln!(&mut self.output, "  call void @scheduler_init()").unwrap();
 
-        // Call user's main function
-        writeln!(&mut self.output, "  %0 = call ptr @cem_main(ptr null)").unwrap();
+        // Spawn user's main function as the first strand
+        // This ensures all code runs in coroutine context for non-blocking I/O
+        writeln!(
+            &mut self.output,
+            "  %0 = call i64 @strand_spawn(ptr @cem_main, ptr null)"
+        )
+        .unwrap();
 
-        // Wait for all spawned strands to complete
+        // Wait for all spawned strands to complete (including main)
         writeln!(&mut self.output, "  %1 = call ptr @scheduler_run()").unwrap();
 
         writeln!(&mut self.output, "  ret i32 0").unwrap();

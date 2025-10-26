@@ -256,6 +256,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // until: ( ..a Quotation Quotation -- ..a )
+    // First quotation is body ( ..a -- ..a ), second is condition ( ..a -- ..a Int )
+    // Executes body, then checks condition; repeats until condition is true
+    sigs.insert(
+        "until".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()),
+                ))))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()).push(Type::Int),
+                )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
     // forever: ( ..a Quotation -- ..a )
     // Executes quotation infinitely. Quotation must have effect ( ..a -- ..a )
     // Note: This never returns in practice, but type-wise it has same stack effect
@@ -334,6 +353,106 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         Effect::new(
             StackType::RowVar("a".to_string()).push(Type::Int),
             StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // String operations
+    // string-concat: ( ..a String String -- ..a String )
+    // Concatenate two strings
+    sigs.insert(
+        "string-concat".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-length: ( ..a String -- ..a Int )
+    // Get string length
+    sigs.insert(
+        "string-length".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-split: ( ..a String String -- ..a String* Int )
+    // Split string by delimiter, returns parts and count
+    // Note: This pushes multiple values, simplified to generic type for now
+    sigs.insert(
+        "string-split".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("b".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-contains: ( ..a String String -- ..a Int )
+    // Check if string contains substring (returns 0 or 1)
+    sigs.insert(
+        "string-contains".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-starts-with: ( ..a String String -- ..a Int )
+    // Check if string starts with prefix (returns 0 or 1)
+    sigs.insert(
+        "string-starts-with".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-empty: ( ..a String -- ..a Int )
+    // Check if string is empty (returns 0 or 1)
+    sigs.insert(
+        "string-empty".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-trim: ( ..a String -- ..a String )
+    // Trim whitespace from both ends
+    sigs.insert(
+        "string-trim".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-to-upper: ( ..a String -- ..a String )
+    // Convert to uppercase
+    sigs.insert(
+        "string-to-upper".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-to-lower: ( ..a String -- ..a String )
+    // Convert to lowercase
+    sigs.insert(
+        "string-to-lower".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
         ),
     );
 

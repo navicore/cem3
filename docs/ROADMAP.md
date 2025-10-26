@@ -553,20 +553,22 @@ Interning only needed if benchmarks show string *literals* are a bottleneck.
   - Example: `[ tcp-accept handle-client ] forever`
   - **Type system note:** Currently typed as if it returns (with unchanged stack), but never returns in practice. A proper "never" type would be more precise. See Phase 8.5 limitations.
   - Implementation: `runtime/src/quotations.rs:177-194`
-- [ ] `each: ( array [quot] -- )` - Iterate over array elements
-  - Example: `routes [ match-route ] each`
-- [ ] `until: ( [body] [cond] -- )` - Loop until condition is true
+- [x] `until: ( ..a [body] [cond] -- ..a )` - Loop until condition is true (do-while style) ✓ IMPLEMENTED
   - Example: `[ read-chunk ] [ is-complete ] until`
+  - Implementation: `runtime/src/quotations.rs:196-263`
+- [ ] `each: ( array [quot] -- )` - Iterate over array elements **BLOCKED: Requires array support**
+  - Example: `routes [ match-route ] each`
 
 ### Tasks
 - [x] Implement `forever` combinator in runtime ✓
 - [x] Add LLVM declaration for `forever` ✓
 - [x] Add type signature for `forever` to builtins ✓
 - [x] Test with HTTP server (handles multiple connections) ✓
-- [ ] Implement `each` combinator (requires array iteration)
-- [ ] Implement `until` combinator
-- [ ] Add LLVM declarations for `each` and `until`
-- [ ] Add type signatures to builtins for `each` and `until`
+- [x] Implement `until` combinator ✓
+- [x] Add LLVM declaration for `until` ✓
+- [x] Add type signature for `until` to builtins ✓
+- [x] Test `until` combinator (countdown, do-while semantics) ✓
+- [ ] Implement `each` combinator **BLOCKED: requires array iteration**
 - [ ] Test complex nesting (forever + spawn + times)
 - [ ] Test break/continue patterns (if needed)
 

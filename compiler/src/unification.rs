@@ -103,6 +103,10 @@ fn occurs_in_type(var: &str, ty: &Type) -> bool {
     match ty {
         Type::Var(name) => name == var,
         Type::Int | Type::Bool | Type::String => false,
+        Type::Quotation(effect) => {
+            // Check if var occurs in quotation's input or output stack types
+            occurs_in_stack(var, &effect.inputs) || occurs_in_stack(var, &effect.outputs)
+        }
     }
 }
 
@@ -146,6 +150,20 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
             let mut subst = Subst::empty();
             subst.types.insert(name.clone(), ty.clone());
             Ok(subst)
+        }
+
+        // Quotation types unify if their effects unify
+        (Type::Quotation(effect1), Type::Quotation(effect2)) => {
+            // Unify inputs
+            let s_in = unify_stacks(&effect1.inputs, &effect2.inputs)?;
+
+            // Apply substitution to outputs and unify
+            let out1 = s_in.apply_stack(&effect1.outputs);
+            let out2 = s_in.apply_stack(&effect2.outputs);
+            let s_out = unify_stacks(&out1, &out2)?;
+
+            // Compose substitutions
+            Ok(s_in.compose(&s_out))
         }
 
         // Different concrete types don't unify

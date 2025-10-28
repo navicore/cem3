@@ -407,6 +407,7 @@ These features are **deferred** to future phases:
 - ❌ **User-defined types**: Only Int and String currently (future phase)
 - ❌ **Variant type checking**: ADTs not yet implemented (future phase)
 - ❌ **Type inference**: Effects must be declared (acceptable for now)
+- ❌ **Diverging functions**: Functions like `forever` that never return are typed as if they do return (with unchanged stack). A proper "never" type (like Rust's `!`) would be more precise, but current behavior is safe and correct.
 
 ### Documentation
 - **User Guide**: `docs/TYPE_SYSTEM_GUIDE.md` - How to use the type system
@@ -537,19 +538,267 @@ Interning only needed if benchmarks show string *literals* are a bottleneck.
 
 ---
 
-## Phase 10: Advanced Features
+## Phase 10.1: Loop Combinators & Iteration
 
-### Goals
-- Add features that rely on solid foundation
-- Quotations, pattern matching, etc.
+**Goal:** Enable idiomatic server loops and iteration patterns
+
+### Combinators Already Implemented ✓
+- [x] `call: ( [quot] -- )` - Execute quotation immediately
+- [x] `times: ( n [quot] -- )` - Execute quotation n times
+- [x] `while: ( [cond] [body] -- )` - Loop while condition is true
+- [x] `spawn: ( [quot] -- strand-id )` - Execute quotation in new strand
+
+### New Combinators Needed
+- [x] `forever: ( ..a [quot] -- ..a )` - Infinite loop (critical for servers) ✓ IMPLEMENTED
+  - Example: `[ tcp-accept handle-client ] forever`
+  - **Type system note:** Currently typed as if it returns (with unchanged stack), but never returns in practice. A proper "never" type would be more precise. See Phase 8.5 limitations.
+  - Implementation: `runtime/src/quotations.rs:177-194`
+- [x] `until: ( ..a [body] [cond] -- ..a )` - Loop until condition is true (do-while style) ✓ IMPLEMENTED
+  - Example: `[ read-chunk ] [ is-complete ] until`
+  - Implementation: `runtime/src/quotations.rs:196-263`
+- [ ] `each: ( array [quot] -- )` - Iterate over array elements **BLOCKED: Requires array support**
+  - Example: `routes [ match-route ] each`
 
 ### Tasks
-- [ ] Quotations with full closure support
-- [ ] Pattern matching with complex patterns
-- [ ] String operations and formatting
-- [ ] **String optimization** - Consider interning or static references (see `docs/STRING_INTERNING_DESIGN.md`)
-- [ ] I/O enhancements
-- [ ] Module system
+- [x] Implement `forever` combinator in runtime ✓
+- [x] Add LLVM declaration for `forever` ✓
+- [x] Add type signature for `forever` to builtins ✓
+- [x] Test with HTTP server (handles multiple connections) ✓
+- [x] Implement `until` combinator ✓
+- [x] Add LLVM declaration for `until` ✓
+- [x] Add type signature for `until` to builtins ✓
+- [x] Test `until` combinator (countdown, do-while semantics) ✓
+- [ ] Implement `each` combinator **BLOCKED: requires array iteration**
+- [ ] Test complex nesting (forever + spawn + times)
+- [ ] Test break/continue patterns (if needed)
+
+### Success Criteria
+✓ Can write `[ accept-connection ] forever`
+✓ Can write `urls [ fetch ] each`
+✓ Combinators compose cleanly
+✓ No stack corruption with nested loops
+
+### Example: HTTP Server Loop
+```cem
+: handle-client ( client-id -- )
+  dup tcp-read
+  route-request     # Returns response
+  swap tcp-write
+  tcp-close ;
+
+: main ( -- )
+  9999 tcp-listen
+  [ tcp-accept handle-client spawn drop ] forever ;
+```
+
+**Estimated Effort:** 1 session
+
+---
+
+## Phase 10.2: String Operations ✅ COMPLETE
+
+**Status:** COMPLETE (2025-10-26)
+
+**Goal:** String manipulation for HTTP request/response handling
+
+### Operations Already Implemented ✓
+- [x] `int->string: ( Int -- String )` - Convert integer to string
+- [x] String literals in source code
+- [x] `write_line: ( String -- )` - Output strings
+
+### String Operations Implemented ✓
+- [x] `string-concat: ( str1 str2 -- result )` - Join strings ✓ IMPLEMENTED
+  - Example: `"HTTP/1.1 " status string-concat`
+  - Implementation: `runtime/src/string_ops.rs:130-144`
+- [x] `string-length: ( str -- int )` - Get string length ✓ IMPLEMENTED
+  - Example: `body string-length int->string` (for Content-Length)
+  - Implementation: `runtime/src/string_ops.rs:153-165`
+- [x] `string-split: ( str delim -- part1 part2 ... partN count )` - Split by delimiter ✓ IMPLEMENTED
+  - Stack effect: Pushes each part + count (not array)
+  - Example: `"a b c" " " string-split` → `"a" "b" "c" 3`
+  - Implementation: `runtime/src/string_ops.rs:26-51`
+- [x] `string-starts-with: ( str prefix -- int )` - Check prefix ✓ IMPLEMENTED
+  - Returns Int (0 or 1) for Forth-style boolean semantics
+  - Example: `path "/api" string-starts-with`
+  - Implementation: `runtime/src/string_ops.rs:106-121`
+- [x] `string-contains: ( str substring -- int )` - Check substring ✓ IMPLEMENTED
+  - Returns Int (0 or 1) for Forth-style boolean semantics
+  - Example: `header "gzip" string-contains`
+  - Implementation: `runtime/src/string_ops.rs:82-97`
+- [x] `string-empty: ( str -- int )` - Check if string is empty ✓ IMPLEMENTED
+  - Returns Int (0 or 1) for Forth-style boolean semantics
+  - Implementation: `runtime/src/string_ops.rs:60-73`
+- [x] `string-trim: ( str -- trimmed )` - Remove whitespace ✓ IMPLEMENTED
+  - Implementation: `runtime/src/string_ops.rs:174-186`
+- [x] `string-to-upper: ( str -- upper )` - Convert to uppercase ✓ IMPLEMENTED
+  - Implementation: `runtime/src/string_ops.rs:195-207`
+- [x] `string-to-lower: ( str -- lower )` - Convert to lowercase ✓ IMPLEMENTED
+  - Implementation: `runtime/src/string_ops.rs:216-228`
+
+### Tasks Completed
+- [x] Implement string operations in runtime (runtime/src/string_ops.rs)
+- [x] Add LLVM declarations (compiler/src/codegen.rs)
+- [x] Add type signatures to builtins (compiler/src/builtins.rs)
+- [x] Test with arena allocation (phase 9.2)
+- [x] Add to AST validation (compiler/src/ast.rs)
+
+### Success Criteria
+✓ Can build HTTP responses with string-concat
+✓ Can parse HTTP requests with string-split
+✓ No memory leaks with temporary strings
+✓ Performance acceptable (arena allocation helps)
+
+### Example: Build HTTP Response
+```cem
+: http-ok ( body -- response )
+  dup string-length int->string      # ( body len-str )
+  "HTTP/1.1 200 OK\r\n"
+  "Content-Type: text/plain\r\n"
+  string-concat
+  "Content-Length: " string-concat
+  swap string-concat                  # Add length
+  "\r\n\r\n" string-concat
+  swap string-concat ;                # Add body
+```
+
+**Estimated Effort:** 1 session
+
+---
+
+## Phase 10.3: Pattern Matching & Destructuring
+
+**Goal:** Route HTTP requests and destructure data structures
+
+**Critical:** Without pattern matching, HTTP servers are impractical. This is NOT optional.
+
+### What We Need
+
+#### 1. Variant Pattern Matching
+```cem
+# Match on ADT constructors
+: handle-result ( Result -- )
+  match
+    Ok value => [ "Success: " swap string-concat write_line ]
+    Err msg => [ "Error: " swap string-concat write_line ]
+  end ;
+```
+
+#### 2. String Pattern Matching (HTTP Routes)
+```cem
+: route-request ( request -- response )
+  string-split first  # Get method and path
+  match
+    "GET /" => [ "Hello, World!" http-ok ]
+    "GET /api/users" => [ get-users http-ok ]
+    "POST /api/users" => [ create-user http-ok ]
+    _ => [ "Not Found" http-404 ]
+  end ;
+```
+
+#### 3. Destructuring Bindings
+```cem
+: parse-request ( str -- method path )
+  " " string-split
+  match
+    [method, path, ...] => [ method path ]  # Bind and extract
+    _ => [ "GET" "/" ]  # Default
+  end ;
+```
+
+### Tasks
+
+#### Design Phase (1 session)
+- [ ] Design match syntax (study Factor, Kitten, OCaml)
+- [ ] Decide: expression-based or statement-based?
+- [ ] Handle exhaustiveness checking
+- [ ] Design wildcard patterns (`_`)
+- [ ] Design guard clauses (if needed)
+
+#### Implementation Phase (2 sessions)
+- [ ] Add `match` to AST
+- [ ] Implement pattern parsing
+- [ ] Add pattern type checking
+- [ ] Generate LLVM IR for match (likely jump tables)
+- [ ] Implement variant destructuring
+- [ ] Implement string/literal matching
+- [ ] Add exhaustiveness checking
+
+#### Testing Phase (1 session)
+- [ ] Test variant matching
+- [ ] Test string matching (HTTP routes)
+- [ ] Test nested patterns
+- [ ] Test exhaustiveness errors
+- [ ] Test with quotations in match arms
+
+### Success Criteria
+✓ Can route HTTP requests with clean syntax
+✓ Can destructure variants (Ok/Err, Cons/Nil)
+✓ Exhaustiveness checking catches missing cases
+✓ Generated code is efficient (jump tables)
+✓ Pattern matching composes with quotations
+
+### Example: Complete HTTP Router
+```cem
+: route ( request -- response )
+  parse-http-request  # ( method path headers body )
+  rot rot            # ( headers body method path )
+
+  match
+    ["GET", "/"] =>
+      [ drop drop "Welcome!" http-ok ]
+
+    ["GET", path] =>
+      [ drop drop path get-resource http-ok ]
+
+    ["POST", "/api/users"] =>
+      [ swap drop create-user http-ok ]  # Use body
+
+    ["DELETE", path] =>
+      [ drop drop path delete-resource http-ok ]
+
+    [method, path] =>
+      [ "Method " method string-concat
+        " not allowed for " string-concat
+        path string-concat
+        http-405 ]
+  end ;
+```
+
+**Estimated Effort:** 3-4 sessions
+
+**Critical Path:** This MUST be done before claiming HTTP server support.
+
+---
+
+## Phase 10.4: User-Defined Types & Constructors
+
+**Goal:** Model domain concepts cleanly
+
+### Tasks
+- [ ] Variant type definitions
+- [ ] Constructor functions
+- [ ] Type aliases
+- [ ] Newtype wrappers
+
+**Estimated Effort:** 2-3 sessions
+
+**Priority:** Lower - can use pattern matching on built-in types first
+
+---
+
+## Phase 10.5: Module System & Organization
+
+**Goal:** Organize larger programs
+
+### Tasks
+- [ ] Module definitions
+- [ ] Import/export
+- [ ] Namespacing
+- [ ] **String optimization** - Consider interning (see `docs/STRING_INTERNING_DESIGN.md`)
+
+**Estimated Effort:** 3-4 sessions
+
+**Priority:** Needed when code bases grow beyond single file
 
 ---
 
@@ -714,21 +963,51 @@ No pressure, no rush. Each phase is "done when it's done."
   - Row polymorphism, unification, comprehensive type checking
   - Enhanced type checker with 25 tests
   - Complete user documentation
-- Phase 9: Memory Management - 2-3 sessions (Next)
+- Phase 9: Memory Management - 2 sessions ✓ **COMPLETE**
   - Deterministic allocation with pools and arenas
   - Zero GC, zero-cost
-- Phase 10: Advanced Features - TBD
-  - Quotations, user-defined types, pattern matching
+  - Arena allocation for strings (~20x speedup)
+- Phase 9.5: TCP Networking - 1 session ✓ **COMPLETE**
+  - Non-blocking TCP with May coroutines
+  - Fixed symbol collision bug (send → cem_send)
+  - HTTP server working with curl
+- **Phase 10.1: Loop Combinators - 1 session (NEXT)**
+  - `forever`, `each`, `until` combinators
+  - Critical for server accept loops
+- **Phase 10.2: String Operations - 1 session**
+  - `string-concat`, `string-split`, `string-length`, etc.
+  - Critical for HTTP request/response handling
+- **Phase 10.3: Pattern Matching - 3-4 sessions**
+  - Match expressions for routing
+  - Variant destructuring
+  - **CRITICAL:** Required for practical HTTP servers
+- Phase 10.4: User-Defined Types - 2-3 sessions (Lower Priority)
+  - Variant type definitions, constructors
+- Phase 10.5: Module System - 3-4 sessions (When Needed)
+  - Import/export, namespacing
 
-**Total to prove foundation:** ~6-8 sessions to get to validated list operations. ✓ **DONE**
+**Total to prove foundation:** ~6-8 sessions to validated list operations ✓ **DONE**
 
-**Total to working typed compiler:** ~9 sessions including Phase 8.5. ✓ **DONE**
+**Total to working typed compiler:** ~9 sessions including Phase 8.5 ✓ **DONE**
 
-**Current status:** Phase 8.5 complete (full type system with row polymorphism)
+**Total to working memory management:** ~11 sessions including Phase 9 ✓ **DONE**
 
-**Next major milestone:** Phase 9 (Memory Management)
-- Stop leaking memory with deterministic management
-- Maintain zero runtime overhead
-- Enable long-running programs and services
+**Total to basic HTTP server:** ~12 sessions including Phase 9.5 ✓ **DONE**
 
-**Note:** Concurrency (Phase 10 from cem2) is already implemented and working in the runtime. The strand scheduler, CSP operations (spawn, send, receive), and non-blocking I/O are all functional with 46 passing runtime tests.
+**Total to production HTTP server:** ~17 sessions (including 10.1, 10.2, 10.3) - **IN PROGRESS**
+
+**Current status:** Phase 9.5 complete (TCP networking working)
+
+**Next milestone:** Phases 10.1-10.3 (HTTP Server Stack)
+- 10.1: Loop combinators for server loops
+- 10.2: String operations for HTTP parsing/building
+- 10.3: Pattern matching for request routing
+- **Goal:** Production-ready HTTP server with clean routing
+
+**Critical Path:** Cannot claim HTTP server support without pattern matching (10.3)
+
+**Note:** Concurrency infrastructure is complete and battle-tested:
+- ✓ Strand scheduler with May coroutines
+- ✓ CSP operations (spawn, send, receive, channels)
+- ✓ Non-blocking TCP (tcp-listen, tcp-accept, tcp-read, tcp-write)
+- ✓ 90 passing tests (including networking)

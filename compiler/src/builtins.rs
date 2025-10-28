@@ -207,6 +207,269 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Quotation operations
+    // call: ( ..a Quotation -- ..b )
+    // Note: The actual effect depends on the quotation's type,
+    // but we use ..a and ..b to indicate this is polymorphic
+    // A more precise type would require dependent types
+    sigs.insert(
+        "call".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Quotation(Box::new(Effect::new(
+                StackType::RowVar("qin".to_string()),
+                StackType::RowVar("qout".to_string()),
+            )))),
+            StackType::RowVar("b".to_string()),
+        ),
+    );
+
+    // times: ( ..a Quotation Int -- ..a )
+    // Executes quotation n times. Quotation must have effect ( ..a -- ..a )
+    sigs.insert(
+        "times".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()),
+                ))))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // while: ( ..a Quotation Quotation -- ..a )
+    // First quotation is condition ( ..a -- ..a Int ), second is body ( ..a -- ..a )
+    sigs.insert(
+        "while".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()).push(Type::Int),
+                ))))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()),
+                )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // until: ( ..a Quotation Quotation -- ..a )
+    // First quotation is body ( ..a -- ..a ), second is condition ( ..a -- ..a Int )
+    // Executes body, then checks condition; repeats until condition is true
+    sigs.insert(
+        "until".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()),
+                ))))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()),
+                    StackType::RowVar("a".to_string()).push(Type::Int),
+                )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // forever: ( ..a Quotation -- ..a )
+    // Executes quotation infinitely. Quotation must have effect ( ..a -- ..a )
+    // Note: This never returns in practice, but type-wise it has same stack effect
+    sigs.insert(
+        "forever".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Quotation(Box::new(Effect::new(
+                StackType::RowVar("a".to_string()),
+                StackType::RowVar("a".to_string()),
+            )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // spawn: ( ..a Quotation -- ..a Int )
+    // Spawns a quotation as a new strand, returns strand ID
+    // The quotation should have effect ( -- ) (empty stack in, empty stack out)
+    sigs.insert(
+        "spawn".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Quotation(Box::new(Effect::new(
+                StackType::Empty,
+                StackType::Empty,
+            )))),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // cond: ( ..a -- ..b )
+    // Multi-way conditional combinator
+    // Actual stack effect: ( value [pred1] [body1] [pred2] [body2] ... [predN] [bodyN] count -- result )
+    // Each predicate quotation has effect: ( T -- T Int )
+    // Each body quotation has effect: ( T -- U )
+    // Note: Variable-arity makes precise typing difficult; using row polymorphism as approximation
+    sigs.insert(
+        "cond".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("b".to_string()),
+        ),
+    );
+
+    // TCP operations with row polymorphism
+    // tcp-listen: ( ..a Int -- ..a Int )
+    // Takes port number, returns listener ID
+    sigs.insert(
+        "tcp-listen".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // tcp-accept: ( ..a Int -- ..a Int )
+    // Takes listener ID, returns client socket ID
+    sigs.insert(
+        "tcp-accept".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // tcp-read: ( ..a Int -- ..a String )
+    // Takes socket ID, returns data read as String
+    sigs.insert(
+        "tcp-read".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // tcp-write: ( ..a String Int -- ..a )
+    // Takes data String and socket ID, writes to socket
+    sigs.insert(
+        "tcp-write".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // tcp-close: ( ..a Int -- ..a )
+    // Takes socket ID, closes the socket
+    sigs.insert(
+        "tcp-close".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // String operations
+    // string-concat: ( ..a String String -- ..a String )
+    // Concatenate two strings
+    sigs.insert(
+        "string-concat".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-length: ( ..a String -- ..a Int )
+    // Get string length
+    sigs.insert(
+        "string-length".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-split: ( ..a String String -- ..a String* Int )
+    // Split string by delimiter, returns parts and count
+    // Note: This pushes multiple values, simplified to generic type for now
+    sigs.insert(
+        "string-split".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("b".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-contains: ( ..a String String -- ..a Int )
+    // Check if string contains substring (returns 0 or 1)
+    sigs.insert(
+        "string-contains".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-starts-with: ( ..a String String -- ..a Int )
+    // Check if string starts with prefix (returns 0 or 1)
+    sigs.insert(
+        "string-starts-with".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-empty: ( ..a String -- ..a Int )
+    // Check if string is empty (returns 0 or 1)
+    sigs.insert(
+        "string-empty".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-trim: ( ..a String -- ..a String )
+    // Trim whitespace from both ends
+    sigs.insert(
+        "string-trim".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-to-upper: ( ..a String -- ..a String )
+    // Convert to uppercase
+    sigs.insert(
+        "string-to-upper".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-to-lower: ( ..a String -- ..a String )
+    // Convert to lowercase
+    sigs.insert(
+        "string-to-lower".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
     sigs
 }
 

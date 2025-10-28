@@ -115,6 +115,11 @@ impl Parser {
             return self.parse_if();
         }
 
+        // Check for quotation
+        if token == "[" {
+            return self.parse_quotation();
+        }
+
         // Otherwise it's a word call
         Ok(Statement::WordCall(token))
     }
@@ -174,6 +179,30 @@ impl Parser {
             }
 
             else_branch.push(self.parse_statement()?);
+        }
+    }
+
+    fn parse_quotation(&mut self) -> Result<Statement, String> {
+        let mut body = Vec::new();
+
+        // Parse statements until ']'
+        loop {
+            if self.is_at_end() {
+                return Err("Unexpected end of file in quotation".to_string());
+            }
+
+            // Skip newlines
+            if self.check("\n") {
+                self.advance();
+                continue;
+            }
+
+            if self.check("]") {
+                self.advance();
+                return Ok(Statement::Quotation(body));
+            }
+
+            body.push(self.parse_statement()?);
         }
     }
 
@@ -283,10 +312,22 @@ impl Parser {
 
     /// Build a StackType from an optional row variable and a list of types
     /// Example: row_var="a", types=[Int, Bool] => RowVar("a") with Int on top of Bool
+    ///
+    /// IMPORTANT: If no row variable is given but types exist, auto-generate one.
+    /// This provides implicit row polymorphism: ( String -- String ) means ( ..rest String -- ..rest String )
     fn build_stack_type(&self, row_var: Option<String>, types: Vec<Type>) -> StackType {
         let base = match row_var {
             Some(name) => StackType::RowVar(name),
-            None => StackType::Empty,
+            None => {
+                // If we have types but no explicit row variable, auto-generate one
+                // This makes ( String -- String ) implicitly row-polymorphic
+                if !types.is_empty() {
+                    StackType::RowVar("rest".to_string())
+                } else {
+                    // Only use Empty for truly empty stacks: ( -- ) or ( -- Int )
+                    StackType::Empty
+                }
+            }
         };
 
         // Push types onto the stack (bottom to top order)
@@ -599,6 +640,7 @@ mod tests {
     #[test]
     fn test_parse_simple_stack_effect() {
         // Test: ( Int -- Bool )
+        // With implicit row polymorphism, this becomes: ( ..rest Int -- ..rest Bool )
         let source = ": test ( Int -- Bool ) 1 ;";
         let mut parser = Parser::new(source);
         let program = parser.parse().unwrap();
@@ -609,20 +651,20 @@ mod tests {
 
         let effect = word.effect.as_ref().unwrap();
 
-        // Input: Int on Empty
+        // Input: Int on RowVar("rest") (implicit row polymorphism)
         assert_eq!(
             effect.inputs,
             StackType::Cons {
-                rest: Box::new(StackType::Empty),
+                rest: Box::new(StackType::RowVar("rest".to_string())),
                 top: Type::Int
             }
         );
 
-        // Output: Bool on Empty
+        // Output: Bool on RowVar("rest") (implicit row polymorphism)
         assert_eq!(
             effect.outputs,
             StackType::Cons {
-                rest: Box::new(StackType::Empty),
+                rest: Box::new(StackType::RowVar("rest".to_string())),
                 top: Type::Bool
             }
         );
@@ -663,24 +705,25 @@ mod tests {
     #[test]
     fn test_parse_multiple_types_stack_effect() {
         // Test: ( Int String -- Bool )
+        // With implicit row polymorphism: ( ..rest Int String -- ..rest Bool )
         let source = ": test ( Int String -- Bool ) 1 ;";
         let mut parser = Parser::new(source);
         let program = parser.parse().unwrap();
 
         let effect = program.words[0].effect.as_ref().unwrap();
 
-        // Input: String on Int on Empty
+        // Input: String on Int on RowVar("rest")
         let (rest, top) = effect.inputs.clone().pop().unwrap();
         assert_eq!(top, Type::String);
         let (rest2, top2) = rest.pop().unwrap();
         assert_eq!(top2, Type::Int);
-        assert_eq!(rest2, StackType::Empty);
+        assert_eq!(rest2, StackType::RowVar("rest".to_string()));
 
-        // Output: Bool on Empty
+        // Output: Bool on RowVar("rest") (implicit row polymorphism)
         assert_eq!(
             effect.outputs,
             StackType::Cons {
-                rest: Box::new(StackType::Empty),
+                rest: Box::new(StackType::RowVar("rest".to_string())),
                 top: Type::Bool
             }
         );
@@ -759,5 +802,149 @@ mod tests {
 
         assert_eq!(program.words.len(), 1);
         assert!(program.words[0].effect.is_none());
+    }
+
+    #[test]
+    fn test_parse_simple_quotation() {
+        let source = r#"
+: test ( -- Quot )
+  [ 1 add ] ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].name, "test");
+        assert_eq!(program.words[0].body.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Quotation(body) => {
+                assert_eq!(body.len(), 2);
+                assert_eq!(body[0], Statement::IntLiteral(1));
+                assert_eq!(body[1], Statement::WordCall("add".to_string()));
+            }
+            _ => panic!("Expected Quotation statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_quotation() {
+        let source = ": test [ ] ;";
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Quotation(body) => {
+                assert_eq!(body.len(), 0);
+            }
+            _ => panic!("Expected Quotation statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_quotation_with_call() {
+        let source = r#"
+: test ( -- )
+  5 [ 1 add ] call ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].body.len(), 3);
+
+        assert_eq!(program.words[0].body[0], Statement::IntLiteral(5));
+
+        match &program.words[0].body[1] {
+            Statement::Quotation(body) => {
+                assert_eq!(body.len(), 2);
+            }
+            _ => panic!("Expected Quotation"),
+        }
+
+        assert_eq!(
+            program.words[0].body[2],
+            Statement::WordCall("call".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_nested_quotation() {
+        let source = ": test [ [ 1 add ] call ] ;";
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Quotation(outer_body) => {
+                assert_eq!(outer_body.len(), 2);
+
+                match &outer_body[0] {
+                    Statement::Quotation(inner_body) => {
+                        assert_eq!(inner_body.len(), 2);
+                        assert_eq!(inner_body[0], Statement::IntLiteral(1));
+                        assert_eq!(inner_body[1], Statement::WordCall("add".to_string()));
+                    }
+                    _ => panic!("Expected nested Quotation"),
+                }
+
+                assert_eq!(outer_body[1], Statement::WordCall("call".to_string()));
+            }
+            _ => panic!("Expected Quotation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_while_with_quotations() {
+        let source = r#"
+: countdown ( Int -- )
+  [ dup 0 > ] [ 1 subtract ] while drop ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].body.len(), 4);
+
+        // First quotation: [ dup 0 > ]
+        match &program.words[0].body[0] {
+            Statement::Quotation(pred) => {
+                assert_eq!(pred.len(), 3);
+                assert_eq!(pred[0], Statement::WordCall("dup".to_string()));
+                assert_eq!(pred[1], Statement::IntLiteral(0));
+                assert_eq!(pred[2], Statement::WordCall(">".to_string()));
+            }
+            _ => panic!("Expected predicate quotation"),
+        }
+
+        // Second quotation: [ 1 subtract ]
+        match &program.words[0].body[1] {
+            Statement::Quotation(body) => {
+                assert_eq!(body.len(), 2);
+                assert_eq!(body[0], Statement::IntLiteral(1));
+                assert_eq!(body[1], Statement::WordCall("subtract".to_string()));
+            }
+            _ => panic!("Expected body quotation"),
+        }
+
+        // while call
+        assert_eq!(
+            program.words[0].body[2],
+            Statement::WordCall("while".to_string())
+        );
+
+        // drop
+        assert_eq!(
+            program.words[0].body[3],
+            Statement::WordCall("drop".to_string())
+        );
     }
 }

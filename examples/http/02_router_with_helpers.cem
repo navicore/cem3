@@ -1,0 +1,65 @@
+# HTTP Router with Helper Functions
+# Demonstrates: modular design, forward references, helper words
+
+# Build 200 OK response with body
+: ok-response ( String -- String )
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n" swap string-concat
+;
+
+# Build JSON 200 OK response
+: json-response ( String -- String )
+  "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" swap string-concat
+;
+
+# 404 response
+: not-found ( -- String )
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found"
+;
+
+# Route handlers using helpers
+: handle-root ( -- String )
+  "Welcome to cem3!\nBuilt with row polymorphism and Hindley-Milner inference." ok-response
+;
+
+: handle-health ( -- String )
+  "{\"status\":\"healthy\",\"language\":\"cem3\",\"version\":\"0.2.0\"}" json-response
+;
+
+: handle-about ( -- String )
+  "cem3 is a concatenative language with:\n- Static typing\n- Row polymorphism\n- CSP concurrency\n- Clean separation of values and stack structure" ok-response
+;
+
+# Main routing logic
+: route ( String -- String )
+  [ dup "GET / " string-starts-with ]
+  [ drop handle-root ]
+
+  [ dup "GET /health" string-starts-with ]
+  [ drop handle-health ]
+
+  [ dup "GET /about" string-starts-with ]
+  [ drop handle-about ]
+
+  [ drop 1 ]
+  [ not-found ]
+
+  4 cond
+;
+
+# Test the router
+: main ( -- )
+  "Testing / ..." write_line
+  "GET / HTTP/1.1" route write_line
+  "" write_line
+
+  "Testing /health ..." write_line
+  "GET /health HTTP/1.1" route write_line
+  "" write_line
+
+  "Testing /about ..." write_line
+  "GET /about HTTP/1.1" route write_line
+  "" write_line
+
+  "Testing 404 ..." write_line
+  "GET /notfound HTTP/1.1" route write_line
+;

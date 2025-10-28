@@ -387,13 +387,16 @@ mod tests {
             let (_, result) = pop(stack);
             assert!(matches!(result, Value::Int(_)));
 
-            // Test port 1 (minimum valid)
-            let stack = push_int(std::ptr::null_mut(), 1);
+            // Test a non-privileged port (ports 1-1023 require root on Unix)
+            // Use port 9999 which should be available and doesn't require privileges
+            let stack = push_int(std::ptr::null_mut(), 9999);
             let stack = tcp_listen(stack);
             let (_, result) = pop(stack);
             assert!(matches!(result, Value::Int(_)));
 
-            // Note: Can't easily test port 65535 as it might be in use
+            // Note: Can't easily test all edge cases (port 1, 65535) as they
+            // may require privileges or be in use. Port validation logic is
+            // tested separately in the invalid port tests.
         }
     }
 

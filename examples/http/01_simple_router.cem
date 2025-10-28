@@ -1,0 +1,30 @@
+# Simple HTTP Router Example
+# Demonstrates: cond combinator, pattern matching, row polymorphism
+
+# Main routing logic: takes HTTP request string, returns HTTP response string
+: route ( String -- String )
+  [ dup "GET / " string-starts-with ]
+  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nWelcome to cem3!" ]
+
+  [ dup "GET /health" string-starts-with ]
+  [ drop "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"healthy\"}" ]
+
+  [ dup "GET /about" string-starts-with ]
+  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\ncem3 - Clean Concatenative Language" ]
+
+  [ drop 1 ]
+  [ "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found" ]
+
+  4 cond
+;
+
+# Test the router with sample requests
+: main ( -- )
+  "GET / HTTP/1.1" route write_line
+  "" write_line
+
+  "GET /health HTTP/1.1" route write_line
+  "" write_line
+
+  "GET /unknown HTTP/1.1" route write_line
+;

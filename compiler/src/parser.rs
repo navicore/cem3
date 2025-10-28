@@ -312,10 +312,22 @@ impl Parser {
 
     /// Build a StackType from an optional row variable and a list of types
     /// Example: row_var="a", types=[Int, Bool] => RowVar("a") with Int on top of Bool
+    ///
+    /// IMPORTANT: If no row variable is given but types exist, auto-generate one.
+    /// This provides implicit row polymorphism: ( String -- String ) means ( ..rest String -- ..rest String )
     fn build_stack_type(&self, row_var: Option<String>, types: Vec<Type>) -> StackType {
         let base = match row_var {
             Some(name) => StackType::RowVar(name),
-            None => StackType::Empty,
+            None => {
+                // If we have types but no explicit row variable, auto-generate one
+                // This makes ( String -- String ) implicitly row-polymorphic
+                if !types.is_empty() {
+                    StackType::RowVar("rest".to_string())
+                } else {
+                    // Only use Empty for truly empty stacks: ( -- ) or ( -- Int )
+                    StackType::Empty
+                }
+            }
         };
 
         // Push types onto the stack (bottom to top order)
@@ -628,6 +640,7 @@ mod tests {
     #[test]
     fn test_parse_simple_stack_effect() {
         // Test: ( Int -- Bool )
+        // With implicit row polymorphism, this becomes: ( ..rest Int -- ..rest Bool )
         let source = ": test ( Int -- Bool ) 1 ;";
         let mut parser = Parser::new(source);
         let program = parser.parse().unwrap();
@@ -638,20 +651,20 @@ mod tests {
 
         let effect = word.effect.as_ref().unwrap();
 
-        // Input: Int on Empty
+        // Input: Int on RowVar("rest") (implicit row polymorphism)
         assert_eq!(
             effect.inputs,
             StackType::Cons {
-                rest: Box::new(StackType::Empty),
+                rest: Box::new(StackType::RowVar("rest".to_string())),
                 top: Type::Int
             }
         );
 
-        // Output: Bool on Empty
+        // Output: Bool on RowVar("rest") (implicit row polymorphism)
         assert_eq!(
             effect.outputs,
             StackType::Cons {
-                rest: Box::new(StackType::Empty),
+                rest: Box::new(StackType::RowVar("rest".to_string())),
                 top: Type::Bool
             }
         );
@@ -692,24 +705,25 @@ mod tests {
     #[test]
     fn test_parse_multiple_types_stack_effect() {
         // Test: ( Int String -- Bool )
+        // With implicit row polymorphism: ( ..rest Int String -- ..rest Bool )
         let source = ": test ( Int String -- Bool ) 1 ;";
         let mut parser = Parser::new(source);
         let program = parser.parse().unwrap();
 
         let effect = program.words[0].effect.as_ref().unwrap();
 
-        // Input: String on Int on Empty
+        // Input: String on Int on RowVar("rest")
         let (rest, top) = effect.inputs.clone().pop().unwrap();
         assert_eq!(top, Type::String);
         let (rest2, top2) = rest.pop().unwrap();
         assert_eq!(top2, Type::Int);
-        assert_eq!(rest2, StackType::Empty);
+        assert_eq!(rest2, StackType::RowVar("rest".to_string()));
 
-        // Output: Bool on Empty
+        // Output: Bool on RowVar("rest") (implicit row polymorphism)
         assert_eq!(
             effect.outputs,
             StackType::Cons {
-                rest: Box::new(StackType::Empty),
+                rest: Box::new(StackType::RowVar("rest".to_string())),
                 top: Type::Bool
             }
         );

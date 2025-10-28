@@ -12,13 +12,16 @@ pub enum Type {
     Bool,
     /// String type
     String,
+    /// Quotation type (code block with stack effect)
+    /// Example: [ Int -- Int ] is a quotation that takes Int and produces Int
+    Quotation(Box<Effect>),
     /// Type variable (for polymorphism)
     /// Example: T in ( ..a T -- ..a T T )
     Var(String),
 }
 
 /// Stack types with row polymorphism
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StackType {
     /// Empty stack
     Empty,
@@ -41,7 +44,7 @@ pub enum StackType {
 /// Example: ( ..a Int -- ..a Bool ) means:
 ///   - Consumes an Int from stack with ..a underneath
 ///   - Produces a Bool on stack with ..a underneath
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Effect {
     /// Input stack type (before word executes)
     pub inputs: StackType,

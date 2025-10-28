@@ -43,6 +43,13 @@ pub enum Statement {
         /// Optional statements to execute when condition is zero (the 'else' clause)
         else_branch: Option<Vec<Statement>>,
     },
+
+    /// Quotation: [ ... ]
+    ///
+    /// A block of deferred code (quotation/lambda)
+    /// Quotations are first-class values that can be pushed onto the stack
+    /// and executed later with combinators like `call`, `times`, or `while`
+    Quotation(Vec<Statement>),
 }
 
 impl Program {
@@ -63,6 +70,16 @@ impl Program {
             "write_line",
             "read_line",
             "int->string",
+            // String operations
+            "string-concat",
+            "string-length",
+            "string-split",
+            "string-contains",
+            "string-starts-with",
+            "string-empty",
+            "string-trim",
+            "string-to-upper",
+            "string-to-lower",
             // Arithmetic operations
             "add",
             "subtract",
@@ -90,7 +107,20 @@ impl Program {
             "receive",
             "close-channel",
             "yield",
-            // Note: spawn omitted - requires quotation support in AST
+            // Quotation operations
+            "call",
+            "times",
+            "while",
+            "until",
+            "forever",
+            "spawn",
+            "cond",
+            // TCP operations
+            "tcp-listen",
+            "tcp-accept",
+            "tcp-read",
+            "tcp-write",
+            "tcp-close",
         ];
 
         for word in &self.words {
@@ -134,6 +164,10 @@ impl Program {
                     if let Some(eb) = else_branch {
                         self.validate_statements(eb, word_name, builtins)?;
                     }
+                }
+                Statement::Quotation(body) => {
+                    // Recursively validate quotation body
+                    self.validate_statements(body, word_name, builtins)?;
                 }
                 _ => {} // Literals don't need validation
             }

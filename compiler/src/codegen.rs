@@ -27,7 +27,9 @@ pub struct CodeGen {
     temp_counter: usize,
     string_counter: usize,
     block_counter: usize, // For generating unique block labels
+    quot_counter: usize,  // For generating unique quotation function names
     string_constants: HashMap<String, String>, // string content -> global name
+    quotation_functions: String, // Accumulates generated quotation functions
 }
 
 impl CodeGen {
@@ -38,7 +40,9 @@ impl CodeGen {
             temp_counter: 0,
             string_counter: 0,
             block_counter: 0,
+            quot_counter: 0,
             string_constants: HashMap::new(),
+            quotation_functions: String::new(),
         }
     }
 
@@ -155,16 +159,52 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
+        writeln!(&mut ir, "; Quotation operations").unwrap();
+        writeln!(&mut ir, "declare ptr @push_quotation(ptr, i64)").unwrap();
+        writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @times(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @while_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @until_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @forever(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @cond(ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @cem_send(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
+        writeln!(&mut ir, "; Scheduler operations").unwrap();
+        writeln!(&mut ir, "declare void @scheduler_init()").unwrap();
+        writeln!(&mut ir, "declare ptr @scheduler_run()").unwrap();
+        writeln!(&mut ir, "declare i64 @strand_spawn(ptr, ptr)").unwrap();
+        writeln!(&mut ir, "; TCP operations").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_listen(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_accept(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_read(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_write(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @tcp_close(ptr)").unwrap();
+        writeln!(&mut ir, "; String operations").unwrap();
+        writeln!(&mut ir, "declare ptr @string_concat(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_length(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_split(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_contains(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_starts_with(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_empty(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_trim(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_to_upper(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @string_to_lower(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
+
+        // Quotation functions (generated from quotation literals)
+        if !self.quotation_functions.is_empty() {
+            writeln!(&mut ir, "; Quotation functions").unwrap();
+            ir.push_str(&self.quotation_functions);
+            writeln!(&mut ir).unwrap();
+        }
 
         // User-defined words and main
         ir.push_str(&self.output);
@@ -196,6 +236,45 @@ impl CodeGen {
         writeln!(&mut self.output).unwrap();
 
         Ok(())
+    }
+
+    /// Generate a quotation function
+    /// Returns the function name
+    fn codegen_quotation(&mut self, body: &[Statement]) -> Result<String, String> {
+        // Generate unique function name
+        let function_name = format!("cem_quot_{}", self.quot_counter);
+        self.quot_counter += 1;
+
+        // Save current output and switch to quotation_functions
+        let saved_output = std::mem::take(&mut self.output);
+
+        // Generate function
+        writeln!(
+            &mut self.output,
+            "define ptr @{}(ptr %stack) {{",
+            function_name
+        )
+        .unwrap();
+        writeln!(&mut self.output, "entry:").unwrap();
+
+        let mut stack_var = "stack".to_string();
+
+        // Generate code for each statement in the quotation body
+        for statement in body {
+            stack_var = self.codegen_statement(&stack_var, statement)?;
+        }
+
+        writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+        writeln!(&mut self.output, "}}").unwrap();
+        writeln!(&mut self.output).unwrap();
+
+        // Move generated function to quotation_functions
+        self.quotation_functions.push_str(&self.output);
+
+        // Restore original output
+        self.output = saved_output;
+
+        Ok(function_name)
     }
 
     /// Generate code for a single statement
@@ -275,10 +354,34 @@ impl CodeGen {
                     "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "make_channel".to_string(),
-                    "send" => "send".to_string(),
+                    "send" => "cem_send".to_string(), // Prefixed to avoid collision with system send()
                     "receive" => "receive".to_string(),
                     "close-channel" => "close_channel".to_string(),
                     "yield" => "yield_strand".to_string(),
+                    // Quotation operations
+                    "call" => "call".to_string(),
+                    "times" => "times".to_string(),
+                    "while" => "while_loop".to_string(),
+                    "until" => "until_loop".to_string(),
+                    "forever" => "forever".to_string(),
+                    "spawn" => "spawn".to_string(),
+                    "cond" => "cond".to_string(),
+                    // TCP operations (hyphen → underscore for C compatibility)
+                    "tcp-listen" => "tcp_listen".to_string(),
+                    "tcp-accept" => "tcp_accept".to_string(),
+                    "tcp-read" => "tcp_read".to_string(),
+                    "tcp-write" => "tcp_write".to_string(),
+                    "tcp-close" => "tcp_close".to_string(),
+                    // String operations (hyphen → underscore for C compatibility)
+                    "string-concat" => "string_concat".to_string(),
+                    "string-length" => "string_length".to_string(),
+                    "string-split" => "string_split".to_string(),
+                    "string-contains" => "string_contains".to_string(),
+                    "string-starts-with" => "string_starts_with".to_string(),
+                    "string-empty" => "string_empty".to_string(),
+                    "string-trim" => "string_trim".to_string(),
+                    "string-to-upper" => "string_to_upper".to_string(),
+                    "string-to-lower" => "string_to_lower".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("cem_{}", name),
                 };
@@ -387,6 +490,31 @@ impl CodeGen {
 
                 Ok(result_var)
             }
+
+            Statement::Quotation(body) => {
+                // Generate a function for the quotation body
+                let fn_name = self.codegen_quotation(body)?;
+
+                // Get function pointer as usize
+                let fn_ptr_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = ptrtoint ptr @{} to i64",
+                    fn_ptr_var, fn_name
+                )
+                .unwrap();
+
+                // Push the function pointer onto the stack
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
+                    result_var, stack_var, fn_ptr_var
+                )
+                .unwrap();
+
+                Ok(result_var)
+            }
         }
     }
 
@@ -394,7 +522,21 @@ impl CodeGen {
     fn codegen_main(&mut self) -> Result<(), String> {
         writeln!(&mut self.output, "define i32 @main() {{").unwrap();
         writeln!(&mut self.output, "entry:").unwrap();
-        writeln!(&mut self.output, "  %0 = call ptr @cem_main(ptr null)").unwrap();
+
+        // Initialize scheduler
+        writeln!(&mut self.output, "  call void @scheduler_init()").unwrap();
+
+        // Spawn user's main function as the first strand
+        // This ensures all code runs in coroutine context for non-blocking I/O
+        writeln!(
+            &mut self.output,
+            "  %0 = call i64 @strand_spawn(ptr @cem_main, ptr null)"
+        )
+        .unwrap();
+
+        // Wait for all spawned strands to complete (including main)
+        writeln!(&mut self.output, "  %1 = call ptr @scheduler_run()").unwrap();
+
         writeln!(&mut self.output, "  ret i32 0").unwrap();
         writeln!(&mut self.output, "}}").unwrap();
 

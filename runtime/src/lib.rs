@@ -9,10 +9,15 @@ pub mod arena;
 pub mod arithmetic;
 pub mod cemstring;
 pub mod channel;
+pub mod cond;
 pub mod io;
 pub mod pool;
+pub mod quotations;
 pub mod scheduler;
 pub mod stack;
+pub mod string_ops;
+pub mod tcp;
+pub mod tcp_test;
 pub mod value;
 
 // Re-export key types and functions
@@ -37,3 +42,18 @@ pub use scheduler::{
 
 // Channel operations (exported for LLVM linking)
 pub use channel::{close_channel, make_channel, receive, send};
+
+// String operations (exported for LLVM linking)
+pub use string_ops::{
+    string_concat, string_contains, string_empty, string_length, string_split, string_starts_with,
+    string_to_lower, string_to_upper, string_trim,
+};
+
+// Quotation operations (exported for LLVM linking)
+pub use quotations::{call, forever, push_quotation, spawn, times, until_loop, while_loop};
+
+// Conditional combinator (exported for LLVM linking)
+pub use cond::cond;
+
+// TCP operations (exported for LLVM linking)
+pub use tcp::{tcp_accept, tcp_close, tcp_listen, tcp_read, tcp_write};

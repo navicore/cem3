@@ -54,11 +54,11 @@ impl<T> SocketRegistry<T> {
     }
 
     fn free(&mut self, id: usize) {
-        if let Some(slot) = self.sockets.get_mut(id) {
-            if slot.is_some() {
-                *slot = None;
-                self.free_ids.push(id);
-            }
+        if let Some(slot) = self.sockets.get_mut(id)
+            && slot.is_some()
+        {
+            *slot = None;
+            self.free_ids.push(id);
         }
     }
 }
@@ -88,11 +88,8 @@ pub unsafe extern "C" fn tcp_listen(stack: Stack) -> Stack {
         };
 
         // Validate port range (1-65535, or 0 for OS-assigned)
-        if port < 0 || port > 65535 {
-            panic!(
-                "tcp_listen: invalid port {}, must be 0-65535",
-                port
-            );
+        if !(0..=65535).contains(&port) {
+            panic!("tcp_listen: invalid port {}, must be 0-65535", port);
         }
 
         // Bind to the port (non-blocking via May)
@@ -354,7 +351,7 @@ mod tests {
         unsafe {
             scheduler_init();
             let stack = std::ptr::null_mut();
-            let stack = push_int(stack, -1);
+            let _stack = push_int(stack, -1);
 
             // Note: tcp_listen is extern "C" so it aborts on panic
             // We document that invalid ports cause panics
@@ -370,7 +367,7 @@ mod tests {
         unsafe {
             scheduler_init();
             let stack = std::ptr::null_mut();
-            let stack = push_int(stack, 65536);
+            let _stack = push_int(stack, 65536);
 
             // Note: tcp_listen is extern "C" so it aborts on panic
             // We document that invalid ports cause panics

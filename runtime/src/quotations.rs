@@ -38,7 +38,15 @@ pub unsafe extern "C" fn call(stack: Stack) -> Stack {
 
         match value {
             Value::Quotation(fn_ptr) => {
-                // Cast the function pointer back and call it
+                // Validate function pointer is not null
+                if fn_ptr == 0 {
+                    panic!("call: quotation function pointer is null");
+                }
+
+                // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
+                // The compiler guarantees that quotation literals produce valid function pointers
+                // with the signature: unsafe extern "C" fn(Stack) -> Stack.
+                // We've verified fn_ptr is non-null above.
                 let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
                 fn_ref(stack)
             }
@@ -77,7 +85,14 @@ pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
             _ => panic!("times: expected Quotation, got {:?}", quot_value),
         };
 
-        // Cast function pointer
+        // Validate function pointer is not null
+        if fn_ptr == 0 {
+            panic!("times: quotation function pointer is null");
+        }
+
+        // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation literals produce valid function pointers.
+        // We've verified fn_ptr is non-null above.
         let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Execute quotation n times
@@ -123,7 +138,17 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
             _ => panic!("while: expected condition Quotation, got {:?}", cond_value),
         };
 
-        // Cast function pointers
+        // Validate function pointers are not null
+        if cond_ptr == 0 {
+            panic!("while: condition quotation function pointer is null");
+        }
+        if body_ptr == 0 {
+            panic!("while: body quotation function pointer is null");
+        }
+
+        // SAFETY: Both fn_ptrs were created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation literals produce valid function pointers.
+        // We've verified both ptrs are non-null above.
         let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_ptr);
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
 
@@ -183,7 +208,14 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
             _ => panic!("forever: expected Quotation, got {:?}", quot_value),
         };
 
-        // Cast function pointer
+        // Validate function pointer is not null
+        if fn_ptr == 0 {
+            panic!("forever: quotation function pointer is null");
+        }
+
+        // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation literals produce valid function pointers.
+        // We've verified fn_ptr is non-null above.
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Infinite loop - execute body forever
@@ -228,7 +260,17 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
             _ => panic!("until: expected body Quotation, got {:?}", body_value),
         };
 
-        // Cast function pointers
+        // Validate function pointers are not null
+        if cond_ptr == 0 {
+            panic!("until: condition quotation function pointer is null");
+        }
+        if body_ptr == 0 {
+            panic!("until: body quotation function pointer is null");
+        }
+
+        // SAFETY: Both fn_ptrs were created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation literals produce valid function pointers.
+        // We've verified both ptrs are non-null above.
         let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_ptr);
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
 
@@ -285,7 +327,14 @@ pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
             _ => panic!("spawn: expected Quotation, got {:?}", quot_value),
         };
 
-        // Cast function pointer
+        // Validate function pointer is not null
+        if fn_ptr == 0 {
+            panic!("spawn: quotation function pointer is null");
+        }
+
+        // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation literals produce valid function pointers.
+        // We've verified fn_ptr is non-null above.
         let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Spawn the strand with null initial stack

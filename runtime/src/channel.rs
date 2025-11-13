@@ -139,9 +139,14 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
     let sender = pair.sender.clone();
     drop(guard); // Release lock before potentially blocking
 
+    // Clone the value before sending to ensure arena strings are promoted to global
+    // CemString::clone() allocates from global heap (see cemstring.rs:75-78)
+    // This prevents use-after-free when sender's arena is reset before receiver accesses the string
+    let global_value = value.clone();
+
     // Send the value (may block if channel is full)
     // May's scheduler will handle the blocking cooperatively
-    sender.send(value).expect("send: channel closed");
+    sender.send(global_value).expect("send: channel closed");
 
     rest
 }
@@ -385,6 +390,91 @@ mod tests {
             stack = push(rest, channel_id);
             stack = close_channel(stack);
             assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_arena_string_send_between_strands() {
+        // This test verifies that arena-allocated strings are properly cloned
+        // to global storage when sent through channels (fix for issue #13)
+        unsafe {
+            use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+
+            static CHANNEL_ID: AtomicI64 = AtomicI64::new(0);
+            static VERIFIED: AtomicBool = AtomicBool::new(false);
+
+            // Create a channel
+            let mut stack = std::ptr::null_mut();
+            stack = make_channel(stack);
+            let (_, channel_id_value) = pop(stack);
+            let channel_id = match channel_id_value {
+                Value::Int(id) => id,
+                _ => panic!("Expected Int"),
+            };
+
+            // Store channel ID for strands
+            CHANNEL_ID.store(channel_id, Ordering::Release);
+
+            // Sender strand: creates arena string and sends it
+            extern "C" fn sender(_stack: Stack) -> Stack {
+                use crate::cemstring::arena_string;
+                use crate::stack::push;
+                use crate::value::Value;
+                use std::sync::atomic::Ordering;
+
+                unsafe {
+                    let chan_id = CHANNEL_ID.load(Ordering::Acquire);
+
+                    // Create arena string (fast path)
+                    let msg = arena_string("Arena message!");
+                    assert!(!msg.is_global(), "Should be arena-allocated initially");
+
+                    // Send through channel (will be cloned to global)
+                    let stack = push(std::ptr::null_mut(), Value::String(msg));
+                    let stack = push(stack, Value::Int(chan_id));
+                    send(stack)
+                }
+            }
+
+            // Receiver strand: receives string and verifies it
+            extern "C" fn receiver(_stack: Stack) -> Stack {
+                use crate::stack::{pop, push};
+                use crate::value::Value;
+                use std::sync::atomic::Ordering;
+
+                unsafe {
+                    let chan_id = CHANNEL_ID.load(Ordering::Acquire);
+
+                    let mut stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+                    stack = receive(stack);
+                    let (_, msg_val) = pop(stack);
+
+                    match msg_val {
+                        Value::String(s) => {
+                            assert_eq!(s.as_str(), "Arena message!");
+                            // Verify it was cloned to global
+                            assert!(s.is_global(), "Received string should be global");
+                            VERIFIED.store(true, Ordering::Release);
+                        }
+                        _ => panic!("Expected String"),
+                    }
+
+                    std::ptr::null_mut()
+                }
+            }
+
+            // Spawn both strands
+            spawn_strand(sender);
+            spawn_strand(receiver);
+
+            // Wait for both strands
+            wait_all_strands();
+
+            // Verify message was received correctly
+            assert!(
+                VERIFIED.load(Ordering::Acquire),
+                "Receiver should have verified the message"
+            );
         }
     }
 

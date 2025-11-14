@@ -68,6 +68,39 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         );
     }
 
+    // Boolean operations ( ..a Int Int -- ..a Int )
+    // Forth-style: 0 is false, non-zero is true
+    // and: ( a b -- result ) returns 1 if both non-zero, 0 otherwise
+    sigs.insert(
+        "and".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // or: ( a b -- result ) returns 1 if either non-zero, 0 otherwise
+    sigs.insert(
+        "or".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // not: ( a -- result ) returns 1 if zero, 0 if non-zero
+    sigs.insert(
+        "not".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // Stack operations with row polymorphism
     // dup: ( ..a T -- ..a T T )
     sigs.insert(

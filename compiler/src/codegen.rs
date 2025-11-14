@@ -152,6 +152,11 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @lte(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @gte(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @neq(ptr)").unwrap();
+        writeln!(&mut ir, "; Boolean operations").unwrap();
+        writeln!(&mut ir, "declare ptr @and(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @or(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @not(ptr)").unwrap();
+        writeln!(&mut ir, "; Stack operations").unwrap();
         writeln!(&mut ir, "declare ptr @dup(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @drop_op(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @swap(ptr)").unwrap();
@@ -350,6 +355,8 @@ impl CodeGen {
                     "<=" => "lte".to_string(),
                     ">=" => "gte".to_string(),
                     "<>" => "neq".to_string(),
+                    // Boolean operations
+                    "and" | "or" | "not" => name.to_string(),
                     // Stack operations (simple - no parameters)
                     "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
                     "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR

@@ -156,6 +156,21 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // pick: ( ..a T Int -- ..a T T )
+    // Copies value at depth n to top of stack
+    // pick(0) = dup, pick(1) = over, pick(2) = third value, etc.
+    sigs.insert(
+        "pick".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Var("T".to_string())),
+        ),
+    );
+
     // Concurrency operations with row polymorphism
     // make-channel: ( ..a -- ..a Int )
     // Returns channel ID as Int

@@ -1,0 +1,97 @@
+# Math Standard Library
+# Common mathematical operations
+
+# Absolute value
+: abs ( Int -- Int )
+  dup 0 < if
+    0 swap subtract
+  then
+;
+
+# Maximum of two values
+: max ( Int Int -- Int )
+  over over > if
+    drop
+  else
+    nip
+  then
+;
+
+# Minimum of two values
+: min ( Int Int -- Int )
+  over over < if
+    drop
+  else
+    nip
+  then
+;
+
+# Modulo operation: a mod b
+: mod ( Int Int -- Int )
+  over over
+  divide
+  multiply
+  subtract
+;
+
+# Greatest common divisor (Euclidean algorithm)
+: gcd ( Int Int -- Int )
+  dup 0 = if
+    drop
+  else
+    over over mod
+    rot drop
+    gcd
+  then
+;
+
+# Power (base^exp using recursion)
+: pow ( Int Int -- Int )
+  dup 0 = if
+    drop drop 1
+  else
+    dup 1 = if
+      drop
+    else
+      over
+      swap 1 subtract
+      pow
+      multiply
+    then
+  then
+;
+
+# Sign function: returns -1, 0, or 1
+: sign ( Int -- Int )
+  dup 0 = if
+    drop 0
+  else
+    dup 0 < if
+      drop 0 1 subtract
+    else
+      drop 1
+    then
+  then
+;
+
+# Square
+: square ( Int -- Int )
+  dup multiply
+;
+
+# Clamp value between min and max
+: clamp ( Int min max -- Int )
+  rot
+  over over
+  < if
+    drop drop
+  else
+    swap
+    over over
+    > if
+      nip
+    else
+      drop
+    then
+  then
+;

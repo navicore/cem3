@@ -101,6 +101,10 @@ impl Program {
             "nip",
             "tuck",
             "pick",
+            // Boolean operations
+            "and",
+            "or",
+            "not",
             // Concurrency operations
             "make-channel",
             "send",

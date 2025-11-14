@@ -562,6 +562,122 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_and_true_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 1);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_true_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 0);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_false_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 0);
+            let stack = push_int(stack, 0);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_or_true_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 1);
+            let stack = or(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_or_true_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 0);
+            let stack = or(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_or_false_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 0);
+            let stack = push_int(stack, 0);
+            let stack = or(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_not_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = not(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_not_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 0);
+            let stack = not(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_nonzero_values() {
+        // Forth-style: any non-zero is true
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 42);
+            let stack = push_int(stack, -5);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
     // Note: Division by zero test omitted because panics cannot be caught across
     // extern "C" boundaries. The runtime will panic with a helpful error message
     // "divide: division by zero (attempted X / 0)" which is validated at compile time

@@ -224,6 +224,35 @@ pub unsafe fn pick(stack: Stack, n: usize) -> Stack {
     unsafe { push(stack, value) }
 }
 
+/// Pick operation exposed to compiler
+///
+/// Stack effect: ( ..stack n -- ..stack value )
+/// where n is how deep to look (0 = top, 1 = second, etc.)
+///
+/// # Safety
+/// Stack must have at least one value (the Int n), and at least n+1 values total
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pick_op(stack: Stack) -> Stack {
+    use crate::value::Value;
+
+    assert!(!stack.is_null(), "pick: stack is empty");
+
+    // Pop the depth value
+    let (stack, depth_value) = unsafe { pop(stack) };
+    let n = match depth_value {
+        Value::Int(i) => {
+            if i < 0 {
+                panic!("pick: depth must be non-negative, got {}", i);
+            }
+            i as usize
+        }
+        _ => panic!("pick: expected Int depth, got {:?}", depth_value),
+    };
+
+    // Call internal pick
+    unsafe { pick(stack, n) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

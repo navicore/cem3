@@ -261,19 +261,42 @@ pub unsafe extern "C" fn pick_op(stack: Stack) -> Stack {
 
     assert!(!stack.is_null(), "pick: stack is empty");
 
-    // Pop the depth value
-    let (stack, depth_value) = unsafe { pop(stack) };
+    // Peek at the depth value without popping (for better error messages)
+    let depth_value = unsafe { &(*stack).value };
     let n = match depth_value {
         Value::Int(i) => {
-            if i < 0 {
+            if *i < 0 {
                 panic!("pick: depth must be non-negative, got {}", i);
             }
-            i as usize
+            *i as usize
         }
-        _ => panic!("pick: expected Int depth, got {:?}", depth_value),
+        _ => panic!("pick: expected Int depth on top of stack, got {:?}", depth_value),
     };
 
-    // Call internal pick
+    // Count stack depth (excluding the depth parameter itself)
+    let mut count = 0;
+    let mut current = unsafe { (*stack).next };
+    while !current.is_null() {
+        count += 1;
+        current = unsafe { (*current).next };
+    }
+
+    // Validate we have enough values
+    // Need: n+1 values total (depth parameter + n values below it)
+    // We have: 1 (depth param) + count
+    // So we need: count >= n + 1
+    if count < n + 1 {
+        panic!(
+            "pick: cannot access depth {} - stack has only {} value{} (need at least {})",
+            n,
+            count,
+            if count == 1 { "" } else { "s" },
+            n + 1
+        );
+    }
+
+    // Now pop the depth value and call internal pick
+    let (stack, _) = unsafe { pop(stack) };
     unsafe { pick(stack, n) }
 }
 
@@ -851,6 +874,79 @@ mod tests {
             assert_eq!(count, 50, "Stack depth should be unchanged");
         }
     }
+
+    #[test]
+    fn test_pick_op_equivalence_to_dup() {
+        // pick_op(0) should behave like dup
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(42));
+            stack = push(stack, Value::Int(0)); // depth parameter
+
+            stack = pick_op(stack);
+
+            // Should have two 42s on stack
+            let (stack, val1) = pop(stack);
+            assert_eq!(val1, Value::Int(42));
+            let (stack, val2) = pop(stack);
+            assert_eq!(val2, Value::Int(42));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_pick_op_equivalence_to_over() {
+        // pick_op(1) should behave like over
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(10));
+            stack = push(stack, Value::Int(20));
+            stack = push(stack, Value::Int(1)); // depth parameter
+
+            stack = pick_op(stack);
+
+            // Should have: 10 20 10
+            let (stack, val1) = pop(stack);
+            assert_eq!(val1, Value::Int(10));
+            let (stack, val2) = pop(stack);
+            assert_eq!(val2, Value::Int(20));
+            let (stack, val3) = pop(stack);
+            assert_eq!(val3, Value::Int(10));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_pick_op_deep_access() {
+        // Test accessing deeper stack values
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            for i in 0..10 {
+                stack = push(stack, Value::Int(i));
+            }
+            stack = push(stack, Value::Int(5)); // depth parameter
+
+            stack = pick_op(stack);
+
+            // Should have copied value at depth 5 (which is 4) to top
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(4));
+
+            // Stack should still have original 10 values
+            let mut count = 0;
+            let mut current = stack;
+            while !current.is_null() {
+                count += 1;
+                current = (*current).next;
+            }
+            assert_eq!(count, 10);
+        }
+    }
+
+    // Note: Cannot test panic cases (negative depth, insufficient stack depth)
+    // because extern "C" functions cannot be caught with #[should_panic].
+    // These cases are validated at runtime with descriptive panic messages.
+    // See examples/test-pick.cem for integration testing of valid cases.
 
     #[test]
     fn test_operations_preserve_stack_integrity() {

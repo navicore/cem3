@@ -1,5 +1,50 @@
-# Stack Manipulation Utilities
-# Limited to: dup, drop, swap, over, rot, nip, tuck
+# Stack Manipulation Utilities for cem3
+#
+# Common stack operations built from primitives.
+#
+# ## Usage
+#
+# Since cem3 does not yet have a module system, these functions must be
+# copied directly into your program file. For example:
+#
+#   # Your program
+#   : 2dup ( A B -- A B A B )
+#     over over ;
+#
+#   : main ( -- )
+#     1 2 2dup ...  # Stack: 1 2 1 2
+#   ;
+#
+# ## Available Primitives
+#
+# cem3 provides these primitive stack operations:
+# - dup, drop, swap, over, rot, nip, tuck, pick
+#
+# ## Available Functions
+#
+# - 2dup: ( A B -- A B A B ) - Duplicate top two values
+# - 2drop: ( A B -- ) - Drop top two values
+# - 3drop: ( A B C -- ) - Drop top three values
+#
+# ## Advanced Operations (Require pick)
+#
+# With the pick operation, you can build more complex utilities:
+# - third: ( A B C -- A B C A ) via `2 pick`
+# - fourth: ( A B C D -- A B C D A ) via `3 pick`
+# - 3dup: ( A B C -- A B C A B C ) via `2 pick 2 pick 2 pick`
+#
+# ## Notes
+#
+# - These are building blocks for more complex stack manipulation
+# - Operations are type-polymorphic (work with any value types)
+# - Stack effects must balance within word definitions
+#
+# ## Examples
+#
+#   1 2 2dup         # Stack: 1 2 1 2
+#   1 2 3 2drop      # Stack: 1
+#   10 20 30 2 pick  # Stack: 10 20 30 10
+#
 
 # Duplicate top two values
 : 2dup ( A B -- A B A B )

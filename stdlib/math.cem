@@ -1,5 +1,44 @@
-# Math Standard Library
-# Common mathematical operations
+# Math Standard Library for cem3
+#
+# Common mathematical operations for integer arithmetic.
+#
+# ## Usage
+#
+# Since cem3 does not yet have a module system, these functions must be
+# copied directly into your program file. For example:
+#
+#   # Your program
+#   : abs ( Int -- Int )
+#     dup 0 < if 0 swap subtract then ;
+#
+#   : main ( -- )
+#     -5 abs ... ;
+#
+# ## Available Functions
+#
+# - abs: ( Int -- Int ) - Absolute value
+# - max: ( Int Int -- Int ) - Maximum of two values
+# - min: ( Int Int -- Int ) - Minimum of two values
+# - mod: ( Int Int -- Int ) - Modulo operation (a mod b)
+# - gcd: ( Int Int -- Int ) - Greatest common divisor (Euclidean algorithm)
+# - pow: ( Int Int -- Int ) - Power (base^exp) - WARNING: Not tail-recursive
+# - sign: ( Int -- Int ) - Sign function: returns -1, 0, or 1
+# - square: ( Int -- Int ) - Square a number
+# - clamp: ( Int min max -- Int ) - Clamp value between min and max
+#
+# ## Notes
+#
+# - All operations use wrapping integer arithmetic (i64)
+# - Recursive functions (gcd, pow) may stack overflow for very large inputs
+# - Division by zero will panic at runtime
+#
+# ## Examples
+#
+#   48 18 gcd          # Returns 6
+#   2 10 pow           # Returns 1024
+#   15 0 100 clamp     # Returns 15 (within range)
+#   -5 abs             # Returns 5
+#
 
 # Absolute value
 : abs ( Int -- Int )

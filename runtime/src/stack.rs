@@ -270,7 +270,10 @@ pub unsafe extern "C" fn pick_op(stack: Stack) -> Stack {
             }
             *i as usize
         }
-        _ => panic!("pick: expected Int depth on top of stack, got {:?}", depth_value),
+        _ => panic!(
+            "pick: expected Int depth on top of stack, got {:?}",
+            depth_value
+        ),
     };
 
     // Count stack depth (excluding the depth parameter itself)

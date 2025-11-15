@@ -192,6 +192,21 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // pick: ( ..a T Int -- ..a T T )
     // Copies value at depth n to top of stack
     // pick(0) = dup, pick(1) = over, pick(2) = third value, etc.
+    //
+    // TODO: This type signature is a known limitation of the current type system.
+    // The signature claims pick copies the top value T, but pick actually copies
+    // the value at depth n, which could be any type within the row variable ..a.
+    // For example:
+    //   - pick(0) on ( Int String -- ) copies the String (type T)
+    //   - pick(1) on ( Int String -- ) copies the Int (type U, not T)
+    //
+    // A proper signature would require dependent types or indexed row variables:
+    //   pick: ∀a, n. ( ..a[T_0, ..., T_n, ...] Int(n) -- ..a[T_0, ..., T_n, ...] T_n )
+    //
+    // The runtime validates stack depth at runtime (see pick_op in runtime/src/stack.rs),
+    // but the type system cannot statically verify the copied value's type matches
+    // how it's used. This is acceptable for now as pick is primarily used for
+    // building known-safe utilities (third, fourth, 3dup, etc.).
     sigs.insert(
         "pick".to_string(),
         Effect::new(

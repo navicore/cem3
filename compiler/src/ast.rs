@@ -100,7 +100,11 @@ impl Program {
             "rot",
             "nip",
             "tuck",
-            // Note: pick is omitted - requires parameter support in AST
+            "pick",
+            // Boolean operations
+            "and",
+            "or",
+            "not",
             // Concurrency operations
             "make-channel",
             "send",

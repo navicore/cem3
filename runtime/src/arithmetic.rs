@@ -274,6 +274,77 @@ pub unsafe extern "C" fn neq(stack: Stack) -> Stack {
     }
 }
 
+/// Logical AND operation (Forth-style: multiply for boolean values)
+///
+/// Stack effect: ( a b -- result )
+/// where 0 is false, non-zero is true
+/// Returns 1 if both are true (non-zero), 0 otherwise
+///
+/// # Safety
+/// Stack must have at least two Int values
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn and(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "and: stack is empty");
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "and: stack has only one value");
+    let (rest, a) = unsafe { pop(rest) };
+
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(
+                rest,
+                Value::Int(if a_val != 0 && b_val != 0 { 1 } else { 0 }),
+            )
+        },
+        _ => panic!("and: expected two integers on stack"),
+    }
+}
+
+/// Logical OR operation (Forth-style)
+///
+/// Stack effect: ( a b -- result )
+/// where 0 is false, non-zero is true
+/// Returns 1 if either is true (non-zero), 0 otherwise
+///
+/// # Safety
+/// Stack must have at least two Int values
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn or(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "or: stack is empty");
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "or: stack has only one value");
+    let (rest, a) = unsafe { pop(rest) };
+
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(
+                rest,
+                Value::Int(if a_val != 0 || b_val != 0 { 1 } else { 0 }),
+            )
+        },
+        _ => panic!("or: expected two integers on stack"),
+    }
+}
+
+/// Logical NOT operation
+///
+/// Stack effect: ( a -- result )
+/// where 0 is false, non-zero is true
+/// Returns 1 if false (0), 0 otherwise
+///
+/// # Safety
+/// Stack must have at least one Int value
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn not(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "not: stack is empty");
+    let (rest, a) = unsafe { pop(stack) };
+
+    match a {
+        Value::Int(a_val) => unsafe { push(rest, Value::Int(if a_val == 0 { 1 } else { 0 })) },
+        _ => panic!("not: expected integer on stack"),
+    }
+}
+
 /// Helper for peeking at the top integer value without popping
 ///
 /// Returns the integer value on top of the stack without modifying the stack.
@@ -487,6 +558,122 @@ mod tests {
             let (stack, result) = pop(stack);
             // i64::MIN / -1 would be i64::MAX + 1, which wraps to i64::MIN
             assert_eq!(result, Value::Int(i64::MIN));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_true_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 1);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_true_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 0);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_false_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 0);
+            let stack = push_int(stack, 0);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_or_true_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 1);
+            let stack = or(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_or_true_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = push_int(stack, 0);
+            let stack = or(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_or_false_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 0);
+            let stack = push_int(stack, 0);
+            let stack = or(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_not_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 1);
+            let stack = not(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_not_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 0);
+            let stack = not(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_and_nonzero_values() {
+        // Forth-style: any non-zero is true
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push_int(stack, 42);
+            let stack = push_int(stack, -5);
+            let stack = and(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
             assert!(stack.is_null());
         }
     }

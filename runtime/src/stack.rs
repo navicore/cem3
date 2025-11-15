@@ -226,8 +226,32 @@ pub unsafe fn pick(stack: Stack, n: usize) -> Stack {
 
 /// Pick operation exposed to compiler
 ///
+/// Copies a value from depth n to the top of the stack.
+///
 /// Stack effect: ( ..stack n -- ..stack value )
 /// where n is how deep to look (0 = top, 1 = second, etc.)
+///
+/// # Examples
+///
+/// ```cem
+/// 10 20 30 0 pick   # Stack: 10 20 30 30  (pick(0) = dup)
+/// 10 20 30 1 pick   # Stack: 10 20 30 20  (pick(1) = over)
+/// 10 20 30 2 pick   # Stack: 10 20 30 10  (pick(2) = third)
+/// ```
+///
+/// # Common Equivalences
+///
+/// - `pick(0)` is equivalent to `dup`  - copy top value
+/// - `pick(1)` is equivalent to `over` - copy second value
+/// - `pick(2)` copies third value (sometimes called "third")
+/// - `pick(n)` copies value at depth n
+///
+/// # Use Cases
+///
+/// Useful for building stack utilities like:
+/// - `third`: `2 pick` - access third item
+/// - `3dup`: `2 pick 2 pick 2 pick` - duplicate top three items
+/// - Complex stack manipulations without excessive rot/swap
 ///
 /// # Safety
 /// Stack must have at least one value (the Int n), and at least n+1 values total

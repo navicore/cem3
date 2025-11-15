@@ -1,0 +1,53 @@
+# Test pick operation - accessing arbitrary stack depths
+#
+# The pick operation copies a value from depth n to the top of stack:
+# - pick(0) is equivalent to dup (copy top)
+# - pick(1) is equivalent to over (copy second)
+# - pick(2) copies third value
+# - etc.
+#
+# Stack effect: ( ..stack n -- ..stack value )
+
+: test-pick-0 ( -- Int )
+  30 0 pick
+;
+
+: test-pick-1 ( -- Int )
+  20 30 1 pick
+;
+
+: test-pick-2 ( -- Int )
+  10 20 30 2 pick
+;
+
+: main ( -- )
+  "Pick Operation Tests" write_line
+  "" write_line
+
+  "Testing pick(0) = dup..." write_line
+  test-pick-0
+  30 = if
+    "  pick(0) works ✓" write_line
+  else
+    "  pick(0) FAILED" write_line
+  then
+
+  "Testing pick(1) = over..." write_line
+  test-pick-1
+  20 = if
+    "  pick(1) works ✓" write_line
+  else
+    "  pick(1) FAILED" write_line
+  then
+
+  "Testing pick(2) = third..." write_line
+  test-pick-2
+  10 = if
+    "  pick(2) works ✓" write_line
+  else
+    "  pick(2) FAILED" write_line
+  then
+
+  "" write_line
+  "All pick tests complete!" write_line
+;

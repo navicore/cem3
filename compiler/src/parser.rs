@@ -882,6 +882,220 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_simple_quotation_type() {
+        // Test: ( [Int -- Int] -- )
+        let source = ": apply ( [Int -- Int] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input should be: Quotation(Int -- Int) on RowVar("rest")
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                // Check quotation's input: Int on RowVar("rest")
+                assert_eq!(
+                    quot_effect.inputs,
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Int
+                    }
+                );
+                // Check quotation's output: Int on RowVar("rest")
+                assert_eq!(
+                    quot_effect.outputs,
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Int
+                    }
+                );
+            }
+            _ => panic!("Expected Quotation type, got {:?}", top),
+        }
+        assert_eq!(rest, StackType::RowVar("rest".to_string()));
+    }
+
+    #[test]
+    fn test_parse_quotation_type_with_row_vars() {
+        // Test: ( ..a [..a T -- ..a Bool] -- ..a )
+        let source = ": test ( ..a [..a T -- ..a Bool] -- ..a ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: Quotation on RowVar("a")
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                // Check quotation's input: T on RowVar("a")
+                let (q_in_rest, q_in_top) = quot_effect.inputs.clone().pop().unwrap();
+                assert_eq!(q_in_top, Type::Var("T".to_string()));
+                assert_eq!(q_in_rest, StackType::RowVar("a".to_string()));
+
+                // Check quotation's output: Bool on RowVar("a")
+                let (q_out_rest, q_out_top) = quot_effect.outputs.clone().pop().unwrap();
+                assert_eq!(q_out_top, Type::Bool);
+                assert_eq!(q_out_rest, StackType::RowVar("a".to_string()));
+            }
+            _ => panic!("Expected Quotation type, got {:?}", top),
+        }
+        assert_eq!(rest, StackType::RowVar("a".to_string()));
+    }
+
+    #[test]
+    fn test_parse_nested_quotation_type() {
+        // Test: ( [[Int -- Int] -- Bool] -- )
+        let source = ": nested ( [[Int -- Int] -- Bool] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: Quotation([Int -- Int] -- Bool) on RowVar("rest")
+        let (_, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(outer_effect) => {
+                // Outer quotation input: [Int -- Int] on RowVar("rest")
+                let (_, outer_in_top) = outer_effect.inputs.clone().pop().unwrap();
+                match outer_in_top {
+                    Type::Quotation(inner_effect) => {
+                        // Inner quotation: Int -- Int
+                        assert!(matches!(inner_effect.inputs.clone().pop().unwrap().1, Type::Int));
+                        assert!(matches!(inner_effect.outputs.clone().pop().unwrap().1, Type::Int));
+                    }
+                    _ => panic!("Expected nested Quotation type"),
+                }
+
+                // Outer quotation output: Bool
+                let (_, outer_out_top) = outer_effect.outputs.clone().pop().unwrap();
+                assert_eq!(outer_out_top, Type::Bool);
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_quotation_type() {
+        // Test: ( [ -- ] -- )
+        let source = ": empty-quot ( [ -- ] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        let (_, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                assert_eq!(quot_effect.inputs, StackType::Empty);
+                assert_eq!(quot_effect.outputs, StackType::Empty);
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_quotation_type_in_output() {
+        // Test: ( -- [Int -- Int] )
+        let source = ": maker ( -- [Int -- Int] ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Output should be: Quotation(Int -- Int) on RowVar("rest")
+        let (_, top) = effect.outputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                assert!(matches!(quot_effect.inputs.clone().pop().unwrap().1, Type::Int));
+                assert!(matches!(quot_effect.outputs.clone().pop().unwrap().1, Type::Int));
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unclosed_quotation_type() {
+        // Test: ( [Int -- Int -- )  (missing ])
+        let source = ": broken ( [Int -- Int -- ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        // Parser might error with various messages depending on where it fails
+        // It should at least indicate a parsing problem
+        assert!(
+            err_msg.contains("Unclosed") ||
+            err_msg.contains("Expected") ||
+            err_msg.contains("Unexpected"),
+            "Got error: {}", err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple_quotation_types() {
+        // Test: ( [Int -- Int] [String -- Bool] -- )
+        let source = ": multi ( [Int -- Int] [String -- Bool] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Pop second quotation (String -- Bool)
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                assert!(matches!(quot_effect.inputs.clone().pop().unwrap().1, Type::String));
+                assert!(matches!(quot_effect.outputs.clone().pop().unwrap().1, Type::Bool));
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+
+        // Pop first quotation (Int -- Int)
+        let (_, top2) = rest.pop().unwrap();
+        match top2 {
+            Type::Quotation(quot_effect) => {
+                assert!(matches!(quot_effect.inputs.clone().pop().unwrap().1, Type::Int));
+                assert!(matches!(quot_effect.outputs.clone().pop().unwrap().1, Type::Int));
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_quotation_type_without_separator() {
+        // Test: ( [Int] -- )
+        // Note: This is currently ALLOWED and treated as [ Int -- ]
+        // (empty output stack for the quotation)
+        //
+        // Design decision: The '--' separator is optional.
+        // - `[Int]` means quotation that consumes Int and produces nothing: [Int -- ]
+        // - `[ -- Int]` means quotation that produces Int: [ -- Int]
+        // - `[Int -- Int]` is explicit
+        //
+        // This matches the behavior of the main stack effect parser where
+        // '( Int )' is treated as '( Int -- )' (implicit empty output).
+        let source = ": consumer ( [Int] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        let (_, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                // Input: Int on RowVar("rest")
+                assert!(matches!(quot_effect.inputs.clone().pop().unwrap().1, Type::Int));
+                // Output: Empty (because no -- separator was provided)
+                assert_eq!(quot_effect.outputs, StackType::Empty);
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
     fn test_parse_no_stack_effect() {
         // Test word without stack effect (should still work)
         let source = ": test 1 2 add ;";

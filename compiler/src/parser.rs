@@ -313,15 +313,21 @@ impl Parser {
         let (input_row_var, input_types) =
             self.parse_type_list_until(&["--", "]"], "quotation type inputs")?;
 
-        // Consume '--' if present (may be empty effect: [ -- ...])
-        let has_separator = self.consume("--");
+        // Require '--' separator for clarity
+        if !self.consume("--") {
+            // Check if user closed with ] without separator
+            if self.check("]") {
+                return Err(
+                    "Quotation types require '--' separator. Did you mean '[Int -- ]' or '[ -- Int]'?"
+                        .to_string(),
+                );
+            }
+            return Err("Expected '--' separator in quotation type".to_string());
+        }
 
         // Parse output stack types (until ']')
-        let (output_row_var, output_types) = if has_separator {
-            self.parse_type_list_until(&["]"], "quotation type outputs")?
-        } else {
-            (None, Vec::new())
-        };
+        let (output_row_var, output_types) =
+            self.parse_type_list_until(&["]"], "quotation type outputs")?;
 
         // Consume ']'
         if !self.consume("]") {
@@ -1028,36 +1034,28 @@ mod tests {
 
     #[test]
     fn test_parse_quotation_type_without_separator() {
-        // Test: ( [Int] -- )
-        // Note: This is currently ALLOWED and treated as [ Int -- ]
-        // (empty output stack for the quotation)
+        // Test: ( [Int] -- ) should be REJECTED
         //
-        // Design decision: The '--' separator is optional.
-        // - `[Int]` means quotation that consumes Int and produces nothing: [Int -- ]
-        // - `[ -- Int]` means quotation that produces Int: [ -- Int]
-        // - `[Int -- Int]` is explicit
+        // Design decision: The '--' separator is REQUIRED for clarity.
+        // [Int] looks like a list type in most languages, not a consumer function.
+        // This would confuse users.
         //
-        // This matches the behavior of the main stack effect parser where
-        // '( Int )' is treated as '( Int -- )' (implicit empty output).
+        // Require explicit syntax:
+        // - `[Int -- ]` for quotation that consumes Int and produces nothing
+        // - `[ -- Int]` for quotation that produces Int
+        // - `[Int -- Int]` for transformation
         let source = ": consumer ( [Int] -- ) ;";
         let mut parser = Parser::new(source);
-        let program = parser.parse().unwrap();
+        let result = parser.parse();
 
-        let effect = program.words[0].effect.as_ref().unwrap();
-
-        let (_, top) = effect.inputs.clone().pop().unwrap();
-        match top {
-            Type::Quotation(quot_effect) => {
-                // Input: Int on RowVar("rest")
-                assert!(matches!(
-                    quot_effect.inputs.clone().pop().unwrap().1,
-                    Type::Int
-                ));
-                // Output: Empty (because no -- separator was provided)
-                assert_eq!(quot_effect.outputs, StackType::Empty);
-            }
-            _ => panic!("Expected Quotation type"),
-        }
+        // Should fail with helpful error message
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("require") && err_msg.contains("--"),
+            "Expected error about missing '--' separator, got: {}",
+            err_msg
+        );
     }
 
     #[test]

@@ -234,6 +234,9 @@ impl Parser {
                     return Err("Row variable must have a name after '..'".to_string());
                 }
                 input_row_var = Some(var_name);
+            } else if token == "[" {
+                // Parse quotation type: [inputs -- outputs]
+                input_types.push(self.parse_quotation_type()?);
             } else {
                 // Parse as concrete type
                 input_types.push(self.parse_type(&token)?);
@@ -266,6 +269,9 @@ impl Parser {
                     return Err("Row variable must have a name after '..'".to_string());
                 }
                 output_row_var = Some(var_name);
+            } else if token == "[" {
+                // Parse quotation type: [inputs -- outputs]
+                output_types.push(self.parse_quotation_type()?);
             } else {
                 // Parse as concrete type
                 output_types.push(self.parse_type(&token)?);
@@ -308,6 +314,88 @@ impl Parser {
                 }
             }
         }
+    }
+
+    /// Parse a quotation type: [inputs -- outputs]
+    /// Note: The opening '[' has already been consumed
+    fn parse_quotation_type(&mut self) -> Result<Type, String> {
+        // Parse input stack types
+        let mut input_types = Vec::new();
+        let mut input_row_var = None;
+
+        while !self.check("--") && !self.check("]") {
+            if self.is_at_end() {
+                return Err("Unclosed quotation type - expected '--' or ']'".to_string());
+            }
+
+            let token = self
+                .advance()
+                .ok_or("Unexpected end in quotation type")?
+                .clone();
+
+            // Check for row variable: ..name
+            if token.starts_with("..") {
+                let var_name = token.trim_start_matches("..").to_string();
+                if var_name.is_empty() {
+                    return Err("Row variable must have a name after '..'".to_string());
+                }
+                input_row_var = Some(var_name);
+            } else if token == "[" {
+                // Nested quotation type
+                input_types.push(self.parse_quotation_type()?);
+            } else {
+                // Parse as concrete type
+                input_types.push(self.parse_type(&token)?);
+            }
+        }
+
+        // Consume '--' if present (may be empty effect: [ -- ...])
+        let has_separator = self.consume("--");
+
+        // Parse output stack types
+        let mut output_types = Vec::new();
+        let mut output_row_var = None;
+
+        if has_separator {
+            while !self.check("]") {
+                if self.is_at_end() {
+                    return Err("Unclosed quotation type - expected ']'".to_string());
+                }
+
+                let token = self
+                    .advance()
+                    .ok_or("Unexpected end in quotation type")?
+                    .clone();
+
+                // Check for row variable: ..name
+                if token.starts_with("..") {
+                    let var_name = token.trim_start_matches("..").to_string();
+                    if var_name.is_empty() {
+                        return Err("Row variable must have a name after '..'".to_string());
+                    }
+                    output_row_var = Some(var_name);
+                } else if token == "[" {
+                    // Nested quotation type
+                    output_types.push(self.parse_quotation_type()?);
+                } else {
+                    // Parse as concrete type
+                    output_types.push(self.parse_type(&token)?);
+                }
+            }
+        }
+
+        // Consume ']'
+        if !self.consume("]") {
+            return Err("Expected ']' to end quotation type".to_string());
+        }
+
+        // Build input StackType
+        let inputs = self.build_stack_type(input_row_var, input_types);
+
+        // Build output StackType
+        let outputs = self.build_stack_type(output_row_var, output_types);
+
+        Ok(Type::Quotation(Box::new(Effect::new(inputs, outputs))))
     }
 
     /// Build a StackType from an optional row variable and a list of types
@@ -473,7 +561,7 @@ fn tokenize(source: &str) -> Vec<String> {
             if ch == '\n' {
                 tokens.push("\n".to_string());
             }
-        } else if "():;".contains(ch) {
+        } else if "():;[]".contains(ch) {
             if !current.is_empty() {
                 tokens.push(current.clone());
                 current.clear();

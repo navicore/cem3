@@ -827,7 +827,8 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
         assert!(
-            err_msg.contains("letters, numbers, and underscores") || err_msg.contains("Unknown type"),
+            err_msg.contains("letters, numbers, and underscores")
+                || err_msg.contains("Unknown type"),
             "Expected error about valid characters, got: {}",
             err_msg
         );

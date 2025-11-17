@@ -213,74 +213,26 @@ impl Parser {
             return Err("Expected '(' to start stack effect".to_string());
         }
 
-        // Parse input stack types
-        let mut input_types = Vec::new();
-        let mut input_row_var = None;
-
-        while !self.check("--") && !self.check(")") {
-            if self.is_at_end() {
-                return Err("Unclosed stack effect declaration".to_string());
-            }
-
-            let token = self
-                .advance()
-                .ok_or("Unexpected end in stack effect")?
-                .clone();
-
-            // Check for row variable: ..name
-            if token.starts_with("..") {
-                let var_name = token.trim_start_matches("..").to_string();
-                if var_name.is_empty() {
-                    return Err("Row variable must have a name after '..'".to_string());
-                }
-                input_row_var = Some(var_name);
-            } else {
-                // Parse as concrete type
-                input_types.push(self.parse_type(&token)?);
-            }
-        }
+        // Parse input stack types (until '--' or ')')
+        let (input_row_var, input_types) =
+            self.parse_type_list_until(&["--", ")"], "stack effect inputs", 0)?;
 
         // Consume '--'
         if !self.consume("--") {
             return Err("Expected '--' separator in stack effect".to_string());
         }
 
-        // Parse output stack types
-        let mut output_types = Vec::new();
-        let mut output_row_var = None;
-
-        while !self.check(")") {
-            if self.is_at_end() {
-                return Err("Unclosed stack effect declaration".to_string());
-            }
-
-            let token = self
-                .advance()
-                .ok_or("Unexpected end in stack effect")?
-                .clone();
-
-            // Check for row variable: ..name
-            if token.starts_with("..") {
-                let var_name = token.trim_start_matches("..").to_string();
-                if var_name.is_empty() {
-                    return Err("Row variable must have a name after '..'".to_string());
-                }
-                output_row_var = Some(var_name);
-            } else {
-                // Parse as concrete type
-                output_types.push(self.parse_type(&token)?);
-            }
-        }
+        // Parse output stack types (until ')')
+        let (output_row_var, output_types) =
+            self.parse_type_list_until(&[")"], "stack effect outputs", 0)?;
 
         // Consume ')'
         if !self.consume(")") {
             return Err("Expected ')' to end stack effect".to_string());
         }
 
-        // Build input StackType
+        // Build input and output StackTypes
         let inputs = self.build_stack_type(input_row_var, input_types);
-
-        // Build output StackType
         let outputs = self.build_stack_type(output_row_var, output_types);
 
         Ok(Effect::new(inputs, outputs))
@@ -308,6 +260,137 @@ impl Parser {
                 }
             }
         }
+    }
+
+    /// Validate row variable name
+    /// Row variables must start with a lowercase letter and contain only alphanumeric characters
+    fn validate_row_var_name(&self, name: &str) -> Result<(), String> {
+        if name.is_empty() {
+            return Err("Row variable must have a name after '..'".to_string());
+        }
+
+        // Must start with lowercase letter
+        let first_char = name.chars().next().unwrap();
+        if !first_char.is_ascii_lowercase() {
+            return Err(format!(
+                "Row variable '..{}' must start with a lowercase letter (a-z)",
+                name
+            ));
+        }
+
+        // Rest must be alphanumeric or underscore
+        for ch in name.chars() {
+            if !ch.is_alphanumeric() && ch != '_' {
+                return Err(format!(
+                    "Row variable '..{}' can only contain letters, numbers, and underscores",
+                    name
+                ));
+            }
+        }
+
+        // Check for reserved keywords (type names that might confuse users)
+        match name {
+            "Int" | "Bool" | "String" => {
+                return Err(format!(
+                    "Row variable '..{}' cannot use type name as identifier",
+                    name
+                ));
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// Parse a list of types until one of the given terminators is reached
+    /// Returns (optional row variable, list of types)
+    /// Used by both parse_stack_effect and parse_quotation_type
+    ///
+    /// depth: Current nesting depth for quotation types (0 at top level)
+    fn parse_type_list_until(
+        &mut self,
+        terminators: &[&str],
+        context: &str,
+        depth: usize,
+    ) -> Result<(Option<String>, Vec<Type>), String> {
+        const MAX_QUOTATION_DEPTH: usize = 32;
+
+        if depth > MAX_QUOTATION_DEPTH {
+            return Err(format!(
+                "Quotation type nesting exceeds maximum depth of {} (possible deeply nested types or DOS attack)",
+                MAX_QUOTATION_DEPTH
+            ));
+        }
+
+        let mut types = Vec::new();
+        let mut row_var = None;
+
+        while !terminators.iter().any(|t| self.check(t)) {
+            if self.is_at_end() {
+                return Err(format!(
+                    "Unexpected end while parsing {} - expected one of: {}",
+                    context,
+                    terminators.join(", ")
+                ));
+            }
+
+            let token = self
+                .advance()
+                .ok_or_else(|| format!("Unexpected end in {}", context))?
+                .clone();
+
+            // Check for row variable: ..name
+            if token.starts_with("..") {
+                let var_name = token.trim_start_matches("..").to_string();
+                self.validate_row_var_name(&var_name)?;
+                row_var = Some(var_name);
+            } else if token == "[" {
+                // Nested quotation type
+                types.push(self.parse_quotation_type(depth)?);
+            } else {
+                // Parse as concrete type
+                types.push(self.parse_type(&token)?);
+            }
+        }
+
+        Ok((row_var, types))
+    }
+
+    /// Parse a quotation type: [inputs -- outputs]
+    /// Note: The opening '[' has already been consumed
+    ///
+    /// depth: Current nesting depth (incremented for each nested quotation)
+    fn parse_quotation_type(&mut self, depth: usize) -> Result<Type, String> {
+        // Parse input stack types (until '--' or ']')
+        let (input_row_var, input_types) =
+            self.parse_type_list_until(&["--", "]"], "quotation type inputs", depth + 1)?;
+
+        // Require '--' separator for clarity
+        if !self.consume("--") {
+            // Check if user closed with ] without separator
+            if self.check("]") {
+                return Err(
+                    "Quotation types require '--' separator. Did you mean '[Int -- ]' or '[ -- Int]'?"
+                        .to_string(),
+                );
+            }
+            return Err("Expected '--' separator in quotation type".to_string());
+        }
+
+        // Parse output stack types (until ']')
+        let (output_row_var, output_types) =
+            self.parse_type_list_until(&["]"], "quotation type outputs", depth + 1)?;
+
+        // Consume ']'
+        if !self.consume("]") {
+            return Err("Expected ']' to end quotation type".to_string());
+        }
+
+        // Build input and output StackTypes
+        let inputs = self.build_stack_type(input_row_var, input_types);
+        let outputs = self.build_stack_type(output_row_var, output_types);
+
+        Ok(Type::Quotation(Box::new(Effect::new(inputs, outputs))))
     }
 
     /// Build a StackType from an optional row variable and a list of types
@@ -473,7 +556,7 @@ fn tokenize(source: &str) -> Vec<String> {
             if ch == '\n' {
                 tokens.push("\n".to_string());
             }
-        } else if "():;".contains(ch) {
+        } else if "():;[]".contains(ch) {
             if !current.is_empty() {
                 tokens.push(current.clone());
                 current.clear();
@@ -703,6 +786,65 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_invalid_row_var_starts_with_digit() {
+        // Test: Row variable cannot start with digit
+        let source = ": test ( ..123 Int -- ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("lowercase letter"),
+            "Expected error about lowercase letter, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_row_var_starts_with_uppercase() {
+        // Test: Row variable cannot start with uppercase (that's a type variable)
+        let source = ": test ( ..Int Int -- ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("lowercase letter") || err_msg.contains("type name"),
+            "Expected error about lowercase letter or type name, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_row_var_with_special_chars() {
+        // Test: Row variable cannot contain special characters
+        let source = ": test ( ..a-b Int -- ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("letters, numbers, and underscores")
+                || err_msg.contains("Unknown type"),
+            "Expected error about valid characters, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_valid_row_var_with_underscore() {
+        // Test: Row variable CAN contain underscore
+        let source = ": test ( ..my_row Int -- ..my_row Bool ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_ok(), "Should accept row variable with underscore");
+    }
+
+    #[test]
     fn test_parse_multiple_types_stack_effect() {
         // Test: ( Int String -- Bool )
         // With implicit row polymorphism: ( ..rest Int String -- ..rest Bool )
@@ -791,6 +933,273 @@ mod tests {
         let err_msg = result.unwrap_err();
         // Parser will try to parse "body" as a type and fail
         assert!(err_msg.contains("Unknown type"));
+    }
+
+    #[test]
+    fn test_parse_simple_quotation_type() {
+        // Test: ( [Int -- Int] -- )
+        let source = ": apply ( [Int -- Int] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input should be: Quotation(Int -- Int) on RowVar("rest")
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                // Check quotation's input: Int on RowVar("rest")
+                assert_eq!(
+                    quot_effect.inputs,
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Int
+                    }
+                );
+                // Check quotation's output: Int on RowVar("rest")
+                assert_eq!(
+                    quot_effect.outputs,
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Int
+                    }
+                );
+            }
+            _ => panic!("Expected Quotation type, got {:?}", top),
+        }
+        assert_eq!(rest, StackType::RowVar("rest".to_string()));
+    }
+
+    #[test]
+    fn test_parse_quotation_type_with_row_vars() {
+        // Test: ( ..a [..a T -- ..a Bool] -- ..a )
+        let source = ": test ( ..a [..a T -- ..a Bool] -- ..a ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: Quotation on RowVar("a")
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                // Check quotation's input: T on RowVar("a")
+                let (q_in_rest, q_in_top) = quot_effect.inputs.clone().pop().unwrap();
+                assert_eq!(q_in_top, Type::Var("T".to_string()));
+                assert_eq!(q_in_rest, StackType::RowVar("a".to_string()));
+
+                // Check quotation's output: Bool on RowVar("a")
+                let (q_out_rest, q_out_top) = quot_effect.outputs.clone().pop().unwrap();
+                assert_eq!(q_out_top, Type::Bool);
+                assert_eq!(q_out_rest, StackType::RowVar("a".to_string()));
+            }
+            _ => panic!("Expected Quotation type, got {:?}", top),
+        }
+        assert_eq!(rest, StackType::RowVar("a".to_string()));
+    }
+
+    #[test]
+    fn test_parse_nested_quotation_type() {
+        // Test: ( [[Int -- Int] -- Bool] -- )
+        let source = ": nested ( [[Int -- Int] -- Bool] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: Quotation([Int -- Int] -- Bool) on RowVar("rest")
+        let (_, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(outer_effect) => {
+                // Outer quotation input: [Int -- Int] on RowVar("rest")
+                let (_, outer_in_top) = outer_effect.inputs.clone().pop().unwrap();
+                match outer_in_top {
+                    Type::Quotation(inner_effect) => {
+                        // Inner quotation: Int -- Int
+                        assert!(matches!(
+                            inner_effect.inputs.clone().pop().unwrap().1,
+                            Type::Int
+                        ));
+                        assert!(matches!(
+                            inner_effect.outputs.clone().pop().unwrap().1,
+                            Type::Int
+                        ));
+                    }
+                    _ => panic!("Expected nested Quotation type"),
+                }
+
+                // Outer quotation output: Bool
+                let (_, outer_out_top) = outer_effect.outputs.clone().pop().unwrap();
+                assert_eq!(outer_out_top, Type::Bool);
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_deeply_nested_quotation_type_exceeds_limit() {
+        // Test: Deeply nested quotation types should fail with max depth error
+        // Build a quotation type nested 35 levels deep (exceeds MAX_QUOTATION_DEPTH = 32)
+        let mut source = String::from(": deep ( ");
+
+        // Build opening brackets: [[[[[[...
+        for _ in 0..35 {
+            source.push_str("[ -- ");
+        }
+
+        source.push_str("Int");
+
+        // Build closing brackets: ...]]]]]]
+        for _ in 0..35 {
+            source.push_str(" ]");
+        }
+
+        source.push_str(" -- ) ;");
+
+        let mut parser = Parser::new(&source);
+        let result = parser.parse();
+
+        // Should fail with depth limit error
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("depth") || err_msg.contains("32"),
+            "Expected depth limit error, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_quotation_type() {
+        // Test: ( [ -- ] -- )
+        let source = ": empty-quot ( [ -- ] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        let (_, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                assert_eq!(quot_effect.inputs, StackType::Empty);
+                assert_eq!(quot_effect.outputs, StackType::Empty);
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_quotation_type_in_output() {
+        // Test: ( -- [Int -- Int] )
+        let source = ": maker ( -- [Int -- Int] ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Output should be: Quotation(Int -- Int) on RowVar("rest")
+        let (_, top) = effect.outputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                assert!(matches!(
+                    quot_effect.inputs.clone().pop().unwrap().1,
+                    Type::Int
+                ));
+                assert!(matches!(
+                    quot_effect.outputs.clone().pop().unwrap().1,
+                    Type::Int
+                ));
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unclosed_quotation_type() {
+        // Test: ( [Int -- Int -- )  (missing ])
+        let source = ": broken ( [Int -- Int -- ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        // Parser might error with various messages depending on where it fails
+        // It should at least indicate a parsing problem
+        assert!(
+            err_msg.contains("Unclosed")
+                || err_msg.contains("Expected")
+                || err_msg.contains("Unexpected"),
+            "Got error: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple_quotation_types() {
+        // Test: ( [Int -- Int] [String -- Bool] -- )
+        let source = ": multi ( [Int -- Int] [String -- Bool] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Pop second quotation (String -- Bool)
+        let (rest, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Quotation(quot_effect) => {
+                assert!(matches!(
+                    quot_effect.inputs.clone().pop().unwrap().1,
+                    Type::String
+                ));
+                assert!(matches!(
+                    quot_effect.outputs.clone().pop().unwrap().1,
+                    Type::Bool
+                ));
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+
+        // Pop first quotation (Int -- Int)
+        let (_, top2) = rest.pop().unwrap();
+        match top2 {
+            Type::Quotation(quot_effect) => {
+                assert!(matches!(
+                    quot_effect.inputs.clone().pop().unwrap().1,
+                    Type::Int
+                ));
+                assert!(matches!(
+                    quot_effect.outputs.clone().pop().unwrap().1,
+                    Type::Int
+                ));
+            }
+            _ => panic!("Expected Quotation type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_quotation_type_without_separator() {
+        // Test: ( [Int] -- ) should be REJECTED
+        //
+        // Design decision: The '--' separator is REQUIRED for clarity.
+        // [Int] looks like a list type in most languages, not a consumer function.
+        // This would confuse users.
+        //
+        // Require explicit syntax:
+        // - `[Int -- ]` for quotation that consumes Int and produces nothing
+        // - `[ -- Int]` for quotation that produces Int
+        // - `[Int -- Int]` for transformation
+        let source = ": consumer ( [Int] -- ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        // Should fail with helpful error message
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("require") && err_msg.contains("--"),
+            "Expected error about missing '--' separator, got: {}",
+            err_msg
+        );
     }
 
     #[test]

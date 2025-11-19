@@ -5,6 +5,9 @@
 //! A closure consists of:
 //! - Function pointer (the compiled quotation code)
 //! - Environment (boxed array of captured values)
+//!
+//! Note: These extern "C" functions use Value and slice pointers, which aren't technically FFI-safe,
+//! but they work correctly when called from LLVM-generated code (not actual C interop).
 
 use crate::value::Value;
 
@@ -16,6 +19,8 @@ use crate::value::Value;
 /// # Safety
 /// - Caller must populate the environment with `env_set` before using
 /// - Caller must eventually pass ownership to a Closure value (via `make_closure`)
+// Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
+#[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub extern "C" fn create_env(size: i32) -> *mut [Value] {
     if size < 0 {
@@ -40,6 +45,8 @@ pub extern "C" fn create_env(size: i32) -> *mut [Value] {
 /// - env must be a valid pointer from `create_env`
 /// - index must be in bounds [0, size)
 /// - env must not have been passed to `make_closure` yet
+// Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
+#[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn env_set(env: *mut [Value], index: i32, value: Value) {
     if env.is_null() {
@@ -67,6 +74,8 @@ pub unsafe extern "C" fn env_set(env: *mut [Value], index: i32, value: Value) {
 /// # Safety
 /// - env must be a valid pointer to a closure environment
 /// - index must be in bounds [0, size)
+// Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
+#[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn env_get(env: *const [Value], index: i32) -> Value {
     if env.is_null() {
@@ -96,6 +105,8 @@ pub unsafe extern "C" fn env_get(env: *const [Value], index: i32) -> Value {
 /// - fn_ptr must be a valid function pointer (will be transmuted when called)
 /// - env must be a valid pointer from `create_env`, fully populated via `env_set`
 /// - env ownership is transferred to the Closure value
+// Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
+#[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn make_closure(fn_ptr: u64, env: *mut [Value]) -> Value {
     if fn_ptr == 0 {

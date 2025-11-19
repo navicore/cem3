@@ -86,6 +86,18 @@ impl TypeChecker {
                 let fresh_outputs = self.freshen_stack(&effect.outputs, type_map, row_map);
                 Type::Quotation(Box::new(Effect::new(fresh_inputs, fresh_outputs)))
             }
+            Type::Closure { effect, captures } => {
+                let fresh_inputs = self.freshen_stack(&effect.inputs, type_map, row_map);
+                let fresh_outputs = self.freshen_stack(&effect.outputs, type_map, row_map);
+                let fresh_captures = captures
+                    .iter()
+                    .map(|t| self.freshen_type(t, type_map, row_map))
+                    .collect();
+                Type::Closure {
+                    effect: Box::new(Effect::new(fresh_inputs, fresh_outputs)),
+                    captures: fresh_captures,
+                }
+            }
         }
     }
 

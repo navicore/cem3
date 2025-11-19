@@ -9,6 +9,7 @@ pub mod arena;
 pub mod arithmetic;
 pub mod cemstring;
 pub mod channel;
+pub mod closures;
 pub mod cond;
 pub mod io;
 pub mod pool;
@@ -51,6 +52,9 @@ pub use string_ops::{
 
 // Quotation operations (exported for LLVM linking)
 pub use quotations::{call, forever, push_quotation, spawn, times, until_loop, while_loop};
+
+// Closure operations (exported for LLVM linking)
+pub use closures::{create_env, env_get, env_set, make_closure};
 
 // Conditional combinator (exported for LLVM linking)
 pub use cond::cond;

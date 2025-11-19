@@ -107,6 +107,12 @@ fn occurs_in_type(var: &str, ty: &Type) -> bool {
             // Check if var occurs in quotation's input or output stack types
             occurs_in_stack(var, &effect.inputs) || occurs_in_stack(var, &effect.outputs)
         }
+        Type::Closure { effect, captures } => {
+            // Check if var occurs in closure's effect or any captured types
+            occurs_in_stack(var, &effect.inputs)
+                || occurs_in_stack(var, &effect.outputs)
+                || captures.iter().any(|t| occurs_in_type(var, t))
+        }
     }
 }
 

@@ -12,9 +12,20 @@ pub enum Type {
     Bool,
     /// String type
     String,
-    /// Quotation type (code block with stack effect)
+    /// Quotation type (stateless code block with stack effect)
     /// Example: [ Int -- Int ] is a quotation that takes Int and produces Int
+    /// No captured values - backward compatible with existing quotations
     Quotation(Box<Effect>),
+    /// Closure type (quotation with captured environment)
+    /// Example: Closure { effect: [Int -- Int], captures: [Int] }
+    /// A closure that captures one Int and takes another Int to produce Int
+    Closure {
+        /// Stack effect when the closure is called
+        effect: Box<Effect>,
+        /// Types of values captured from the creation site
+        /// Ordered top-down: captures[0] is top of stack at creation
+        captures: Vec<Type>,
+    },
     /// Type variable (for polymorphism)
     /// Example: T in ( ..a T -- ..a T T )
     Var(String),

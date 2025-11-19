@@ -19,15 +19,26 @@ pub enum Value {
     /// Variant (sum type with tagged fields)
     Variant(Box<VariantData>),
 
-    /// Quotation (function pointer stored as usize for Send safety)
-    /// Will be properly implemented later with quotation support
+    /// Quotation (stateless function pointer stored as usize for Send safety)
+    /// No captured environment - backward compatible
     Quotation(usize),
+
+    /// Closure (quotation with captured environment)
+    /// Contains function pointer and boxed array of captured values
+    Closure {
+        /// Function pointer (transmuted to function taking Stack + environment)
+        fn_ptr: usize,
+        /// Captured values from creation site
+        /// Ordered top-down: env[0] is top of stack at creation
+        env: Box<[Value]>,
+    },
 }
 
 // Safety: Value can be sent between strands (green threads)
 // - Int, Bool, String are all Send
 // - Variant contains only Send types (recursively)
 // - Quotation stores function pointer as usize (Send-safe)
+// - Closure: fn_ptr is usize (Send), env is Box<[Value]> (Send because Value is Send)
 // This is required for channel communication between strands
 unsafe impl Send for Value {}
 

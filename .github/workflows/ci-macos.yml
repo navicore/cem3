@@ -4,6 +4,11 @@ on:
   push:
     branches: [ main ]
 
+# CI Strategy:
+# - Linux: Runs on every PR for fast feedback (see ci-linux.yml)
+# - macOS: Runs only on merge to main (this workflow)
+# This saves cost while ensuring cross-platform compatibility.
+#
 # IMPORTANT: This workflow ONLY calls `just` commands.
 # The justfile is the source of truth for all build/test/lint logic.
 # This prevents drift between local development and CI.

@@ -18,6 +18,7 @@
 //! - Stack type is represented as `ptr` (opaque pointer in modern LLVM)
 
 use crate::ast::{Program, Statement, WordDef};
+use crate::types::Type;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -30,6 +31,8 @@ pub struct CodeGen {
     quot_counter: usize,  // For generating unique quotation function names
     string_constants: HashMap<String, String>, // string content -> global name
     quotation_functions: String, // Accumulates generated quotation functions
+    quotation_types: Vec<Type>, // Types of quotations (in DFS traversal order)
+    quotation_index: std::cell::Cell<usize>, // Current index into quotation_types
 }
 
 impl CodeGen {
@@ -43,6 +46,8 @@ impl CodeGen {
             quot_counter: 0,
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
+            quotation_types: Vec::new(),
+            quotation_index: std::cell::Cell::new(0),
         }
     }
 
@@ -58,6 +63,20 @@ impl CodeGen {
         let name = format!("{}{}", prefix, self.block_counter);
         self.block_counter += 1;
         name
+    }
+
+    /// Get the next quotation type (consumes it in DFS traversal order)
+    fn next_quotation_type(&self) -> Result<&Type, String> {
+        let idx = self.quotation_index.get();
+        if idx >= self.quotation_types.len() {
+            return Err(format!(
+                "CodeGen: quotation type index {} out of bounds (have {} types)",
+                idx,
+                self.quotation_types.len()
+            ));
+        }
+        self.quotation_index.set(idx + 1);
+        Ok(&self.quotation_types[idx])
     }
 
     /// Escape a string for LLVM IR string literals
@@ -107,7 +126,15 @@ impl CodeGen {
     }
 
     /// Generate LLVM IR for entire program
-    pub fn codegen_program(&mut self, program: &Program) -> Result<String, String> {
+    pub fn codegen_program(
+        &mut self,
+        program: &Program,
+        quotation_types: Vec<Type>,
+    ) -> Result<String, String> {
+        // Store quotation types for use during code generation
+        self.quotation_types = quotation_types;
+        self.quotation_index.set(0);
+
         // Verify we have a main word
         if program.find_word("main").is_none() {
             return Err("No main word defined".to_string());
@@ -514,6 +541,9 @@ impl CodeGen {
             }
 
             Statement::Quotation(body) => {
+                // Get the inferred type for this quotation (clone to avoid borrow issues)
+                let quot_type = self.next_quotation_type()?.clone();
+
                 // Generate a function for the quotation body
                 let fn_name = self.codegen_quotation(body)?;
 
@@ -526,16 +556,39 @@ impl CodeGen {
                 )
                 .unwrap();
 
-                // Push the function pointer onto the stack
-                let result_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
-                    result_var, stack_var, fn_ptr_var
-                )
-                .unwrap();
-
-                Ok(result_var)
+                // Generate code based on quotation type
+                match quot_type {
+                    Type::Quotation(_effect) => {
+                        // Stateless quotation - use push_quotation
+                        let result_var = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
+                            result_var, stack_var, fn_ptr_var
+                        )
+                        .unwrap();
+                        Ok(result_var)
+                    }
+                    Type::Closure {
+                        effect: _effect,
+                        captures,
+                    } => {
+                        // Closure with captures - use push_closure
+                        let capture_count = captures.len() as i32;
+                        let result_var = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @push_closure(ptr %{}, i64 %{}, i32 {})",
+                            result_var, stack_var, fn_ptr_var, capture_count
+                        )
+                        .unwrap();
+                        Ok(result_var)
+                    }
+                    _ => Err(format!(
+                        "CodeGen: expected Quotation or Closure type, got {:?}",
+                        quot_type
+                    )),
+                }
             }
         }
     }
@@ -625,7 +678,7 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program).unwrap();
+        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
 
         assert!(ir.contains("define i32 @main()"));
         assert!(ir.contains("define ptr @cem_main(ptr %stack)"));
@@ -650,7 +703,7 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program).unwrap();
+        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
 
         assert!(ir.contains("call ptr @push_int(ptr %stack, i64 2)"));
         assert!(ir.contains("call ptr @push_int"));

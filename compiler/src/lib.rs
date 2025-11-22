@@ -42,9 +42,12 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
     let mut type_checker = TypeChecker::new();
     type_checker.check_program(&program)?;
 
-    // Generate LLVM IR
+    // Extract inferred quotation types (in DFS traversal order)
+    let quotation_types = type_checker.take_quotation_types();
+
+    // Generate LLVM IR with type information
     let mut codegen = CodeGen::new();
-    let ir = codegen.codegen_program(&program)?;
+    let ir = codegen.codegen_program(&program, quotation_types)?;
 
     // Write IR to file
     let ir_path = output_path.with_extension("ll");
@@ -94,6 +97,8 @@ pub fn compile_to_ir(source: &str) -> Result<String, String> {
     let mut type_checker = TypeChecker::new();
     type_checker.check_program(&program)?;
 
+    let quotation_types = type_checker.take_quotation_types();
+
     let mut codegen = CodeGen::new();
-    codegen.codegen_program(&program)
+    codegen.codegen_program(&program, quotation_types)
 }

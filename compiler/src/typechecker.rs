@@ -14,6 +14,9 @@ pub struct TypeChecker {
     env: HashMap<String, Effect>,
     /// Counter for generating fresh type variables
     fresh_counter: std::cell::Cell<usize>,
+    /// Quotation types tracked during type checking (in DFS traversal order)
+    /// Each quotation encountered gets its type stored here
+    quotation_types: std::cell::RefCell<Vec<Type>>,
 }
 
 impl TypeChecker {
@@ -21,7 +24,16 @@ impl TypeChecker {
         TypeChecker {
             env: HashMap::new(),
             fresh_counter: std::cell::Cell::new(0),
+            quotation_types: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// Extract accumulated quotation types (in DFS traversal order)
+    ///
+    /// This should be called after check_program() to get the inferred types
+    /// for all quotations in the program.
+    pub fn take_quotation_types(&self) -> Vec<Type> {
+        self.quotation_types.borrow_mut().drain(..).collect()
     }
 
     /// Generate a fresh variable name
@@ -271,11 +283,15 @@ impl TypeChecker {
                 // Infer the effect of the quotation body
                 let quot_effect = self.infer_statements(body)?;
 
+                // For now, all quotations are stateless (Type::Quotation)
+                // TODO: Implement capture analysis to determine when to use Type::Closure
+                let quot_type = Type::Quotation(Box::new(quot_effect));
+
+                // Record this quotation's type (for CodeGen to use later)
+                self.quotation_types.borrow_mut().push(quot_type.clone());
+
                 // Quotations are first-class values - push quotation type onto stack
-                Ok((
-                    current_stack.push(Type::Quotation(Box::new(quot_effect))),
-                    Subst::empty(),
-                ))
+                Ok((current_stack.push(quot_type), Subst::empty()))
             }
         }
     }

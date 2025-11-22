@@ -1,10 +1,10 @@
-# cem3 - Concatenative Language (Clean Foundation)
+# Seq - Concatenative Language
 
 A concatenative, stack-based programming language with linear types, built on a solid foundation.
 
 ## What's Different from cem2?
 
-cem3 separates **Values** (what the language talks about) from **StackNodes** (implementation details):
+Seq separates **Values** (what the language talks about) from **StackNodes** (implementation details):
 
 - **Value**: Pure data (Int, Bool, String, Variant)
 - **StackNode**: Container with value + next pointer
@@ -24,7 +24,7 @@ See `docs/ROADMAP.md` for the full development plan.
 
 **No Compromises:** If something doesn't feel clean, we stop and redesign.
 
-**Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. cem3 does it right from the start.
+**Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. Seq does it right from the start.
 
 ## Building
 

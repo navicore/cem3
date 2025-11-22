@@ -23,7 +23,8 @@ pub mod value;
 
 // Re-export key types and functions
 pub use stack::{
-    Stack, StackNode, drop, dup, is_empty, nip, over, peek, pick, pop, push, rot, swap, tuck,
+    Stack, StackNode, drop, dup, is_empty, nip, over, peek, pick, pop, push, push_value, rot, swap,
+    tuck,
 };
 pub use value::{Value, VariantData};
 
@@ -54,7 +55,7 @@ pub use string_ops::{
 pub use quotations::{call, forever, push_quotation, spawn, times, until_loop, while_loop};
 
 // Closure operations (exported for LLVM linking)
-pub use closures::{create_env, env_get, env_set, make_closure};
+pub use closures::{create_env, env_get, env_get_int, env_set, make_closure, push_closure};
 
 // Conditional combinator (exported for LLVM linking)
 pub use cond::cond;

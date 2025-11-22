@@ -112,6 +112,19 @@ pub unsafe extern "C" fn drop_op(stack: Stack) -> Stack {
     unsafe { drop(stack) }
 }
 
+/// Push an arbitrary Value onto the stack (for LLVM codegen)
+///
+/// This is used by closure functions to push captured values.
+///
+/// # Safety
+/// Value must be a valid Value
+// Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn push_value(stack: Stack, value: Value) -> Stack {
+    unsafe { push(stack, value) }
+}
+
 /// Swap the top two values: ( a b -- b a )
 ///
 /// # Safety

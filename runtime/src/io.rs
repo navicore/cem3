@@ -1,4 +1,4 @@
-//! I/O Operations for cem3
+//! I/O Operations for Seq
 //!
 //! These functions are exported with C ABI for LLVM codegen to call.
 //!

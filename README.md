@@ -1,10 +1,10 @@
-# cem3 - Concatenative Language (Clean Foundation)
+# Seq - Concatenative Language
 
 A concatenative, stack-based programming language with linear types, built on a solid foundation.
 
 ## What's Different from cem2?
 
-cem3 separates **Values** (what the language talks about) from **StackNodes** (implementation details):
+Seq separates **Values** (what the language talks about) from **StackNodes** (implementation details):
 
 - **Value**: Pure data (Int, Bool, String, Variant)
 - **StackNode**: Container with value + next pointer
@@ -24,7 +24,7 @@ See `docs/ROADMAP.md` for the full development plan.
 
 **No Compromises:** If something doesn't feel clean, we stop and redesign.
 
-**Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. cem3 does it right from the start.
+**Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. Seq does it right from the start.
 
 ## Building
 
@@ -32,6 +32,16 @@ See `docs/ROADMAP.md` for the full development plan.
 cargo build --release
 cargo test
 ```
+
+## Examples
+
+Example programs are in `examples/`:
+- `hello-world.seq` - Basic I/O
+- `test-*.seq` - Control flow and comparisons
+- `recursion/` - Recursive algorithms (fibonacci, factorial)
+- `http/` - HTTP server examples with routing
+
+**Note:** Channel examples were removed during the cem3→Seq rebrand. They demonstrated incorrect synchronous channel usage (send/receive on same strand, causing deadlock). Proper CSP channel usage requires spawning separate strands - see runtime tests in `runtime/src/channel.rs` for correct examples.
 
 ## Documentation
 

@@ -216,7 +216,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @push_closure(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @cem_send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
@@ -260,8 +260,8 @@ impl CodeGen {
 
     /// Generate code for a word definition
     fn codegen_word(&mut self, word: &WordDef) -> Result<(), String> {
-        // Prefix word names with "cem_" to avoid conflicts with C symbols
-        let function_name = format!("cem_{}", word.name);
+        // Prefix word names with "seq_" to avoid conflicts with C symbols
+        let function_name = format!("seq_{}", word.name);
         writeln!(
             &mut self.output,
             "define ptr @{}(ptr %stack) {{",
@@ -292,7 +292,7 @@ impl CodeGen {
         quot_type: &Type,
     ) -> Result<String, String> {
         // Generate unique function name
-        let function_name = format!("cem_quot_{}", self.quot_counter);
+        let function_name = format!("seq_quot_{}", self.quot_counter);
         self.quot_counter += 1;
 
         // Save current output and switch to quotation_functions
@@ -461,7 +461,7 @@ impl CodeGen {
                 // Most built-ins use their source name directly, but some need mapping:
                 // - Symbolic operators (=, <, >) map to names (eq, lt, gt)
                 // - 'drop' maps to 'drop_op' (drop is LLVM reserved)
-                // - User words get 'cem_' prefix to avoid C symbol conflicts
+                // - User words get 'seq_' prefix to avoid C symbol conflicts
                 let function_name = match name.as_str() {
                     // I/O operations
                     "write_line" | "read_line" => name.to_string(),
@@ -484,7 +484,7 @@ impl CodeGen {
                     "pick" => "pick_op".to_string(), // pick takes Int parameter from stack
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "make_channel".to_string(),
-                    "send" => "cem_send".to_string(), // Prefixed to avoid collision with system send()
+                    "send" => "send".to_string(),
                     "receive" => "receive".to_string(),
                     "close-channel" => "close_channel".to_string(),
                     "yield" => "yield_strand".to_string(),
@@ -513,7 +513,7 @@ impl CodeGen {
                     "string-to-upper" => "string_to_upper".to_string(),
                     "string-to-lower" => "string_to_lower".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
-                    _ => format!("cem_{}", name),
+                    _ => format!("seq_{}", name),
                 };
                 writeln!(
                     &mut self.output,
@@ -686,7 +686,7 @@ impl CodeGen {
         // This ensures all code runs in coroutine context for non-blocking I/O
         writeln!(
             &mut self.output,
-            "  %0 = call i64 @strand_spawn(ptr @cem_main, ptr null)"
+            "  %0 = call i64 @strand_spawn(ptr @seq_main, ptr null)"
         )
         .unwrap();
 
@@ -762,7 +762,7 @@ mod tests {
         let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
 
         assert!(ir.contains("define i32 @main()"));
-        assert!(ir.contains("define ptr @cem_main(ptr %stack)"));
+        assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
         assert!(ir.contains("call ptr @push_string"));
         assert!(ir.contains("call ptr @write_line"));
         assert!(ir.contains("\"Hello, World!\\00\""));

@@ -1,4 +1,4 @@
-//! Type system for cem3
+//! Type system for Seq
 //!
 //! Based on cem2's row polymorphism design with improvements.
 //! Supports stack effect declarations like: ( ..a Int -- ..a Bool )

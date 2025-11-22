@@ -1,4 +1,4 @@
-//! Simple parser for cem3 syntax
+//! Simple parser for Seq syntax
 //!
 //! Syntax:
 //! ```text

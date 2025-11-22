@@ -1,4 +1,4 @@
-//! Built-in word signatures for cem3
+//! Built-in word signatures for Seq
 //!
 //! Defines the stack effects for all runtime built-in operations.
 

@@ -1,4 +1,4 @@
-//! Abstract Syntax Tree for cem3
+//! Abstract Syntax Tree for Seq
 //!
 //! Minimal AST sufficient for hello-world and basic programs.
 //! Will be extended as we add more language features.

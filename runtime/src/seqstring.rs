@@ -1,6 +1,6 @@
-//! CemString - Arena or Globally Allocated String
+//! SeqString - Arena or Globally Allocated String
 //!
-//! Strings in cem3 can be allocated from two sources:
+//! Strings in Seq can be allocated from two sources:
 //! 1. Thread-local arena (fast, bulk-freed on strand exit)
 //! 2. Global allocator (persists across arena resets)
 //!
@@ -17,7 +17,7 @@ use std::fmt;
 /// - If global=false: ptr points to thread-local arena, no drop needed
 /// - ptr + len must form a valid UTF-8 string
 /// - For global strings: capacity must match the original String's capacity
-pub struct CemString {
+pub struct SeqString {
     ptr: *const u8,
     len: usize,
     capacity: usize, // Only meaningful for global strings
@@ -25,21 +25,21 @@ pub struct CemString {
 }
 
 // Implement PartialEq manually to compare string content, not pointers
-impl PartialEq for CemString {
+impl PartialEq for SeqString {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
 }
 
-impl Eq for CemString {}
+impl Eq for SeqString {}
 
-// Safety: CemString is Send because:
+// Safety: SeqString is Send because:
 // - Global strings are truly independent (owned heap allocation)
 // - Arena strings are cloned to global on channel send (see Clone impl)
 // - We never send arena pointers across threads unsafely
-unsafe impl Send for CemString {}
+unsafe impl Send for SeqString {}
 
-impl CemString {
+impl SeqString {
     /// Get string slice
     ///
     /// # Safety
@@ -66,7 +66,7 @@ impl CemString {
     }
 }
 
-impl Clone for CemString {
+impl Clone for SeqString {
     /// Clone always allocates from global allocator for Send safety
     ///
     /// This ensures that when a String is sent through a channel,
@@ -78,7 +78,7 @@ impl Clone for CemString {
     }
 }
 
-impl Drop for CemString {
+impl Drop for SeqString {
     fn drop(&mut self) {
         if self.global {
             // Reconstruct String and drop it
@@ -97,13 +97,13 @@ impl Drop for CemString {
     }
 }
 
-impl fmt::Debug for CemString {
+impl fmt::Debug for SeqString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CemString({:?}, global={})", self.as_str(), self.global)
+        write!(f, "SeqString({:?}, global={})", self.as_str(), self.global)
     }
 }
 
-impl fmt::Display for CemString {
+impl fmt::Display for SeqString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
@@ -116,10 +116,10 @@ impl fmt::Display for CemString {
 ///
 /// # Lifetime
 /// Valid until arena_reset() is called (typically when strand exits)
-pub fn arena_string(s: &str) -> CemString {
+pub fn arena_string(s: &str) -> SeqString {
     arena::with_arena(|arena| {
         let arena_str = arena.alloc_str(s);
-        CemString {
+        SeqString {
             ptr: arena_str.as_ptr(),
             len: arena_str.len(),
             capacity: 0, // Not used for arena strings
@@ -135,13 +135,13 @@ pub fn arena_string(s: &str) -> CemString {
 ///
 /// # Performance
 /// Same as regular String allocation
-pub fn global_string(s: String) -> CemString {
+pub fn global_string(s: String) -> SeqString {
     let len = s.len();
     let capacity = s.capacity();
     let ptr = s.as_ptr();
     std::mem::forget(s); // Transfer ownership, don't drop
 
-    CemString {
+    SeqString {
         ptr,
         len,
         capacity, // Store original capacity for correct deallocation
@@ -149,15 +149,15 @@ pub fn global_string(s: String) -> CemString {
     }
 }
 
-/// Convert &str to CemString using arena allocation
-impl From<&str> for CemString {
+/// Convert &str to SeqString using arena allocation
+impl From<&str> for SeqString {
     fn from(s: &str) -> Self {
         arena_string(s)
     }
 }
 
-/// Convert String to CemString using global allocation
-impl From<String> for CemString {
+/// Convert String to SeqString using global allocation
+impl From<String> for SeqString {
     fn from(s: String) -> Self {
         global_string(s)
     }
@@ -238,14 +238,14 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        let s: CemString = "test".into();
+        let s: SeqString = "test".into();
         assert_eq!(s.as_str(), "test");
         assert!(!s.is_global()); // from &str uses arena
     }
 
     #[test]
     fn test_from_string() {
-        let s: CemString = "test".to_string().into();
+        let s: SeqString = "test".to_string().into();
         assert_eq!(s.as_str(), "test");
         assert!(s.is_global()); // from String uses global
     }
@@ -291,7 +291,7 @@ mod tests {
 
         let cem = global_string(s);
 
-        // Verify the CemString captured the original capacity
+        // Verify the SeqString captured the original capacity
         assert_eq!(cem.len(), 2);
         assert_eq!(cem.capacity, 100); // Critical: Must be 100, not 2!
         assert_eq!(cem.as_str(), "hi");

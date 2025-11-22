@@ -33,6 +33,16 @@ cargo build --release
 cargo test
 ```
 
+## Examples
+
+Example programs are in `examples/`:
+- `hello-world.seq` - Basic I/O
+- `test-*.seq` - Control flow and comparisons
+- `recursion/` - Recursive algorithms (fibonacci, factorial)
+- `http/` - HTTP server examples with routing
+
+**Note:** Channel examples were removed during the cem3→Seq rebrand. They demonstrated incorrect synchronous channel usage (send/receive on same strand, causing deadlock). Proper CSP channel usage requires spawning separate strands - see runtime tests in `runtime/src/channel.rs` for correct examples.
+
 ## Documentation
 
 - `docs/ROADMAP.md` - Development phases and milestones

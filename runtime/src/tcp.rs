@@ -1,4 +1,4 @@
-//! TCP Socket Operations for cem3
+//! TCP Socket Operations for Seq
 //!
 //! Provides non-blocking TCP socket operations using May's coroutine-aware I/O.
 //! All operations yield the strand instead of blocking the OS thread.

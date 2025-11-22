@@ -129,6 +129,11 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple()).unwrap();
         writeln!(&mut ir).unwrap();
 
+        // Opaque Value type (Rust enum)
+        writeln!(&mut ir, "; Opaque Value type (Rust enum)").unwrap();
+        writeln!(&mut ir, "%Value = type opaque").unwrap();
+        writeln!(&mut ir).unwrap();
+
         // String constants
         if !self.string_globals.is_empty() {
             ir.push_str(&self.string_globals);
@@ -165,6 +170,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pick_op(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
         writeln!(&mut ir, "declare ptr @push_quotation(ptr, i64)").unwrap();
         writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
@@ -174,6 +180,13 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @forever(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @cond(ptr)").unwrap();
+        writeln!(&mut ir, "; Closure operations").unwrap();
+        writeln!(&mut ir, "declare ptr @create_env(i32)").unwrap();
+        writeln!(&mut ir, "declare void @env_set(ptr, i32, %Value)").unwrap();
+        writeln!(&mut ir, "declare %Value @env_get(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare i64 @env_get_int(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare %Value @make_closure(i64, ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @push_closure(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @cem_send(ptr)").unwrap();

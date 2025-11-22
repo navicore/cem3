@@ -286,7 +286,11 @@ impl CodeGen {
 
     /// Generate a quotation function
     /// Returns the function name
-    fn codegen_quotation(&mut self, body: &[Statement]) -> Result<String, String> {
+    fn codegen_quotation(
+        &mut self,
+        body: &[Statement],
+        quot_type: &Type,
+    ) -> Result<String, String> {
         // Generate unique function name
         let function_name = format!("cem_quot_{}", self.quot_counter);
         self.quot_counter += 1;
@@ -294,13 +298,86 @@ impl CodeGen {
         // Save current output and switch to quotation_functions
         let saved_output = std::mem::take(&mut self.output);
 
-        // Generate function
-        writeln!(
-            &mut self.output,
-            "define ptr @{}(ptr %stack) {{",
-            function_name
-        )
-        .unwrap();
+        // Generate function signature based on type
+        match quot_type {
+            Type::Quotation(_) => {
+                // Stateless quotation: fn(Stack) -> Stack
+                writeln!(
+                    &mut self.output,
+                    "define ptr @{}(ptr %stack) {{",
+                    function_name
+                )
+                .unwrap();
+            }
+            Type::Closure { captures, .. } => {
+                // Closure: fn(Stack, *const Value, usize) -> Stack
+                writeln!(
+                    &mut self.output,
+                    "define ptr @{}(ptr %stack, ptr %env_data, i64 %env_len) {{",
+                    function_name
+                )
+                .unwrap();
+                writeln!(&mut self.output, "entry:").unwrap();
+
+                // Push captured values onto the stack before executing body
+                // Captures are stored bottom-to-top, so push them in order
+                let mut stack_var = "stack".to_string();
+                for (index, capture_type) in captures.iter().enumerate() {
+                    // Use type-specific getters to avoid passing large Value enum through FFI
+                    match capture_type {
+                        Type::Int => {
+                            let int_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call i64 @env_get_int(ptr %env_data, i64 %env_len, i32 {})",
+                                int_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @push_int(ptr %{}, i64 %{})",
+                                new_stack_var, stack_var, int_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
+                        _ => {
+                            // For non-Int types, we'd need to implement more getters
+                            // For now, fall back to env_get (which may have issues)
+                            return Err(format!(
+                                "CodeGen: Only Int captures are currently supported, got {:?}",
+                                capture_type
+                            ));
+                        }
+                    }
+                }
+
+                // Generate code for each statement in the quotation body
+                for statement in body {
+                    stack_var = self.codegen_statement(&stack_var, statement)?;
+                }
+
+                writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                writeln!(&mut self.output, "}}").unwrap();
+                writeln!(&mut self.output).unwrap();
+
+                // Move generated function to quotation_functions
+                self.quotation_functions.push_str(&self.output);
+
+                // Restore original output
+                self.output = saved_output;
+
+                return Ok(function_name);
+            }
+            _ => {
+                return Err(format!(
+                    "CodeGen: expected Quotation or Closure type, got {:?}",
+                    quot_type
+                ));
+            }
+        }
+
         writeln!(&mut self.output, "entry:").unwrap();
 
         let mut stack_var = "stack".to_string();
@@ -545,7 +622,7 @@ impl CodeGen {
                 let quot_type = self.next_quotation_type()?.clone();
 
                 // Generate a function for the quotation body
-                let fn_name = self.codegen_quotation(body)?;
+                let fn_name = self.codegen_quotation(body, &quot_type)?;
 
                 // Get function pointer as usize
                 let fn_ptr_var = self.fresh_temp();

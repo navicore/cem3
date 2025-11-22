@@ -251,7 +251,7 @@ impl Parser {
                         Ok(Type::Var(token.to_string()))
                     } else {
                         Err(format!(
-                            "Unknown type: '{}'. Expected Int, Bool, String, or a type variable (uppercase)",
+                            "Unknown type: '{}'. Expected Int, Bool, String, Closure, or a type variable (uppercase)",
                             token
                         ))
                     }
@@ -344,6 +344,21 @@ impl Parser {
                 let var_name = token.trim_start_matches("..").to_string();
                 self.validate_row_var_name(&var_name)?;
                 row_var = Some(var_name);
+            } else if token == "Closure" {
+                // Closure type: Closure[effect]
+                if !self.consume("[") {
+                    return Err("Expected '[' after 'Closure' in type signature".to_string());
+                }
+                let effect_type = self.parse_quotation_type(depth)?;
+                match effect_type {
+                    Type::Quotation(effect) => {
+                        types.push(Type::Closure {
+                            effect,
+                            captures: Vec::new(), // Filled in by type checker
+                        });
+                    }
+                    _ => unreachable!("parse_quotation_type should return Quotation"),
+                }
             } else if token == "[" {
                 // Nested quotation type
                 types.push(self.parse_quotation_type(depth)?);
@@ -1355,5 +1370,111 @@ mod tests {
             program.words[0].body[3],
             Statement::WordCall("drop".to_string())
         );
+    }
+
+    #[test]
+    fn test_parse_simple_closure_type() {
+        // Test: ( Int -- Closure[Int -- Int] )
+        let source = ": make-adder ( Int -- Closure[Int -- Int] ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        let word = &program.words[0];
+        assert!(word.effect.is_some());
+
+        let effect = word.effect.as_ref().unwrap();
+
+        // Input: Int on RowVar("rest")
+        let (input_rest, input_top) = effect.inputs.clone().pop().unwrap();
+        assert_eq!(input_top, Type::Int);
+        assert_eq!(input_rest, StackType::RowVar("rest".to_string()));
+
+        // Output: Closure[Int -- Int] on RowVar("rest")
+        let (output_rest, output_top) = effect.outputs.clone().pop().unwrap();
+        match output_top {
+            Type::Closure { effect, captures } => {
+                // Closure effect: Int -> Int
+                assert_eq!(
+                    effect.inputs,
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Int
+                    }
+                );
+                assert_eq!(
+                    effect.outputs,
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Int
+                    }
+                );
+                // Captures should be empty (filled in by type checker)
+                assert_eq!(captures.len(), 0);
+            }
+            _ => panic!("Expected Closure type, got {:?}", output_top),
+        }
+        assert_eq!(output_rest, StackType::RowVar("rest".to_string()));
+    }
+
+    #[test]
+    fn test_parse_closure_type_with_row_vars() {
+        // Test: ( ..a Config -- ..a Closure[Request -- Response] )
+        let source = ": make-handler ( ..a Config -- ..a Closure[Request -- Response] ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Output: Closure on RowVar("a")
+        let (rest, top) = effect.outputs.clone().pop().unwrap();
+        match top {
+            Type::Closure { effect, .. } => {
+                // Closure effect: Request -> Response
+                let (_, in_top) = effect.inputs.clone().pop().unwrap();
+                assert_eq!(in_top, Type::Var("Request".to_string()));
+                let (_, out_top) = effect.outputs.clone().pop().unwrap();
+                assert_eq!(out_top, Type::Var("Response".to_string()));
+            }
+            _ => panic!("Expected Closure type"),
+        }
+        assert_eq!(rest, StackType::RowVar("a".to_string()));
+    }
+
+    #[test]
+    fn test_parse_closure_type_missing_bracket() {
+        // Test: ( Int -- Closure ) should fail
+        let source = ": broken ( Int -- Closure ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("[") && err_msg.contains("Closure"),
+            "Expected error about missing '[' after Closure, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_closure_type_in_input() {
+        // Test: ( Closure[Int -- Int] -- )
+        let source = ": apply-closure ( Closure[Int -- Int] -- ) ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        let effect = program.words[0].effect.as_ref().unwrap();
+
+        // Input: Closure[Int -- Int] on RowVar("rest")
+        let (_, top) = effect.inputs.clone().pop().unwrap();
+        match top {
+            Type::Closure { effect, .. } => {
+                // Verify closure effect
+                assert!(matches!(effect.inputs.clone().pop().unwrap().1, Type::Int));
+                assert!(matches!(effect.outputs.clone().pop().unwrap().1, Type::Int));
+            }
+            _ => panic!("Expected Closure type in input"),
+        }
     }
 }

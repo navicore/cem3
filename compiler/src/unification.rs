@@ -107,6 +107,12 @@ fn occurs_in_type(var: &str, ty: &Type) -> bool {
             // Check if var occurs in quotation's input or output stack types
             occurs_in_stack(var, &effect.inputs) || occurs_in_stack(var, &effect.outputs)
         }
+        Type::Closure { effect, captures } => {
+            // Check if var occurs in closure's effect or any captured types
+            occurs_in_stack(var, &effect.inputs)
+                || occurs_in_stack(var, &effect.outputs)
+                || captures.iter().any(|t| occurs_in_type(var, t))
+        }
     }
 }
 
@@ -154,6 +160,29 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
 
         // Quotation types unify if their effects unify
         (Type::Quotation(effect1), Type::Quotation(effect2)) => {
+            // Unify inputs
+            let s_in = unify_stacks(&effect1.inputs, &effect2.inputs)?;
+
+            // Apply substitution to outputs and unify
+            let out1 = s_in.apply_stack(&effect1.outputs);
+            let out2 = s_in.apply_stack(&effect2.outputs);
+            let s_out = unify_stacks(&out1, &out2)?;
+
+            // Compose substitutions
+            Ok(s_in.compose(&s_out))
+        }
+
+        // Closure types unify if their effects unify (ignoring captures)
+        // Captures are an implementation detail determined by the type checker,
+        // not part of the user-visible type
+        (
+            Type::Closure {
+                effect: effect1, ..
+            },
+            Type::Closure {
+                effect: effect2, ..
+            },
+        ) => {
             // Unify inputs
             let s_in = unify_stacks(&effect1.inputs, &effect2.inputs)?;
 

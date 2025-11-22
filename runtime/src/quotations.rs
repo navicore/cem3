@@ -19,18 +19,22 @@ pub unsafe extern "C" fn push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
     unsafe { push(stack, Value::Quotation(fn_ptr)) }
 }
 
-/// Call a quotation
+/// Call a quotation or closure
 ///
-/// Pops a quotation from the stack and executes it.
-/// The quotation function takes the current stack and returns a new stack.
+/// Pops a quotation or closure from the stack and executes it.
+/// For stateless quotations, calls the function with just the stack.
+/// For closures, calls the function with both the stack and captured environment.
+/// The function takes the current stack and returns a new stack.
 ///
 /// Stack effect: ( ..a quot -- ..b )
 /// where the quotation has effect ( ..a -- ..b )
 ///
 /// # Safety
 /// - Stack must not be null
-/// - Top of stack must be a Quotation value
-/// - Function pointer must be valid and have signature: Stack -> Stack
+/// - Top of stack must be a Quotation or Closure value
+/// - Function pointer must be valid
+/// - Quotation signature: Stack -> Stack
+/// - Closure signature: Stack, *const [Value] -> Stack
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn call(stack: Stack) -> Stack {
     unsafe {
@@ -50,7 +54,36 @@ pub unsafe extern "C" fn call(stack: Stack) -> Stack {
                 let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
                 fn_ref(stack)
             }
-            _ => panic!("call: expected Quotation on stack, got {:?}", value),
+            Value::Closure { fn_ptr, env } => {
+                // Validate function pointer is not null
+                if fn_ptr == 0 {
+                    panic!("call: closure function pointer is null");
+                }
+
+                // Convert Box<[Value]> to raw parts (data pointer + length)
+                // LLVM IR can't handle Rust's fat pointers, so we pass them separately
+                let env_ptr = Box::into_raw(env);
+                let env_slice = &*env_ptr;
+                let env_data = env_slice.as_ptr();
+                let env_len = env_slice.len();
+
+                // SAFETY: fn_ptr was created by the compiler's codegen for a closure.
+                // The compiler guarantees that closure functions have the signature:
+                // unsafe extern "C" fn(Stack, *const Value, usize) -> Stack.
+                // We pass the environment as (data, len) since LLVM can't handle fat pointers.
+                let fn_ref: unsafe extern "C" fn(Stack, *const Value, usize) -> Stack =
+                    std::mem::transmute(fn_ptr);
+                let result_stack = fn_ref(stack, env_data, env_len);
+
+                // Clean up environment (convert back to Box and drop)
+                let _ = Box::from_raw(env_ptr);
+
+                result_stack
+            }
+            _ => panic!(
+                "call: expected Quotation or Closure on stack, got {:?}",
+                value
+            ),
         }
     }
 }

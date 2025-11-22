@@ -216,7 +216,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @push_closure(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @seq_send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
@@ -484,7 +484,7 @@ impl CodeGen {
                     "pick" => "pick_op".to_string(), // pick takes Int parameter from stack
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "make_channel".to_string(),
-                    "send" => "seq_send".to_string(), // Prefixed to avoid collision with system send()
+                    "send" => "send".to_string(),
                     "receive" => "receive".to_string(),
                     "close-channel" => "close_channel".to_string(),
                     "yield" => "yield_strand".to_string(),

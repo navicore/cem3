@@ -1,7 +1,7 @@
-# HTTP Examples for cem3
+# HTTP Examples for Seq
 
 This directory contains a tutorial series demonstrating HTTP routing and server
-capabilities in cem3.
+capabilities in Seq.
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@ Build the compiler: ```bash cargo build --release ```
 
 ## Examples (in order of complexity)
 
-### 1. `01_simple_router.cem` - Basic HTTP Routing
+### 1. `01_simple_router.seq` - Basic HTTP Routing
 
 Demonstrates:
 - Using the `cond` combinator for multi-way branching
@@ -23,12 +23,12 @@ Demonstrates:
   count
 - Each condition quotation should return an Int (0=false, non-zero=true)
 
-**Run it:** ```bash ./target/release/cem3 --output tmp/01_simple_router
-examples/http/01_simple_router.cem ./tmp/01_simple_router ```
+**Run it:** ```bash ./target/release/seqc --output tmp/01_simple_router
+examples/http/01_simple_router.seq ./tmp/01_simple_router ```
 
 **Expected output:** ``` HTTP/1.1 200 OK Content-Type: text/plain
 
-Welcome to cem3! HTTP/1.1 200 OK Content-Type: application/json
+Welcome to Seq! HTTP/1.1 200 OK Content-Type: application/json
 
 {"status":"healthy"} HTTP/1.1 404 Not Found Content-Type: text/plain
 
@@ -36,7 +36,7 @@ Welcome to cem3! HTTP/1.1 200 OK Content-Type: application/json
 
 ---
 
-### 2. `02_router_with_helpers.cem` - Modular Routing
+### 2. `02_router_with_helpers.seq` - Modular Routing
 
 Demonstrates:
 - Breaking routing logic into helper words
@@ -49,12 +49,12 @@ Demonstrates:
 - Type checker validates the entire call chain
 - Proper HTTP response format with headers
 
-**Run it:** ```bash ./target/release/cem3 --output tmp/02_router_with_helpers
-examples/http/02_router_with_helpers.cem ./tmp/02_router_with_helpers ```
+**Run it:** ```bash ./target/release/seqc --output tmp/02_router_with_helpers
+examples/http/02_router_with_helpers.seq ./tmp/02_router_with_helpers ```
 
 ---
 
-### 3. `03_echo_server.cem` - TCP Echo Server (no spawn)
+### 3. `03_echo_server.seq` - TCP Echo Server (no spawn)
 
 Demonstrates:
 - Basic TCP operations: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`,
@@ -68,8 +68,8 @@ Demonstrates:
 - `tcp-read` and `tcp-write` operate on connection sockets
 - `tcp-close` cleans up connection
 
-**Run it:** ```bash ./target/release/cem3 --output tmp/03_echo_server
-examples/http/03_echo_server.cem ./tmp/03_echo_server &
+**Run it:** ```bash ./target/release/seqc --output tmp/03_echo_server
+examples/http/03_echo_server.seq ./tmp/03_echo_server &
 
 # In another terminal: curl http://localhost:8080/ curl
 http://localhost:8080/health ```
@@ -133,12 +133,12 @@ the stack. This is essential for word composition in concatenative languages!
 ## Next Steps
 
 Once spawn with data passing is implemented, we'll add:
-- `04_concurrent_server.cem` - Multi-connection HTTP server
-- `05_http_client.cem` - Making HTTP requests
-- `06_rest_api.cem` - RESTful API with state management
+- `04_concurrent_server.seq` - Multi-connection HTTP server
+- `05_http_client.seq` - Making HTTP requests
+- `06_rest_api.seq` - RESTful API with state management
 
 ## References
 
-- [cem3 Roadmap](../../docs/ROADMAP.md)
+- [Seq Roadmap](../../docs/ROADMAP.md)
 - [Type System Assessment](../../tmp/TYPE_SYSTEM_ASSESSMENT.md)
 - [Type System Fix Results](../../tmp/TYPE_SYSTEM_FIX_RESULTS.md)

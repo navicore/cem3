@@ -582,7 +582,7 @@ mod tests {
         // StackCell.next pointers were used for BOTH stack linking AND variant fields.
         // When the stack was shuffled, next pointers became stale, corrupting variants.
         //
-        // In cem3, this CANNOT happen because:
+        // In Seq, this CANNOT happen because:
         // - StackNode.next is ONLY for stack structure
         // - Variant fields are stored in Box<[Value]> arrays
         // - Values are independent of stack position
@@ -962,7 +962,7 @@ mod tests {
     // Note: Cannot test panic cases (negative depth, insufficient stack depth)
     // because extern "C" functions cannot be caught with #[should_panic].
     // These cases are validated at runtime with descriptive panic messages.
-    // See examples/test-pick.cem for integration testing of valid cases.
+    // See examples/test-pick.seq for integration testing of valid cases.
 
     #[test]
     fn test_operations_preserve_stack_integrity() {

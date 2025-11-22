@@ -1,4 +1,4 @@
-//! Closure support for cem3
+//! Closure support for Seq
 //!
 //! Provides runtime functions for creating and managing closures (quotations with captured environments).
 //!

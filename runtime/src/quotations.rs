@@ -1,4 +1,4 @@
-//! Quotation operations for cem3
+//! Quotation operations for Seq
 //!
 //! Quotations are deferred code blocks (first-class functions).
 //! A quotation is represented as a function pointer stored as usize.

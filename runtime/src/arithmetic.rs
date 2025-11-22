@@ -1,4 +1,4 @@
-//! Arithmetic operations for cem3
+//! Arithmetic operations for Seq
 //!
 //! These functions are exported with C ABI for LLVM codegen to call.
 //!

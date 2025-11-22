@@ -1,4 +1,4 @@
-//! Type unification for cem3
+//! Type unification for Seq
 //!
 //! Implements Hindley-Milner style unification with support for:
 //! - Type variables (T, U, V)

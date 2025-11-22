@@ -1,6 +1,6 @@
 //! Scheduler - Green Thread Management with May
 //!
-//! CSP-style concurrency for cem3 using May coroutines.
+//! CSP-style concurrency for Seq using May coroutines.
 //! Each strand is a lightweight green thread that can communicate via channels.
 //!
 //! ## Non-Blocking Guarantee

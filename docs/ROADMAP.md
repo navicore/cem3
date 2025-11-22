@@ -1,4 +1,4 @@
-# cem3 Roadmap: Building a Solid Concatenative Foundation
+# Seq Roadmap: Building a Solid Concatenative Foundation
 
 ## Philosophy
 
@@ -10,7 +10,7 @@
 
 **Learn from cem2:** Reference cem2 for "what not to do" and working examples.
 
-**Concurrency is Core:** cem3 will be non-blocking from the start, inheriting cem2's proven CSP model (spawn/send/receive) with May coroutines. This is a defining characteristic of the language.
+**Concurrency is Core:** Seq will be non-blocking from the start, inheriting cem2's proven CSP model (spawn/send/receive) with May coroutines. This is a defining characteristic of the language.
 
 ## Phase 0: Project Setup
 

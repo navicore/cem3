@@ -1,4 +1,4 @@
-//! String operations for cem3
+//! String operations for Seq
 //!
 //! These functions are exported with C ABI for LLVM codegen to call.
 //!
@@ -10,7 +10,7 @@
 //! This is the simplest approach, requiring no new types.
 //! The count allows the caller to know how many parts were pushed.
 
-use crate::cemstring::global_string;
+use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 

@@ -1,4 +1,4 @@
-//! cem3 Runtime: A clean concatenative language foundation
+//! Seq Runtime: A clean concatenative language foundation
 //!
 //! Key design principles:
 //! - Value: What the language talks about (Int, Bool, Variant, etc.)
@@ -7,7 +7,6 @@
 
 pub mod arena;
 pub mod arithmetic;
-pub mod cemstring;
 pub mod channel;
 pub mod closures;
 pub mod cond;
@@ -15,6 +14,7 @@ pub mod io;
 pub mod pool;
 pub mod quotations;
 pub mod scheduler;
+pub mod seqstring;
 pub mod stack;
 pub mod string_ops;
 pub mod tcp;

@@ -387,7 +387,7 @@ mod tests {
     fn test_arena_reset_with_strands() {
         unsafe {
             use crate::arena;
-            use crate::cemstring::arena_string;
+            use crate::seqstring::arena_string;
 
             extern "C" fn create_temp_strings(stack: Stack) -> Stack {
                 // Create many temporary arena strings (simulating request parsing)
@@ -444,8 +444,8 @@ mod tests {
 
             // Sender strand: creates arena string, sends through channel
             extern "C" fn sender(stack: Stack) -> Stack {
-                use crate::cemstring::arena_string;
                 use crate::channel::send;
+                use crate::seqstring::arena_string;
                 use crate::stack::{pop, push};
                 use crate::value::Value;
 
@@ -532,7 +532,7 @@ mod tests {
         // PR #11 feedback: Verify 10K+ strand iterations don't cause memory growth
         unsafe {
             use crate::arena;
-            use crate::cemstring::arena_string;
+            use crate::seqstring::arena_string;
 
             extern "C" fn allocate_strings_and_exit(stack: Stack) -> Stack {
                 // Simulate request processing: many temp allocations

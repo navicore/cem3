@@ -110,9 +110,9 @@ pub unsafe extern "C" fn cond(mut stack: Stack) -> Stack {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cemstring::global_string;
     use crate::push;
     use crate::quotations::push_quotation;
+    use crate::seqstring::global_string;
 
     // Helper predicates for testing
     #[unsafe(no_mangle)]

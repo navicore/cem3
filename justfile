@@ -1,4 +1,4 @@
-# cem3 Build System
+# Seq Build System
 #
 # This is the SOURCE OF TRUTH for all build/test/lint operations.
 # GitHub Actions calls these recipes directly - no duplication!
@@ -13,14 +13,14 @@ build: build-runtime build-compiler
 # Build the Rust runtime as static library
 build-runtime:
     @echo "Building runtime (clean concatenative foundation)..."
-    cargo build --release -p cem3-runtime
-    @echo "✅ Runtime built: target/release/libcem3_runtime.a"
+    cargo build --release -p seq-runtime
+    @echo "✅ Runtime built: target/release/libseq_runtime.a"
 
 # Build the compiler
 build-compiler:
     @echo "Building compiler..."
-    cargo build --release -p cem3-compiler
-    @echo "✅ Compiler built: target/release/cem3"
+    cargo build --release -p seq-compiler
+    @echo "✅ Compiler built: target/release/seqc"
 
 # Build all example programs
 build-examples: build
@@ -28,18 +28,18 @@ build-examples: build
     set -euo pipefail
     echo "Building examples..."
     mkdir -p target/examples
-    # Find all .cem files in examples subdirectories
-    find examples -name "*.cem" -type f | while read -r file; do
-        # Get category and name (e.g., examples/basics/hello-world.cem -> basics-hello-world)
+    # Find all .seq files in examples subdirectories
+    find examples -name "*.seq" -type f | while read -r file; do
+        # Get category and name (e.g., examples/basics/hello-world.seq -> basics-hello-world)
         category=$(dirname "$file" | sed 's|examples/||' | sed 's|examples||')
-        name=$(basename "$file" .cem)
+        name=$(basename "$file" .seq)
         if [ -z "$category" ]; then
             output_name="$name"
         else
             output_name="${category}-${name}"
         fi
         echo "  Compiling $file..."
-        target/release/cem3 "$file" -o "target/examples/$output_name"
+        target/release/seqc "$file" -o "target/examples/$output_name"
     done
     echo "✅ Examples built in target/examples/"
     ls -lh target/examples/
@@ -106,7 +106,7 @@ verify-workspace:
     cargo tree --workspace
     @echo "✅ Workspace verified"
 
-# Run the critical tests that validate cem3's design
+# Run the critical tests that validate Seq's design
 test-critical:
     @echo "Running critical design validation tests..."
     cargo test test_critical_shuffle_pattern

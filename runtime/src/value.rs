@@ -1,4 +1,4 @@
-use crate::cemstring::CemString;
+use crate::seqstring::SeqString;
 
 /// Value: What the language talks about
 ///
@@ -13,8 +13,8 @@ pub enum Value {
     /// Boolean value
     Bool(bool),
 
-    /// String (arena or globally allocated via CemString)
-    String(CemString),
+    /// String (arena or globally allocated via SeqString)
+    String(SeqString),
 
     /// Variant (sum type with tagged fields)
     Variant(Box<VariantData>),

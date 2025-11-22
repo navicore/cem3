@@ -1,6 +1,6 @@
-//! cem3 Compiler Library
+//! Seq Compiler Library
 //!
-//! Provides compilation from .cem source to LLVM IR and executable binaries.
+//! Provides compilation from .seq source to LLVM IR and executable binaries.
 
 pub mod ast;
 pub mod builtins;
@@ -20,7 +20,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// Compile a .cem source file to an executable
+/// Compile a .seq source file to an executable
 pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Result<(), String> {
     // Read source file
     let source = fs::read_to_string(source_path)
@@ -54,11 +54,11 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
     fs::write(&ir_path, ir).map_err(|e| format!("Failed to write IR file: {}", e))?;
 
     // Validate runtime library exists
-    let runtime_lib = Path::new("target/release/libcem3_runtime.a");
+    let runtime_lib = Path::new("target/release/libseq_runtime.a");
     if !runtime_lib.exists() {
         return Err(format!(
             "Runtime library not found at {}. \
-             Please run 'cargo build --release -p cem3-runtime' first.",
+             Please run 'cargo build --release -p seq-runtime' first.",
             runtime_lib.display()
         ));
     }
@@ -70,7 +70,7 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
         .arg(output_path)
         .arg("-L")
         .arg("target/release")
-        .arg("-lcem3_runtime")
+        .arg("-lseq_runtime")
         .output()
         .map_err(|e| format!("Failed to run clang: {}", e))?;
 

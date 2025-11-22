@@ -1,5 +1,5 @@
 [package]
-name = "cem3-runtime"
+name = "seq-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

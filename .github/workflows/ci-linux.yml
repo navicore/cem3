@@ -1,8 +1,6 @@
-name: CI
+name: CI - Linux
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -48,50 +46,6 @@ jobs:
       with:
         path: target
         key: linux-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Run CI checks (just ci)
-      run: just ci
-
-    - name: Verify critical design tests
-      run: just test-critical
-
-  ci-macos:
-    name: CI - macOS ARM64
-    runs-on: macos-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Install Rust toolchain (edition 2024)
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: 1.89.0  # Pin exact version to match local development
-        components: rustfmt, clippy
-
-    - name: Verify Rust version
-      run: rustc --version && cargo --version && cargo clippy --version
-
-    - name: Install Just
-      uses: extractions/setup-just@v2
-
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: macos-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: macos-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Cache cargo build
-      uses: actions/cache@v4
-      with:
-        path: target
-        key: macos-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run CI checks (just ci)
       run: just ci

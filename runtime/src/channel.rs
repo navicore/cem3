@@ -417,7 +417,7 @@ mod tests {
 
             // Sender strand: creates arena string and sends it
             extern "C" fn sender(_stack: Stack) -> Stack {
-                use crate::cemstring::arena_string;
+                use crate::seqstring::arena_string;
                 use crate::stack::push;
                 use crate::value::Value;
                 use std::sync::atomic::Ordering;

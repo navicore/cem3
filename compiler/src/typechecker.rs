@@ -1,4 +1,4 @@
-//! Enhanced type checker for cem3 with full type tracking
+//! Enhanced type checker for Seq with full type tracking
 //!
 //! Uses row polymorphism and unification to verify stack effects.
 //! Based on cem2's type checker but simplified for Phase 8.5.

@@ -28,7 +28,7 @@ claude.md
 .DS_Store
 
 # Runtime artifacts
-libcem_runtime.a
+libseq_runtime.a
 
 # Temporary test artifacts
 /tmp/

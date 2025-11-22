@@ -1,6 +1,0 @@
-: main ( -- )
-  make-channel
-  dup "Hello from channel!" swap send
-  receive
-  write_line
-;

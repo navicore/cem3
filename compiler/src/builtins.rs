@@ -271,17 +271,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     );
 
     // Quotation operations
-    // call: ( ..a Quotation -- ..b )
-    // Note: The actual effect depends on the quotation's type,
+    // call: ( ..a Callable -- ..b )
+    // Note: Accepts both Quotation and Closure types
+    // The actual effect depends on the quotation/closure's type,
     // but we use ..a and ..b to indicate this is polymorphic
     // A more precise type would require dependent types
+    //
+    // Using type variable Q to represent "something callable"
+    // This allows both Quotation and Closure to unify with Q
     sigs.insert(
         "call".to_string(),
         Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Quotation(Box::new(Effect::new(
-                StackType::RowVar("qin".to_string()),
-                StackType::RowVar("qout".to_string()),
-            )))),
+            StackType::RowVar("a".to_string()).push(Type::Var("Q".to_string())),
             StackType::RowVar("b".to_string()),
         ),
     );

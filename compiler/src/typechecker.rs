@@ -14,6 +14,12 @@ pub struct TypeChecker {
     env: HashMap<String, Effect>,
     /// Counter for generating fresh type variables
     fresh_counter: std::cell::Cell<usize>,
+    /// Quotation types tracked during type checking (in DFS traversal order)
+    /// Each quotation encountered gets its type stored here
+    quotation_types: std::cell::RefCell<Vec<Type>>,
+    /// Expected quotation/closure type (from word signature, if any)
+    /// Used during type-driven capture inference
+    expected_quotation_type: std::cell::RefCell<Option<Type>>,
 }
 
 impl TypeChecker {
@@ -21,7 +27,17 @@ impl TypeChecker {
         TypeChecker {
             env: HashMap::new(),
             fresh_counter: std::cell::Cell::new(0),
+            quotation_types: std::cell::RefCell::new(Vec::new()),
+            expected_quotation_type: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Extract accumulated quotation types (in DFS traversal order)
+    ///
+    /// This should be called after check_program() to get the inferred types
+    /// for all quotations in the program.
+    pub fn take_quotation_types(&self) -> Vec<Type> {
+        self.quotation_types.borrow_mut().drain(..).collect()
     }
 
     /// Generate a fresh variable name
@@ -86,6 +102,18 @@ impl TypeChecker {
                 let fresh_outputs = self.freshen_stack(&effect.outputs, type_map, row_map);
                 Type::Quotation(Box::new(Effect::new(fresh_inputs, fresh_outputs)))
             }
+            Type::Closure { effect, captures } => {
+                let fresh_inputs = self.freshen_stack(&effect.inputs, type_map, row_map);
+                let fresh_outputs = self.freshen_stack(&effect.outputs, type_map, row_map);
+                let fresh_captures = captures
+                    .iter()
+                    .map(|t| self.freshen_type(t, type_map, row_map))
+                    .collect();
+                Type::Closure {
+                    effect: Box::new(Effect::new(fresh_inputs, fresh_outputs)),
+                    captures: fresh_captures,
+                }
+            }
         }
     }
 
@@ -110,9 +138,20 @@ impl TypeChecker {
     fn check_word(&self, word: &WordDef) -> Result<(), String> {
         // If word has declared effect, verify body matches it
         if let Some(declared_effect) = &word.effect {
+            // Check if the word's output type is a quotation or closure
+            // If so, store it as the expected type for capture inference
+            if let Some((_rest, top_type)) = declared_effect.outputs.clone().pop()
+                && matches!(top_type, Type::Quotation(_) | Type::Closure { .. })
+            {
+                *self.expected_quotation_type.borrow_mut() = Some(top_type);
+            }
+
             // Infer the result stack starting from declared input
             let (result_stack, _subst) =
                 self.infer_statements_from(&word.body, &declared_effect.inputs)?;
+
+            // Clear expected type after checking
+            *self.expected_quotation_type.borrow_mut() = None;
 
             // Verify result matches declared output
             unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
@@ -205,7 +244,8 @@ impl TypeChecker {
                 else_branch,
             } => {
                 // Pop condition (must be Int/Bool)
-                let (stack_after_cond, cond_type) = self.pop_type(current_stack, "if condition")?;
+                let (stack_after_cond, cond_type) =
+                    self.pop_type(&current_stack, "if condition")?;
 
                 // Condition must be Int (Forth-style: 0 = false, non-zero = true)
                 let cond_subst = unify_stacks(
@@ -246,24 +286,49 @@ impl TypeChecker {
             }
 
             Statement::Quotation(body) => {
-                // Type checking for quotations
+                // Type checking for quotations with automatic capture analysis
                 //
                 // A quotation is a block of deferred code.
-                // Its type is Quotation(effect) where effect is the stack effect of its body.
                 //
-                // Example: [ 1 add ]
-                //   Body effect: ( Int -- Int )
-                //   Type: Quotation(Int -- Int)
-                //   Stack effect: ( ..a -- ..a Quotation(Int -- Int) )
+                // For stateless quotations:
+                //   Example: [ 1 add ]
+                //   Body effect: ( -- Int )  (pushes 1, needs Int from call site, adds)
+                //   Type: Quotation([Int -- Int])
+                //
+                // For closures (automatic capture):
+                //   Example: 5 [ add ]
+                //   Body effect: ( Int Int -- Int )  (needs 2 Ints)
+                //   One Int will be captured from creation site
+                //   Type: Closure { effect: [Int -- Int], captures: [Int] }
 
                 // Infer the effect of the quotation body
-                let quot_effect = self.infer_statements(body)?;
+                let body_effect = self.infer_statements(body)?;
 
-                // Quotations are first-class values - push quotation type onto stack
-                Ok((
-                    current_stack.push(Type::Quotation(Box::new(quot_effect))),
-                    Subst::empty(),
-                ))
+                // Perform capture analysis
+                let quot_type = self.analyze_captures(&body_effect, &current_stack)?;
+
+                // Record this quotation's type (for CodeGen to use later)
+                self.quotation_types.borrow_mut().push(quot_type.clone());
+
+                // If this is a closure, we need to pop the captured values from the stack
+                let result_stack = match &quot_type {
+                    Type::Quotation(_) => {
+                        // Stateless - no captures, just push quotation onto stack
+                        current_stack.push(quot_type)
+                    }
+                    Type::Closure { captures, .. } => {
+                        // Pop captured values from stack, then push closure
+                        let mut stack = current_stack.clone();
+                        for _ in 0..captures.len() {
+                            let (new_stack, _value) = self.pop_type(&stack, "closure capture")?;
+                            stack = new_stack;
+                        }
+                        stack.push(quot_type)
+                    }
+                    _ => unreachable!("analyze_captures only returns Quotation or Closure"),
+                };
+
+                Ok((result_stack, Subst::empty()))
             }
         }
     }
@@ -303,10 +368,123 @@ impl TypeChecker {
         Ok((result_stack, subst))
     }
 
+    /// Analyze quotation captures
+    ///
+    /// Determines whether a quotation should be stateless (Type::Quotation)
+    /// or a closure (Type::Closure) based on the expected type from the word signature.
+    ///
+    /// Type-driven inference:
+    ///   - If expected type is Closure[effect], calculate what to capture
+    ///   - If expected type is Quotation[effect], return stateless
+    ///   - If no expected type, default to stateless (conservative)
+    ///
+    /// Example:
+    ///   Signature: ( Int -- Closure[Int -- Int] )
+    ///   Body: [ add ]
+    ///   Body effect: ( Int Int -- Int )  [add needs 2 Ints]
+    ///   Expected effect: [Int -- Int]    [call site provides 1 Int]
+    ///   Result: Closure { effect: [Int -- Int], captures: [Int] }
+    ///           (captures 1 Int from creation stack)
+    fn analyze_captures(
+        &self,
+        body_effect: &Effect,
+        _current_stack: &StackType,
+    ) -> Result<Type, String> {
+        // Check if there's an expected type from the word signature
+        let expected = self.expected_quotation_type.borrow().clone();
+
+        match expected {
+            Some(Type::Closure { effect, .. }) => {
+                // User declared closure type - calculate captures
+                let captures = self.calculate_captures(body_effect, &effect)?;
+                Ok(Type::Closure { effect, captures })
+            }
+            Some(Type::Quotation(expected_effect)) => {
+                // User declared quotation type - stateless
+                Ok(Type::Quotation(expected_effect))
+            }
+            _ => {
+                // No expected type - conservative default: stateless quotation
+                Ok(Type::Quotation(Box::new(body_effect.clone())))
+            }
+        }
+    }
+
+    /// Calculate capture types for a closure
+    ///
+    /// Given:
+    ///   - body_effect: what the quotation body needs (e.g., Int Int -- Int)
+    ///   - call_effect: what the call site will provide (e.g., Int -- Int)
+    ///
+    /// Calculate:
+    ///   - captures: types to capture from creation stack (e.g., [Int])
+    ///
+    /// Example:
+    ///   Body needs: (Int Int -- Int)  [2 inputs total]
+    ///   Call provides: (Int -- Int)   [1 input from call site]
+    ///   Captures: 2 - 1 = 1 Int       [1 input from creation site]
+    ///
+    /// Capture Ordering:
+    ///   Captures are returned bottom-to-top (deepest value first).
+    ///   This matches how push_closure pops from the stack:
+    ///   - Stack at creation: ( ...rest bottom top )
+    ///   - push_closure pops top-down: pop top, pop bottom
+    ///   - Stores as: env[0]=top, env[1]=bottom (reversed)
+    ///   - Closure function pushes: push env[0], push env[1]
+    ///   - Result: bottom is deeper, top is shallower (correct order)
+    fn calculate_captures(
+        &self,
+        body_effect: &Effect,
+        call_effect: &Effect,
+    ) -> Result<Vec<Type>, String> {
+        // Extract concrete types from stack types (bottom to top)
+        let body_inputs = self.extract_concrete_types(&body_effect.inputs);
+        let call_inputs = self.extract_concrete_types(&call_effect.inputs);
+
+        // Validate: call site shouldn't provide MORE than body needs
+        if call_inputs.len() > body_inputs.len() {
+            return Err(format!(
+                "Closure signature error: call site provides {} values but body only needs {}",
+                call_inputs.len(),
+                body_inputs.len()
+            ));
+        }
+
+        // Calculate how many to capture (from bottom of stack)
+        let capture_count = body_inputs.len() - call_inputs.len();
+
+        // Captures are the first N types (bottom of stack)
+        // Example: body needs [Int, String] (bottom to top), call provides [String]
+        // Captures: [Int] (the bottom type)
+        Ok(body_inputs[0..capture_count].to_vec())
+    }
+
+    /// Extract concrete types from a stack type (bottom to top order)
+    ///
+    /// Example:
+    ///   Input: Cons { rest: Cons { rest: Empty, top: Int }, top: String }
+    ///   Output: [Int, String]  (bottom to top)
+    ///
+    /// Row variables are not supported - this is only for concrete stacks
+    fn extract_concrete_types(&self, stack: &StackType) -> Vec<Type> {
+        let mut types = Vec::new();
+        let mut current = stack.clone();
+
+        // Pop types from top to bottom
+        while let Some((rest, top)) = current.pop() {
+            types.push(top);
+            current = rest;
+        }
+
+        // Reverse to get bottom-to-top order
+        types.reverse();
+        types
+    }
+
     /// Pop a type from a stack type, returning (rest, top)
-    fn pop_type(&self, stack: StackType, context: &str) -> Result<(StackType, Type), String> {
+    fn pop_type(&self, stack: &StackType, context: &str) -> Result<(StackType, Type), String> {
         match stack {
-            StackType::Cons { rest, top } => Ok((*rest, top)),
+            StackType::Cons { rest, top } => Ok(((**rest).clone(), top.clone())),
             StackType::Empty => Err(format!(
                 "{}: stack underflow - expected value on stack but stack is empty",
                 context

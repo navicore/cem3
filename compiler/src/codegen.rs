@@ -18,6 +18,7 @@
 //! - Stack type is represented as `ptr` (opaque pointer in modern LLVM)
 
 use crate::ast::{Program, Statement, WordDef};
+use crate::types::Type;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -30,6 +31,8 @@ pub struct CodeGen {
     quot_counter: usize,  // For generating unique quotation function names
     string_constants: HashMap<String, String>, // string content -> global name
     quotation_functions: String, // Accumulates generated quotation functions
+    quotation_types: Vec<Type>, // Types of quotations (in DFS traversal order)
+    quotation_index: std::cell::Cell<usize>, // Current index into quotation_types
 }
 
 impl CodeGen {
@@ -43,6 +46,8 @@ impl CodeGen {
             quot_counter: 0,
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
+            quotation_types: Vec::new(),
+            quotation_index: std::cell::Cell::new(0),
         }
     }
 
@@ -58,6 +63,20 @@ impl CodeGen {
         let name = format!("{}{}", prefix, self.block_counter);
         self.block_counter += 1;
         name
+    }
+
+    /// Get the next quotation type (consumes it in DFS traversal order)
+    fn next_quotation_type(&self) -> Result<&Type, String> {
+        let idx = self.quotation_index.get();
+        if idx >= self.quotation_types.len() {
+            return Err(format!(
+                "CodeGen: quotation type index {} out of bounds (have {} types)",
+                idx,
+                self.quotation_types.len()
+            ));
+        }
+        self.quotation_index.set(idx + 1);
+        Ok(&self.quotation_types[idx])
     }
 
     /// Escape a string for LLVM IR string literals
@@ -107,7 +126,15 @@ impl CodeGen {
     }
 
     /// Generate LLVM IR for entire program
-    pub fn codegen_program(&mut self, program: &Program) -> Result<String, String> {
+    pub fn codegen_program(
+        &mut self,
+        program: &Program,
+        quotation_types: Vec<Type>,
+    ) -> Result<String, String> {
+        // Store quotation types for use during code generation
+        self.quotation_types = quotation_types;
+        self.quotation_index.set(0);
+
         // Verify we have a main word
         if program.find_word("main").is_none() {
             return Err("No main word defined".to_string());
@@ -127,6 +154,11 @@ impl CodeGen {
         // Target and type declarations
         writeln!(&mut ir, "; ModuleID = 'main'").unwrap();
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple()).unwrap();
+        writeln!(&mut ir).unwrap();
+
+        // Opaque Value type (Rust enum)
+        writeln!(&mut ir, "; Opaque Value type (Rust enum)").unwrap();
+        writeln!(&mut ir, "%Value = type opaque").unwrap();
         writeln!(&mut ir).unwrap();
 
         // String constants
@@ -165,6 +197,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @pick_op(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
         writeln!(&mut ir, "declare ptr @push_quotation(ptr, i64)").unwrap();
         writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
@@ -174,6 +207,13 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @forever(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @cond(ptr)").unwrap();
+        writeln!(&mut ir, "; Closure operations").unwrap();
+        writeln!(&mut ir, "declare ptr @create_env(i32)").unwrap();
+        writeln!(&mut ir, "declare void @env_set(ptr, i32, %Value)").unwrap();
+        writeln!(&mut ir, "declare %Value @env_get(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare i64 @env_get_int(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare %Value @make_closure(i64, ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @push_closure(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @cem_send(ptr)").unwrap();
@@ -246,7 +286,11 @@ impl CodeGen {
 
     /// Generate a quotation function
     /// Returns the function name
-    fn codegen_quotation(&mut self, body: &[Statement]) -> Result<String, String> {
+    fn codegen_quotation(
+        &mut self,
+        body: &[Statement],
+        quot_type: &Type,
+    ) -> Result<String, String> {
         // Generate unique function name
         let function_name = format!("cem_quot_{}", self.quot_counter);
         self.quot_counter += 1;
@@ -254,13 +298,90 @@ impl CodeGen {
         // Save current output and switch to quotation_functions
         let saved_output = std::mem::take(&mut self.output);
 
-        // Generate function
-        writeln!(
-            &mut self.output,
-            "define ptr @{}(ptr %stack) {{",
-            function_name
-        )
-        .unwrap();
+        // Generate function signature based on type
+        match quot_type {
+            Type::Quotation(_) => {
+                // Stateless quotation: fn(Stack) -> Stack
+                writeln!(
+                    &mut self.output,
+                    "define ptr @{}(ptr %stack) {{",
+                    function_name
+                )
+                .unwrap();
+            }
+            Type::Closure { captures, .. } => {
+                // Closure: fn(Stack, *const Value, usize) -> Stack
+                writeln!(
+                    &mut self.output,
+                    "define ptr @{}(ptr %stack, ptr %env_data, i64 %env_len) {{",
+                    function_name
+                )
+                .unwrap();
+                writeln!(&mut self.output, "entry:").unwrap();
+
+                // Push captured values onto the stack before executing body
+                // Captures are stored bottom-to-top, so push them in order
+                let mut stack_var = "stack".to_string();
+                for (index, capture_type) in captures.iter().enumerate() {
+                    // Use type-specific getters to avoid passing large Value enum through FFI
+                    match capture_type {
+                        Type::Int => {
+                            let int_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call i64 @env_get_int(ptr %env_data, i64 %env_len, i32 {})",
+                                int_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @push_int(ptr %{}, i64 %{})",
+                                new_stack_var, stack_var, int_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
+                        _ => {
+                            // TODO: Implement type-specific getters for Bool, String, etc.
+                            // Each type needs:
+                            //   - Runtime: env_get_bool, env_get_string in closures.rs
+                            //   - CodeGen: Match arm here to call the right getter
+                            // Avoiding env_get (returns Value by-value) prevents FFI issues with large enums
+                            return Err(format!(
+                                "CodeGen: Only Int captures are currently supported, got {:?}. \
+                                 Other types require implementing env_get_<type> functions.",
+                                capture_type
+                            ));
+                        }
+                    }
+                }
+
+                // Generate code for each statement in the quotation body
+                for statement in body {
+                    stack_var = self.codegen_statement(&stack_var, statement)?;
+                }
+
+                writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                writeln!(&mut self.output, "}}").unwrap();
+                writeln!(&mut self.output).unwrap();
+
+                // Move generated function to quotation_functions
+                self.quotation_functions.push_str(&self.output);
+
+                // Restore original output
+                self.output = saved_output;
+
+                return Ok(function_name);
+            }
+            _ => {
+                return Err(format!(
+                    "CodeGen: expected Quotation or Closure type, got {:?}",
+                    quot_type
+                ));
+            }
+        }
+
         writeln!(&mut self.output, "entry:").unwrap();
 
         let mut stack_var = "stack".to_string();
@@ -501,8 +622,11 @@ impl CodeGen {
             }
 
             Statement::Quotation(body) => {
+                // Get the inferred type for this quotation (clone to avoid borrow issues)
+                let quot_type = self.next_quotation_type()?.clone();
+
                 // Generate a function for the quotation body
-                let fn_name = self.codegen_quotation(body)?;
+                let fn_name = self.codegen_quotation(body, &quot_type)?;
 
                 // Get function pointer as usize
                 let fn_ptr_var = self.fresh_temp();
@@ -513,16 +637,39 @@ impl CodeGen {
                 )
                 .unwrap();
 
-                // Push the function pointer onto the stack
-                let result_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
-                    result_var, stack_var, fn_ptr_var
-                )
-                .unwrap();
-
-                Ok(result_var)
+                // Generate code based on quotation type
+                match quot_type {
+                    Type::Quotation(_effect) => {
+                        // Stateless quotation - use push_quotation
+                        let result_var = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
+                            result_var, stack_var, fn_ptr_var
+                        )
+                        .unwrap();
+                        Ok(result_var)
+                    }
+                    Type::Closure {
+                        effect: _effect,
+                        captures,
+                    } => {
+                        // Closure with captures - use push_closure
+                        let capture_count = captures.len() as i32;
+                        let result_var = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @push_closure(ptr %{}, i64 %{}, i32 {})",
+                            result_var, stack_var, fn_ptr_var, capture_count
+                        )
+                        .unwrap();
+                        Ok(result_var)
+                    }
+                    _ => Err(format!(
+                        "CodeGen: expected Quotation or Closure type, got {:?}",
+                        quot_type
+                    )),
+                }
             }
         }
     }
@@ -612,7 +759,7 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program).unwrap();
+        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
 
         assert!(ir.contains("define i32 @main()"));
         assert!(ir.contains("define ptr @cem_main(ptr %stack)"));
@@ -637,7 +784,7 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program).unwrap();
+        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
 
         assert!(ir.contains("call ptr @push_int(ptr %stack, i64 2)"));
         assert!(ir.contains("call ptr @push_int"));

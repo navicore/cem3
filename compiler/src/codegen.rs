@@ -343,10 +343,14 @@ impl CodeGen {
                             stack_var = new_stack_var;
                         }
                         _ => {
-                            // For non-Int types, we'd need to implement more getters
-                            // For now, fall back to env_get (which may have issues)
+                            // TODO: Implement type-specific getters for Bool, String, etc.
+                            // Each type needs:
+                            //   - Runtime: env_get_bool, env_get_string in closures.rs
+                            //   - CodeGen: Match arm here to call the right getter
+                            // Avoiding env_get (returns Value by-value) prevents FFI issues with large enums
                             return Err(format!(
-                                "CodeGen: Only Int captures are currently supported, got {:?}",
+                                "CodeGen: Only Int captures are currently supported, got {:?}. \
+                                 Other types require implementing env_get_<type> functions.",
                                 capture_type
                             ));
                         }

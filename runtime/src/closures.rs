@@ -101,12 +101,18 @@ pub unsafe extern "C" fn env_get(env_data: *const Value, env_len: usize, index: 
 /// Get an Int value from the closure environment
 ///
 /// This is a type-specific helper that avoids passing large Value enums through LLVM IR.
+/// Returns primitive i64 instead of Value to avoid FFI issues with by-value enum passing.
 ///
 /// # Safety
 /// - env_data must be a valid pointer to an array of Values
 /// - env_len must match the actual array length
 /// - index must be in bounds [0, env_len)
 /// - The value at index must be Value::Int
+///
+/// # FFI Notes
+/// This function is ONLY called from LLVM-generated code, not from external C code.
+/// The signature is safe for LLVM IR but would be undefined behavior if called from C
+/// with incorrect assumptions about type layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn env_get_int(env_data: *const Value, env_len: usize, index: i32) -> i64 {
     if env_data.is_null() {

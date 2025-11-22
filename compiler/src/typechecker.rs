@@ -420,9 +420,18 @@ impl TypeChecker {
     ///   - captures: types to capture from creation stack (e.g., [Int])
     ///
     /// Example:
-    ///   Body needs: (Int Int -- Int)
-    ///   Call provides: (Int -- Int)
-    ///   Captures: 2 - 1 = 1 Int
+    ///   Body needs: (Int Int -- Int)  [2 inputs total]
+    ///   Call provides: (Int -- Int)   [1 input from call site]
+    ///   Captures: 2 - 1 = 1 Int       [1 input from creation site]
+    ///
+    /// Capture Ordering:
+    ///   Captures are returned bottom-to-top (deepest value first).
+    ///   This matches how push_closure pops from the stack:
+    ///   - Stack at creation: ( ...rest bottom top )
+    ///   - push_closure pops top-down: pop top, pop bottom
+    ///   - Stores as: env[0]=top, env[1]=bottom (reversed)
+    ///   - Closure function pushes: push env[0], push env[1]
+    ///   - Result: bottom is deeper, top is shallower (correct order)
     fn calculate_captures(
         &self,
         body_effect: &Effect,

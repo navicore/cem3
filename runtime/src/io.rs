@@ -118,6 +118,24 @@ pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
     unsafe { push(stack, Value::String(s.into())) }
 }
 
+/// Push a SeqString value onto the stack
+///
+/// This is used when we already have a SeqString (e.g., from closures).
+/// Unlike push_string which takes a C string, this takes a SeqString by value.
+///
+/// Stack effect: ( -- String )
+///
+/// # Safety
+/// The SeqString must be valid. This is only called from LLVM-generated code, not actual C code.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn push_seqstring(
+    stack: Stack,
+    seq_str: crate::seqstring::SeqString,
+) -> Stack {
+    unsafe { push(stack, Value::String(seq_str)) }
+}
+
 /// Exit the program with a status code
 ///
 /// Stack effect: ( exit_code -- )

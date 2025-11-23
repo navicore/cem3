@@ -206,8 +206,10 @@ impl CodeGen {
         writeln!(&mut ir, "declare void @env_set(ptr, i32, %Value)").unwrap();
         writeln!(&mut ir, "declare %Value @env_get(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "declare i64 @env_get_int(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare ptr @env_get_string(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "declare %Value @make_closure(i64, ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @push_closure(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare ptr @push_seqstring(ptr, ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
@@ -336,14 +338,30 @@ impl CodeGen {
                             .unwrap();
                             stack_var = new_stack_var;
                         }
+                        Type::String => {
+                            let string_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @env_get_string(ptr %env_data, i64 %env_len, i32 {})",
+                                string_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @push_seqstring(ptr %{}, ptr %{})",
+                                new_stack_var, stack_var, string_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
                         _ => {
-                            // TODO: Implement type-specific getters for Bool, String, etc.
+                            // TODO: Implement type-specific getters for Bool and other types
                             // Each type needs:
-                            //   - Runtime: env_get_bool, env_get_string in closures.rs
+                            //   - Runtime: env_get_<type> in closures.rs
                             //   - CodeGen: Match arm here to call the right getter
-                            // Avoiding env_get (returns Value by-value) prevents FFI issues with large enums
                             return Err(format!(
-                                "CodeGen: Only Int captures are currently supported, got {:?}. \
+                                "CodeGen: Only Int and String captures are currently supported, got {:?}. \
                                  Other types require implementing env_get_<type> functions.",
                                 capture_type
                             ));

@@ -33,7 +33,8 @@
 ;
 
 # Accept loop: accepts connections and spawns handlers
-: accept-loop ( Int -- )
+# Note: forever never returns, but type-wise it preserves stack
+: accept-loop ( Int -- Int )
   [
     # Stack: ( listener_socket )
     dup tcp-accept
@@ -56,15 +57,14 @@
     send
 
     # Stack: ( listener_socket )
-    # Continue accepting
-    1
+    # Loop continues with listener_socket on stack
   ]
-  [ drop ]
   forever
 ;
 
 # Main server
-: main ( -- )
+# Note: accept-loop never returns, but type-wise leaves Int on stack
+: main ( -- Int )
   "Starting concurrent HTTP server on port 8080..." write_line
   "Try: curl http://localhost:8080/" write_line
   "Try: curl http://localhost:8080/health" write_line

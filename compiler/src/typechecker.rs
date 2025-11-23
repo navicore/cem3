@@ -181,10 +181,39 @@ impl TypeChecker {
         let mut current_stack = start_stack.clone();
         let mut accumulated_subst = Subst::empty();
 
-        for stmt in statements {
+        for (i, stmt) in statements.iter().enumerate() {
+            // Look ahead: if this is a quotation followed by a word that expects specific quotation type,
+            // set the expected type before checking the quotation
+            let saved_expected_type = if matches!(stmt, Statement::Quotation { .. }) {
+                // Save the current expected type
+                let saved = self.expected_quotation_type.borrow().clone();
+
+                // Try to set expected type based on lookahead
+                if let Some(Statement::WordCall(next_word)) = statements.get(i + 1) {
+                    // Check if the next word expects a specific quotation type
+                    if let Some(next_effect) = self.lookup_word_effect(next_word) {
+                        // Extract the quotation type expected by the next word
+                        // For operations like spawn: ( ..a Quotation(-- ) -- ..a Int )
+                        if let Some((_rest, quot_type)) = next_effect.inputs.clone().pop()
+                            && matches!(quot_type, Type::Quotation(_))
+                        {
+                            *self.expected_quotation_type.borrow_mut() = Some(quot_type);
+                        }
+                    }
+                }
+                Some(saved)
+            } else {
+                None
+            };
+
             let (new_stack, subst) = self.infer_statement(stmt, current_stack)?;
             current_stack = new_stack;
             accumulated_subst = accumulated_subst.compose(&subst);
+
+            // Restore expected type after checking quotation
+            if let Some(saved) = saved_expected_type {
+                *self.expected_quotation_type.borrow_mut() = saved;
+            }
         }
 
         Ok((current_stack, accumulated_subst))

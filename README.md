@@ -1,22 +1,25 @@
 # Seq - Concatenative Language
 
-A concatenative, stack-based programming language with linear types, built on a solid foundation.
+A concatenative, stack-based programming language with static typing and CSP-style concurrency.
+
+## Status
+
+**Compiler:** Functional (compiles .seq source to native executables via LLVM)
+**Runtime:** Strands (green threads), channels, TCP I/O, arena allocation
+**Type System:** Row polymorphic stack effects with type inference
+**Missing:** Pattern matching, loops, full standard library
+
+See `docs/ROADMAP.md` for the development plan and `CLAUDE.md` for current phase status.
 
 ## What's Different from cem2?
 
-Seq separates **Values** (what the language talks about) from **StackNodes** (implementation details):
+Seq separates **Values** (data) from **StackNodes** (stack structure):
 
-- **Value**: Pure data (Int, Bool, String, Variant)
-- **StackNode**: Container with value + next pointer
-- **Variant**: Fields stored in arrays, NOT linked via next pointers
+- **Value**: Pure data (Int, Bool, String, Variant, Quotation, Closure)
+- **StackNode**: Linked list node (value + next pointer)
+- **Variant fields**: Stored in heap arrays, NOT linked via stack pointers
 
-This clean separation ensures that stack shuffling operations (`rot`, `swap`, etc.) never corrupt variant structures.
-
-## Project Status
-
-🚧 **Phase 0: Foundation** - Building core types and basic operations
-
-See `docs/ROADMAP.md` for the full development plan.
+This separation prevents the data corruption bug that plagued cem2 during stack shuffling.
 
 ## Philosophy
 
@@ -26,22 +29,47 @@ See `docs/ROADMAP.md` for the full development plan.
 
 **Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. Seq does it right from the start.
 
-## Building
+## Quick Start
 
+**Build:**
 ```bash
 cargo build --release
-cargo test
 ```
+
+**Compile and run a program:**
+```bash
+./target/release/seqc examples/hello-world.seq --output /tmp/hello
+/tmp/hello
+```
+
+**Run tests:**
+```bash
+cargo test --all
+```
+
+## What Works
+
+- **Stack operations:** dup, drop, swap, over, rot, nip, tuck, pick
+- **Arithmetic:** +, -, *, / with overflow checking
+- **Comparisons:** =, <, >, <=, >=, <> (return Int: 0 or 1)
+- **Conditionals:** if/else/then
+- **I/O:** write_line, read_line
+- **Strings:** concat, split, trim, length, contains, starts-with, to-upper, to-lower
+- **Quotations:** First-class functions with `call`, `times`, `while`, `until`, `forever`
+- **Closures:** Captured environments with type-driven inference
+- **Concurrency:** spawn, make-channel, send, receive, close-channel
+- **TCP:** tcp-listen, tcp-accept, tcp-read, tcp-write, tcp-close
+- **Type system:** Row polymorphic stack effects with unification
 
 ## Examples
 
-Example programs are in `examples/`:
+Working examples in `examples/`:
 - `hello-world.seq` - Basic I/O
-- `test-*.seq` - Control flow and comparisons
-- `recursion/` - Recursive algorithms (fibonacci, factorial)
-- `http/` - HTTP server examples with routing
-
-**Note:** Channel examples were removed during the cem3→Seq rebrand. They demonstrated incorrect synchronous channel usage (send/receive on same strand, causing deadlock). Proper CSP channel usage requires spawning separate strands - see runtime tests in `runtime/src/channel.rs` for correct examples.
+- `test-if.seq`, `test-if-else.seq`, `test-nested-if.seq` - Conditionals
+- `test-comparison.seq` - All comparison operators
+- `test-pick.seq` - Stack manipulation
+- `recursion/fibonacci.seq`, `recursion/factorial.seq` - Recursion
+- `http/*.seq` - HTTP routing and TCP servers (see `examples/http/README.md`)
 
 ## Documentation
 

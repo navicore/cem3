@@ -31,8 +31,7 @@ pub struct CodeGen {
     quot_counter: usize,  // For generating unique quotation function names
     string_constants: HashMap<String, String>, // string content -> global name
     quotation_functions: String, // Accumulates generated quotation functions
-    quotation_types: Vec<Type>, // Types of quotations (in DFS traversal order)
-    quotation_index: std::cell::Cell<usize>, // Current index into quotation_types
+    type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
 }
 
 impl CodeGen {
@@ -46,8 +45,7 @@ impl CodeGen {
             quot_counter: 0,
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
-            quotation_types: Vec::new(),
-            quotation_index: std::cell::Cell::new(0),
+            type_map: HashMap::new(),
         }
     }
 
@@ -66,17 +64,14 @@ impl CodeGen {
     }
 
     /// Get the next quotation type (consumes it in DFS traversal order)
-    fn next_quotation_type(&self) -> Result<&Type, String> {
-        let idx = self.quotation_index.get();
-        if idx >= self.quotation_types.len() {
-            return Err(format!(
-                "CodeGen: quotation type index {} out of bounds (have {} types)",
-                idx,
-                self.quotation_types.len()
-            ));
-        }
-        self.quotation_index.set(idx + 1);
-        Ok(&self.quotation_types[idx])
+    /// Get the inferred type for a quotation by its ID
+    fn get_quotation_type(&self, id: usize) -> Result<&Type, String> {
+        self.type_map.get(&id).ok_or_else(|| {
+            format!(
+                "CodeGen: no type information for quotation ID {}. This is a compiler bug.",
+                id
+            )
+        })
     }
 
     /// Escape a string for LLVM IR string literals
@@ -129,11 +124,10 @@ impl CodeGen {
     pub fn codegen_program(
         &mut self,
         program: &Program,
-        quotation_types: Vec<Type>,
+        type_map: HashMap<usize, Type>,
     ) -> Result<String, String> {
-        // Store quotation types for use during code generation
-        self.quotation_types = quotation_types;
-        self.quotation_index.set(0);
+        // Store type map for use during code generation
+        self.type_map = type_map;
 
         // Verify we have a main word
         if program.find_word("main").is_none() {
@@ -621,9 +615,9 @@ impl CodeGen {
                 Ok(result_var)
             }
 
-            Statement::Quotation(body) => {
-                // Get the inferred type for this quotation (clone to avoid borrow issues)
-                let quot_type = self.next_quotation_type()?.clone();
+            Statement::Quotation { id, body } => {
+                // Get the inferred type for this quotation using its ID
+                let quot_type = self.get_quotation_type(*id)?.clone();
 
                 // Generate a function for the quotation body
                 let fn_name = self.codegen_quotation(body, &quot_type)?;
@@ -759,7 +753,7 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
         assert!(ir.contains("define i32 @main()"));
         assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
@@ -784,7 +778,7 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
         assert!(ir.contains("call ptr @push_int(ptr %stack, i64 2)"));
         assert!(ir.contains("call ptr @push_int"));

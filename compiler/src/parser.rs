@@ -14,12 +14,19 @@ use crate::types::{Effect, StackType, Type};
 pub struct Parser {
     tokens: Vec<String>,
     pos: usize,
+    /// Counter for assigning unique IDs to quotations
+    /// Used by the typechecker to track inferred types
+    next_quotation_id: usize,
 }
 
 impl Parser {
     pub fn new(source: &str) -> Self {
         let tokens = tokenize(source);
-        Parser { tokens, pos: 0 }
+        Parser {
+            tokens,
+            pos: 0,
+            next_quotation_id: 0,
+        }
     }
 
     pub fn parse(&mut self) -> Result<Program, String> {
@@ -199,7 +206,9 @@ impl Parser {
 
             if self.check("]") {
                 self.advance();
-                return Ok(Statement::Quotation(body));
+                let id = self.next_quotation_id;
+                self.next_quotation_id += 1;
+                return Ok(Statement::Quotation { id, body });
             }
 
             body.push(self.parse_statement()?);
@@ -1243,7 +1252,7 @@ mod tests {
         assert_eq!(program.words[0].body.len(), 1);
 
         match &program.words[0].body[0] {
-            Statement::Quotation(body) => {
+            Statement::Quotation { body, .. } => {
                 assert_eq!(body.len(), 2);
                 assert_eq!(body[0], Statement::IntLiteral(1));
                 assert_eq!(body[1], Statement::WordCall("add".to_string()));
@@ -1262,7 +1271,7 @@ mod tests {
         assert_eq!(program.words.len(), 1);
 
         match &program.words[0].body[0] {
-            Statement::Quotation(body) => {
+            Statement::Quotation { body, .. } => {
                 assert_eq!(body.len(), 0);
             }
             _ => panic!("Expected Quotation statement"),
@@ -1285,7 +1294,7 @@ mod tests {
         assert_eq!(program.words[0].body[0], Statement::IntLiteral(5));
 
         match &program.words[0].body[1] {
-            Statement::Quotation(body) => {
+            Statement::Quotation { body, .. } => {
                 assert_eq!(body.len(), 2);
             }
             _ => panic!("Expected Quotation"),
@@ -1307,11 +1316,15 @@ mod tests {
         assert_eq!(program.words.len(), 1);
 
         match &program.words[0].body[0] {
-            Statement::Quotation(outer_body) => {
+            Statement::Quotation {
+                body: outer_body, ..
+            } => {
                 assert_eq!(outer_body.len(), 2);
 
                 match &outer_body[0] {
-                    Statement::Quotation(inner_body) => {
+                    Statement::Quotation {
+                        body: inner_body, ..
+                    } => {
                         assert_eq!(inner_body.len(), 2);
                         assert_eq!(inner_body[0], Statement::IntLiteral(1));
                         assert_eq!(inner_body[1], Statement::WordCall("add".to_string()));
@@ -1340,7 +1353,7 @@ mod tests {
 
         // First quotation: [ dup 0 > ]
         match &program.words[0].body[0] {
-            Statement::Quotation(pred) => {
+            Statement::Quotation { body: pred, .. } => {
                 assert_eq!(pred.len(), 3);
                 assert_eq!(pred[0], Statement::WordCall("dup".to_string()));
                 assert_eq!(pred[1], Statement::IntLiteral(0));
@@ -1351,7 +1364,7 @@ mod tests {
 
         // Second quotation: [ 1 subtract ]
         match &program.words[0].body[1] {
-            Statement::Quotation(body) => {
+            Statement::Quotation { body, .. } => {
                 assert_eq!(body.len(), 2);
                 assert_eq!(body[0], Statement::IntLiteral(1));
                 assert_eq!(body[1], Statement::WordCall("subtract".to_string()));

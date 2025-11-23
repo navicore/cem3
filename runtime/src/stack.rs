@@ -82,13 +82,20 @@ pub unsafe fn peek<'a>(stack: Stack) -> &'a Value {
 /// Stack must not be null
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dup(stack: Stack) -> Stack {
+    eprintln!(
+        "[dup] called with stack={:?}, thread={:?}",
+        stack as usize,
+        std::thread::current().id()
+    );
     assert!(!stack.is_null(), "dup: stack is empty");
     // SAFETY NOTE: In Rust 2024 edition, even within `unsafe fn`, the body is not
     // automatically an unsafe context. Explicit `unsafe {}` blocks are required for
     // all unsafe operations (dereferencing raw pointers, calling unsafe functions).
     // This is intentional and follows best practices for clarity about what's unsafe.
     let value = unsafe { (*stack).value.clone() };
-    unsafe { push(stack, value) }
+    let result = unsafe { push(stack, value) };
+    eprintln!("[dup] returning stack={:?}", result as usize);
+    result
 }
 
 /// Drop the top value from the stack: ( a -- )

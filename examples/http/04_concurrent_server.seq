@@ -45,15 +45,15 @@
 
     # Stack: ( listener_socket client_socket channel_id )
 
-    # Spawn worker with channel on stack
-    over [ worker ] spawn
+    # Duplicate channel_id for both spawn and send
+    dup [ worker ] spawn
 
     # Stack: ( listener_socket client_socket channel_id strand_id )
     drop  # Drop strand ID, we don't need it
 
     # Stack: ( listener_socket client_socket channel_id )
 
-    # Send socket to worker through channel
+    # Send client_socket to worker through channel
     send
 
     # Stack: ( listener_socket )

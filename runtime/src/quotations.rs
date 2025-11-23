@@ -319,8 +319,27 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
         // Infinite loop - execute body forever
         // IMPORTANT: Yield after each iteration to maintain cooperative scheduling.
         // Without yielding, this coroutine would monopolize the thread and starve other strands.
+        let mut iteration = 0;
         loop {
+            let stack_before = stack as usize;
+            eprintln!(
+                "[forever] Iteration {}: stack_before={:?}, thread={:?}",
+                iteration,
+                stack_before,
+                std::thread::current().id()
+            );
+
             stack = body_fn(stack);
+
+            let stack_after = stack as usize;
+            eprintln!(
+                "[forever] Iteration {}: stack_after={:?}, thread={:?}",
+                iteration,
+                stack_after,
+                std::thread::current().id()
+            );
+
+            iteration += 1;
             may::coroutine::yield_now();
         }
     }

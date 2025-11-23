@@ -80,4 +80,4 @@ Working examples in `examples/`:
 
 ## License
 
-See LICENSE file.
+MIT License

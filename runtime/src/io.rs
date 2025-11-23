@@ -21,7 +21,14 @@
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use std::ffi::CStr;
-use std::io::{self, Write};
+use std::io;
+use std::sync::LazyLock;
+
+/// Coroutine-aware stdout mutex.
+/// Uses may::sync::Mutex which yields the coroutine when contended instead of blocking the OS thread.
+/// By serializing access to stdout, we prevent RefCell borrow panics that occur when multiple
+/// coroutines on the same thread try to access stdout's internal RefCell concurrently.
+static STDOUT_MUTEX: LazyLock<may::sync::Mutex<()>> = LazyLock::new(|| may::sync::Mutex::new(()));
 
 /// Valid exit code range for Unix compatibility
 const EXIT_CODE_MIN: i64 = 0;
@@ -33,6 +40,11 @@ const EXIT_CODE_MAX: i64 = 255;
 ///
 /// # Safety
 /// Stack must have a String value on top
+///
+/// # Concurrency
+/// Uses may::sync::Mutex to serialize stdout writes from multiple strands.
+/// When the mutex is contended, the strand yields to the scheduler (doesn't block the OS thread).
+/// This prevents RefCell borrow panics when multiple strands write concurrently.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "write_line: stack is empty");
@@ -41,10 +53,24 @@ pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
 
     match value {
         Value::String(s) => {
-            println!("{}", s);
-            io::stdout()
-                .flush()
-                .expect("write_line: failed to flush stdout (stdout may be closed or redirected)");
+            // Acquire coroutine-aware mutex (yields if contended, doesn't block)
+            // This serializes access to stdout
+            let _guard = STDOUT_MUTEX.lock().unwrap();
+
+            // Write directly to fd 1 using libc to avoid Rust's std::io::stdout() RefCell.
+            // Rust's standard I/O uses RefCell which panics on concurrent access from
+            // multiple coroutines on the same thread.
+            let str_slice = s.as_str();
+            let newline = b"\n";
+            unsafe {
+                libc::write(
+                    1,
+                    str_slice.as_ptr() as *const libc::c_void,
+                    str_slice.len(),
+                );
+                libc::write(1, newline.as_ptr() as *const libc::c_void, newline.len());
+            }
+
             rest
         }
         _ => panic!("write_line: expected String on stack, got {:?}", value),

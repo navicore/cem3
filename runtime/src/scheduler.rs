@@ -57,9 +57,9 @@ pub unsafe extern "C" fn scheduler_init() {
     SCHEDULER_INIT.call_once(|| {
         // Configure stack size for coroutines
         // Default is 0x1000 words (32KB on 64-bit), which is too small for LLVM-generated code
-        // Using 0x200000 words (16MB on 64-bit) to handle complex operations in forever loops
-        // with network I/O, channels, and spawning (HTTP server accept loop needs this)
-        may::config().set_stack_size(0x200000);
+        // Using 8MB (0x100000 words) - balanced between safety and May's maximum limit
+        // May has internal maximum (attempting 64MB causes ExceedsMaximumSize panic)
+        may::config().set_stack_size(0x100000);
     });
 }
 

@@ -188,9 +188,11 @@ pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
         let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Execute quotation n times
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
         stack = stack_temp2;
         for _ in 0..count {
             stack = fn_ref(stack);
+            may::coroutine::yield_now();
         }
 
         stack
@@ -245,6 +247,7 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
 
         // Loop while condition is true
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
         stack = stack_temp2;
         loop {
             // Execute condition quotation
@@ -265,6 +268,9 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
 
             // Condition is true, execute body
             stack = body_fn(stack_after_cond);
+
+            // Yield to scheduler after each iteration
+            may::coroutine::yield_now();
         }
 
         stack
@@ -311,8 +317,11 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Infinite loop - execute body forever
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling.
+        // Without yielding, this coroutine would monopolize the thread and starve other strands.
         loop {
             stack = body_fn(stack);
+            may::coroutine::yield_now();
         }
     }
 }
@@ -367,6 +376,7 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
 
         // Loop until condition is true (do-while style)
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
         stack = stack_temp2;
         loop {
             // Execute body quotation
@@ -390,6 +400,9 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
 
             // Condition is false, continue loop
             stack = stack_after_cond;
+
+            // Yield to scheduler after each iteration
+            may::coroutine::yield_now();
         }
 
         stack

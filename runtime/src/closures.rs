@@ -140,6 +140,48 @@ pub unsafe extern "C" fn env_get_int(env_data: *const Value, env_len: usize, ind
     }
 }
 
+/// Get a String value from the environment at the given index
+///
+/// # Safety
+/// - env_data must be a valid pointer to an array of Values
+/// - env_len must be the actual length of that array
+/// - index must be within bounds
+/// - The value at index must be a String
+///
+/// This function returns a SeqString by-value.
+/// This is safe for FFI because it's only called from LLVM-generated code, not actual C code.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn env_get_string(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> crate::seqstring::SeqString {
+    if env_data.is_null() {
+        panic!("env_get_string: null environment pointer");
+    }
+
+    let idx = index as usize;
+
+    if idx >= env_len {
+        panic!(
+            "env_get_string: index {} out of bounds for environment of size {}",
+            index, env_len
+        );
+    }
+
+    // Access the value at the index
+    let value = unsafe { &*env_data.add(idx) };
+
+    match value {
+        Value::String(s) => s.clone(),
+        _ => panic!(
+            "env_get_string: expected String at index {}, got {:?}",
+            index, value
+        ),
+    }
+}
+
 /// Create a closure value from a function pointer and environment
 ///
 /// Takes ownership of the environment (converts raw pointer back to Box).

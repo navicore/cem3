@@ -79,10 +79,10 @@ impl Parser {
                 return Err(format!("Unexpected end of file in word '{}'", name));
             }
 
-            // Skip newlines in body
-            if self.check("\n") {
-                self.advance();
-                continue;
+            // Skip comments and newlines in body
+            self.skip_comments();
+            if self.check(";") {
+                break;
             }
 
             body.push(self.parse_statement()?);
@@ -140,11 +140,8 @@ impl Parser {
                 return Err("Unexpected end of file in 'if' statement".to_string());
             }
 
-            // Skip newlines
-            if self.check("\n") {
-                self.advance();
-                continue;
-            }
+            // Skip comments and newlines
+            self.skip_comments();
 
             if self.check("else") {
                 self.advance();
@@ -171,11 +168,8 @@ impl Parser {
                 return Err("Unexpected end of file in 'else' branch".to_string());
             }
 
-            // Skip newlines
-            if self.check("\n") {
-                self.advance();
-                continue;
-            }
+            // Skip comments and newlines
+            self.skip_comments();
 
             if self.check("then") {
                 self.advance();
@@ -198,11 +192,8 @@ impl Parser {
                 return Err("Unexpected end of file in quotation".to_string());
             }
 
-            // Skip newlines
-            if self.check("\n") {
-                self.advance();
-                continue;
-            }
+            // Skip comments and newlines
+            self.skip_comments();
 
             if self.check("]") {
                 self.advance();

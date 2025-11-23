@@ -1,0 +1,78 @@
+# Multi-Connection HTTP Server
+# Demonstrates: spawn, channels, concurrent request handling
+
+# Route HTTP request to response
+: route ( String -- String )
+  [ dup "GET / " string-starts-with ]
+  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello from Seq!" ]
+
+  [ dup "GET /health" string-starts-with ]
+  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK" ]
+
+  [ dup "GET /echo" string-starts-with ]
+  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nEcho!" ]
+
+  [ drop 1 ]
+  [ "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found" ]
+
+  4 cond
+;
+
+# Handle a single connection (called in spawned strand)
+: handle-connection ( Int -- )
+  dup tcp-read
+  route
+  swap tcp-write
+  tcp-close
+;
+
+# Worker strand: receives socket from channel and handles it
+: worker ( Int -- )
+  receive
+  handle-connection
+;
+
+# Accept loop: accepts connections and spawns handlers
+: accept-loop ( Int -- )
+  [
+    # Stack: ( listener_socket )
+    dup tcp-accept
+    "Connection accepted!" write_line
+
+    # Create a channel for this connection
+    make-channel
+
+    # Stack: ( listener_socket client_socket channel_id )
+
+    # Spawn worker with channel on stack
+    over [ worker ] spawn
+
+    # Stack: ( listener_socket client_socket channel_id strand_id )
+    drop  # Drop strand ID, we don't need it
+
+    # Stack: ( listener_socket client_socket channel_id )
+
+    # Send socket to worker through channel
+    send
+
+    # Stack: ( listener_socket )
+    # Continue accepting
+    1
+  ]
+  [ drop ]
+  forever
+;
+
+# Main server
+: main ( -- )
+  "Starting concurrent HTTP server on port 8080..." write_line
+  "Try: curl http://localhost:8080/" write_line
+  "Try: curl http://localhost:8080/health" write_line
+  "Server will handle multiple concurrent connections." write_line
+  "" write_line
+
+  8080 tcp-listen
+  "Listening..." write_line
+
+  accept-loop
+;

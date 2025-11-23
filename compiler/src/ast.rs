@@ -49,7 +49,10 @@ pub enum Statement {
     /// A block of deferred code (quotation/lambda)
     /// Quotations are first-class values that can be pushed onto the stack
     /// and executed later with combinators like `call`, `times`, or `while`
-    Quotation(Vec<Statement>),
+    ///
+    /// The id field is used by the typechecker to track the inferred type
+    /// (Quotation vs Closure) for this quotation. The id is assigned during parsing.
+    Quotation { id: usize, body: Vec<Statement> },
 }
 
 impl Program {
@@ -169,7 +172,7 @@ impl Program {
                         self.validate_statements(eb, word_name, builtins)?;
                     }
                 }
-                Statement::Quotation(body) => {
+                Statement::Quotation { body, .. } => {
                     // Recursively validate quotation body
                     self.validate_statements(body, word_name, builtins)?;
                 }

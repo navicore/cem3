@@ -21,7 +21,14 @@
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use std::ffi::CStr;
-use std::io::{self, Write};
+use std::io;
+use std::sync::LazyLock;
+
+/// Coroutine-aware stdout mutex.
+/// Uses may::sync::Mutex which yields the coroutine when contended instead of blocking the OS thread.
+/// By serializing access to stdout, we prevent RefCell borrow panics that occur when multiple
+/// coroutines on the same thread try to access stdout's internal RefCell concurrently.
+static STDOUT_MUTEX: LazyLock<may::sync::Mutex<()>> = LazyLock::new(|| may::sync::Mutex::new(()));
 
 /// Valid exit code range for Unix compatibility
 const EXIT_CODE_MIN: i64 = 0;
@@ -33,18 +40,37 @@ const EXIT_CODE_MAX: i64 = 255;
 ///
 /// # Safety
 /// Stack must have a String value on top
+///
+/// # Concurrency
+/// Uses may::sync::Mutex to serialize stdout writes from multiple strands.
+/// When the mutex is contended, the strand yields to the scheduler (doesn't block the OS thread).
+/// This prevents RefCell borrow panics when multiple strands write concurrently.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "write_line: stack is empty");
 
     let (rest, value) = unsafe { pop(stack) };
 
     match value {
         Value::String(s) => {
-            println!("{}", s);
-            io::stdout()
-                .flush()
-                .expect("write_line: failed to flush stdout (stdout may be closed or redirected)");
+            // Acquire coroutine-aware mutex (yields if contended, doesn't block)
+            // This serializes access to stdout
+            let _guard = STDOUT_MUTEX.lock().unwrap();
+
+            // Write directly to fd 1 using libc to avoid Rust's std::io::stdout() RefCell.
+            // Rust's standard I/O uses RefCell which panics on concurrent access from
+            // multiple coroutines on the same thread.
+            let str_slice = s.as_str();
+            let newline = b"\n";
+            unsafe {
+                libc::write(
+                    1,
+                    str_slice.as_ptr() as *const libc::c_void,
+                    str_slice.len(),
+                );
+                libc::write(1, newline.as_ptr() as *const libc::c_void, newline.len());
+            }
+
             rest
         }
         _ => panic!("write_line: expected String on stack, got {:?}", value),
@@ -58,7 +84,7 @@ pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
     use std::io::BufRead;
 
     let stdin = io::stdin();
@@ -87,7 +113,7 @@ pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have an Int value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn int_to_string(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_int_to_string(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "int_to_string: stack is empty");
 
     let (rest, value) = unsafe { pop(stack) };
@@ -105,7 +131,7 @@ pub unsafe extern "C" fn int_to_string(stack: Stack) -> Stack {
 /// # Safety
 /// The c_str pointer must be valid and null-terminated
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_string(stack: Stack, c_str: *const i8) -> Stack {
     assert!(!c_str.is_null(), "push_string: null string pointer");
 
     let s = unsafe {
@@ -118,6 +144,24 @@ pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
     unsafe { push(stack, Value::String(s.into())) }
 }
 
+/// Push a SeqString value onto the stack
+///
+/// This is used when we already have a SeqString (e.g., from closures).
+/// Unlike push_string which takes a C string, this takes a SeqString by value.
+///
+/// Stack effect: ( -- String )
+///
+/// # Safety
+/// The SeqString must be valid. This is only called from LLVM-generated code, not actual C code.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_push_seqstring(
+    stack: Stack,
+    seq_str: crate::seqstring::SeqString,
+) -> Stack {
+    unsafe { push(stack, Value::String(seq_str)) }
+}
+
 /// Exit the program with a status code
 ///
 /// Stack effect: ( exit_code -- )
@@ -125,7 +169,7 @@ pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
 /// # Safety
 /// Stack must have an Int on top. Never returns.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn exit_op(stack: Stack) -> ! {
+pub unsafe extern "C" fn patch_seq_exit_op(stack: Stack) -> ! {
     assert!(!stack.is_null(), "exit_op: stack is empty");
 
     let (_rest, value) = unsafe { pop(stack) };
@@ -144,6 +188,14 @@ pub unsafe extern "C" fn exit_op(stack: Stack) -> ! {
         _ => panic!("exit_op: expected Int on stack, got {:?}", value),
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_exit_op as exit_op;
+pub use patch_seq_int_to_string as int_to_string;
+pub use patch_seq_push_seqstring as push_seqstring;
+pub use patch_seq_push_string as push_string;
+pub use patch_seq_read_line as read_line;
+pub use patch_seq_write_line as write_line;
 
 #[cfg(test)]
 mod tests {

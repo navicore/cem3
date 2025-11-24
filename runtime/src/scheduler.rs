@@ -53,12 +53,13 @@ static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 /// Safe to call multiple times (idempotent via Once).
 /// Configures May coroutines with appropriate stack size for LLVM-generated code.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn scheduler_init() {
+pub unsafe extern "C" fn patch_seq_scheduler_init() {
     SCHEDULER_INIT.call_once(|| {
         // Configure stack size for coroutines
         // Default is 0x1000 words (32KB on 64-bit), which is too small for LLVM-generated code
-        // Testing with 0x20000 words (1MB on 64-bit) to rule out stack size issues
-        may::config().set_stack_size(0x20000);
+        // Using 8MB (0x100000 words) - balanced between safety and May's maximum limit
+        // May has internal maximum (attempting 64MB causes ExceedsMaximumSize panic)
+        may::config().set_stack_size(0x100000);
     });
 }
 
@@ -72,7 +73,7 @@ pub unsafe extern "C" fn scheduler_init() {
 /// polling. The mutex is only held during the wait protocol, not during strand
 /// execution, so there's no contention on the hot path.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn scheduler_run() -> Stack {
+pub unsafe extern "C" fn patch_seq_scheduler_run() -> Stack {
     let mut guard = SHUTDOWN_MUTEX.lock().expect(
         "scheduler_run: shutdown mutex poisoned - strand panicked during shutdown synchronization",
     );
@@ -94,7 +95,7 @@ pub unsafe extern "C" fn scheduler_run() -> Stack {
 /// # Safety
 /// Safe to call. May doesn't require explicit shutdown, so this is a no-op.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn scheduler_shutdown() {
+pub unsafe extern "C" fn patch_seq_scheduler_shutdown() {
     // May doesn't require explicit shutdown
     // This function exists for API symmetry with init
 }
@@ -114,7 +115,7 @@ pub unsafe extern "C" fn scheduler_shutdown() {
 /// The spawned coroutine takes ownership of `initial_stack` and will automatically
 /// free the final stack returned by `entry` upon completion.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strand_spawn(
+pub unsafe extern "C" fn patch_seq_strand_spawn(
     entry: extern "C" fn(Stack) -> Stack,
     initial_stack: Stack,
 ) -> i64 {
@@ -211,9 +212,9 @@ fn free_stack(mut stack: Stack) {
 /// # Safety
 /// `entry` must be a valid function pointer that can safely execute on any thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spawn_strand(entry: extern "C" fn(Stack) -> Stack) {
+pub unsafe extern "C" fn patch_seq_spawn_strand(entry: extern "C" fn(Stack) -> Stack) {
     unsafe {
-        strand_spawn(entry, std::ptr::null_mut());
+        patch_seq_strand_spawn(entry, std::ptr::null_mut());
     }
 }
 
@@ -222,7 +223,7 @@ pub unsafe extern "C" fn spawn_strand(entry: extern "C" fn(Stack) -> Stack) {
 /// # Safety
 /// Always safe to call from within a May coroutine.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn yield_strand() {
+pub unsafe extern "C" fn patch_seq_yield_strand() {
     coroutine::yield_now();
 }
 
@@ -233,7 +234,7 @@ pub unsafe extern "C" fn yield_strand() {
 ///
 /// Uses event-driven synchronization via condition variable - no polling overhead.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wait_all_strands() {
+pub unsafe extern "C" fn patch_seq_wait_all_strands() {
     let mut guard = SHUTDOWN_MUTEX.lock()
         .expect("wait_all_strands: shutdown mutex poisoned - strand panicked during shutdown synchronization");
 
@@ -245,6 +246,15 @@ pub unsafe extern "C" fn wait_all_strands() {
             .expect("wait_all_strands: condvar wait failed - strand panicked during shutdown wait");
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_scheduler_init as scheduler_init;
+pub use patch_seq_scheduler_run as scheduler_run;
+pub use patch_seq_scheduler_shutdown as scheduler_shutdown;
+pub use patch_seq_spawn_strand as spawn_strand;
+pub use patch_seq_strand_spawn as strand_spawn;
+pub use patch_seq_wait_all_strands as wait_all_strands;
+pub use patch_seq_yield_strand as yield_strand;
 
 #[cfg(test)]
 mod tests {

@@ -31,8 +31,7 @@ pub struct CodeGen {
     quot_counter: usize,  // For generating unique quotation function names
     string_constants: HashMap<String, String>, // string content -> global name
     quotation_functions: String, // Accumulates generated quotation functions
-    quotation_types: Vec<Type>, // Types of quotations (in DFS traversal order)
-    quotation_index: std::cell::Cell<usize>, // Current index into quotation_types
+    type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
 }
 
 impl CodeGen {
@@ -46,8 +45,7 @@ impl CodeGen {
             quot_counter: 0,
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
-            quotation_types: Vec::new(),
-            quotation_index: std::cell::Cell::new(0),
+            type_map: HashMap::new(),
         }
     }
 
@@ -66,17 +64,14 @@ impl CodeGen {
     }
 
     /// Get the next quotation type (consumes it in DFS traversal order)
-    fn next_quotation_type(&self) -> Result<&Type, String> {
-        let idx = self.quotation_index.get();
-        if idx >= self.quotation_types.len() {
-            return Err(format!(
-                "CodeGen: quotation type index {} out of bounds (have {} types)",
-                idx,
-                self.quotation_types.len()
-            ));
-        }
-        self.quotation_index.set(idx + 1);
-        Ok(&self.quotation_types[idx])
+    /// Get the inferred type for a quotation by its ID
+    fn get_quotation_type(&self, id: usize) -> Result<&Type, String> {
+        self.type_map.get(&id).ok_or_else(|| {
+            format!(
+                "CodeGen: no type information for quotation ID {}. This is a compiler bug.",
+                id
+            )
+        })
     }
 
     /// Escape a string for LLVM IR string literals
@@ -129,11 +124,10 @@ impl CodeGen {
     pub fn codegen_program(
         &mut self,
         program: &Program,
-        quotation_types: Vec<Type>,
+        type_map: HashMap<usize, Type>,
     ) -> Result<String, String> {
-        // Store quotation types for use during code generation
-        self.quotation_types = quotation_types;
-        self.quotation_index.set(0);
+        // Store type map for use during code generation
+        self.type_map = type_map;
 
         // Verify we have a main word
         if program.find_word("main").is_none() {
@@ -169,80 +163,90 @@ impl CodeGen {
 
         // Runtime function declarations
         writeln!(&mut ir, "; Runtime function declarations").unwrap();
-        writeln!(&mut ir, "declare ptr @push_int(ptr, i64)").unwrap();
-        writeln!(&mut ir, "declare ptr @push_string(ptr, ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @write_line(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @read_line(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @int_to_string(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @add(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @subtract(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @multiply(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @divide(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @eq(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @lt(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @gt(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @lte(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @gte(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @neq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_push_int(ptr, i64)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_multiply(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_divide(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_eq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_lt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_gt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_lte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_gte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_neq(ptr)").unwrap();
         writeln!(&mut ir, "; Boolean operations").unwrap();
-        writeln!(&mut ir, "declare ptr @and(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @or(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @not(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_and(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_or(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_not(ptr)").unwrap();
         writeln!(&mut ir, "; Stack operations").unwrap();
-        writeln!(&mut ir, "declare ptr @dup(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @drop_op(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @swap(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @over(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @rot(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @nip(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @tuck(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @pick_op(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @push_value(ptr, %Value)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_swap(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_over(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_rot(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
-        writeln!(&mut ir, "declare ptr @push_quotation(ptr, i64)").unwrap();
-        writeln!(&mut ir, "declare ptr @call(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @times(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @while_loop(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @until_loop(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @forever(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @spawn(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @cond(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_push_quotation(ptr, i64)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_call(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_times(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_while_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_until_loop(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_forever(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_spawn(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_cond(ptr)").unwrap();
         writeln!(&mut ir, "; Closure operations").unwrap();
-        writeln!(&mut ir, "declare ptr @create_env(i32)").unwrap();
-        writeln!(&mut ir, "declare void @env_set(ptr, i32, %Value)").unwrap();
-        writeln!(&mut ir, "declare %Value @env_get(ptr, i64, i32)").unwrap();
-        writeln!(&mut ir, "declare i64 @env_get_int(ptr, i64, i32)").unwrap();
-        writeln!(&mut ir, "declare %Value @make_closure(i64, ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @push_closure(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_create_env(i32)").unwrap();
+        writeln!(&mut ir, "declare void @patch_seq_env_set(ptr, i32, %Value)").unwrap();
+        writeln!(&mut ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)").unwrap();
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_env_get_string(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(&mut ir, "declare %Value @patch_seq_make_closure(i64, ptr)").unwrap();
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_push_closure(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_push_seqstring(ptr, ptr)").unwrap();
         writeln!(&mut ir, "; Concurrency operations").unwrap();
-        writeln!(&mut ir, "declare ptr @make_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @send(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @receive(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @close_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @yield_strand(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_channel(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)").unwrap();
         writeln!(&mut ir, "; Scheduler operations").unwrap();
-        writeln!(&mut ir, "declare void @scheduler_init()").unwrap();
-        writeln!(&mut ir, "declare ptr @scheduler_run()").unwrap();
-        writeln!(&mut ir, "declare i64 @strand_spawn(ptr, ptr)").unwrap();
+        writeln!(&mut ir, "declare void @patch_seq_scheduler_init()").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_scheduler_run()").unwrap();
+        writeln!(&mut ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
-        writeln!(&mut ir, "declare ptr @tcp_listen(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @tcp_accept(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @tcp_read(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @tcp_write(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @tcp_close(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_read(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_write(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_close(ptr)").unwrap();
         writeln!(&mut ir, "; String operations").unwrap();
-        writeln!(&mut ir, "declare ptr @string_concat(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_length(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_split(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_contains(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_starts_with(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_empty(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_trim(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_to_upper(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @string_to_lower(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_split(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_contains(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_starts_with(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_empty(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
-        writeln!(&mut ir, "declare i64 @peek_int_value(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @pop_stack(ptr)").unwrap();
+        writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
 
         // Quotation functions (generated from quotation literals)
@@ -329,27 +333,43 @@ impl CodeGen {
                             let int_var = self.fresh_temp();
                             writeln!(
                                 &mut self.output,
-                                "  %{} = call i64 @env_get_int(ptr %env_data, i64 %env_len, i32 {})",
+                                "  %{} = call i64 @patch_seq_env_get_int(ptr %env_data, i64 %env_len, i32 {})",
                                 int_var, index
                             )
                             .unwrap();
                             let new_stack_var = self.fresh_temp();
                             writeln!(
                                 &mut self.output,
-                                "  %{} = call ptr @push_int(ptr %{}, i64 %{})",
+                                "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
                                 new_stack_var, stack_var, int_var
                             )
                             .unwrap();
                             stack_var = new_stack_var;
                         }
+                        Type::String => {
+                            let string_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @patch_seq_env_get_string(ptr %env_data, i64 %env_len, i32 {})",
+                                string_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @patch_seq_push_seqstring(ptr %{}, ptr %{})",
+                                new_stack_var, stack_var, string_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
                         _ => {
-                            // TODO: Implement type-specific getters for Bool, String, etc.
+                            // TODO: Implement type-specific getters for Bool and other types
                             // Each type needs:
-                            //   - Runtime: env_get_bool, env_get_string in closures.rs
+                            //   - Runtime: env_get_<type> in closures.rs
                             //   - CodeGen: Match arm here to call the right getter
-                            // Avoiding env_get (returns Value by-value) prevents FFI issues with large enums
                             return Err(format!(
-                                "CodeGen: Only Int captures are currently supported, got {:?}. \
+                                "CodeGen: Only Int and String captures are currently supported, got {:?}. \
                                  Other types require implementing env_get_<type> functions.",
                                 capture_type
                             ));
@@ -415,7 +435,7 @@ impl CodeGen {
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call ptr @push_int(ptr %{}, i64 {})",
+                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
                     result_var, stack_var, n
                 )
                 .unwrap();
@@ -427,7 +447,7 @@ impl CodeGen {
                 let val = if *b { 1 } else { 0 };
                 writeln!(
                     &mut self.output,
-                    "  %{} = call ptr @push_int(ptr %{}, i64 {})",
+                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
                     result_var, stack_var, val
                 )
                 .unwrap();
@@ -448,7 +468,7 @@ impl CodeGen {
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call ptr @push_string(ptr %{}, ptr %{})",
+                    "  %{} = call ptr @patch_seq_push_string(ptr %{}, ptr %{})",
                     result_var, stack_var, ptr_temp
                 )
                 .unwrap();
@@ -464,54 +484,56 @@ impl CodeGen {
                 // - User words get 'seq_' prefix to avoid C symbol conflicts
                 let function_name = match name.as_str() {
                     // I/O operations
-                    "write_line" | "read_line" => name.to_string(),
-                    "int->string" => "int_to_string".to_string(),
+                    "write_line" | "read_line" => format!("patch_seq_{}", name),
+                    "int->string" => "patch_seq_int_to_string".to_string(),
                     // Arithmetic operations
-                    "add" | "subtract" | "multiply" | "divide" => name.to_string(),
+                    "add" | "subtract" | "multiply" | "divide" => format!("patch_seq_{}", name),
                     // Comparison operations (symbolic → named)
                     // These return Int (0 or 1) for Forth-style boolean semantics
-                    "=" => "eq".to_string(),
-                    "<" => "lt".to_string(),
-                    ">" => "gt".to_string(),
-                    "<=" => "lte".to_string(),
-                    ">=" => "gte".to_string(),
-                    "<>" => "neq".to_string(),
+                    "=" => "patch_seq_eq".to_string(),
+                    "<" => "patch_seq_lt".to_string(),
+                    ">" => "patch_seq_gt".to_string(),
+                    "<=" => "patch_seq_lte".to_string(),
+                    ">=" => "patch_seq_gte".to_string(),
+                    "<>" => "patch_seq_neq".to_string(),
                     // Boolean operations
-                    "and" | "or" | "not" => name.to_string(),
+                    "and" | "or" | "not" => format!("patch_seq_{}", name),
                     // Stack operations (simple - no parameters)
-                    "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => name.to_string(),
-                    "drop" => "drop_op".to_string(), // 'drop' is reserved in LLVM IR
-                    "pick" => "pick_op".to_string(), // pick takes Int parameter from stack
+                    "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => {
+                        format!("patch_seq_{}", name)
+                    }
+                    "drop" => "patch_seq_drop_op".to_string(), // 'drop' is reserved in LLVM IR
+                    "pick" => "patch_seq_pick_op".to_string(), // pick takes Int parameter from stack
                     // Concurrency operations (hyphen → underscore for C compatibility)
-                    "make-channel" => "make_channel".to_string(),
-                    "send" => "send".to_string(),
-                    "receive" => "receive".to_string(),
-                    "close-channel" => "close_channel".to_string(),
-                    "yield" => "yield_strand".to_string(),
+                    "make-channel" => "patch_seq_make_channel".to_string(),
+                    "send" => "patch_seq_chan_send".to_string(),
+                    "receive" => "patch_seq_chan_receive".to_string(),
+                    "close-channel" => "patch_seq_close_channel".to_string(),
+                    "yield" => "patch_seq_yield_strand".to_string(),
                     // Quotation operations
-                    "call" => "call".to_string(),
-                    "times" => "times".to_string(),
-                    "while" => "while_loop".to_string(),
-                    "until" => "until_loop".to_string(),
-                    "forever" => "forever".to_string(),
-                    "spawn" => "spawn".to_string(),
-                    "cond" => "cond".to_string(),
+                    "call" => "patch_seq_call".to_string(),
+                    "times" => "patch_seq_times".to_string(),
+                    "while" => "patch_seq_while_loop".to_string(),
+                    "until" => "patch_seq_until_loop".to_string(),
+                    "forever" => "patch_seq_forever".to_string(),
+                    "spawn" => "patch_seq_spawn".to_string(),
+                    "cond" => "patch_seq_cond".to_string(),
                     // TCP operations (hyphen → underscore for C compatibility)
-                    "tcp-listen" => "tcp_listen".to_string(),
-                    "tcp-accept" => "tcp_accept".to_string(),
-                    "tcp-read" => "tcp_read".to_string(),
-                    "tcp-write" => "tcp_write".to_string(),
-                    "tcp-close" => "tcp_close".to_string(),
+                    "tcp-listen" => "patch_seq_tcp_listen".to_string(),
+                    "tcp-accept" => "patch_seq_tcp_accept".to_string(),
+                    "tcp-read" => "patch_seq_tcp_read".to_string(),
+                    "tcp-write" => "patch_seq_tcp_write".to_string(),
+                    "tcp-close" => "patch_seq_tcp_close".to_string(),
                     // String operations (hyphen → underscore for C compatibility)
-                    "string-concat" => "string_concat".to_string(),
-                    "string-length" => "string_length".to_string(),
-                    "string-split" => "string_split".to_string(),
-                    "string-contains" => "string_contains".to_string(),
-                    "string-starts-with" => "string_starts_with".to_string(),
-                    "string-empty" => "string_empty".to_string(),
-                    "string-trim" => "string_trim".to_string(),
-                    "string-to-upper" => "string_to_upper".to_string(),
-                    "string-to-lower" => "string_to_lower".to_string(),
+                    "string-concat" => "patch_seq_string_concat".to_string(),
+                    "string-length" => "patch_seq_string_length".to_string(),
+                    "string-split" => "patch_seq_string_split".to_string(),
+                    "string-contains" => "patch_seq_string_contains".to_string(),
+                    "string-starts-with" => "patch_seq_string_starts_with".to_string(),
+                    "string-empty" => "patch_seq_string_empty".to_string(),
+                    "string-trim" => "patch_seq_string_trim".to_string(),
+                    "string-to-upper" => "patch_seq_string_to_upper".to_string(),
+                    "string-to-lower" => "patch_seq_string_to_lower".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("seq_{}", name),
                 };
@@ -538,7 +560,7 @@ impl CodeGen {
                 let cond_temp = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call i64 @peek_int_value(ptr %{})",
+                    "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
                     cond_temp, stack_var
                 )
                 .unwrap();
@@ -547,7 +569,7 @@ impl CodeGen {
                 let popped_stack = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call ptr @pop_stack(ptr %{})",
+                    "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
                     popped_stack, stack_var
                 )
                 .unwrap();
@@ -621,9 +643,9 @@ impl CodeGen {
                 Ok(result_var)
             }
 
-            Statement::Quotation(body) => {
-                // Get the inferred type for this quotation (clone to avoid borrow issues)
-                let quot_type = self.next_quotation_type()?.clone();
+            Statement::Quotation { id, body } => {
+                // Get the inferred type for this quotation using its ID
+                let quot_type = self.get_quotation_type(*id)?.clone();
 
                 // Generate a function for the quotation body
                 let fn_name = self.codegen_quotation(body, &quot_type)?;
@@ -644,7 +666,7 @@ impl CodeGen {
                         let result_var = self.fresh_temp();
                         writeln!(
                             &mut self.output,
-                            "  %{} = call ptr @push_quotation(ptr %{}, i64 %{})",
+                            "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{})",
                             result_var, stack_var, fn_ptr_var
                         )
                         .unwrap();
@@ -659,7 +681,7 @@ impl CodeGen {
                         let result_var = self.fresh_temp();
                         writeln!(
                             &mut self.output,
-                            "  %{} = call ptr @push_closure(ptr %{}, i64 %{}, i32 {})",
+                            "  %{} = call ptr @patch_seq_push_closure(ptr %{}, i64 %{}, i32 {})",
                             result_var, stack_var, fn_ptr_var, capture_count
                         )
                         .unwrap();
@@ -680,18 +702,22 @@ impl CodeGen {
         writeln!(&mut self.output, "entry:").unwrap();
 
         // Initialize scheduler
-        writeln!(&mut self.output, "  call void @scheduler_init()").unwrap();
+        writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()").unwrap();
 
         // Spawn user's main function as the first strand
         // This ensures all code runs in coroutine context for non-blocking I/O
         writeln!(
             &mut self.output,
-            "  %0 = call i64 @strand_spawn(ptr @seq_main, ptr null)"
+            "  %0 = call i64 @patch_seq_strand_spawn(ptr @seq_main, ptr null)"
         )
         .unwrap();
 
         // Wait for all spawned strands to complete (including main)
-        writeln!(&mut self.output, "  %1 = call ptr @scheduler_run()").unwrap();
+        writeln!(
+            &mut self.output,
+            "  %1 = call ptr @patch_seq_scheduler_run()"
+        )
+        .unwrap();
 
         writeln!(&mut self.output, "  ret i32 0").unwrap();
         writeln!(&mut self.output, "}}").unwrap();
@@ -759,12 +785,12 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
         assert!(ir.contains("define i32 @main()"));
         assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
-        assert!(ir.contains("call ptr @push_string"));
-        assert!(ir.contains("call ptr @write_line"));
+        assert!(ir.contains("call ptr @patch_seq_push_string"));
+        assert!(ir.contains("call ptr @patch_seq_write_line"));
         assert!(ir.contains("\"Hello, World!\\00\""));
     }
 
@@ -784,11 +810,11 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, Vec::new()).unwrap();
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        assert!(ir.contains("call ptr @push_int(ptr %stack, i64 2)"));
-        assert!(ir.contains("call ptr @push_int"));
-        assert!(ir.contains("call ptr @add"));
+        assert!(ir.contains("call ptr @patch_seq_push_int(ptr %stack, i64 2)"));
+        assert!(ir.contains("call ptr @patch_seq_push_int"));
+        assert!(ir.contains("call ptr @patch_seq_add"));
     }
 
     #[test]

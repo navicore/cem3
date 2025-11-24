@@ -83,6 +83,10 @@ impl Program {
             "string-trim",
             "string-to-upper",
             "string-to-lower",
+            // Variant operations
+            "variant-field-count",
+            "variant-tag",
+            "variant-field-at",
             // Arithmetic operations
             "add",
             "subtract",

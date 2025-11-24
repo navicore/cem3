@@ -1,0 +1,12 @@
+: worker ( String -- )
+  write_line
+;
+
+: main ( -- )
+  "Testing spawn with closure..." write_line
+
+  "Hello from closure!" [ worker ] spawn
+  "Spawned worker with captured value" write_line
+
+  drop
+;

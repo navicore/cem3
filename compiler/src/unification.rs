@@ -195,6 +195,23 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
             Ok(s_in.compose(&s_out))
         }
 
+        // Closure <: Quotation (subtyping)
+        // A Closure can be used where a Quotation is expected
+        // The runtime will dispatch appropriately
+        (Type::Quotation(quot_effect), Type::Closure { effect, .. })
+        | (Type::Closure { effect, .. }, Type::Quotation(quot_effect)) => {
+            // Unify the effects (ignoring captures - they're an implementation detail)
+            let s_in = unify_stacks(&quot_effect.inputs, &effect.inputs)?;
+
+            // Apply substitution to outputs and unify
+            let out1 = s_in.apply_stack(&quot_effect.outputs);
+            let out2 = s_in.apply_stack(&effect.outputs);
+            let s_out = unify_stacks(&out1, &out2)?;
+
+            // Compose substitutions
+            Ok(s_in.compose(&s_out))
+        }
+
         // Different concrete types don't unify
         _ => Err(format!(
             "Type mismatch: cannot unify {:?} with {:?}",

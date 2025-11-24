@@ -14,9 +14,10 @@ pub struct TypeChecker {
     env: HashMap<String, Effect>,
     /// Counter for generating fresh type variables
     fresh_counter: std::cell::Cell<usize>,
-    /// Quotation types tracked during type checking (in DFS traversal order)
-    /// Each quotation encountered gets its type stored here
-    quotation_types: std::cell::RefCell<Vec<Type>>,
+    /// Quotation types tracked during type checking
+    /// Maps quotation ID (from AST) to inferred type (Quotation or Closure)
+    /// This type map is used by codegen to generate appropriate code
+    quotation_types: std::cell::RefCell<HashMap<usize, Type>>,
     /// Expected quotation/closure type (from word signature, if any)
     /// Used during type-driven capture inference
     expected_quotation_type: std::cell::RefCell<Option<Type>>,
@@ -27,17 +28,18 @@ impl TypeChecker {
         TypeChecker {
             env: HashMap::new(),
             fresh_counter: std::cell::Cell::new(0),
-            quotation_types: std::cell::RefCell::new(Vec::new()),
+            quotation_types: std::cell::RefCell::new(HashMap::new()),
             expected_quotation_type: std::cell::RefCell::new(None),
         }
     }
 
-    /// Extract accumulated quotation types (in DFS traversal order)
+    /// Extract the type map (quotation ID -> inferred type)
     ///
     /// This should be called after check_program() to get the inferred types
-    /// for all quotations in the program.
-    pub fn take_quotation_types(&self) -> Vec<Type> {
-        self.quotation_types.borrow_mut().drain(..).collect()
+    /// for all quotations in the program. The map is used by codegen to generate
+    /// appropriate code for Quotations vs Closures.
+    pub fn take_quotation_types(&self) -> HashMap<usize, Type> {
+        self.quotation_types.replace(HashMap::new())
     }
 
     /// Generate a fresh variable name
@@ -179,10 +181,39 @@ impl TypeChecker {
         let mut current_stack = start_stack.clone();
         let mut accumulated_subst = Subst::empty();
 
-        for stmt in statements {
+        for (i, stmt) in statements.iter().enumerate() {
+            // Look ahead: if this is a quotation followed by a word that expects specific quotation type,
+            // set the expected type before checking the quotation
+            let saved_expected_type = if matches!(stmt, Statement::Quotation { .. }) {
+                // Save the current expected type
+                let saved = self.expected_quotation_type.borrow().clone();
+
+                // Try to set expected type based on lookahead
+                if let Some(Statement::WordCall(next_word)) = statements.get(i + 1) {
+                    // Check if the next word expects a specific quotation type
+                    if let Some(next_effect) = self.lookup_word_effect(next_word) {
+                        // Extract the quotation type expected by the next word
+                        // For operations like spawn: ( ..a Quotation(-- ) -- ..a Int )
+                        if let Some((_rest, quot_type)) = next_effect.inputs.clone().pop()
+                            && matches!(quot_type, Type::Quotation(_))
+                        {
+                            *self.expected_quotation_type.borrow_mut() = Some(quot_type);
+                        }
+                    }
+                }
+                Some(saved)
+            } else {
+                None
+            };
+
             let (new_stack, subst) = self.infer_statement(stmt, current_stack)?;
             current_stack = new_stack;
             accumulated_subst = accumulated_subst.compose(&subst);
+
+            // Restore expected type after checking quotation
+            if let Some(saved) = saved_expected_type {
+                *self.expected_quotation_type.borrow_mut() = saved;
+            }
         }
 
         Ok((current_stack, accumulated_subst))
@@ -235,8 +266,15 @@ impl TypeChecker {
                 // Freshen the effect to avoid variable name clashes
                 let fresh_effect = self.freshen_effect(&effect);
 
+                // Special handling for spawn: auto-convert Quotation to Closure if needed
+                let adjusted_stack = if name == "spawn" {
+                    self.adjust_stack_for_spawn(current_stack, &fresh_effect)?
+                } else {
+                    current_stack
+                };
+
                 // Apply the freshened effect to current stack
-                self.apply_effect(&fresh_effect, current_stack, name)
+                self.apply_effect(&fresh_effect, adjusted_stack, name)
             }
 
             Statement::If {
@@ -285,7 +323,7 @@ impl TypeChecker {
                 Ok((result, total_subst))
             }
 
-            Statement::Quotation(body) => {
+            Statement::Quotation { id, body } => {
                 // Type checking for quotations with automatic capture analysis
                 //
                 // A quotation is a block of deferred code.
@@ -307,8 +345,10 @@ impl TypeChecker {
                 // Perform capture analysis
                 let quot_type = self.analyze_captures(&body_effect, &current_stack)?;
 
-                // Record this quotation's type (for CodeGen to use later)
-                self.quotation_types.borrow_mut().push(quot_type.clone());
+                // Record this quotation's type in the type map (for CodeGen to use later)
+                self.quotation_types
+                    .borrow_mut()
+                    .insert(*id, quot_type.clone());
 
                 // If this is a closure, we need to pop the captured values from the stack
                 let result_stack = match &quot_type {
@@ -368,23 +408,100 @@ impl TypeChecker {
         Ok((result_stack, subst))
     }
 
+    /// Adjust stack for spawn operation by converting Quotation to Closure if needed
+    ///
+    /// spawn expects Quotation(Empty -- Empty), but if we have Quotation(T... -- U...)
+    /// with non-empty inputs, we auto-convert it to a Closure that captures those inputs.
+    fn adjust_stack_for_spawn(
+        &self,
+        current_stack: StackType,
+        spawn_effect: &Effect,
+    ) -> Result<StackType, String> {
+        // spawn expects: ( ..a Quotation(Empty -- Empty) -- ..a Int )
+        // Extract the expected quotation type from spawn's effect
+        let expected_quot_type = match &spawn_effect.inputs {
+            StackType::Cons { top, rest: _ } => {
+                if !matches!(top, Type::Quotation(_)) {
+                    return Ok(current_stack); // Not a quotation, don't adjust
+                }
+                top
+            }
+            _ => return Ok(current_stack),
+        };
+
+        // Check what's actually on the stack
+        let (rest_stack, actual_type) = match &current_stack {
+            StackType::Cons { rest, top } => (rest.as_ref().clone(), top),
+            _ => return Ok(current_stack), // Empty stack, nothing to adjust
+        };
+
+        // If top of stack is a Quotation with non-empty inputs, convert to Closure
+        if let Type::Quotation(actual_effect) = actual_type {
+            // Check if quotation needs inputs
+            if !matches!(actual_effect.inputs, StackType::Empty) {
+                // Extract expected effect from spawn's signature
+                let expected_effect = match expected_quot_type {
+                    Type::Quotation(eff) => eff.as_ref(),
+                    _ => return Ok(current_stack),
+                };
+
+                // Calculate what needs to be captured
+                let captures = self.calculate_captures(actual_effect, expected_effect)?;
+
+                // Create a Closure type
+                let closure_type = Type::Closure {
+                    effect: Box::new(expected_effect.clone()),
+                    captures: captures.clone(),
+                };
+
+                // Pop the captured values from the stack
+                // The values to capture are BELOW the quotation on the stack
+                let mut adjusted_stack = rest_stack;
+                for _ in &captures {
+                    adjusted_stack = match adjusted_stack {
+                        StackType::Cons { rest, .. } => rest.as_ref().clone(),
+                        _ => {
+                            return Err(format!(
+                                "spawn: not enough values on stack to capture. Need {} values",
+                                captures.len()
+                            ));
+                        }
+                    };
+                }
+
+                // Push the Closure onto the adjusted stack
+                return Ok(adjusted_stack.push(closure_type));
+            }
+        }
+
+        Ok(current_stack)
+    }
+
     /// Analyze quotation captures
     ///
     /// Determines whether a quotation should be stateless (Type::Quotation)
     /// or a closure (Type::Closure) based on the expected type from the word signature.
     ///
-    /// Type-driven inference:
+    /// Type-driven inference with automatic closure creation:
     ///   - If expected type is Closure[effect], calculate what to capture
-    ///   - If expected type is Quotation[effect], return stateless
+    ///   - If expected type is Quotation[effect]:
+    ///     - If body needs more inputs than expected effect, auto-create Closure
+    ///     - Otherwise return stateless Quotation
     ///   - If no expected type, default to stateless (conservative)
     ///
-    /// Example:
+    /// Example 1 (auto-create closure):
+    ///   Expected: Quotation[-- ]          [spawn expects ( -- )]
+    ///   Body: [ handle-connection ]       [needs ( Int -- )]
+    ///   Body effect: ( Int -- )           [needs 1 Int]
+    ///   Expected effect: ( -- )           [provides 0 inputs]
+    ///   Result: Closure { effect: ( -- ), captures: [Int] }
+    ///
+    /// Example 2 (explicit closure):
     ///   Signature: ( Int -- Closure[Int -- Int] )
     ///   Body: [ add ]
     ///   Body effect: ( Int Int -- Int )  [add needs 2 Ints]
     ///   Expected effect: [Int -- Int]    [call site provides 1 Int]
     ///   Result: Closure { effect: [Int -- Int], captures: [Int] }
-    ///           (captures 1 Int from creation stack)
     fn analyze_captures(
         &self,
         body_effect: &Effect,
@@ -400,8 +517,26 @@ impl TypeChecker {
                 Ok(Type::Closure { effect, captures })
             }
             Some(Type::Quotation(expected_effect)) => {
-                // User declared quotation type - stateless
-                Ok(Type::Quotation(expected_effect))
+                // User declared quotation type - check if we need to auto-create closure
+                // Auto-create closure only when:
+                // 1. Expected effect has empty inputs (like spawn's ( -- ))
+                // 2. Body effect has non-empty inputs (needs values to execute)
+
+                let expected_is_empty = matches!(expected_effect.inputs, StackType::Empty);
+                let body_needs_inputs = !matches!(body_effect.inputs, StackType::Empty);
+
+                if expected_is_empty && body_needs_inputs {
+                    // Body needs inputs but expected provides none
+                    // Auto-create closure to capture the inputs
+                    let captures = self.calculate_captures(body_effect, &expected_effect)?;
+                    Ok(Type::Closure {
+                        effect: expected_effect,
+                        captures,
+                    })
+                } else {
+                    // Body is compatible with expected effect - stateless quotation
+                    Ok(Type::Quotation(expected_effect))
+                }
             }
             _ => {
                 // No expected type - conservative default: stateless quotation
@@ -1264,10 +1399,13 @@ mod tests {
                         StackType::RowVar("input".to_string()).push(Type::Int),
                     )))),
                 )),
-                body: vec![Statement::Quotation(vec![
-                    Statement::IntLiteral(1),
-                    Statement::WordCall("add".to_string()),
-                ])],
+                body: vec![Statement::Quotation {
+                    id: 0,
+                    body: vec![
+                        Statement::IntLiteral(1),
+                        Statement::WordCall("add".to_string()),
+                    ],
+                }],
             }],
         };
 
@@ -1293,7 +1431,10 @@ mod tests {
                         StackType::RowVar("input".to_string()),
                     )))),
                 )),
-                body: vec![Statement::Quotation(vec![])],
+                body: vec![Statement::Quotation {
+                    id: 1,
+                    body: vec![],
+                }],
             }],
         };
 
@@ -1349,10 +1490,16 @@ mod tests {
                     StackType::Empty,
                     StackType::singleton(outer_quot_type),
                 )),
-                body: vec![Statement::Quotation(vec![Statement::Quotation(vec![
-                    Statement::IntLiteral(1),
-                    Statement::WordCall("add".to_string()),
-                ])])],
+                body: vec![Statement::Quotation {
+                    id: 2,
+                    body: vec![Statement::Quotation {
+                        id: 3,
+                        body: vec![
+                            Statement::IntLiteral(1),
+                            Statement::WordCall("add".to_string()),
+                        ],
+                    }],
+                }],
             }],
         };
 

@@ -8,9 +8,27 @@
 //!
 //! Note: These extern "C" functions use Value and slice pointers, which aren't technically FFI-safe,
 //! but they work correctly when called from LLVM-generated code (not actual C interop).
+//!
+//! ## Type Support Status
+//!
+//! Currently supported capture types:
+//! - **Int** (via `env_get_int`)
+//! - **String** (via `env_get_string`)
+//!
+//! Types to be added in future PR:
+//! - Bool
+//! - Quotation (nested quotations)
+//! - Closure (nested closures)
+//! - Variant
+//!
+//! See https://github.com/navicore/patch-seq for roadmap.
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
+
+/// Maximum number of captured values allowed in a closure environment.
+/// This prevents unbounded memory allocation and potential resource exhaustion.
+pub const MAX_CAPTURES: usize = 1024;
 
 /// Create a closure environment (array of captured values)
 ///
@@ -23,12 +41,20 @@ use crate::value::Value;
 // Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub extern "C" fn create_env(size: i32) -> *mut [Value] {
+pub extern "C" fn patch_seq_create_env(size: i32) -> *mut [Value] {
     if size < 0 {
         panic!("create_env: size cannot be negative: {}", size);
     }
 
-    let mut vec: Vec<Value> = Vec::with_capacity(size as usize);
+    let size_usize = size as usize;
+    if size_usize > MAX_CAPTURES {
+        panic!(
+            "create_env: size {} exceeds MAX_CAPTURES ({})",
+            size_usize, MAX_CAPTURES
+        );
+    }
+
+    let mut vec: Vec<Value> = Vec::with_capacity(size_usize);
 
     // Fill with placeholder values (will be replaced by env_set)
     for _ in 0..size {
@@ -49,9 +75,13 @@ pub extern "C" fn create_env(size: i32) -> *mut [Value] {
 // Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn env_set(env: *mut [Value], index: i32, value: Value) {
+pub unsafe extern "C" fn patch_seq_env_set(env: *mut [Value], index: i32, value: Value) {
     if env.is_null() {
         panic!("env_set: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_set: index cannot be negative: {}", index);
     }
 
     let env_slice = unsafe { &mut *env };
@@ -80,9 +110,17 @@ pub unsafe extern "C" fn env_set(env: *mut [Value], index: i32, value: Value) {
 // Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn env_get(env_data: *const Value, env_len: usize, index: i32) -> Value {
+pub unsafe extern "C" fn patch_seq_env_get(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> Value {
     if env_data.is_null() {
         panic!("env_get: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get: index cannot be negative: {}", index);
     }
 
     let idx = index as usize;
@@ -114,9 +152,17 @@ pub unsafe extern "C" fn env_get(env_data: *const Value, env_len: usize, index: 
 /// The signature is safe for LLVM IR but would be undefined behavior if called from C
 /// with incorrect assumptions about type layout.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn env_get_int(env_data: *const Value, env_len: usize, index: i32) -> i64 {
+pub unsafe extern "C" fn patch_seq_env_get_int(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> i64 {
     if env_data.is_null() {
         panic!("env_get_int: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_int: index cannot be negative: {}", index);
     }
 
     let idx = index as usize;
@@ -140,6 +186,52 @@ pub unsafe extern "C" fn env_get_int(env_data: *const Value, env_len: usize, ind
     }
 }
 
+/// Get a String value from the environment at the given index
+///
+/// # Safety
+/// - env_data must be a valid pointer to an array of Values
+/// - env_len must be the actual length of that array
+/// - index must be within bounds
+/// - The value at index must be a String
+///
+/// This function returns a SeqString by-value.
+/// This is safe for FFI because it's only called from LLVM-generated code, not actual C code.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_env_get_string(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> crate::seqstring::SeqString {
+    if env_data.is_null() {
+        panic!("env_get_string: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_string: index cannot be negative: {}", index);
+    }
+
+    let idx = index as usize;
+
+    if idx >= env_len {
+        panic!(
+            "env_get_string: index {} out of bounds for environment of size {}",
+            index, env_len
+        );
+    }
+
+    // Access the value at the index
+    let value = unsafe { &*env_data.add(idx) };
+
+    match value {
+        Value::String(s) => s.clone(),
+        _ => panic!(
+            "env_get_string: expected String at index {}, got {:?}",
+            index, value
+        ),
+    }
+}
+
 /// Create a closure value from a function pointer and environment
 ///
 /// Takes ownership of the environment (converts raw pointer back to Box).
@@ -151,7 +243,7 @@ pub unsafe extern "C" fn env_get_int(env_data: *const Value, env_len: usize, ind
 // Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn make_closure(fn_ptr: u64, env: *mut [Value]) -> Value {
+pub unsafe extern "C" fn patch_seq_make_closure(fn_ptr: u64, env: *mut [Value]) -> Value {
     if fn_ptr == 0 {
         panic!("make_closure: null function pointer");
     }
@@ -181,7 +273,11 @@ pub unsafe extern "C" fn make_closure(fn_ptr: u64, env: *mut [Value]) -> Value {
 /// - fn_ptr must be a valid function pointer
 /// - stack must have at least `capture_count` values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_closure(mut stack: Stack, fn_ptr: u64, capture_count: i32) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_closure(
+    mut stack: Stack,
+    fn_ptr: u64,
+    capture_count: i32,
+) -> Stack {
     if fn_ptr == 0 {
         panic!("push_closure: null function pointer");
     }
@@ -212,6 +308,15 @@ pub unsafe extern "C" fn push_closure(mut stack: Stack, fn_ptr: u64, capture_cou
     // Push onto stack
     unsafe { push(stack, closure) }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_create_env as create_env;
+pub use patch_seq_env_get as env_get;
+pub use patch_seq_env_get_int as env_get_int;
+pub use patch_seq_env_get_string as env_get_string;
+pub use patch_seq_env_set as env_set;
+pub use patch_seq_make_closure as make_closure;
+pub use patch_seq_push_closure as push_closure;
 
 #[cfg(test)]
 mod tests {

@@ -23,42 +23,70 @@ pub mod value;
 
 // Re-export key types and functions
 pub use stack::{
-    Stack, StackNode, drop, dup, is_empty, nip, over, peek, pick, pop, push, push_value, rot, swap,
-    tuck,
+    Stack, StackNode, drop, is_empty, patch_seq_drop_op as drop_op, patch_seq_dup as dup,
+    patch_seq_nip as nip, patch_seq_over as over, patch_seq_pick_op as pick_op,
+    patch_seq_push_value as push_value, patch_seq_rot as rot, patch_seq_swap as swap,
+    patch_seq_tuck as tuck, peek, pick, pop, push,
 };
 pub use value::{Value, VariantData};
 
 // Arithmetic operations (exported for LLVM linking)
 pub use arithmetic::{
-    add, divide, eq, gt, gte, lt, lte, multiply, neq, push_bool, push_int, subtract,
+    patch_seq_add as add, patch_seq_divide as divide, patch_seq_eq as eq, patch_seq_gt as gt,
+    patch_seq_gte as gte, patch_seq_lt as lt, patch_seq_lte as lte, patch_seq_multiply as multiply,
+    patch_seq_neq as neq, patch_seq_push_bool as push_bool, patch_seq_push_int as push_int,
+    patch_seq_subtract as subtract,
 };
 
 // I/O operations (exported for LLVM linking)
-pub use io::{exit_op, push_string, read_line, write_line};
+pub use io::{
+    patch_seq_exit_op as exit_op, patch_seq_push_string as push_string,
+    patch_seq_read_line as read_line, patch_seq_write_line as write_line,
+};
 
 // Scheduler operations (exported for LLVM linking)
 pub use scheduler::{
-    scheduler_init, scheduler_run, scheduler_shutdown, spawn_strand, strand_spawn,
-    wait_all_strands, yield_strand,
+    patch_seq_scheduler_init as scheduler_init, patch_seq_scheduler_run as scheduler_run,
+    patch_seq_scheduler_shutdown as scheduler_shutdown, patch_seq_spawn_strand as spawn_strand,
+    patch_seq_strand_spawn as strand_spawn, patch_seq_wait_all_strands as wait_all_strands,
+    patch_seq_yield_strand as yield_strand,
 };
 
 // Channel operations (exported for LLVM linking)
-pub use channel::{close_channel, make_channel, receive, send};
+pub use channel::{
+    patch_seq_chan_receive as receive, patch_seq_chan_send as send,
+    patch_seq_close_channel as close_channel, patch_seq_make_channel as make_channel,
+};
 
 // String operations (exported for LLVM linking)
 pub use string_ops::{
-    string_concat, string_contains, string_empty, string_length, string_split, string_starts_with,
-    string_to_lower, string_to_upper, string_trim,
+    patch_seq_string_concat as string_concat, patch_seq_string_contains as string_contains,
+    patch_seq_string_empty as string_empty, patch_seq_string_length as string_length,
+    patch_seq_string_split as string_split, patch_seq_string_starts_with as string_starts_with,
+    patch_seq_string_to_lower as string_to_lower, patch_seq_string_to_upper as string_to_upper,
+    patch_seq_string_trim as string_trim,
 };
 
 // Quotation operations (exported for LLVM linking)
-pub use quotations::{call, forever, push_quotation, spawn, times, until_loop, while_loop};
+pub use quotations::{
+    patch_seq_call as call, patch_seq_forever as forever,
+    patch_seq_push_quotation as push_quotation, patch_seq_spawn as spawn, patch_seq_times as times,
+    patch_seq_until_loop as until_loop, patch_seq_while_loop as while_loop,
+};
 
 // Closure operations (exported for LLVM linking)
-pub use closures::{create_env, env_get, env_get_int, env_set, make_closure, push_closure};
+pub use closures::{
+    patch_seq_create_env as create_env, patch_seq_env_get as env_get,
+    patch_seq_env_get_int as env_get_int, patch_seq_env_set as env_set,
+    patch_seq_make_closure as make_closure, patch_seq_push_closure as push_closure,
+};
 
 // Conditional combinator (exported for LLVM linking)
-pub use cond::cond;
+pub use cond::patch_seq_cond as cond;
 
 // TCP operations (exported for LLVM linking)
-pub use tcp::{tcp_accept, tcp_close, tcp_listen, tcp_read, tcp_write};
+pub use tcp::{
+    patch_seq_tcp_accept as tcp_accept, patch_seq_tcp_close as tcp_close,
+    patch_seq_tcp_listen as tcp_listen, patch_seq_tcp_read as tcp_read,
+    patch_seq_tcp_write as tcp_write,
+};

@@ -14,4 +14,7 @@ may.workspace = true
 # Bumpalo - Fast bump allocation for strand-local arenas
 bumpalo.workspace = true
 
+# libc - System call interface
+libc.workspace = true
+
 [dev-dependencies]

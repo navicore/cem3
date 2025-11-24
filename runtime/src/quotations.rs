@@ -3,9 +3,104 @@
 //! Quotations are deferred code blocks (first-class functions).
 //! A quotation is represented as a function pointer stored as usize.
 
-use crate::scheduler::strand_spawn;
+use crate::scheduler::patch_seq_strand_spawn;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+/// Type alias for closure registry entries
+type ClosureEntry = (usize, Box<[Value]>);
+
+/// Global registry for closure environments in spawned strands
+/// Maps closure_spawn_id -> (fn_ptr, env)
+/// Cleaned up when the trampoline retrieves and executes the closure
+static SPAWN_CLOSURE_REGISTRY: LazyLock<Mutex<HashMap<i64, ClosureEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// RAII guard for cleanup of spawn registry on failure
+///
+/// If the spawned strand fails to start or panics before retrieving
+/// the closure from the registry, this guard ensures the environment
+/// is cleaned up and not leaked.
+struct SpawnRegistryGuard {
+    closure_spawn_id: i64,
+    should_cleanup: bool,
+}
+
+impl SpawnRegistryGuard {
+    fn new(closure_spawn_id: i64) -> Self {
+        Self {
+            closure_spawn_id,
+            should_cleanup: true,
+        }
+    }
+
+    /// Disarm the guard - strand successfully started and will retrieve the closure
+    fn disarm(&mut self) {
+        self.should_cleanup = false;
+    }
+}
+
+impl Drop for SpawnRegistryGuard {
+    fn drop(&mut self) {
+        if self.should_cleanup {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            if let Some((_, env)) = registry.remove(&self.closure_spawn_id) {
+                // env (Box<[Value]>) will be dropped here, freeing memory
+                drop(env);
+            }
+        }
+    }
+}
+
+/// Trampoline function for spawning closures
+///
+/// This function is passed to strand_spawn when spawning a closure.
+/// It expects the closure_spawn_id on the stack, retrieves the closure data
+/// from the registry, and calls the closure function with the environment.
+///
+/// Stack effect: ( closure_spawn_id -- ... )
+/// The closure function determines the final stack state.
+///
+/// # Safety
+/// This function is safe to call, but internally uses unsafe operations
+/// to transmute function pointers and call the closure function.
+extern "C" fn closure_spawn_trampoline(stack: Stack) -> Stack {
+    unsafe {
+        // Pop closure_spawn_id from stack
+        let (stack, closure_spawn_id_val) = pop(stack);
+        let closure_spawn_id = match closure_spawn_id_val {
+            Value::Int(id) => id,
+            _ => panic!(
+                "closure_spawn_trampoline: expected Int (closure_spawn_id), got {:?}",
+                closure_spawn_id_val
+            ),
+        };
+
+        // Retrieve closure data from registry
+        let (fn_ptr, env) = {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.remove(&closure_spawn_id).unwrap_or_else(|| {
+                panic!(
+                    "closure_spawn_trampoline: no data for closure_spawn_id {}",
+                    closure_spawn_id
+                )
+            })
+        };
+
+        // Call closure function with empty stack and environment
+        // Closure signature: fn(Stack, *const Value, usize) -> Stack
+        let env_ptr = env.as_ptr();
+        let env_len = env.len();
+
+        let fn_ref: unsafe extern "C" fn(Stack, *const Value, usize) -> Stack =
+            std::mem::transmute(fn_ptr);
+
+        // Call closure and return result (environment is dropped here)
+        fn_ref(stack, env_ptr, env_len)
+    }
+}
 
 /// Push a quotation (function pointer) onto the stack
 ///
@@ -15,7 +110,7 @@ use crate::value::Value;
 /// - Stack pointer must be valid (or null for empty stack)
 /// - Function pointer must be valid
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
     unsafe { push(stack, Value::Quotation(fn_ptr)) }
 }
 
@@ -36,7 +131,7 @@ pub unsafe extern "C" fn push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
 /// - Quotation signature: Stack -> Stack
 /// - Closure signature: Stack, *const [Value] -> Stack
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn call(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_call(stack: Stack) -> Stack {
     unsafe {
         let (stack, value) = pop(stack);
 
@@ -102,7 +197,7 @@ pub unsafe extern "C" fn call(stack: Stack) -> Stack {
 /// - Second must be Quotation
 /// - Quotation's effect must preserve stack shape
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_times(mut stack: Stack) -> Stack {
     unsafe {
         // Pop count
         let (stack_temp, count_value) = pop(stack);
@@ -129,9 +224,11 @@ pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
         let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Execute quotation n times
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
         stack = stack_temp2;
         for _ in 0..count {
             stack = fn_ref(stack);
+            may::coroutine::yield_now();
         }
 
         stack
@@ -155,7 +252,7 @@ pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
 /// - Condition quotation must push exactly one Int
 /// - Body quotation must preserve stack shape
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_while_loop(mut stack: Stack) -> Stack {
     unsafe {
         // Pop body quotation
         let (stack_temp, body_value) = pop(stack);
@@ -186,6 +283,7 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
 
         // Loop while condition is true
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
         stack = stack_temp2;
         loop {
             // Execute condition quotation
@@ -206,6 +304,9 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
 
             // Condition is true, execute body
             stack = body_fn(stack_after_cond);
+
+            // Yield to scheduler after each iteration
+            may::coroutine::yield_now();
         }
 
         stack
@@ -232,7 +333,7 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
 /// - Quotation must not cause stack underflow
 /// - This never returns! (infinite loop)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_forever(stack: Stack) -> Stack {
     unsafe {
         // Pop quotation
         let (mut stack, quot_value) = pop(stack);
@@ -252,8 +353,11 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
         // Infinite loop - execute body forever
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling.
+        // Without yielding, this coroutine would monopolize the thread and starve other strands.
         loop {
             stack = body_fn(stack);
+            may::coroutine::yield_now();
         }
     }
 }
@@ -277,7 +381,7 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
 /// - Condition quotation must push exactly one Int
 /// - Body quotation must preserve stack shape
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
     unsafe {
         // Pop condition quotation
         let (stack_temp, cond_value) = pop(stack);
@@ -308,6 +412,7 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
         let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
 
         // Loop until condition is true (do-while style)
+        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
         stack = stack_temp2;
         loop {
             // Execute body quotation
@@ -331,16 +436,21 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
 
             // Condition is false, continue loop
             stack = stack_after_cond;
+
+            // Yield to scheduler after each iteration
+            may::coroutine::yield_now();
         }
 
         stack
     }
 }
 
-/// Spawn a quotation as a new strand (green thread)
+/// Spawn a quotation or closure as a new strand (green thread)
 ///
-/// Pops a quotation from the stack and spawns it as a new strand.
-/// The quotation executes concurrently with an empty initial stack.
+/// Pops a quotation or closure from the stack and spawns it as a new strand.
+/// - For Quotations: The quotation executes concurrently with an empty initial stack
+/// - For Closures: The closure executes with its captured environment
+///
 /// Returns the strand ID.
 ///
 /// Stack effect: ( ..a quot -- ..a strand_id )
@@ -348,40 +458,161 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
 ///
 /// # Safety
 /// - Stack must have at least 1 value
-/// - Top must be Quotation
-/// - Quotation must be safe to execute on any thread
+/// - Top must be Quotation or Closure
+/// - Function must be safe to execute on any thread
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
     unsafe {
-        // Pop quotation
-        let (stack, quot_value) = pop(stack);
-        let fn_ptr = match quot_value {
-            Value::Quotation(ptr) => ptr,
-            _ => panic!("spawn: expected Quotation, got {:?}", quot_value),
-        };
+        // Pop quotation or closure
+        let (stack, value) = pop(stack);
 
-        // Validate function pointer is not null
-        if fn_ptr == 0 {
-            panic!("spawn: quotation function pointer is null");
+        match value {
+            Value::Quotation(fn_ptr) => {
+                // Validate function pointer is not null
+                if fn_ptr == 0 {
+                    panic!("spawn: quotation function pointer is null");
+                }
+
+                // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
+                // The compiler guarantees that quotation literals produce valid function pointers.
+                // We've verified fn_ptr is non-null above.
+                let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+
+                // Spawn the strand with null initial stack
+                let strand_id = patch_seq_strand_spawn(fn_ref, std::ptr::null_mut());
+
+                // Push strand ID back onto stack
+                push(stack, Value::Int(strand_id))
+            }
+            Value::Closure { fn_ptr, env } => {
+                // Validate function pointer is not null
+                if fn_ptr == 0 {
+                    panic!("spawn: closure function pointer is null");
+                }
+
+                // We need to pass the closure data to the spawned strand.
+                // We use a registry with a unique ID (separate from strand_id).
+                use std::sync::atomic::{AtomicI64, Ordering};
+                static NEXT_CLOSURE_SPAWN_ID: AtomicI64 = AtomicI64::new(1);
+                let closure_spawn_id = NEXT_CLOSURE_SPAWN_ID.fetch_add(1, Ordering::Relaxed);
+
+                // Store closure data in registry
+                {
+                    let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+                    registry.insert(closure_spawn_id, (fn_ptr, env));
+                }
+
+                // Create a guard to cleanup registry on failure
+                // If spawn fails or the strand panics before retrieving the closure,
+                // the guard's Drop impl will remove the registry entry
+                let mut guard = SpawnRegistryGuard::new(closure_spawn_id);
+
+                // Create initial stack with the closure_spawn_id
+                let initial_stack = push(std::ptr::null_mut(), Value::Int(closure_spawn_id));
+
+                // Spawn strand with trampoline
+                let strand_id = patch_seq_strand_spawn(closure_spawn_trampoline, initial_stack);
+
+                // Spawn succeeded - disarm the guard so it won't cleanup
+                // The trampoline will retrieve and remove the closure data from the registry
+                guard.disarm();
+
+                // Push strand ID back onto stack
+                push(stack, Value::Int(strand_id))
+            }
+            _ => panic!("spawn: expected Quotation or Closure, got {:?}", value),
         }
-
-        // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
-        // The compiler guarantees that quotation literals produce valid function pointers.
-        // We've verified fn_ptr is non-null above.
-        let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
-
-        // Spawn the strand with null initial stack
-        let strand_id = strand_spawn(fn_ref, std::ptr::null_mut());
-
-        // Push strand ID back onto stack
-        push(stack, Value::Int(strand_id))
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_call as call;
+pub use patch_seq_forever as forever;
+pub use patch_seq_push_quotation as push_quotation;
+pub use patch_seq_spawn as spawn;
+pub use patch_seq_times as times;
+pub use patch_seq_until_loop as until_loop;
+pub use patch_seq_while_loop as while_loop;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::arithmetic::push_int;
+    use crate::value::Value;
+
+    #[test]
+    fn test_spawn_registry_guard_cleanup() {
+        // Test that the RAII guard cleans up the registry on drop
+        let closure_id = 12345;
+
+        // Create a test closure environment
+        let env: Box<[Value]> = vec![Value::Int(42), Value::Int(99)].into_boxed_slice();
+        let fn_ptr: usize = 0x1234;
+
+        // Insert into registry
+        {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.insert(closure_id, (fn_ptr, env));
+        }
+
+        // Verify it's in the registry
+        {
+            let registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            assert!(registry.contains_key(&closure_id));
+        }
+
+        // Create a guard (without disarming) and let it drop
+        {
+            let _guard = SpawnRegistryGuard::new(closure_id);
+            // Guard drops here, should clean up the registry
+        }
+
+        // Verify the registry was cleaned up
+        {
+            let registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            assert!(
+                !registry.contains_key(&closure_id),
+                "Guard should have cleaned up registry entry on drop"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spawn_registry_guard_disarm() {
+        // Test that disarming the guard prevents cleanup
+        let closure_id = 54321;
+
+        // Create a test closure environment
+        let env: Box<[Value]> = vec![Value::Int(10), Value::Int(20)].into_boxed_slice();
+        let fn_ptr: usize = 0x5678;
+
+        // Insert into registry
+        {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.insert(closure_id, (fn_ptr, env));
+        }
+
+        // Create a guard, disarm it, and let it drop
+        {
+            let mut guard = SpawnRegistryGuard::new(closure_id);
+            guard.disarm();
+            // Guard drops here, but should NOT clean up because it's disarmed
+        }
+
+        // Verify the registry entry is still there
+        {
+            let registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            assert!(
+                registry.contains_key(&closure_id),
+                "Disarmed guard should not clean up registry entry"
+            );
+
+            // Manual cleanup for this test
+            drop(registry);
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.remove(&closure_id);
+        }
+    }
 
     // Helper function for testing: a quotation that adds 1
     unsafe extern "C" fn add_one_quot(stack: Stack) -> Stack {

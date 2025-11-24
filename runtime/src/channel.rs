@@ -60,7 +60,7 @@ fn init_registry() {
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
     init_registry();
 
     // Create an unbounded channel
@@ -100,8 +100,8 @@ pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have a channel ID (Int) on top and a value below it
-#[unsafe(export_name = "cem_send")]
-pub unsafe extern "C" fn send(stack: Stack) -> Stack {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "send: stack is empty");
 
     // Pop channel ID
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a channel ID (Int) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "receive: stack is empty");
 
     // Pop channel ID
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a channel ID (Int) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_close_channel(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "close_channel: stack is empty");
 
     // Pop channel ID
@@ -256,6 +256,12 @@ pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
 
     rest
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_chan_receive as receive;
+pub use patch_seq_chan_send as send;
+pub use patch_seq_close_channel as close_channel;
+pub use patch_seq_make_channel as make_channel;
 
 #[cfg(test)]
 mod tests {

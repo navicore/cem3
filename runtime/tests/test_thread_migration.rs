@@ -75,10 +75,7 @@ fn test_coroutine_thread_migration() {
         std::collections::HashMap::new();
 
     for (strand_id, tid, _) in log.iter() {
-        strand_threads
-            .entry(*strand_id)
-            .or_insert_with(Vec::new)
-            .push(*tid);
+        strand_threads.entry(*strand_id).or_default().push(*tid);
     }
 
     let mut migration_detected = false;

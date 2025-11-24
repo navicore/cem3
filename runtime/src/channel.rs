@@ -60,7 +60,7 @@ fn init_registry() {
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
     init_registry();
 
     // Create an unbounded channel
@@ -101,12 +101,7 @@ pub unsafe extern "C" fn make_channel(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a channel ID (Int) on top and a value below it
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn send(stack: Stack) -> Stack {
-    eprintln!(
-        "[send] called with stack={:?}, thread={:?}",
-        stack as usize,
-        std::thread::current().id()
-    );
+pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "send: stack is empty");
 
     // Pop channel ID
@@ -120,19 +115,11 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
         }
         _ => panic!("send: expected channel ID (Int) on stack"),
     };
-    eprintln!(
-        "[send] after pop channel_id: stack={:?}, channel_id={}",
-        stack as usize, channel_id
-    );
 
     assert!(!stack.is_null(), "send: stack has only one value");
 
     // Pop value to send
     let (rest, value) = unsafe { pop(stack) };
-    eprintln!(
-        "[send] after pop value: rest={:?}, value={:?}",
-        rest as usize, value
-    );
 
     // Get sender from registry
     let guard = CHANNEL_REGISTRY
@@ -161,11 +148,6 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
     // May's scheduler will handle the blocking cooperatively
     sender.send(global_value).expect("send: channel closed");
 
-    eprintln!(
-        "[send] returning rest={:?}, thread={:?}",
-        rest as usize,
-        std::thread::current().id()
-    );
     rest
 }
 
@@ -189,7 +171,7 @@ pub unsafe extern "C" fn send(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a channel ID (Int) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "receive: stack is empty");
 
     // Pop channel ID
@@ -246,7 +228,7 @@ pub unsafe extern "C" fn receive(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a channel ID (Int) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_close_channel(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "close_channel: stack is empty");
 
     // Pop channel ID
@@ -274,6 +256,12 @@ pub unsafe extern "C" fn close_channel(stack: Stack) -> Stack {
 
     rest
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_chan_receive as receive;
+pub use patch_seq_chan_send as send;
+pub use patch_seq_close_channel as close_channel;
+pub use patch_seq_make_channel as make_channel;
 
 #[cfg(test)]
 mod tests {

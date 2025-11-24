@@ -76,7 +76,7 @@ static STREAMS: Mutex<SocketRegistry<TcpStream>> = Mutex::new(SocketRegistry::ne
 /// # Safety
 /// Stack must have an Int (port number) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tcp_listen(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_tcp_listen(stack: Stack) -> Stack {
     unsafe {
         let (stack, port_val) = pop(stack);
         let port = match port_val {
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn tcp_listen(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have an Int (listener_id) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tcp_accept(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_tcp_accept(stack: Stack) -> Stack {
     unsafe {
         let (stack, listener_id_val) = pop(stack);
         let listener_id = match listener_id_val {
@@ -169,7 +169,7 @@ pub unsafe extern "C" fn tcp_accept(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have an Int (socket_id) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tcp_read(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
     unsafe {
         let (stack, socket_id_val) = pop(stack);
         let socket_id = match socket_id_val {
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn tcp_read(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have Int (socket_id) and String on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tcp_write(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_tcp_write(stack: Stack) -> Stack {
     unsafe {
         let (stack, socket_id_val) = pop(stack);
         let socket_id = match socket_id_val {
@@ -301,7 +301,7 @@ pub unsafe extern "C" fn tcp_write(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have an Int (socket_id) on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tcp_close(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_tcp_close(stack: Stack) -> Stack {
     unsafe {
         let (stack, socket_id_val) = pop(stack);
         let socket_id = match socket_id_val {
@@ -319,6 +319,13 @@ pub unsafe extern "C" fn tcp_close(stack: Stack) -> Stack {
         stack
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_tcp_accept as tcp_accept;
+pub use patch_seq_tcp_close as tcp_close;
+pub use patch_seq_tcp_listen as tcp_listen;
+pub use patch_seq_tcp_read as tcp_read;
+pub use patch_seq_tcp_write as tcp_write;
 
 #[cfg(test)]
 mod tests {

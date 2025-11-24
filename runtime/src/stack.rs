@@ -81,21 +81,14 @@ pub unsafe fn peek<'a>(stack: Stack) -> &'a Value {
 /// # Safety
 /// Stack must not be null
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dup(stack: Stack) -> Stack {
-    eprintln!(
-        "[dup] called with stack={:?}, thread={:?}",
-        stack as usize,
-        std::thread::current().id()
-    );
+pub unsafe extern "C" fn patch_seq_dup(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "dup: stack is empty");
     // SAFETY NOTE: In Rust 2024 edition, even within `unsafe fn`, the body is not
     // automatically an unsafe context. Explicit `unsafe {}` blocks are required for
     // all unsafe operations (dereferencing raw pointers, calling unsafe functions).
     // This is intentional and follows best practices for clarity about what's unsafe.
     let value = unsafe { (*stack).value.clone() };
-    let result = unsafe { push(stack, value) };
-    eprintln!("[dup] returning stack={:?}", result as usize);
-    result
+    unsafe { push(stack, value) }
 }
 
 /// Drop the top value from the stack: ( a -- )
@@ -115,7 +108,7 @@ pub unsafe fn drop(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must not be null
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn drop_op(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_drop_op(stack: Stack) -> Stack {
     unsafe { drop(stack) }
 }
 
@@ -128,7 +121,7 @@ pub unsafe extern "C" fn drop_op(stack: Stack) -> Stack {
 // Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_value(stack: Stack, value: Value) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_value(stack: Stack, value: Value) -> Stack {
     unsafe { push(stack, value) }
 }
 
@@ -137,7 +130,7 @@ pub unsafe extern "C" fn push_value(stack: Stack, value: Value) -> Stack {
 /// # Safety
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn swap(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_swap(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "swap: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "swap: stack has only one value");
@@ -151,7 +144,7 @@ pub unsafe extern "C" fn swap(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn over(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_over(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "over: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "over: stack has only one value");
@@ -165,7 +158,7 @@ pub unsafe extern "C" fn over(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least three values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn rot(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_rot(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "rot: stack is empty");
     let (rest, c) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "rot: stack has only one value");
@@ -182,7 +175,7 @@ pub unsafe extern "C" fn rot(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nip(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_nip(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "nip: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "nip: stack has only one value");
@@ -195,7 +188,7 @@ pub unsafe extern "C" fn nip(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tuck(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_tuck(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "tuck: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "tuck: stack has only one value");
@@ -276,7 +269,7 @@ pub unsafe fn pick(stack: Stack, n: usize) -> Stack {
 /// # Safety
 /// Stack must have at least one value (the Int n), and at least n+1 values total
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pick_op(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
     use crate::value::Value;
 
     assert!(!stack.is_null(), "pick: stack is empty");
@@ -322,6 +315,17 @@ pub unsafe extern "C" fn pick_op(stack: Stack) -> Stack {
     let (stack, _) = unsafe { pop(stack) };
     unsafe { pick(stack, n) }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_drop_op as drop_op;
+pub use patch_seq_dup as dup;
+pub use patch_seq_nip as nip;
+pub use patch_seq_over as over;
+pub use patch_seq_pick_op as pick_op;
+pub use patch_seq_push_value as push_value;
+pub use patch_seq_rot as rot;
+pub use patch_seq_swap as swap;
+pub use patch_seq_tuck as tuck;
 
 #[cfg(test)]
 mod tests {

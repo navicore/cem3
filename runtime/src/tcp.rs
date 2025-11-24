@@ -190,12 +190,14 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
         };
         // Registry lock is now released
 
-        // Read data (this yields the strand, doesn't block OS thread)
-        // Reads until EOF, WouldBlock, or MAX_READ_SIZE reached
-        // For protocol-specific parsing (like HTTP), handle in application code
+        // Read available data (this yields the strand, doesn't block OS thread)
+        // Reads all currently available data up to MAX_READ_SIZE
+        // Returns when: data is available and read, EOF, or WouldBlock
         let mut buffer = Vec::new();
         let mut chunk = [0u8; 4096];
 
+        // Read until we get data, EOF, or error
+        // For HTTP: Read once and return immediately to avoid blocking when client waits for response
         loop {
             // Check size limit to prevent memory exhaustion
             if buffer.len() >= MAX_READ_SIZE {
@@ -206,7 +208,9 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
             }
 
             match stream.read(&mut chunk) {
-                Ok(0) => break, // EOF
+                Ok(0) => {
+                    break;
+                }
                 Ok(n) => {
                     // Don't exceed max size even with partial chunk
                     let bytes_to_add = n.min(MAX_READ_SIZE.saturating_sub(buffer.len()));
@@ -214,8 +218,21 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
                     if bytes_to_add < n {
                         break; // Hit limit
                     }
+                    // Return immediately after reading data
+                    // May's cooperative I/O would block on next read() if no more data available
+                    // Client might be waiting for our response, so don't wait for more
+                    break;
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // No data available yet - yield and wait for May's scheduler to wake us
+                    // when data arrives, or connection closes
+                    if buffer.is_empty() {
+                        may::coroutine::yield_now();
+                        continue;
+                    }
+                    // If we already have some data, return it
+                    break;
+                }
                 Err(e) => panic!("tcp_read: failed to read from socket: {}", e),
             }
         }

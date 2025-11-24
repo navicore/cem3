@@ -1,144 +1,97 @@
-# HTTP Examples for Seq
+# HTTP Server Example for Seq
 
-This directory contains a tutorial series demonstrating HTTP routing and server
-capabilities in Seq.
+A complete concurrent HTTP server demonstrating Seq's capabilities:
+- TCP socket operations
+- Concurrent request handling with strands (green threads)
+- Channel-based communication (CSP)
+- Closure capture for spawned workers
+- HTTP routing with pattern matching
 
 ## Prerequisites
 
-Build the compiler: ```bash cargo build --release ```
-
-## Examples (in order of complexity)
-
-### 1. `01_simple_router.seq` - Basic HTTP Routing
-
-Demonstrates:
-- Using the `cond` combinator for multi-way branching
-- HTTP request pattern matching with `string-starts-with`
-- Composing words with proper type signatures
-- Row polymorphism in action
-
-**Concepts:**
-- Type signature `( String -- String )` is implicitly row-polymorphic
-- The `cond` combinator takes N pairs of condition/action quotations plus a
-  count
-- Each condition quotation should return an Int (0=false, non-zero=true)
-
-**Run it:** ```bash ./target/release/seqc --output tmp/01_simple_router
-examples/http/01_simple_router.seq ./tmp/01_simple_router ```
-
-**Expected output:** ``` HTTP/1.1 200 OK Content-Type: text/plain
-
-Welcome to Seq! HTTP/1.1 200 OK Content-Type: application/json
-
-{"status":"healthy"} HTTP/1.1 404 Not Found Content-Type: text/plain
-
-404 Not Found ```
-
----
-
-### 2. `02_router_with_helpers.seq` - Modular Routing
-
-Demonstrates:
-- Breaking routing logic into helper words
-- Forward references (using words before they're defined in quotations)
-- Building response strings with proper headers
-- Type-safe composition of multiple words
-
-**Concepts:**
-- Helper words can be called from quotations before their definition
-- Type checker validates the entire call chain
-- Proper HTTP response format with headers
-
-**Run it:** ```bash ./target/release/seqc --output tmp/02_router_with_helpers
-examples/http/02_router_with_helpers.seq ./tmp/02_router_with_helpers ```
-
----
-
-### 3. `03_echo_server.seq` - TCP Echo Server (no spawn)
-
-Demonstrates:
-- Basic TCP operations: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`,
-  `tcp-close`
-- Single-threaded server handling one connection
-- Real network I/O
-
-**Concepts:**
-- `tcp-listen` returns a listener socket (Int)
-- `tcp-accept` blocks until connection arrives, returns connection socket
-- `tcp-read` and `tcp-write` operate on connection sockets
-- `tcp-close` cleans up connection
-
-**Run it:** ```bash ./target/release/seqc --output tmp/03_echo_server
-examples/http/03_echo_server.seq ./tmp/03_echo_server &
-
-# In another terminal: curl http://localhost:8080/ curl
-http://localhost:8080/health ```
-
-**Current limitation:** Only handles one connection then exits. Full
-multi-connection server requires `spawn` with data passing (see below).
-
----
-
-## Current Limitations and Future Work
-
-### spawn with Data Passing
-
-The current `spawn` builtin has signature: ``` spawn: ( ..a [ -- ] -- ..a Int )
+Build the compiler:
+```bash
+cargo build --release
 ```
 
-This means the spawned quotation must have effect `( -- )` - it can't receive
-data from the stack.
+## Running the Server
 
-**Example that doesn't work yet:** ```cem : handle-connection ( Int -- ) dup
-tcp-read route swap tcp-write tcp-close ;
+```bash
+./target/release/seqc --output /tmp/http_server examples/http/http_server.seq
+/tmp/http_server
+```
 
-: accept-loop ( Int -- ) [ 1 ] [ dup tcp-accept [ handle-connection ] spawn  #
-ERROR: handle-connection needs Int! drop ] until ; ```
+The server listens on port 8080 and handles multiple concurrent connections.
 
-**Planned solutions:**
+## Testing
 
-1. **Add `curry` operation** (like Factor): ```cem dup tcp-accept [
-handle-connection ] curry spawn  # Captures Int in closure ```
+In another terminal:
 
-2. **Generalize spawn signature**: ``` spawn: ( ..a ..b [ ..b -- ] -- ..a Int )
-``` This would allow spawn to consume stack values and pass them to the new
-strand.
+```bash
+# Test root endpoint
+curl http://localhost:8080/
+# Output: Hello from Seq!
 
-3. **Use channels for data passing**: ```cem make-channel dup tcp-accept swap [
-receive handle-connection ] spawn send ```
+# Test health endpoint
+curl http://localhost:8080/health
+# Output: OK
 
-## Syntax Notes
+# Test echo endpoint
+curl http://localhost:8080/echo
+# Output: Echo!
 
-### Comments Comments start with `#` and continue to the end of the line.
-**Important:** Comments must appear on their own line, not inline with code:
+# Test 404 handling
+curl http://localhost:8080/invalid
+# Output: 404 Not Found
+```
 
-**Good:** ```cem # This is a comment : route ( String -- String ) [ dup "GET / "
-string-starts-with ] [ drop "OK" ] 2 cond ; ```
+## How It Works
 
-**Bad (will cause parse errors):** ```cem : route ( String -- String ) [ dup
-"GET / " string-starts-with ]  # This inline comment breaks! [ drop "OK" ] 2
-cond ; ```
+The server demonstrates several Seq features:
 
-### Type System - Row Polymorphism
+1. **TCP Operations**: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`, `tcp-close`
+2. **Routing**: Uses `cond` combinator for multi-way branching on request paths
+3. **Concurrency**: Each connection is handled in a separate strand (green thread)
+4. **Channels**: Spawned workers receive socket IDs via channels
+5. **Closures**: The `[ worker ]` quotation captures the channel ID when spawned
 
-All examples demonstrate **implicit row polymorphism**. When you write: ```cem :
-route ( String -- String ) ... ; ```
+### Architecture
 
-The compiler interprets this as: ```cem : route ( ..rest String -- ..rest String
-) ```
+```
+main
+  ├─ tcp-listen (creates listener socket)
+  └─ accept-loop (infinite)
+       ├─ tcp-accept (waits for connection)
+       ├─ make-channel (creates communication channel)
+       ├─ spawn [ worker ] (launches handler strand with channel)
+       └─ send (passes socket ID to worker via channel)
 
-This allows `route` to be called when there are other values below the String on
-the stack. This is essential for word composition in concatenative languages!
+worker strand
+  ├─ receive (gets socket ID from channel)
+  └─ handle-connection
+       ├─ tcp-read (reads HTTP request)
+       ├─ route (pattern matches to response)
+       ├─ tcp-write (sends HTTP response)
+       └─ tcp-close (cleanup)
+```
+
+## Key Features
+
+**Non-blocking I/O**: All TCP operations cooperate with May's coroutine scheduler, yielding instead of blocking OS threads.
+
+**Efficient Concurrency**: The server can handle thousands of concurrent connections using lightweight strands.
+
+**Stack-based Routing**: HTTP routing is implemented using Seq's `cond` combinator, demonstrating clean concatenative style.
 
 ## Next Steps
 
-Once spawn with data passing is implemented, we'll add:
-- `04_concurrent_server.seq` - Multi-connection HTTP server
-- `05_http_client.seq` - Making HTTP requests
-- `06_rest_api.seq` - RESTful API with state management
+This example serves as a foundation for:
+- RESTful APIs with JSON
+- WebSocket servers
+- HTTP client implementations
+- More sophisticated routing (path parameters, query strings)
 
 ## References
 
 - [Seq Roadmap](../../docs/ROADMAP.md)
-- [Type System Assessment](../../tmp/TYPE_SYSTEM_ASSESSMENT.md)
-- [Type System Fix Results](../../tmp/TYPE_SYSTEM_FIX_RESULTS.md)
+- [Concatenative Design](../../docs/CLEAN_CONCATENATIVE_DESIGN.md)

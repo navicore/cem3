@@ -8,9 +8,27 @@
 //!
 //! Note: These extern "C" functions use Value and slice pointers, which aren't technically FFI-safe,
 //! but they work correctly when called from LLVM-generated code (not actual C interop).
+//!
+//! ## Type Support Status
+//!
+//! Currently supported capture types:
+//! - **Int** (via `env_get_int`)
+//! - **String** (via `env_get_string`)
+//!
+//! Types to be added in future PR:
+//! - Bool
+//! - Quotation (nested quotations)
+//! - Closure (nested closures)
+//! - Variant
+//!
+//! See https://github.com/navicore/patch-seq for roadmap.
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
+
+/// Maximum number of captured values allowed in a closure environment.
+/// This prevents unbounded memory allocation and potential resource exhaustion.
+pub const MAX_CAPTURES: usize = 1024;
 
 /// Create a closure environment (array of captured values)
 ///
@@ -28,7 +46,15 @@ pub extern "C" fn patch_seq_create_env(size: i32) -> *mut [Value] {
         panic!("create_env: size cannot be negative: {}", size);
     }
 
-    let mut vec: Vec<Value> = Vec::with_capacity(size as usize);
+    let size_usize = size as usize;
+    if size_usize > MAX_CAPTURES {
+        panic!(
+            "create_env: size {} exceeds MAX_CAPTURES ({})",
+            size_usize, MAX_CAPTURES
+        );
+    }
+
+    let mut vec: Vec<Value> = Vec::with_capacity(size_usize);
 
     // Fill with placeholder values (will be replaced by env_set)
     for _ in 0..size {
@@ -52,6 +78,10 @@ pub extern "C" fn patch_seq_create_env(size: i32) -> *mut [Value] {
 pub unsafe extern "C" fn patch_seq_env_set(env: *mut [Value], index: i32, value: Value) {
     if env.is_null() {
         panic!("env_set: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_set: index cannot be negative: {}", index);
     }
 
     let env_slice = unsafe { &mut *env };
@@ -87,6 +117,10 @@ pub unsafe extern "C" fn patch_seq_env_get(
 ) -> Value {
     if env_data.is_null() {
         panic!("env_get: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get: index cannot be negative: {}", index);
     }
 
     let idx = index as usize;
@@ -125,6 +159,10 @@ pub unsafe extern "C" fn patch_seq_env_get_int(
 ) -> i64 {
     if env_data.is_null() {
         panic!("env_get_int: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_int: index cannot be negative: {}", index);
     }
 
     let idx = index as usize;
@@ -167,6 +205,10 @@ pub unsafe extern "C" fn patch_seq_env_get_string(
 ) -> crate::seqstring::SeqString {
     if env_data.is_null() {
         panic!("env_get_string: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_string: index cannot be negative: {}", index);
     }
 
     let idx = index as usize;

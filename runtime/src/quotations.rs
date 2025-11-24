@@ -18,6 +18,42 @@ type ClosureEntry = (usize, Box<[Value]>);
 static SPAWN_CLOSURE_REGISTRY: LazyLock<Mutex<HashMap<i64, ClosureEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// RAII guard for cleanup of spawn registry on failure
+///
+/// If the spawned strand fails to start or panics before retrieving
+/// the closure from the registry, this guard ensures the environment
+/// is cleaned up and not leaked.
+struct SpawnRegistryGuard {
+    closure_spawn_id: i64,
+    should_cleanup: bool,
+}
+
+impl SpawnRegistryGuard {
+    fn new(closure_spawn_id: i64) -> Self {
+        Self {
+            closure_spawn_id,
+            should_cleanup: true,
+        }
+    }
+
+    /// Disarm the guard - strand successfully started and will retrieve the closure
+    fn disarm(&mut self) {
+        self.should_cleanup = false;
+    }
+}
+
+impl Drop for SpawnRegistryGuard {
+    fn drop(&mut self) {
+        if self.should_cleanup {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            if let Some((_, env)) = registry.remove(&self.closure_spawn_id) {
+                // env (Box<[Value]>) will be dropped here, freeing memory
+                drop(env);
+            }
+        }
+    }
+}
+
 /// Trampoline function for spawning closures
 ///
 /// This function is passed to strand_spawn when spawning a closure.
@@ -466,13 +502,20 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
                     registry.insert(closure_spawn_id, (fn_ptr, env));
                 }
 
+                // Create a guard to cleanup registry on failure
+                // If spawn fails or the strand panics before retrieving the closure,
+                // the guard's Drop impl will remove the registry entry
+                let mut guard = SpawnRegistryGuard::new(closure_spawn_id);
+
                 // Create initial stack with the closure_spawn_id
                 let initial_stack = push(std::ptr::null_mut(), Value::Int(closure_spawn_id));
 
                 // Spawn strand with trampoline
                 let strand_id = patch_seq_strand_spawn(closure_spawn_trampoline, initial_stack);
 
-                // Note: The trampoline will retrieve and remove the closure data from the registry
+                // Spawn succeeded - disarm the guard so it won't cleanup
+                // The trampoline will retrieve and remove the closure data from the registry
+                guard.disarm();
 
                 // Push strand ID back onto stack
                 push(stack, Value::Int(strand_id))
@@ -495,6 +538,81 @@ pub use patch_seq_while_loop as while_loop;
 mod tests {
     use super::*;
     use crate::arithmetic::push_int;
+    use crate::value::Value;
+
+    #[test]
+    fn test_spawn_registry_guard_cleanup() {
+        // Test that the RAII guard cleans up the registry on drop
+        let closure_id = 12345;
+
+        // Create a test closure environment
+        let env: Box<[Value]> = vec![Value::Int(42), Value::Int(99)].into_boxed_slice();
+        let fn_ptr: usize = 0x1234;
+
+        // Insert into registry
+        {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.insert(closure_id, (fn_ptr, env));
+        }
+
+        // Verify it's in the registry
+        {
+            let registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            assert!(registry.contains_key(&closure_id));
+        }
+
+        // Create a guard (without disarming) and let it drop
+        {
+            let _guard = SpawnRegistryGuard::new(closure_id);
+            // Guard drops here, should clean up the registry
+        }
+
+        // Verify the registry was cleaned up
+        {
+            let registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            assert!(
+                !registry.contains_key(&closure_id),
+                "Guard should have cleaned up registry entry on drop"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spawn_registry_guard_disarm() {
+        // Test that disarming the guard prevents cleanup
+        let closure_id = 54321;
+
+        // Create a test closure environment
+        let env: Box<[Value]> = vec![Value::Int(10), Value::Int(20)].into_boxed_slice();
+        let fn_ptr: usize = 0x5678;
+
+        // Insert into registry
+        {
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.insert(closure_id, (fn_ptr, env));
+        }
+
+        // Create a guard, disarm it, and let it drop
+        {
+            let mut guard = SpawnRegistryGuard::new(closure_id);
+            guard.disarm();
+            // Guard drops here, but should NOT clean up because it's disarmed
+        }
+
+        // Verify the registry entry is still there
+        {
+            let registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            assert!(
+                registry.contains_key(&closure_id),
+                "Disarmed guard should not clean up registry entry"
+            );
+
+            // Manual cleanup for this test
+            drop(registry);
+            let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
+            registry.remove(&closure_id);
+        }
+    }
 
     // Helper function for testing: a quotation that adds 1
     unsafe extern "C" fn add_one_quot(stack: Stack) -> Stack {

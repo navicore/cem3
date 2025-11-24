@@ -20,10 +20,12 @@
 
 # Handle a single connection (called in spawned strand)
 : handle-connection ( Int -- )
-  dup tcp-read
-  route
-  swap tcp-write
-  tcp-close
+  dup                # Duplicate socket for tcp-read and tcp-close
+  tcp-read           # ( socket string )
+  route              # ( socket response_string )
+  over               # ( socket response_string socket ) - preserve socket for close
+  tcp-write          # ( socket )
+  tcp-close          # ( )
 ;
 
 # Worker strand: receives socket from channel and handles it
@@ -38,7 +40,6 @@
   [
     # Stack: ( listener_socket )
     dup tcp-accept
-    "Connection accepted!" write_line
 
     # Create a channel for this connection
     make-channel

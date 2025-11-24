@@ -46,7 +46,7 @@ const EXIT_CODE_MAX: i64 = 255;
 /// When the mutex is contended, the strand yields to the scheduler (doesn't block the OS thread).
 /// This prevents RefCell borrow panics when multiple strands write concurrently.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "write_line: stack is empty");
 
     let (rest, value) = unsafe { pop(stack) };
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn write_line(stack: Stack) -> Stack {
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
     use std::io::BufRead;
 
     let stdin = io::stdin();
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn read_line(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have an Int value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn int_to_string(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_int_to_string(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "int_to_string: stack is empty");
 
     let (rest, value) = unsafe { pop(stack) };
@@ -131,7 +131,7 @@ pub unsafe extern "C" fn int_to_string(stack: Stack) -> Stack {
 /// # Safety
 /// The c_str pointer must be valid and null-terminated
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_string(stack: Stack, c_str: *const i8) -> Stack {
     assert!(!c_str.is_null(), "push_string: null string pointer");
 
     let s = unsafe {
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn push_string(stack: Stack, c_str: *const i8) -> Stack {
 /// The SeqString must be valid. This is only called from LLVM-generated code, not actual C code.
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_seqstring(
+pub unsafe extern "C" fn patch_seq_push_seqstring(
     stack: Stack,
     seq_str: crate::seqstring::SeqString,
 ) -> Stack {
@@ -169,7 +169,7 @@ pub unsafe extern "C" fn push_seqstring(
 /// # Safety
 /// Stack must have an Int on top. Never returns.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn exit_op(stack: Stack) -> ! {
+pub unsafe extern "C" fn patch_seq_exit_op(stack: Stack) -> ! {
     assert!(!stack.is_null(), "exit_op: stack is empty");
 
     let (_rest, value) = unsafe { pop(stack) };
@@ -188,6 +188,14 @@ pub unsafe extern "C" fn exit_op(stack: Stack) -> ! {
         _ => panic!("exit_op: expected Int on stack, got {:?}", value),
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_exit_op as exit_op;
+pub use patch_seq_int_to_string as int_to_string;
+pub use patch_seq_push_seqstring as push_seqstring;
+pub use patch_seq_push_string as push_string;
+pub use patch_seq_read_line as read_line;
+pub use patch_seq_write_line as write_line;
 
 #[cfg(test)]
 mod tests {

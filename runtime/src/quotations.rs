@@ -3,7 +3,7 @@
 //! Quotations are deferred code blocks (first-class functions).
 //! A quotation is represented as a function pointer stored as usize.
 
-use crate::scheduler::strand_spawn;
+use crate::scheduler::patch_seq_strand_spawn;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use std::collections::HashMap;
@@ -74,7 +74,7 @@ extern "C" fn closure_spawn_trampoline(stack: Stack) -> Stack {
 /// - Stack pointer must be valid (or null for empty stack)
 /// - Function pointer must be valid
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
     unsafe { push(stack, Value::Quotation(fn_ptr)) }
 }
 
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
 /// - Quotation signature: Stack -> Stack
 /// - Closure signature: Stack, *const [Value] -> Stack
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn call(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_call(stack: Stack) -> Stack {
     unsafe {
         let (stack, value) = pop(stack);
 
@@ -161,7 +161,7 @@ pub unsafe extern "C" fn call(stack: Stack) -> Stack {
 /// - Second must be Quotation
 /// - Quotation's effect must preserve stack shape
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_times(mut stack: Stack) -> Stack {
     unsafe {
         // Pop count
         let (stack_temp, count_value) = pop(stack);
@@ -216,7 +216,7 @@ pub unsafe extern "C" fn times(mut stack: Stack) -> Stack {
 /// - Condition quotation must push exactly one Int
 /// - Body quotation must preserve stack shape
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_while_loop(mut stack: Stack) -> Stack {
     unsafe {
         // Pop body quotation
         let (stack_temp, body_value) = pop(stack);
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn while_loop(mut stack: Stack) -> Stack {
 /// - Quotation must not cause stack underflow
 /// - This never returns! (infinite loop)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_forever(stack: Stack) -> Stack {
     unsafe {
         // Pop quotation
         let (mut stack, quot_value) = pop(stack);
@@ -319,27 +319,8 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
         // Infinite loop - execute body forever
         // IMPORTANT: Yield after each iteration to maintain cooperative scheduling.
         // Without yielding, this coroutine would monopolize the thread and starve other strands.
-        let mut iteration = 0;
         loop {
-            let stack_before = stack as usize;
-            eprintln!(
-                "[forever] Iteration {}: stack_before={:?}, thread={:?}",
-                iteration,
-                stack_before,
-                std::thread::current().id()
-            );
-
             stack = body_fn(stack);
-
-            let stack_after = stack as usize;
-            eprintln!(
-                "[forever] Iteration {}: stack_after={:?}, thread={:?}",
-                iteration,
-                stack_after,
-                std::thread::current().id()
-            );
-
-            iteration += 1;
             may::coroutine::yield_now();
         }
     }
@@ -364,7 +345,7 @@ pub unsafe extern "C" fn forever(stack: Stack) -> Stack {
 /// - Condition quotation must push exactly one Int
 /// - Body quotation must preserve stack shape
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
     unsafe {
         // Pop condition quotation
         let (stack_temp, cond_value) = pop(stack);
@@ -444,7 +425,7 @@ pub unsafe extern "C" fn until_loop(mut stack: Stack) -> Stack {
 /// - Top must be Quotation or Closure
 /// - Function must be safe to execute on any thread
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
     unsafe {
         // Pop quotation or closure
         let (stack, value) = pop(stack);
@@ -462,7 +443,7 @@ pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
                 let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
 
                 // Spawn the strand with null initial stack
-                let strand_id = strand_spawn(fn_ref, std::ptr::null_mut());
+                let strand_id = patch_seq_strand_spawn(fn_ref, std::ptr::null_mut());
 
                 // Push strand ID back onto stack
                 push(stack, Value::Int(strand_id))
@@ -489,7 +470,7 @@ pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
                 let initial_stack = push(std::ptr::null_mut(), Value::Int(closure_spawn_id));
 
                 // Spawn strand with trampoline
-                let strand_id = strand_spawn(closure_spawn_trampoline, initial_stack);
+                let strand_id = patch_seq_strand_spawn(closure_spawn_trampoline, initial_stack);
 
                 // Note: The trampoline will retrieve and remove the closure data from the registry
 
@@ -500,6 +481,15 @@ pub unsafe extern "C" fn spawn(stack: Stack) -> Stack {
         }
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_call as call;
+pub use patch_seq_forever as forever;
+pub use patch_seq_push_quotation as push_quotation;
+pub use patch_seq_spawn as spawn;
+pub use patch_seq_times as times;
+pub use patch_seq_until_loop as until_loop;
+pub use patch_seq_while_loop as while_loop;
 
 #[cfg(test)]
 mod tests {

@@ -23,7 +23,7 @@ use crate::value::Value;
 /// # Safety
 /// Stack must have two String values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_split(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_split(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_split: stack is empty");
 
     let (stack, delim_val) = unsafe { pop(stack) };
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn string_split(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a String value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_empty(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_empty(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_empty: stack is empty");
 
     let (stack, value) = unsafe { pop(stack) };
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn string_empty(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two String values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_contains(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_contains(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_contains: stack is empty");
 
     let (stack, substring_val) = unsafe { pop(stack) };
@@ -103,7 +103,7 @@ pub unsafe extern "C" fn string_contains(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two String values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_starts_with(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_starts_with(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_starts_with: stack is empty");
 
     let (stack, prefix_val) = unsafe { pop(stack) };
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn string_starts_with(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two String values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_concat(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_concat(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_concat: stack is empty");
 
     let (stack, str2_val) = unsafe { pop(stack) };
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn string_concat(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a String value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_length(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_length(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_length: stack is empty");
 
     let (stack, str_val) = unsafe { pop(stack) };
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn string_length(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a String value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_trim(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_trim(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_trim: stack is empty");
 
     let (stack, str_val) = unsafe { pop(stack) };
@@ -192,7 +192,7 @@ pub unsafe extern "C" fn string_trim(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a String value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_to_upper(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_to_upper(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_to_upper: stack is empty");
 
     let (stack, str_val) = unsafe { pop(stack) };
@@ -213,7 +213,7 @@ pub unsafe extern "C" fn string_to_upper(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a String value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn string_to_lower(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_string_to_lower(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "string_to_lower: stack is empty");
 
     let (stack, str_val) = unsafe { pop(stack) };
@@ -226,6 +226,17 @@ pub unsafe extern "C" fn string_to_lower(stack: Stack) -> Stack {
         _ => panic!("string_to_lower: expected String on stack"),
     }
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_string_concat as string_concat;
+pub use patch_seq_string_contains as string_contains;
+pub use patch_seq_string_empty as string_empty;
+pub use patch_seq_string_length as string_length;
+pub use patch_seq_string_split as string_split;
+pub use patch_seq_string_starts_with as string_starts_with;
+pub use patch_seq_string_to_lower as string_to_lower;
+pub use patch_seq_string_to_upper as string_to_upper;
+pub use patch_seq_string_trim as string_trim;
 
 #[cfg(test)]
 mod tests {

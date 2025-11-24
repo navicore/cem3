@@ -31,7 +31,7 @@ use crate::value::Value;
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_int(stack: Stack, value: i64) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_int(stack: Stack, value: i64) -> Stack {
     unsafe { push(stack, Value::Int(value)) }
 }
 
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn push_int(stack: Stack, value: i64) -> Stack {
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn push_bool(stack: Stack, value: bool) -> Stack {
+pub unsafe extern "C" fn patch_seq_push_bool(stack: Stack, value: bool) -> Stack {
     unsafe { push(stack, Value::Bool(value)) }
 }
 
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn push_bool(stack: Stack, value: bool) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn add(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_add(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "add: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "add: stack has only one value");
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn add(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn subtract(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_subtract(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "subtract: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "subtract: stack has only one value");
@@ -97,7 +97,7 @@ pub unsafe extern "C" fn subtract(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn multiply(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_multiply(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "multiply: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "multiply: stack has only one value");
@@ -119,7 +119,7 @@ pub unsafe extern "C" fn multiply(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top, b must not be zero
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn divide(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "divide: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "divide: stack has only one value");
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn divide(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn eq(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_eq(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "eq: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "eq: stack has only one value");
@@ -172,7 +172,7 @@ pub unsafe extern "C" fn eq(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lt(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_lt(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "lt: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "lt: stack has only one value");
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn lt(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gt(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_gt(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "gt: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "gt: stack has only one value");
@@ -216,7 +216,7 @@ pub unsafe extern "C" fn gt(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lte(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_lte(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "lte: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "lte: stack has only one value");
@@ -238,7 +238,7 @@ pub unsafe extern "C" fn lte(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gte(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_gte(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "gte: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "gte: stack has only one value");
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn gte(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn neq(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_neq(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "neq: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "neq: stack has only one value");
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn neq(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least two Int values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn and(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_and(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "and: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "and: stack has only one value");
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn and(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least two Int values
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn or(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_or(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "or: stack is empty");
     let (rest, b) = unsafe { pop(stack) };
     assert!(!rest.is_null(), "or: stack has only one value");
@@ -335,7 +335,7 @@ pub unsafe extern "C" fn or(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least one Int value
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn not(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_not(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "not: stack is empty");
     let (rest, a) = unsafe { pop(stack) };
 
@@ -365,7 +365,7 @@ pub unsafe extern "C" fn not(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have an Int value on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn peek_int_value(stack: Stack) -> i64 {
+pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
     assert!(!stack.is_null(), "peek_int_value: stack is empty");
 
     let node = unsafe { &*stack };
@@ -388,11 +388,28 @@ pub unsafe extern "C" fn peek_int_value(stack: Stack) -> i64 {
 /// # Safety
 /// Stack must not be empty
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pop_stack(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_pop_stack(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "pop_stack: stack is empty");
     let (rest, _value) = unsafe { pop(stack) };
     rest
 }
+
+// Public re-exports with short names for internal use
+pub use patch_seq_add as add;
+pub use patch_seq_and as and;
+pub use patch_seq_divide as divide;
+pub use patch_seq_eq as eq;
+pub use patch_seq_gt as gt;
+pub use patch_seq_gte as gte;
+pub use patch_seq_lt as lt;
+pub use patch_seq_lte as lte;
+pub use patch_seq_multiply as multiply;
+pub use patch_seq_neq as neq;
+pub use patch_seq_not as not;
+pub use patch_seq_or as or;
+pub use patch_seq_push_bool as push_bool;
+pub use patch_seq_push_int as push_int;
+pub use patch_seq_subtract as subtract;
 
 #[cfg(test)]
 mod tests {

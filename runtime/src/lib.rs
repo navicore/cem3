@@ -20,6 +20,7 @@ pub mod string_ops;
 pub mod tcp;
 pub mod tcp_test;
 pub mod value;
+pub mod variant_ops;
 
 // Re-export key types and functions
 pub use stack::{
@@ -89,4 +90,10 @@ pub use tcp::{
     patch_seq_tcp_accept as tcp_accept, patch_seq_tcp_close as tcp_close,
     patch_seq_tcp_listen as tcp_listen, patch_seq_tcp_read as tcp_read,
     patch_seq_tcp_write as tcp_write,
+};
+
+// Variant operations (exported for LLVM linking)
+pub use variant_ops::{
+    patch_seq_variant_field_at as variant_field_at,
+    patch_seq_variant_field_count as variant_field_count, patch_seq_variant_tag as variant_tag,
 };

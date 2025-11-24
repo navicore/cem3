@@ -244,6 +244,10 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
+        writeln!(&mut ir, "; Variant operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
@@ -534,6 +538,10 @@ impl CodeGen {
                     "string-trim" => "patch_seq_string_trim".to_string(),
                     "string-to-upper" => "patch_seq_string_to_upper".to_string(),
                     "string-to-lower" => "patch_seq_string_to_lower".to_string(),
+                    // Variant operations (hyphen → underscore for C compatibility)
+                    "variant-field-count" => "patch_seq_variant_field_count".to_string(),
+                    "variant-tag" => "patch_seq_variant_tag".to_string(),
+                    "variant-field-at" => "patch_seq_variant_field_at".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("seq_{}", name),
                 };

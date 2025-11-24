@@ -16,14 +16,16 @@ use crate::value::Value;
 
 /// Split a string on a delimiter
 ///
-/// Stack effect: ( str delim -- part1 part2 ... partN count )
+/// Stack effect: ( str delim -- Variant )
 ///
-/// Pushes each part onto the stack, followed by the count of parts.
+/// Returns a Variant containing the split parts as fields.
 ///
 /// # Safety
 /// Stack must have two String values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_string_split(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
     assert!(!stack.is_null(), "string_split: stack is empty");
 
     let (stack, delim_val) = unsafe { pop(stack) };
@@ -32,19 +34,17 @@ pub unsafe extern "C" fn patch_seq_string_split(stack: Stack) -> Stack {
 
     match (str_val, delim_val) {
         (Value::String(s), Value::String(d)) => {
-            let parts: Vec<_> = s.as_str().split(d.as_str()).collect();
+            // Split and collect into Value::String instances
+            let fields: Vec<Value> = s
+                .as_str()
+                .split(d.as_str())
+                .map(|part| Value::String(global_string(part.to_owned())))
+                .collect();
 
-            let count = parts.len() as i64;
+            // Create a Variant with tag 0 and the split parts as fields
+            let variant = Value::Variant(Box::new(VariantData::new(0, fields)));
 
-            // Push each part onto stack
-            let mut result_stack = stack;
-            for part in parts {
-                result_stack =
-                    unsafe { push(result_stack, Value::String(global_string(part.to_owned()))) };
-            }
-
-            // Push count
-            unsafe { push(result_stack, Value::Int(count)) }
+            unsafe { push(stack, variant) }
         }
         _ => panic!("string_split: expected two strings on stack"),
     }
@@ -251,18 +251,18 @@ mod tests {
 
             let stack = string_split(stack);
 
-            // Should have: "a" "b" "c" 3
-            let (stack, count) = pop(stack);
-            assert_eq!(count, Value::Int(3));
-
-            let (stack, part3) = pop(stack);
-            assert_eq!(part3, Value::String(global_string("c".to_owned())));
-
-            let (stack, part2) = pop(stack);
-            assert_eq!(part2, Value::String(global_string("b".to_owned())));
-
-            let (stack, part1) = pop(stack);
-            assert_eq!(part1, Value::String(global_string("a".to_owned())));
+            // Should have a Variant with 3 fields: "a", "b", "c"
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.fields.len(), 3);
+                    assert_eq!(v.fields[0], Value::String(global_string("a".to_owned())));
+                    assert_eq!(v.fields[1], Value::String(global_string("b".to_owned())));
+                    assert_eq!(v.fields[2], Value::String(global_string("c".to_owned())));
+                }
+                _ => panic!("Expected Variant, got {:?}", result),
+            }
 
             assert!(stack.is_null());
         }
@@ -278,11 +278,15 @@ mod tests {
             let stack = string_split(stack);
 
             // Empty string splits to one empty part
-            let (stack, count) = pop(stack);
-            assert_eq!(count, Value::Int(1));
-
-            let (stack, part1) = pop(stack);
-            assert_eq!(part1, Value::String(global_string("".to_owned())));
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.fields.len(), 1);
+                    assert_eq!(v.fields[0], Value::String(global_string("".to_owned())));
+                }
+                _ => panic!("Expected Variant, got {:?}", result),
+            }
 
             assert!(stack.is_null());
         }
@@ -401,18 +405,24 @@ mod tests {
 
             let stack = string_split(stack);
 
-            // Should have: "GET" "/api/users" "HTTP/1.1" 3
-            let (stack, count) = pop(stack);
-            assert_eq!(count, Value::Int(3));
-
-            let (stack, version) = pop(stack);
-            assert_eq!(version, Value::String(global_string("HTTP/1.1".to_owned())));
-
-            let (stack, path) = pop(stack);
-            assert_eq!(path, Value::String(global_string("/api/users".to_owned())));
-
-            let (stack, method) = pop(stack);
-            assert_eq!(method, Value::String(global_string("GET".to_owned())));
+            // Should have a Variant with 3 fields: "GET", "/api/users", "HTTP/1.1"
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.fields.len(), 3);
+                    assert_eq!(v.fields[0], Value::String(global_string("GET".to_owned())));
+                    assert_eq!(
+                        v.fields[1],
+                        Value::String(global_string("/api/users".to_owned()))
+                    );
+                    assert_eq!(
+                        v.fields[2],
+                        Value::String(global_string("HTTP/1.1".to_owned()))
+                    );
+                }
+                _ => panic!("Expected Variant, got {:?}", result),
+            }
 
             assert!(stack.is_null());
         }

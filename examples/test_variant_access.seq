@@ -1,0 +1,42 @@
+# Test variant field access operations
+# Demonstrates parsing a simple HTTP-style path
+
+: extract-echo-message ( String -- String )
+  # Input: "GET /echo/hello HTTP/1.1"
+  " " string-split         # Split by space
+
+  # Get the path (index 1)
+  1 variant-field-at       # Get "/echo/hello"
+
+  # Split path by /
+  "/" string-split         # Split by /
+
+  # Path segments: ["", "echo", "hello"]
+  # Get the message (index 2)
+  2 variant-field-at       # Get "hello"
+;
+
+: main ( -- Int )
+  "Testing variant field access..." write_line
+  "" write_line
+
+  # Test extracting from HTTP request
+  "GET /echo/hello HTTP/1.1" extract-echo-message
+  "Extracted message: " swap string-concat write_line
+  "" write_line
+
+  # Test with different message
+  "GET /echo/world HTTP/1.1" extract-echo-message
+  "Extracted message: " swap string-concat write_line
+  "" write_line
+
+  # Test extracting different path segment
+  "GET /api/users/123 HTTP/1.1"
+  " " string-split
+  1 variant-field-at      # Get "/api/users/123"
+  "/" string-split
+  3 variant-field-at      # Get "123"
+  "User ID: " swap string-concat write_line
+
+  0  # Return success
+;

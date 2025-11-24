@@ -457,16 +457,15 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // string-split: ( ..a String String -- ..a String* Int )
-    // Split string by delimiter, returns parts and count
-    // Note: This pushes multiple values, simplified to generic type for now
+    // string-split: ( ..a String String -- ..a Variant )
+    // Split string by delimiter, returns a Variant containing the parts
     sigs.insert(
         "string-split".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string())
                 .push(Type::String)
                 .push(Type::String),
-            StackType::RowVar("b".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
         ),
     );
 
@@ -531,6 +530,39 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         Effect::new(
             StackType::RowVar("a".to_string()).push(Type::String),
             StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // Variant operations
+    // variant-field-count: ( ..a Variant -- ..a Int )
+    // Get number of fields in a variant
+    sigs.insert(
+        "variant-field-count".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // variant-tag: ( ..a Variant -- ..a Int )
+    // Get tag of a variant
+    sigs.insert(
+        "variant-tag".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // variant-field-at: ( ..a Variant Int -- ..a Value )
+    // Get field at index from variant
+    sigs.insert(
+        "variant-field-at".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
         ),
     );
 

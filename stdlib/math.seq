@@ -41,9 +41,14 @@
 #
 
 # Absolute value
+# Both branches must have identical stack effects for type checker
 : abs ( Int -- Int )
-  dup 0 < if
-    0 swap subtract
+  dup dup 0 < if
+    # Stack: n n, n < 0, so compute 0 - n
+    nip 0 swap subtract
+  else
+    # Stack: n n, n >= 0, keep original
+    drop
   then
 ;
 
@@ -119,17 +124,24 @@
 ;
 
 # Clamp value between min and max
-: clamp ( Int min max -- Int )
-  rot
-  over over
-  < if
-    drop drop
+# Stack: ( value min max -- clamped )
+# Returns: min if value < min, max if value > max, else value
+: clamp ( Int Int Int -- Int )
+  # Stack: value min max
+  rot rot
+  # Stack: max value min
+  over over < if
+    # value < min, return min
+    nip nip
   else
-    swap
-    over over
-    > if
+    # value >= min
+    drop
+    # Stack: max value
+    over over > if
+      # value > max, return max
       nip
     else
+      # min <= value <= max, return value
       drop
     then
   then

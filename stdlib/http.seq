@@ -100,12 +100,13 @@
 : http-response ( Int String String -- String )
   # Stack: ( status_code reason_phrase body )
 
-  # Build status line: "HTTP/1.1 <code> <reason>\r\n"
-  "HTTP/1.1 "
-  rot int->string string-concat    # ( reason body "HTTP/1.1 <code>" )
-  " " string-concat                 # ( reason body "HTTP/1.1 <code> " )
-  rot string-concat                 # ( body "HTTP/1.1 <code> <reason>" )
-  "\r\n" string-concat              # ( body "HTTP/1.1 <code> <reason>\r\n" )
+  # Bring status_code to top and convert to string
+  rot rot                           # ( body status_code reason )
+  swap int->string                  # ( body reason "code" )
+  "HTTP/1.1 " swap string-concat    # ( body reason "HTTP/1.1 code" )
+  " " string-concat                 # ( body reason "HTTP/1.1 code " )
+  swap string-concat                # ( body "HTTP/1.1 code reason" )
+  "\r\n" string-concat              # ( body "HTTP/1.1 code reason\r\n" )
 
   # Add Content-Type header
   "Content-Type: text/plain\r\n" string-concat

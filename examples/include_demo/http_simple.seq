@@ -1,0 +1,55 @@
+# Simple HTTP Server using stdlib
+#
+# This example demonstrates using the std:http library to build
+# a minimal HTTP server with less boilerplate.
+#
+# Usage:
+#   seqc --output http_simple http_simple.seq
+#   ./http_simple
+#   curl http://localhost:8080/
+
+include std:http
+
+: route ( String -- String )
+  dup "GET / " string-starts-with if
+    drop "Hello from stdlib!" http-ok
+  else
+    dup "GET /health" string-starts-with if
+      drop "OK" http-ok
+    else
+      dup "GET /custom" string-starts-with if
+        drop
+        201 "Created" "Custom status response" http-response
+      else
+        drop "Not Found" http-not-found
+      then
+    then
+  then
+;
+
+: handle-connection ( Int -- )
+  dup tcp-read route
+  over tcp-write
+  tcp-close
+;
+
+: accept-loop ( Int -- Int )
+  [
+    dup tcp-accept
+    make-channel
+    dup [ receive handle-connection ] spawn
+    drop
+    send
+  ]
+  forever
+;
+
+: main ( -- Int )
+  "Simple HTTP server using std:http" write_line
+  "Listening on port 8080..." write_line
+  "Try: curl http://localhost:8080/" write_line
+  "Try: curl http://localhost:8080/health" write_line
+  "Try: curl http://localhost:8080/custom" write_line
+  8080 tcp-listen
+  accept-loop
+;

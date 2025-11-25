@@ -1,0 +1,186 @@
+# HTTP Standard Library for Seq
+#
+# Helper functions for building HTTP servers with proper response formatting.
+#
+# ## Usage
+#
+# Since Seq does not yet have a module system, these functions must be
+# copied directly into your program file or included via concatenation.
+#
+# ## Available Functions
+#
+# ### Response Building
+# - http-ok: ( String -- String ) - Build 200 OK response with body
+# - http-not-found: ( String -- String ) - Build 404 Not Found response with body
+# - http-response: ( Int String String -- String ) - Build custom HTTP response
+#   Stack effect: ( status_code reason_phrase body -- response )
+#
+# ### Request Parsing
+# - http-request-line: ( String -- String ) - Extract first line from HTTP request
+# - http-request-path: ( String -- String ) - Extract path from HTTP request
+#
+# ## Notes
+#
+# - All responses use HTTP/1.1
+# - Content-Type is hardcoded to text/plain
+# - CRLF line endings (\r\n) are used per HTTP spec
+# - Response format: status line + headers + blank line + body
+#
+# ## Examples
+#
+#   # Simple 200 OK with body
+#   "Hello, World!" http-ok
+#   # Returns: "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!"
+#
+#   # Extract path from request
+#   "GET /api/users HTTP/1.1\r\nHost: localhost\r\n..." http-request-path
+#   # Returns: "/api/users"
+#
+#   # Custom status
+#   201 "Created" "Resource created successfully" http-response
+#
+
+# Build HTTP 200 OK response with body
+# Stack effect: ( body -- response )
+: http-ok ( String -- String )
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
+  over string-length int->string string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+# Build HTTP 404 Not Found response with body
+# Stack effect: ( body -- response )
+: http-not-found ( String -- String )
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: "
+  over string-length int->string string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+# Build HTTP 500 Internal Server Error response with body
+# Stack effect: ( body -- response )
+: http-error ( String -- String )
+  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: "
+  over string-length int->string string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+# Extract first line from HTTP request
+# Splits on \r\n and returns first part
+# Stack effect: ( request -- first_line )
+: http-request-line ( String -- String )
+  "\r\n" string-split
+  0 variant-field-at
+;
+
+# Extract path from HTTP request
+# Parses "GET /path HTTP/1.1" and returns "/path"
+# Stack effect: ( request -- path )
+: http-request-path ( String -- String )
+  http-request-line
+  " " string-split
+  1 variant-field-at
+;
+
+# Extract method from HTTP request
+# Parses "GET /path HTTP/1.1" and returns "GET"
+# Stack effect: ( request -- method )
+: http-request-method ( String -- String )
+  http-request-line
+  " " string-split
+  0 variant-field-at
+;
+
+# Build complete HTTP response with custom status
+# Stack effect: ( status_code reason_phrase body -- response )
+#
+# Example: 201 "Created" "Resource created" http-response
+: http-response ( Int String String -- String )
+  # Stack: ( status_code reason_phrase body )
+
+  # Build status line: "HTTP/1.1 <code> <reason>\r\n"
+  "HTTP/1.1 "
+  rot int->string string-concat    # ( reason body "HTTP/1.1 <code>" )
+  " " string-concat                 # ( reason body "HTTP/1.1 <code> " )
+  rot string-concat                 # ( body "HTTP/1.1 <code> <reason>" )
+  "\r\n" string-concat              # ( body "HTTP/1.1 <code> <reason>\r\n" )
+
+  # Add Content-Type header
+  "Content-Type: text/plain\r\n" string-concat
+
+  # Add Content-Length header
+  "Content-Length: " string-concat
+  over string-length int->string string-concat
+  "\r\n\r\n" string-concat
+
+  # Add body
+  swap string-concat
+;
+
+# Check if request is GET method
+# Stack effect: ( request -- bool )
+: http-is-get ( String -- Int )
+  http-request-method
+  "GET" string-equal
+;
+
+# Check if request is POST method
+# Stack effect: ( request -- bool )
+: http-is-post ( String -- Int )
+  http-request-method
+  "POST" string-equal
+;
+
+# Check if request path matches
+# Stack effect: ( request path -- bool )
+: http-path-is ( String String -- Int )
+  swap http-request-path
+  swap string-equal
+;
+
+# Check if request path starts with prefix
+# Stack effect: ( request prefix -- bool )
+: http-path-starts-with ( String String -- Int )
+  swap http-request-path
+  swap string-starts-with
+;
+
+# Extract suffix after a prefix from a string
+# Returns the suffix if string starts with prefix, or empty string if not
+# Stack effect: ( str prefix -- suffix )
+# Example: "/echo/hello" "/echo/" -> "hello"
+: string-suffix-after ( String String -- String )
+  # Stack: ( str prefix )
+  over over string-starts-with if
+    # String starts with prefix, extract suffix
+    # Stack: ( str prefix )
+
+    # Split on the prefix
+    string-split
+
+    # The split result is a Variant with fields
+    # For "/echo/hello" split on "/echo/", we get ["", "hello"]
+    # We want field 1 (the part after the prefix)
+    dup variant-field-count 2 < if
+      # Not enough parts, return empty string
+      drop drop ""
+    else
+      # Get field 1 (the suffix)
+      1 variant-field-at
+      nip
+    then
+  else
+    # Doesn't start with prefix, return empty string
+    drop drop ""
+  then
+;
+
+# Extract the part of the path after a prefix
+# Stack effect: ( request prefix -- suffix )
+# Example: "GET /echo/hello HTTP/1.1" "/echo/" -> "hello"
+: http-path-suffix ( String String -- String )
+  swap http-request-path
+  swap string-suffix-after
+;

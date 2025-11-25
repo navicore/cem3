@@ -649,7 +649,8 @@ mod tests {
 
     #[test]
     fn test_simple_literal() {
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -657,7 +658,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::IntLiteral(42)],
-            source: None,
+                source: None,
             }],
         };
 
@@ -668,7 +669,8 @@ mod tests {
     #[test]
     fn test_simple_operation() {
         // : test ( Int Int -- Int ) add ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -676,7 +678,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::WordCall("add".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -687,7 +689,8 @@ mod tests {
     #[test]
     fn test_type_mismatch() {
         // : test ( String -- ) write_line ;  with body: 42
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -698,7 +701,7 @@ mod tests {
                     Statement::IntLiteral(42), // Pushes Int, not String!
                     Statement::WordCall("write_line".to_string()),
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -711,7 +714,8 @@ mod tests {
     #[test]
     fn test_polymorphic_dup() {
         // : my-dup ( Int -- Int Int ) dup ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "my-dup".to_string(),
                 effect: Some(Effect::new(
@@ -719,7 +723,7 @@ mod tests {
                     StackType::Empty.push(Type::Int).push(Type::Int),
                 )),
                 body: vec![Statement::WordCall("dup".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -731,7 +735,8 @@ mod tests {
     fn test_conditional_branches() {
         // : test ( Int Int -- String )
         //   > if "greater" else "not greater" then ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -747,7 +752,7 @@ mod tests {
                         )]),
                     },
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -759,7 +764,8 @@ mod tests {
     fn test_mismatched_branches() {
         // : test ( Int -- ? )
         //   if 42 else "string" then ;  // ERROR: incompatible types
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: None,
@@ -770,7 +776,7 @@ mod tests {
                         else_branch: Some(vec![Statement::StringLiteral("string".to_string())]),
                     },
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -784,7 +790,8 @@ mod tests {
     fn test_user_defined_word_call() {
         // : helper ( Int -- String ) int->string ;
         // : main ( -- ) 42 helper write_line ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
@@ -793,7 +800,7 @@ mod tests {
                         StackType::singleton(Type::String),
                     )),
                     body: vec![Statement::WordCall("int->string".to_string())],
-                source: None,
+                    source: None,
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -803,7 +810,7 @@ mod tests {
                         Statement::WordCall("helper".to_string()),
                         Statement::WordCall("write_line".to_string()),
                     ],
-                source: None,
+                    source: None,
                 },
             ],
         };
@@ -816,7 +823,8 @@ mod tests {
     fn test_arithmetic_chain() {
         // : test ( Int Int Int -- Int )
         //   add multiply ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -830,7 +838,7 @@ mod tests {
                     Statement::WordCall("add".to_string()),
                     Statement::WordCall("multiply".to_string()),
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -841,7 +849,8 @@ mod tests {
     #[test]
     fn test_write_line_type_error() {
         // : test ( Int -- ) write_line ;  // ERROR: write_line expects String
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -849,7 +858,7 @@ mod tests {
                     StackType::Empty,
                 )),
                 body: vec![Statement::WordCall("write_line".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -862,12 +871,13 @@ mod tests {
     #[test]
     fn test_stack_underflow_drop() {
         // : test ( -- ) drop ;  // ERROR: can't drop from empty stack
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![Statement::WordCall("drop".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -880,7 +890,8 @@ mod tests {
     #[test]
     fn test_stack_underflow_add() {
         // : test ( Int -- Int ) add ;  // ERROR: add needs 2 values
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -888,7 +899,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::WordCall("add".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -905,7 +916,8 @@ mod tests {
         //   42 swap       # ( Int Int -- Int Int )
         //   send          # ( Int Int -- )
         // ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -915,7 +927,7 @@ mod tests {
                     Statement::WordCall("swap".to_string()),
                     Statement::WordCall("send".to_string()),
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -927,7 +939,8 @@ mod tests {
     fn test_complex_stack_shuffling() {
         // : test ( Int Int Int -- Int )
         //   rot add add ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -942,7 +955,7 @@ mod tests {
                     Statement::WordCall("add".to_string()),
                     Statement::WordCall("add".to_string()),
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -953,7 +966,10 @@ mod tests {
     #[test]
     fn test_empty_program() {
         // Program with no words should be valid
-        let program = Program { includes: vec![], words: vec![] };
+        let program = Program {
+            includes: vec![],
+            words: vec![],
+        };
 
         let mut checker = TypeChecker::new();
         assert!(checker.check_program(&program).is_ok());
@@ -962,12 +978,13 @@ mod tests {
     #[test]
     fn test_word_without_effect_declaration() {
         // : helper 42 ;  // No effect declaration
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "helper".to_string(),
                 effect: None,
                 body: vec![Statement::IntLiteral(42)],
-            source: None,
+                source: None,
             }],
         };
 
@@ -985,7 +1002,8 @@ mod tests {
         //   then ;
         // Note: Needs 4 Ints total (2 for each > comparison)
         // Else branch must drop unused Ints to match then branch's stack effect
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1017,7 +1035,7 @@ mod tests {
                         ]),
                     },
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1033,7 +1051,8 @@ mod tests {
         // : test ( Int Int -- Int )
         //   > if 100 then ;
         // Both branches must leave same stack
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1047,7 +1066,7 @@ mod tests {
                         else_branch: None, // No else - should leave stack unchanged
                     },
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1062,7 +1081,8 @@ mod tests {
         // : helper1 ( Int -- String ) int->string ;
         // : helper2 ( String -- ) write_line ;
         // : main ( -- ) 42 helper1 helper2 ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![
                 WordDef {
                     name: "helper1".to_string(),
@@ -1071,7 +1091,7 @@ mod tests {
                         StackType::singleton(Type::String),
                     )),
                     body: vec![Statement::WordCall("int->string".to_string())],
-                source: None,
+                    source: None,
                 },
                 WordDef {
                     name: "helper2".to_string(),
@@ -1080,7 +1100,7 @@ mod tests {
                         StackType::Empty,
                     )),
                     body: vec![Statement::WordCall("write_line".to_string())],
-                source: None,
+                    source: None,
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -1090,7 +1110,7 @@ mod tests {
                         Statement::WordCall("helper1".to_string()),
                         Statement::WordCall("helper2".to_string()),
                     ],
-                source: None,
+                    source: None,
                 },
             ],
         };
@@ -1103,7 +1123,8 @@ mod tests {
     fn test_all_stack_ops() {
         // : test ( Int Int Int -- Int Int Int Int )
         //   over nip tuck ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1122,7 +1143,7 @@ mod tests {
                     Statement::WordCall("nip".to_string()),
                     Statement::WordCall("tuck".to_string()),
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1140,7 +1161,8 @@ mod tests {
         //   else
         //     write_line
         //   then ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1155,7 +1177,7 @@ mod tests {
                         else_branch: Some(vec![Statement::WordCall("write_line".to_string())]),
                     },
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1166,7 +1188,8 @@ mod tests {
     #[test]
     fn test_string_literal() {
         // : test ( -- String ) "hello" ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1174,7 +1197,7 @@ mod tests {
                     StackType::singleton(Type::String),
                 )),
                 body: vec![Statement::StringLiteral("hello".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1186,7 +1209,8 @@ mod tests {
     fn test_bool_literal() {
         // : test ( -- Int ) true ;
         // Booleans are represented as Int in the type system
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1194,7 +1218,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::BoolLiteral(true)],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1210,7 +1234,8 @@ mod tests {
         //   else
         //     "ok" write_line
         //   then ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: None,
@@ -1229,7 +1254,7 @@ mod tests {
                         ]),
                     },
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1242,7 +1267,8 @@ mod tests {
     #[test]
     fn test_read_line_operation() {
         // : test ( -- String ) read_line ;
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1250,7 +1276,7 @@ mod tests {
                     StackType::singleton(Type::String),
                 )),
                 body: vec![Statement::WordCall("read_line".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1264,7 +1290,8 @@ mod tests {
         // : test ( Int Int -- Int Int Int Int Int Int )
         //   2dup = 2dup < 2dup > 2dup <= 2dup >= 2dup <> ;
         // Simplified: just test that comparisons work
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1272,7 +1299,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::WordCall("<=".to_string())],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1287,7 +1314,8 @@ mod tests {
         // : is-odd ( Int -- Int ) dup 0 = if drop 0 else 1 subtract is-even then ;
         //
         // Note: This tests that the checker can handle words that reference each other
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![
                 WordDef {
                     name: "is-even".to_string(),
@@ -1311,7 +1339,7 @@ mod tests {
                             ]),
                         },
                     ],
-                source: None,
+                    source: None,
                 },
                 WordDef {
                     name: "is-odd".to_string(),
@@ -1335,7 +1363,7 @@ mod tests {
                             ]),
                         },
                     ],
-                source: None,
+                    source: None,
                 },
             ],
         };
@@ -1350,7 +1378,8 @@ mod tests {
         // : apply-twice ( Int -- Int ) dup add ;
         // : quad ( Int -- Int ) apply-twice apply-twice ;
         // Should work: both use row polymorphism correctly
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![
                 WordDef {
                     name: "apply-twice".to_string(),
@@ -1362,7 +1391,7 @@ mod tests {
                         Statement::WordCall("dup".to_string()),
                         Statement::WordCall("add".to_string()),
                     ],
-                source: None,
+                    source: None,
                 },
                 WordDef {
                     name: "quad".to_string(),
@@ -1374,7 +1403,7 @@ mod tests {
                         Statement::WordCall("apply-twice".to_string()),
                         Statement::WordCall("apply-twice".to_string()),
                     ],
-                source: None,
+                    source: None,
                 },
             ],
         };
@@ -1393,7 +1422,8 @@ mod tests {
             stack_type = stack_type.push(Type::Int);
         }
 
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(stack_type, StackType::singleton(Type::Int))),
@@ -1408,7 +1438,7 @@ mod tests {
                     Statement::WordCall("add".to_string()),
                     Statement::WordCall("add".to_string()),
                 ],
-            source: None,
+                source: None,
             }],
         };
 
@@ -1421,7 +1451,8 @@ mod tests {
         // : test ( -- Quot )
         //   [ 1 add ] ;
         // Quotation type should be [ ..input Int -- ..input Int ] (row polymorphic)
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1454,7 +1485,8 @@ mod tests {
         // : test ( -- Quot )
         //   [ ] ;
         // Empty quotation has effect ( ..input -- ..input ) (preserves stack)
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1517,7 +1549,8 @@ mod tests {
             StackType::RowVar("input".to_string()).push(inner_quot_type.clone()),
         )));
 
-        let program = Program { includes: vec![],
+        let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(

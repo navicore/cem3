@@ -14,7 +14,7 @@ pub mod unification;
 pub use ast::Program;
 pub use codegen::CodeGen;
 pub use parser::Parser;
-pub use resolver::{check_collisions, find_stdlib, Resolver};
+pub use resolver::{Resolver, check_collisions, find_stdlib};
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 

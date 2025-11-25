@@ -61,9 +61,9 @@ impl Resolver {
             let included_path = self.resolve_include_path(include, source_dir)?;
 
             // Skip if already included (prevents diamond dependency issues)
-            let canonical = included_path
-                .canonicalize()
-                .map_err(|e| format!("Failed to canonicalize {}: {}", included_path.display(), e))?;
+            let canonical = included_path.canonicalize().map_err(|e| {
+                format!("Failed to canonicalize {}: {}", included_path.display(), e)
+            })?;
 
             if self.included.contains(&canonical) {
                 continue;
@@ -90,7 +90,11 @@ impl Resolver {
     }
 
     /// Resolve an include to a file path
-    fn resolve_include_path(&self, include: &Include, source_dir: &Path) -> Result<PathBuf, String> {
+    fn resolve_include_path(
+        &self,
+        include: &Include,
+        source_dir: &Path,
+    ) -> Result<PathBuf, String> {
         match include {
             Include::Std(name) => {
                 let path = self.stdlib_path.join(format!("{}.seq", name));
@@ -126,10 +130,7 @@ pub fn check_collisions(words: &[WordDef]) -> Result<(), String> {
 
     for word in words {
         if let Some(ref source) = word.source {
-            definitions
-                .entry(&word.name)
-                .or_default()
-                .push(source);
+            definitions.entry(&word.name).or_default().push(source);
         }
     }
 

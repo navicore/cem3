@@ -785,6 +785,7 @@ mod tests {
         let mut codegen = CodeGen::new();
 
         let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -792,6 +793,7 @@ mod tests {
                     Statement::StringLiteral("Hello, World!".to_string()),
                     Statement::WordCall("write_line".to_string()),
                 ],
+                source: None,
             }],
         };
 
@@ -809,6 +811,7 @@ mod tests {
         let mut codegen = CodeGen::new();
 
         let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -817,6 +820,7 @@ mod tests {
                     Statement::IntLiteral(3),
                     Statement::WordCall("add".to_string()),
                 ],
+                source: None,
             }],
         };
 

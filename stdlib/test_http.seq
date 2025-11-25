@@ -1,0 +1,175 @@
+# Test suite for http.seq stdlib
+#
+# Tests HTTP response building and request parsing helpers.
+
+# Include http.seq functions (copy-paste since no module system yet)
+: http-ok ( String -- String )
+  dup string-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+: http-not-found ( String -- String )
+  dup string-length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+: http-request-line ( String -- String )
+  "\r\n" string-split
+  0 variant-field-at
+;
+
+: http-request-path ( String -- String )
+  http-request-line
+  " " string-split
+  1 variant-field-at
+;
+
+: http-request-method ( String -- String )
+  http-request-line
+  " " string-split
+  0 variant-field-at
+;
+
+: http-path-is ( String String -- Int )
+  swap http-request-path
+  swap string-equal
+;
+
+: http-path-starts-with ( String String -- Int )
+  swap http-request-path
+  swap string-starts-with
+;
+
+# Test http-ok
+: test-http-ok ( -- )
+  "Test http-ok:" write_line
+
+  "Hello, World!" http-ok
+
+  # Should contain status line
+  dup "HTTP/1.1 200 OK" string-contains
+  "  Status line check" swap int->string string-concat write_line
+
+  # Should contain Content-Type
+  dup "Content-Type: text/plain" string-contains
+  "  Content-Type check" swap int->string string-concat write_line
+
+  # Should contain body
+  dup "Hello, World!" string-contains
+  "  Body check" swap int->string string-concat write_line
+
+  # Should contain Content-Length
+  "Content-Length: 13" string-contains
+  "  Content-Length check" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Test http-not-found
+: test-http-not-found ( -- )
+  "Test http-not-found:" write_line
+
+  "Not Found" http-not-found
+
+  # Should contain 404 status
+  dup "404 Not Found" string-contains
+  "  404 status check" swap int->string string-concat write_line
+
+  # Should contain body
+  "Not Found" string-contains
+  "  Body check" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Test http-request-line
+: test-http-request-line ( -- )
+  "Test http-request-line:" write_line
+
+  "GET /api/users HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  http-request-line
+
+  "GET /api/users HTTP/1.1" string-equal
+  "  Extract request line" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Test http-request-path
+: test-http-request-path ( -- )
+  "Test http-request-path:" write_line
+
+  "GET /api/users HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  http-request-path
+
+  "/api/users" string-equal
+  "  Extract path" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Test http-request-method
+: test-http-request-method ( -- )
+  "Test http-request-method:" write_line
+
+  "GET /api/users HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  http-request-method
+
+  "GET" string-equal
+  "  Extract method" swap int->string string-concat write_line
+
+  "POST /data HTTP/1.1\r\n\r\n"
+  http-request-method
+
+  "POST" string-equal
+  "  Extract POST method" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Test http-path-is
+: test-http-path-is ( -- )
+  "Test http-path-is:" write_line
+
+  "GET /health HTTP/1.1\r\n\r\n" "/health" http-path-is
+  "  Path matches /health" swap int->string string-concat write_line
+
+  "GET /api HTTP/1.1\r\n\r\n" "/health" http-path-is not
+  "  Path doesn't match /health" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Test http-path-starts-with
+: test-http-path-starts-with ( -- )
+  "Test http-path-starts-with:" write_line
+
+  "GET /api/users HTTP/1.1\r\n\r\n" "/api" http-path-starts-with
+  "  Path starts with /api" swap int->string string-concat write_line
+
+  "GET /health HTTP/1.1\r\n\r\n" "/api" http-path-starts-with not
+  "  Path doesn't start with /api" swap int->string string-concat write_line
+
+  "" write_line
+;
+
+# Main test runner
+: main ( -- Int )
+  "Running HTTP stdlib tests..." write_line
+  "" write_line
+
+  test-http-ok
+  test-http-not-found
+  test-http-request-line
+  test-http-request-path
+  test-http-request-method
+  test-http-path-is
+  test-http-path-starts-with
+
+  "All tests completed!" write_line
+  0
+;

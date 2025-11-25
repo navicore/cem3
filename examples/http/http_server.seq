@@ -1,29 +1,90 @@
-# Multi-Connection HTTP Server
-# Demonstrates: spawn, channels, concurrent request handling
+# Multi-Connection HTTP Server with Echo Route
+# Demonstrates: spawn, channels, concurrent request handling, HTTP stdlib
+
+# HTTP stdlib functions (copied since no module system yet)
+: http-ok ( String -- String )
+  dup string-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+: http-not-found ( String -- String )
+  dup string-length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+: http-request-line ( String -- String )
+  "\r\n" string-split
+  0 variant-field-at
+;
+
+: http-request-path ( String -- String )
+  http-request-line
+  " " string-split
+  1 variant-field-at
+;
+
+: http-request-method ( String -- String )
+  http-request-line
+  " " string-split
+  0 variant-field-at
+;
+
+# Extract suffix after a prefix from a string
+: string-suffix-after ( String String -- String )
+  over over string-starts-with if
+    string-split
+    dup variant-field-count 2 < if
+      drop drop ""
+    else
+      1 variant-field-at
+    then
+  else
+    drop drop ""
+  then
+;
+
+# Extract the part of the path after a prefix
+: http-path-suffix ( String String -- String )
+  swap http-request-path
+  swap string-suffix-after
+;
 
 # Route HTTP request to response
+# Stack: ( request -- response )
 : route ( String -- String )
-  [ dup "GET / " string-starts-with ]
-  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello from Seq!" ]
-
-  [ dup "GET /health" string-starts-with ]
-  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK" ]
-
-  [ dup "GET /echo" string-starts-with ]
-  [ drop "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nEcho!" ]
-
-  [ drop 1 ]
-  [ "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found" ]
-
-  4 cond
+  # Check for root path
+  dup "GET / " string-starts-with if
+    drop "Welcome to Seq HTTP Server!" http-ok
+  else
+    # Check for health endpoint
+    dup "GET /health" string-starts-with if
+      drop "OK" http-ok
+    else
+      # Check for echo endpoint - echo back user input
+      dup "GET /echo/" string-starts-with if
+        # Extract what the user typed after "/echo/"
+        "/echo/" http-path-suffix
+        # Build the body: "You said: <user-input>"
+        "You said: " swap string-concat
+        # Use http-ok to build response
+        http-ok
+      else
+        drop "404 Not Found" http-not-found
+      then
+    then
+  then
 ;
 
 # Handle a single connection (called in spawned strand)
 : handle-connection ( Int -- )
-  dup                # Duplicate socket for tcp-read and tcp-close
-  tcp-read           # ( socket string )
+  dup                # ( socket socket )
+  tcp-read           # ( socket request_string )
   route              # ( socket response_string )
-  over               # ( socket response_string socket ) - preserve socket for close
+  over               # ( socket response_string socket )
   tcp-write          # ( socket )
   tcp-close          # ( )
 ;
@@ -69,6 +130,8 @@
   "Starting concurrent HTTP server on port 8080..." write_line
   "Try: curl http://localhost:8080/" write_line
   "Try: curl http://localhost:8080/health" write_line
+  "Try: curl http://localhost:8080/echo/hello-world" write_line
+  "Try: curl http://localhost:8080/echo/anything-you-want" write_line
   "Server will handle multiple concurrent connections." write_line
   "" write_line
 

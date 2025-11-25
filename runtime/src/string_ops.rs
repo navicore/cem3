@@ -227,10 +227,35 @@ pub unsafe extern "C" fn patch_seq_string_to_lower(stack: Stack) -> Stack {
     }
 }
 
+/// Check if two strings are equal
+///
+/// Stack effect: ( str1 str2 -- bool )
+///
+/// # Safety
+/// Stack must have two String values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_equal(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_equal: stack is empty");
+
+    let (stack, str2_val) = unsafe { pop(stack) };
+    assert!(!stack.is_null(), "string_equal: need two strings");
+    let (stack, str1_val) = unsafe { pop(stack) };
+
+    match (str1_val, str2_val) {
+        (Value::String(s1), Value::String(s2)) => {
+            let equal = s1.as_str() == s2.as_str();
+            let result = if equal { 1 } else { 0 };
+            unsafe { push(stack, Value::Int(result)) }
+        }
+        _ => panic!("string_equal: expected two strings on stack"),
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_string_concat as string_concat;
 pub use patch_seq_string_contains as string_contains;
 pub use patch_seq_string_empty as string_empty;
+pub use patch_seq_string_equal as string_equal;
 pub use patch_seq_string_length as string_length;
 pub use patch_seq_string_split as string_split;
 pub use patch_seq_string_starts_with as string_starts_with;
@@ -568,6 +593,51 @@ mod tests {
                 result,
                 Value::String(global_string("Content-Length: 42".to_owned()))
             );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_equal_true() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+
+            let stack = string_equal(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_equal_false() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::String(global_string("world".to_owned())));
+
+            let stack = string_equal(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_equal_empty_strings() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("".to_owned())));
+            let stack = push(stack, Value::String(global_string("".to_owned())));
+
+            let stack = string_equal(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
             assert!(stack.is_null());
         }
     }

@@ -244,6 +244,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_equal(ptr)").unwrap();
         writeln!(&mut ir, "; Variant operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
@@ -538,6 +539,7 @@ impl CodeGen {
                     "string-trim" => "patch_seq_string_trim".to_string(),
                     "string-to-upper" => "patch_seq_string_to_upper".to_string(),
                     "string-to-lower" => "patch_seq_string_to_lower".to_string(),
+                    "string-equal" => "patch_seq_string_equal".to_string(),
                     // Variant operations (hyphen → underscore for C compatibility)
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),

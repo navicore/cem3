@@ -533,6 +533,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // string-equal: ( ..a String String -- ..a Int )
+    // Check if two strings are equal (returns 0 or 1)
+    sigs.insert(
+        "string-equal".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // Variant operations
     // variant-field-count: ( ..a Variant -- ..a Int )
     // Get number of fields in a variant

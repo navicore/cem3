@@ -6,6 +6,7 @@ pub mod ast;
 pub mod builtins;
 pub mod codegen;
 pub mod parser;
+pub mod resolver;
 pub mod typechecker;
 pub mod types;
 pub mod unification;
@@ -13,6 +14,7 @@ pub mod unification;
 pub use ast::Program;
 pub use codegen::CodeGen;
 pub use parser::Parser;
+pub use resolver::{check_collisions, find_stdlib, Resolver};
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 
@@ -29,6 +31,18 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
     // Parse
     let mut parser = Parser::new(&source);
     let program = parser.parse()?;
+
+    // Resolve includes (if any)
+    let program = if !program.includes.is_empty() {
+        let stdlib_path = find_stdlib()?;
+        let mut resolver = Resolver::new(stdlib_path);
+        resolver.resolve(source_path, program)?
+    } else {
+        program
+    };
+
+    // Check for word name collisions
+    check_collisions(&program.words)?;
 
     // Verify we have a main word
     if program.find_word("main").is_none() {

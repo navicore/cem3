@@ -4,15 +4,15 @@
 
 # Include http.seq functions (copy-paste since no module system yet)
 : http-ok ( String -- String )
-  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;
 
 : http-not-found ( String -- String )
-  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;

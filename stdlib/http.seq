@@ -43,8 +43,8 @@
 # Build HTTP 200 OK response with body
 # Stack effect: ( body -- response )
 : http-ok ( String -- String )
-  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;
@@ -52,8 +52,8 @@
 # Build HTTP 404 Not Found response with body
 # Stack effect: ( body -- response )
 : http-not-found ( String -- String )
-  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;
@@ -61,8 +61,8 @@
 # Build HTTP 500 Internal Server Error response with body
 # Stack effect: ( body -- response )
 : http-error ( String -- String )
-  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;
@@ -169,7 +169,6 @@
     else
       # Get field 1 (the suffix)
       1 variant-field-at
-      nip
     then
   else
     # Doesn't start with prefix, return empty string

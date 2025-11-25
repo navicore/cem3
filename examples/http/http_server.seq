@@ -3,15 +3,15 @@
 
 # HTTP stdlib functions (copied since no module system yet)
 : http-ok ( String -- String )
-  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;
 
 : http-not-found ( String -- String )
-  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: "
-  over string-length int->string string-concat
+  dup string-length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
 ;
@@ -41,7 +41,6 @@
       drop drop ""
     else
       1 variant-field-at
-      nip
     then
   else
     drop drop ""
@@ -69,20 +68,10 @@
       dup "GET /echo/" string-starts-with if
         # Extract what the user typed after "/echo/"
         "/echo/" http-path-suffix
-
         # Build the body: "You said: <user-input>"
         "You said: " swap string-concat
-
-        # Build complete HTTP response with Content-Length
-        # Stack: ( body )
-        dup string-length int->string
-        # Stack: ( body "len" )
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-        # Stack: ( body "HTTP...len" )
-        "\r\n\r\n" string-concat
-        # Stack: ( body "HTTP...len\r\n\r\n" )
-        swap string-concat
-        # Stack: ( "HTTP...len\r\n\r\nbody" )
+        # Use http-ok to build response
+        http-ok
       else
         drop "404 Not Found" http-not-found
       then

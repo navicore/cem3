@@ -1,0 +1,417 @@
+# JSON Standard Library for Seq
+#
+# JSON parsing and serialization implemented in Seq.
+#
+# ## Usage
+#
+#   include std:json
+#
+#   : main ( -- Int )
+#     "hello" json-string json-serialize write_line
+#     0
+#   ;
+#
+# ## JSON Value Representation
+#
+# JSON values are stored as Seq Variants with the following tags:
+#
+# - Tag 0: JsonNull (no fields)
+# - Tag 1: JsonBool (one Int field: 0 or 1)
+# - Tag 2: JsonNumber (one Float field)
+# - Tag 3: JsonString (one String field)
+# - Tag 4: JsonArray (N fields, each a JsonValue)
+# - Tag 5: JsonObject (2N fields: key1 val1 key2 val2 ...)
+#
+# ## Available Functions
+#
+# ### Value Constructors
+# - json-null: ( -- JsonValue )
+# - json-bool: ( Int -- JsonValue ) - 0 for false, non-zero for true
+# - json-true: ( -- JsonValue )
+# - json-false: ( -- JsonValue )
+# - json-number: ( Float -- JsonValue )
+# - json-string: ( String -- JsonValue )
+#
+# ### Type Predicates
+# - json-null?: ( JsonValue -- JsonValue Int ) - 1 if null
+# - json-bool?: ( JsonValue -- JsonValue Int ) - 1 if bool
+# - json-number?: ( JsonValue -- JsonValue Int ) - 1 if number
+# - json-string?: ( JsonValue -- JsonValue Int ) - 1 if string
+# - json-array?: ( JsonValue -- JsonValue Int ) - 1 if array
+# - json-object?: ( JsonValue -- JsonValue Int ) - 1 if object
+#
+# ### Value Extractors
+# - json-unwrap-bool: ( JsonValue -- Int )
+# - json-unwrap-number: ( JsonValue -- Float )
+# - json-unwrap-string: ( JsonValue -- String )
+#
+# ### Serialization
+# - json-serialize: ( JsonValue -- String )
+#
+# ### Parsing (TODO)
+# - json-parse: ( String -- JsonValue )
+#
+
+# ============================================================================
+# JSON Tag Constants
+# ============================================================================
+
+# These are the variant tags for each JSON type
+# Tag 0 = null, Tag 1 = bool, Tag 2 = number, Tag 3 = string
+# Tag 4 = array, Tag 5 = object
+
+# ============================================================================
+# Helper: Quote Character
+# ============================================================================
+
+# Get a double-quote character as a string
+# Note: We use char->string with ASCII 34 because the tokenizer
+# doesn't handle escaped quotes inside string literals yet
+: quote-char ( -- String )
+  34 char->string
+;
+
+# ============================================================================
+# Value Constructors
+# ============================================================================
+
+# Create a JSON null value
+# Stack: ( -- JsonNull )
+: json-null
+  0 0 make-variant
+;
+
+# Create a JSON boolean from an Int
+# Stack: ( Int -- JsonBool )
+# Input: 0 for false, non-zero for true
+: json-bool
+  0 <> if 1 else 0 then
+  1 1 make-variant
+;
+
+# Convenience: create JSON true
+: json-true
+  1 1 1 make-variant
+;
+
+# Convenience: create JSON false
+: json-false
+  0 1 1 make-variant
+;
+
+# Create a JSON number from a Float
+# Stack: ( Float -- JsonNumber )
+: json-number
+  1 2 make-variant
+;
+
+# Create a JSON string
+# Stack: ( String -- JsonString )
+: json-string
+  1 3 make-variant
+;
+
+# ============================================================================
+# Type Predicates (non-destructive - uses dup)
+# ============================================================================
+
+# Check if value is null
+# Stack: ( JsonValue -- JsonValue Int )
+: json-null?
+  dup variant-tag 0 =
+;
+
+# Check if value is bool
+# Stack: ( JsonValue -- JsonValue Int )
+: json-bool?
+  dup variant-tag 1 =
+;
+
+# Check if value is number
+# Stack: ( JsonValue -- JsonValue Int )
+: json-number?
+  dup variant-tag 2 =
+;
+
+# Check if value is string
+# Stack: ( JsonValue -- JsonValue Int )
+: json-string?
+  dup variant-tag 3 =
+;
+
+# Check if value is array
+# Stack: ( JsonValue -- JsonValue Int )
+: json-array?
+  dup variant-tag 4 =
+;
+
+# Check if value is object
+# Stack: ( JsonValue -- JsonValue Int )
+: json-object?
+  dup variant-tag 5 =
+;
+
+# ============================================================================
+# Value Extractors
+# ============================================================================
+
+# Unwrap a JSON bool to an Int (0 or 1)
+# Stack: ( JsonBool -- Int )
+: json-unwrap-bool
+  0 variant-field-at
+;
+
+# Unwrap a JSON number to a Float
+# Stack: ( JsonNumber -- Float )
+: json-unwrap-number
+  0 variant-field-at
+;
+
+# Unwrap a JSON string to a String
+# Stack: ( JsonString -- String )
+: json-unwrap-string
+  0 variant-field-at
+;
+
+# ============================================================================
+# Serialization
+# ============================================================================
+
+# Serialize a JSON value to a string
+# Stack: ( JsonValue -- String )
+: json-serialize
+  dup variant-tag
+  # Stack: value tag
+
+  # Tag 0: null
+  dup 0 = if
+    drop drop "null"
+  else
+
+  # Tag 1: bool
+  dup 1 = if
+    drop
+    # Stack: value
+    json-unwrap-bool
+    0 = if "false" else "true" then
+  else
+
+  # Tag 2: number
+  dup 2 = if
+    drop
+    json-unwrap-number
+    float->string
+  else
+
+  # Tag 3: string
+  dup 3 = if
+    drop
+    json-unwrap-string
+    json-escape-string
+    quote-char swap string-concat quote-char string-concat
+  else
+
+  # Tag 4: array - TODO: implement array serialization
+  dup 4 = if
+    drop drop "[]"
+  else
+
+  # Tag 5: object - TODO: implement object serialization
+  dup 5 = if
+    drop drop "{}"
+  else
+    # Unknown tag - should not happen
+    drop drop "null"
+  then then then then then then
+;
+
+# Escape special characters in a string for JSON output
+# Stack: ( String -- String )
+: json-escape-string
+  # For now, return as-is
+  # TODO: Full escape handling for special characters
+;
+
+# ============================================================================
+# Parsing Helpers
+# ============================================================================
+
+# Parser state is kept on the stack as: ( str pos )
+# where str is the input string and pos is current character position
+
+# Helper: 2dup equivalent ( a b -- a b a b )
+: 2dup ( ..rest String Int -- ..rest String Int String Int )
+  over over
+;
+
+# Check if position is at end of string
+# Stack: ( str pos -- str pos Int )
+: json-at-end? ( ..rest String Int -- ..rest String Int Int )
+  # Stack: str pos
+  # Check: pos >= string-length(str)
+  over string-length  # str pos len
+  over  # str pos len pos
+  <=  # str pos (len <= pos) i.e. pos >= len
+;
+
+# Get character code at position (non-destructive)
+# Stack: ( str pos -- str pos Int )
+: json-char-at ( ..rest String Int -- ..rest String Int Int )
+  over over string-char-at
+;
+
+# Advance position by n characters
+# Stack: ( str pos n -- str pos )
+: json-advance ( ..rest String Int Int -- ..rest String Int )
+  add
+;
+
+# ============================================================================
+# JSON Value Parsers
+# ============================================================================
+
+# Parse "null" keyword
+# Stack: ( str pos -- str pos JsonValue Int )
+# Returns JsonValue and 1 if successful, 0 if not
+: json-parse-null
+  json-char-at 110 = if
+    1 json-advance
+    json-char-at 117 = if
+      1 json-advance
+      json-char-at 108 = if
+        1 json-advance
+        json-char-at 108 = if
+          1 json-advance
+          json-null 1
+        else
+          json-null 0
+        then
+      else
+        json-null 0
+      then
+    else
+      json-null 0
+    then
+  else
+    json-null 0
+  then
+;
+
+# Parse "true" keyword
+# Stack: ( str pos -- str pos JsonValue Int )
+: json-parse-true
+  json-char-at 116 = if
+    1 json-advance
+    json-char-at 114 = if
+      1 json-advance
+      json-char-at 117 = if
+        1 json-advance
+        json-char-at 101 = if
+          1 json-advance
+          json-true 1
+        else
+          json-null 0
+        then
+      else
+        json-null 0
+      then
+    else
+      json-null 0
+    then
+  else
+    json-null 0
+  then
+;
+
+# Parse "false" keyword
+# Stack: ( str pos -- str pos JsonValue Int )
+: json-parse-false
+  json-char-at 102 = if
+    1 json-advance
+    json-char-at 97 = if
+      1 json-advance
+      json-char-at 108 = if
+        1 json-advance
+        json-char-at 115 = if
+          1 json-advance
+          json-char-at 101 = if
+            1 json-advance
+            json-false 1
+          else
+            json-null 0
+          then
+        else
+          json-null 0
+        then
+      else
+        json-null 0
+      then
+    else
+      json-null 0
+    then
+  else
+    json-null 0
+  then
+;
+
+# Check if character code is a digit 0-9
+# Stack: ( Int -- Int )
+: json-is-digit? ( ..rest Int -- ..rest Int )
+  dup 48 >= swap 57 <= and
+;
+
+# Check if character code is whitespace
+# Stack: ( Int -- Int )
+: json-is-ws? ( ..rest Int -- ..rest Int )
+  dup 32 = swap dup 9 = swap dup 10 = swap 13 = or or or
+;
+
+# Skip one whitespace character if present
+# Stack: ( str pos -- str pos Int )
+# Returns 1 if whitespace was skipped, 0 if not
+: json-skip-one-ws ( ..rest String Int -- ..rest String Int Int )
+  json-at-end? if
+    0
+  else
+    json-char-at json-is-ws? if
+      1 json-advance 1
+    else
+      0
+    then
+  then
+;
+
+# Main JSON parser entry point
+# Parses any JSON value
+# Stack: ( str pos -- str pos JsonValue Int )
+: json-parse-value
+  json-at-end? if
+    json-null 0
+  else
+    json-char-at
+    # Check for 'n' (110) - null
+    dup 110 = if
+      drop json-parse-null
+    else
+    # Check for 't' (116) - true
+    dup 116 = if
+      drop json-parse-true
+    else
+    # Check for 'f' (102) - false
+    dup 102 = if
+      drop json-parse-false
+    else
+      drop json-null 0
+    then then then
+  then
+;
+
+# Simple JSON parse interface
+# Stack: ( String -- JsonValue Int )
+# Returns the parsed value and 1 on success, json-null and 0 on failure
+: json-parse
+  0
+  json-parse-value
+  rot drop
+  rot drop
+;

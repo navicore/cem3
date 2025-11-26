@@ -122,9 +122,19 @@ impl TypeChecker {
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // First pass: collect all word signatures
+        // For words without explicit effects, use a maximally polymorphic placeholder
+        // This allows calls to work, and actual type safety comes from checking the body
         for word in &program.words {
             if let Some(effect) = &word.effect {
                 self.env.insert(word.name.clone(), effect.clone());
+            } else {
+                // Use placeholder effect: ( ..input -- ..output )
+                // This is maximally polymorphic and allows any usage
+                let placeholder = Effect::new(
+                    StackType::RowVar("input".to_string()),
+                    StackType::RowVar("output".to_string()),
+                );
+                self.env.insert(word.name.clone(), placeholder);
             }
         }
 

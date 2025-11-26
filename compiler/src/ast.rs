@@ -125,6 +125,7 @@ impl Program {
             "variant-field-count",
             "variant-tag",
             "variant-field-at",
+            "make-variant",
             // Arithmetic operations
             "add",
             "subtract",

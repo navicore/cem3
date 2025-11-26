@@ -102,7 +102,7 @@ impl Subst {
 fn occurs_in_type(var: &str, ty: &Type) -> bool {
     match ty {
         Type::Var(name) => name == var,
-        Type::Int | Type::Bool | Type::String => false,
+        Type::Int | Type::Float | Type::Bool | Type::String => false,
         Type::Quotation(effect) => {
             // Check if var occurs in quotation's input or output stack types
             occurs_in_stack(var, &effect.inputs) || occurs_in_stack(var, &effect.outputs)
@@ -133,9 +133,10 @@ fn occurs_in_stack(var: &str, stack: &StackType) -> bool {
 pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
     match (t1, t2) {
         // Same concrete types unify
-        (Type::Int, Type::Int) | (Type::Bool, Type::Bool) | (Type::String, Type::String) => {
-            Ok(Subst::empty())
-        }
+        (Type::Int, Type::Int)
+        | (Type::Float, Type::Float)
+        | (Type::Bool, Type::Bool)
+        | (Type::String, Type::String) => Ok(Subst::empty()),
 
         // Type variable unifies with anything (with occurs check)
         (Type::Var(name), ty) | (ty, Type::Var(name)) => {

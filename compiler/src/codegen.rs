@@ -22,6 +22,45 @@ use crate::types::Type;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+/// Mangle a Seq word name into a valid LLVM IR identifier.
+///
+/// LLVM IR identifiers can contain: letters, digits, underscores, dollars, periods.
+/// Seq words can contain: letters, digits, hyphens, question marks, arrows, etc.
+///
+/// We escape special characters using underscore-based encoding:
+/// - `-` (hyphen) -> kept as-is (LLVM allows it)
+/// - `?` -> `_Q_` (question)
+/// - `>` -> `_GT_` (greater than, for ->)
+/// - `<` -> `_LT_` (less than)
+/// - `!` -> `_BANG_`
+/// - `*` -> `_STAR_`
+/// - `/` -> `_SLASH_`
+/// - `+` -> `_PLUS_`
+/// - `=` -> `_EQ_`
+/// - `.` -> `_DOT_`
+fn mangle_name(name: &str) -> String {
+    let mut result = String::new();
+    for c in name.chars() {
+        match c {
+            '?' => result.push_str("_Q_"),
+            '>' => result.push_str("_GT_"),
+            '<' => result.push_str("_LT_"),
+            '!' => result.push_str("_BANG_"),
+            '*' => result.push_str("_STAR_"),
+            '/' => result.push_str("_SLASH_"),
+            '+' => result.push_str("_PLUS_"),
+            '=' => result.push_str("_EQ_"),
+            // Keep these as-is (valid in LLVM IR)
+            '-' | '_' | '.' | '$' => result.push(c),
+            // Alphanumeric kept as-is
+            c if c.is_alphanumeric() => result.push(c),
+            // Any other character gets hex-encoded
+            _ => result.push_str(&format!("_x{:02X}_", c as u32)),
+        }
+    }
+    result
+}
+
 pub struct CodeGen {
     output: String,
     string_globals: String,
@@ -254,6 +293,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant(ptr)").unwrap();
         writeln!(&mut ir, "; Float operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
@@ -290,7 +330,8 @@ impl CodeGen {
     /// Generate code for a word definition
     fn codegen_word(&mut self, word: &WordDef) -> Result<(), String> {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
-        let function_name = format!("seq_{}", word.name);
+        // Also mangle special characters that aren't valid in LLVM IR identifiers
+        let function_name = format!("seq_{}", mangle_name(&word.name));
         writeln!(
             &mut self.output,
             "define ptr @{}(ptr %stack) {{",
@@ -595,6 +636,7 @@ impl CodeGen {
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),
                     "variant-field-at" => "patch_seq_variant_field_at".to_string(),
+                    "make-variant" => "patch_seq_make_variant".to_string(),
                     // Float arithmetic operations (dot notation → underscore)
                     "f.add" => "patch_seq_f_add".to_string(),
                     "f.subtract" => "patch_seq_f_subtract".to_string(),
@@ -612,7 +654,8 @@ impl CodeGen {
                     "float->int" => "patch_seq_float_to_int".to_string(),
                     "float->string" => "patch_seq_float_to_string".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
-                    _ => format!("seq_{}", name),
+                    // Also mangle special characters for LLVM IR compatibility
+                    _ => format!("seq_{}", mangle_name(name)),
                 };
                 writeln!(
                     &mut self.output,

@@ -635,6 +635,19 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // make-variant: ( ..a field1 ... fieldN count tag -- ..a Variant )
+    // Create a variant with given tag and N fields (count specifies N)
+    // Type signature only validates count and tag are Ints; runtime validates field count
+    sigs.insert(
+        "make-variant".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int) // count
+                .push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
     // Float arithmetic operations ( ..a Float Float -- ..a Float )
     for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
         sigs.insert(

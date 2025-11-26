@@ -105,6 +105,11 @@ impl Program {
             // String operations
             "string-concat",
             "string-length",
+            "string-byte-length",
+            "string-char-at",
+            "string-substring",
+            "char->string",
+            "string-find",
             "string-split",
             "string-contains",
             "string-starts-with",

@@ -136,12 +136,12 @@ impl Resolver {
 
                 // Security: Verify resolved path is within source directory
                 // This catches any bypass attempts (symlinks, encoded paths, etc.)
-                let canonical_path = path.canonicalize().map_err(|e| {
-                    format!("Failed to resolve include path '{}': {}", rel_path, e)
-                })?;
-                let canonical_source = source_dir.canonicalize().map_err(|e| {
-                    format!("Failed to resolve source directory: {}", e)
-                })?;
+                let canonical_path = path
+                    .canonicalize()
+                    .map_err(|e| format!("Failed to resolve include path '{}': {}", rel_path, e))?;
+                let canonical_source = source_dir
+                    .canonicalize()
+                    .map_err(|e| format!("Failed to resolve source directory: {}", e))?;
 
                 if !canonical_path.starts_with(&canonical_source) {
                     return Err(format!(

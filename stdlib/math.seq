@@ -1,18 +1,15 @@
-# Math Standard Library for cem3
+# Math Standard Library for Seq
 #
 # Common mathematical operations for integer arithmetic.
 #
 # ## Usage
 #
-# Since cem3 does not yet have a module system, these functions must be
-# copied directly into your program file. For example:
+#   include std:math
 #
-#   # Your program
-#   : abs ( Int -- Int )
-#     dup 0 < if 0 swap subtract then ;
-#
-#   : main ( -- )
-#     -5 abs ... ;
+#   : main ( -- Int )
+#     -5 abs int->string write_line
+#     0
+#   ;
 #
 # ## Available Functions
 #

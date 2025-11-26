@@ -108,6 +108,20 @@ impl Resolver {
                 Ok(path)
             }
             Include::Relative(rel_path) => {
+                // Security: Prevent path traversal attacks
+                if rel_path.contains("..") {
+                    return Err(format!(
+                        "Include path '{}' is invalid: paths cannot contain '..'",
+                        rel_path
+                    ));
+                }
+                if rel_path.starts_with('/') {
+                    return Err(format!(
+                        "Include path '{}' is invalid: paths cannot be absolute (start with '/')",
+                        rel_path
+                    ));
+                }
+
                 let path = source_dir.join(format!("{}.seq", rel_path));
                 if !path.exists() {
                     return Err(format!(
@@ -266,9 +280,9 @@ mod tests {
     }
 
     #[test]
-    fn test_collision_detection_same_file_allowed() {
-        // Same word in same file is fine (parser should catch true duplicates)
-        // This tests that source location matters
+    fn test_collision_detection_same_file_different_lines() {
+        // Same word defined twice in same file on different lines
+        // This is still a collision (parser would typically catch this earlier)
         let words = vec![
             WordDef {
                 name: "foo".to_string(),
@@ -285,13 +299,12 @@ mod tests {
                 body: vec![],
                 source: Some(SourceLocation {
                     file: PathBuf::from("a.seq"),
-                    line: 5, // Same file, different line (weird but not cross-file collision)
+                    line: 5,
                 }),
             },
         ];
 
-        // This IS a collision - same name in same file on different lines
-        // (though typically parser would catch this as a parse error)
+        // This IS a collision - same name defined twice
         let result = check_collisions(&words);
         assert!(result.is_err());
     }

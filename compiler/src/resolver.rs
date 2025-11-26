@@ -108,16 +108,19 @@ impl Resolver {
                 Ok(path)
             }
             Include::Relative(rel_path) => {
-                // Security: Prevent path traversal attacks
+                // Security: Early rejection of obviously malicious paths
                 if rel_path.contains("..") {
                     return Err(format!(
                         "Include path '{}' is invalid: paths cannot contain '..'",
                         rel_path
                     ));
                 }
-                if rel_path.starts_with('/') {
+
+                // Cross-platform absolute path detection
+                let rel_as_path = std::path::Path::new(rel_path);
+                if rel_as_path.is_absolute() {
                     return Err(format!(
-                        "Include path '{}' is invalid: paths cannot be absolute (start with '/')",
+                        "Include path '{}' is invalid: paths cannot be absolute",
                         rel_path
                     ));
                 }
@@ -130,7 +133,24 @@ impl Resolver {
                         path.display()
                     ));
                 }
-                Ok(path)
+
+                // Security: Verify resolved path is within source directory
+                // This catches any bypass attempts (symlinks, encoded paths, etc.)
+                let canonical_path = path.canonicalize().map_err(|e| {
+                    format!("Failed to resolve include path '{}': {}", rel_path, e)
+                })?;
+                let canonical_source = source_dir.canonicalize().map_err(|e| {
+                    format!("Failed to resolve source directory: {}", e)
+                })?;
+
+                if !canonical_path.starts_with(&canonical_source) {
+                    return Err(format!(
+                        "Include path '{}' resolves outside the source directory",
+                        rel_path
+                    ));
+                }
+
+                Ok(canonical_path)
             }
         }
     }

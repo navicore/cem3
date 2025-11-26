@@ -1,18 +1,15 @@
-# Math Standard Library for cem3
+# Math Standard Library for Seq
 #
 # Common mathematical operations for integer arithmetic.
 #
 # ## Usage
 #
-# Since cem3 does not yet have a module system, these functions must be
-# copied directly into your program file. For example:
+#   include std:math
 #
-#   # Your program
-#   : abs ( Int -- Int )
-#     dup 0 < if 0 swap subtract then ;
-#
-#   : main ( -- )
-#     -5 abs ... ;
+#   : main ( -- Int )
+#     -5 abs int->string write_line
+#     0
+#   ;
 #
 # ## Available Functions
 #
@@ -41,9 +38,14 @@
 #
 
 # Absolute value
+# Both branches must have identical stack effects for type checker
 : abs ( Int -- Int )
-  dup 0 < if
-    0 swap subtract
+  dup dup 0 < if
+    # Stack: n n, n < 0, so compute 0 - n
+    nip 0 swap subtract
+  else
+    # Stack: n n, n >= 0, keep original
+    drop
   then
 ;
 
@@ -119,17 +121,24 @@
 ;
 
 # Clamp value between min and max
-: clamp ( Int min max -- Int )
-  rot
-  over over
-  < if
-    drop drop
+# Stack: ( value min max -- clamped )
+# Returns: min if value < min, max if value > max, else value
+: clamp ( Int Int Int -- Int )
+  # Stack: value min max
+  rot rot
+  # Stack: max value min
+  over over < if
+    # value < min, return min
+    nip nip
   else
-    swap
-    over over
-    > if
+    # value >= min
+    drop
+    # Stack: max value
+    over over > if
+      # value > max, return max
       nip
     else
+      # min <= value <= max, return value
       drop
     then
   then

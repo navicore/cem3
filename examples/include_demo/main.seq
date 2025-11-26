@@ -1,0 +1,37 @@
+# Include Demo - Using the Seq Standard Library
+#
+# This example demonstrates how to use the include system to import
+# functions from the standard library.
+#
+# Usage:
+#   seqc --output include_demo main.seq
+#   ./include_demo
+
+include std:math
+include std:stack-utils
+
+: main ( -- Int )
+  "=== Include Demo ===" write_line
+  "" write_line
+
+  # Using math functions from std:math
+  "Math functions:" write_line
+  "  abs(-42) = " -42 abs int->string string-concat write_line
+  "  gcd(48, 18) = " 48 18 gcd int->string string-concat write_line
+  "  min(10, 5) = " 10 5 min int->string string-concat write_line
+  "  max(10, 5) = " 10 5 max int->string string-concat write_line
+  "  clamp(150, 0, 100) = " 150 0 100 clamp int->string string-concat write_line
+  "  square(7) = " 7 square int->string string-concat write_line
+  "" write_line
+
+  # Using stack utilities from std:stack-utils
+  "Stack utilities:" write_line
+  "  2dup of (3, 4): " 3 4 2dup
+    # Stack now: ( 3 4 3 4 )
+    int->string " " string-concat swap int->string string-concat
+    " " string-concat swap int->string string-concat
+    " " string-concat swap int->string string-concat
+    string-concat write_line
+
+  0
+;

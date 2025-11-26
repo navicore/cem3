@@ -4,9 +4,33 @@
 //! Will be extended as we add more language features.
 
 use crate::types::Effect;
+use std::path::PathBuf;
+
+/// Source location for error reporting
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceLocation {
+    pub file: PathBuf,
+    pub line: usize,
+}
+
+impl std::fmt::Display for SourceLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.file.display(), self.line)
+    }
+}
+
+/// Include statement
+#[derive(Debug, Clone, PartialEq)]
+pub enum Include {
+    /// Standard library include: `include std:http`
+    Std(String),
+    /// Relative path include: `include "my-utils"`
+    Relative(String),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
+    pub includes: Vec<Include>,
     pub words: Vec<WordDef>,
 }
 
@@ -17,6 +41,8 @@ pub struct WordDef {
     /// Example: ( ..a Int -- ..a Bool )
     pub effect: Option<Effect>,
     pub body: Vec<Statement>,
+    /// Source location for error reporting (collision detection)
+    pub source: Option<SourceLocation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,7 +83,10 @@ pub enum Statement {
 
 impl Program {
     pub fn new() -> Self {
-        Program { words: Vec::new() }
+        Program {
+            includes: Vec::new(),
+            words: Vec::new(),
+        }
     }
 
     pub fn find_word(&self, name: &str) -> Option<&WordDef> {
@@ -201,6 +230,7 @@ mod tests {
     #[test]
     fn test_validate_builtin_words() {
         let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -210,6 +240,7 @@ mod tests {
                     Statement::WordCall("add".to_string()),
                     Statement::WordCall("write_line".to_string()),
                 ],
+                source: None,
             }],
         };
 
@@ -220,16 +251,19 @@ mod tests {
     #[test]
     fn test_validate_user_defined_words() {
         let program = Program {
+            includes: vec![],
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
                     effect: None,
                     body: vec![Statement::IntLiteral(42)],
+                    source: None,
                 },
                 WordDef {
                     name: "main".to_string(),
                     effect: None,
                     body: vec![Statement::WordCall("helper".to_string())],
+                    source: None,
                 },
             ],
         };
@@ -241,10 +275,12 @@ mod tests {
     #[test]
     fn test_validate_undefined_word() {
         let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
                 body: vec![Statement::WordCall("undefined_word".to_string())],
+                source: None,
             }],
         };
 
@@ -259,10 +295,12 @@ mod tests {
     #[test]
     fn test_validate_misspelled_builtin() {
         let program = Program {
+            includes: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
                 body: vec![Statement::WordCall("wrte_line".to_string())], // typo
+                source: None,
             }],
         };
 

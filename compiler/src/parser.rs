@@ -8,7 +8,7 @@
 //!   ... ;
 //! ```
 
-use crate::ast::{Program, Statement, WordDef};
+use crate::ast::{Include, Program, Statement, WordDef};
 use crate::types::{Effect, StackType, Type};
 
 pub struct Parser {
@@ -43,11 +43,55 @@ impl Parser {
                 break;
             }
 
+            // Check for include statement
+            if self.check("include") {
+                let include = self.parse_include()?;
+                program.includes.push(include);
+                continue;
+            }
+
             let word = self.parse_word_def()?;
             program.words.push(word);
         }
 
         Ok(program)
+    }
+
+    /// Parse an include statement:
+    ///   include std:http     -> Include::Std("http")
+    ///   include "my-utils"   -> Include::Relative("my-utils")
+    fn parse_include(&mut self) -> Result<Include, String> {
+        self.consume("include");
+
+        let token = self
+            .advance()
+            .ok_or("Expected module name after 'include'")?
+            .clone();
+
+        // Check for std: prefix (tokenizer splits this into "std", ":", "name")
+        if token == "std" {
+            // Expect : token
+            if !self.consume(":") {
+                return Err("Expected ':' after 'std' in include statement".to_string());
+            }
+            // Get the module name
+            let name = self
+                .advance()
+                .ok_or("Expected module name after 'std:'")?
+                .clone();
+            return Ok(Include::Std(name));
+        }
+
+        // Check for quoted string (relative path)
+        if token.starts_with('"') && token.ends_with('"') {
+            let path = token.trim_start_matches('"').trim_end_matches('"');
+            return Ok(Include::Relative(path.to_string()));
+        }
+
+        Err(format!(
+            "Invalid include syntax '{}'. Use 'include std:name' or 'include \"path\"'",
+            token
+        ))
     }
 
     fn parse_word_def(&mut self) -> Result<WordDef, String> {
@@ -91,7 +135,12 @@ impl Parser {
         // Consume ';'
         self.consume(";");
 
-        Ok(WordDef { name, effect, body })
+        Ok(WordDef {
+            name,
+            effect,
+            body,
+            source: None,
+        })
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {

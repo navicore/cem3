@@ -1,23 +1,19 @@
-# Stack Manipulation Utilities for cem3
+# Stack Manipulation Utilities for Seq
 #
 # Common stack operations built from primitives.
 #
 # ## Usage
 #
-# Since cem3 does not yet have a module system, these functions must be
-# copied directly into your program file. For example:
+#   include std:stack-utils
 #
-#   # Your program
-#   : 2dup ( A B -- A B A B )
-#     over over ;
-#
-#   : main ( -- )
-#     1 2 2dup ...  # Stack: 1 2 1 2
+#   : main ( -- Int )
+#     1 2 2dup  # Stack: 1 2 1 2
+#     0
 #   ;
 #
 # ## Available Primitives
 #
-# cem3 provides these primitive stack operations:
+# Seq provides these primitive stack operations:
 # - dup, drop, swap, over, rot, nip, tuck, pick
 #
 # ## Available Functions

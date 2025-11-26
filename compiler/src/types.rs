@@ -8,6 +8,8 @@
 pub enum Type {
     /// Integer type
     Int,
+    /// Floating-point type (IEEE 754 double precision)
+    Float,
     /// Boolean type
     Bool,
     /// String type

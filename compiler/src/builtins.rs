@@ -635,6 +635,63 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Float arithmetic operations ( ..a Float Float -- ..a Float )
+    for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
+        sigs.insert(
+            op.to_string(),
+            Effect::new(
+                StackType::RowVar("a".to_string())
+                    .push(Type::Float)
+                    .push(Type::Float),
+                StackType::RowVar("a".to_string()).push(Type::Float),
+            ),
+        );
+    }
+
+    // Float comparison operations ( ..a Float Float -- ..a Int )
+    // Comparisons return Int (0 or 1) like integer comparisons
+    for op in &["f.=", "f.<", "f.>", "f.<=", "f.>=", "f.<>"] {
+        sigs.insert(
+            op.to_string(),
+            Effect::new(
+                StackType::RowVar("a".to_string())
+                    .push(Type::Float)
+                    .push(Type::Float),
+                StackType::RowVar("a".to_string()).push(Type::Int),
+            ),
+        );
+    }
+
+    // int->float: ( ..a Int -- ..a Float )
+    // Convert integer to floating-point
+    sigs.insert(
+        "int->float".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Float),
+        ),
+    );
+
+    // float->int: ( ..a Float -- ..a Int )
+    // Truncate floating-point to integer (toward zero)
+    sigs.insert(
+        "float->int".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Float),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // float->string: ( ..a Float -- ..a String )
+    // Convert floating-point to string representation
+    sigs.insert(
+        "float->string".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Float),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
     sigs
 }
 

@@ -254,6 +254,21 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
+        writeln!(&mut ir, "; Float operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_subtract(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_multiply(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_divide(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_eq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_lt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_gt(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_lte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_gte(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_f_neq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_int_to_float(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
@@ -452,6 +467,32 @@ impl CodeGen {
                 Ok(result_var)
             }
 
+            Statement::FloatLiteral(f) => {
+                let result_var = self.fresh_temp();
+                // Format float to ensure LLVM recognizes it as a double literal
+                // Use hex representation for precise and always-valid format
+                let float_str = if f.is_nan() {
+                    "0x7FF8000000000000".to_string() // NaN
+                } else if f.is_infinite() {
+                    if f.is_sign_positive() {
+                        "0x7FF0000000000000".to_string() // +Infinity
+                    } else {
+                        "0xFFF0000000000000".to_string() // -Infinity
+                    }
+                } else {
+                    // Use LLVM's hexadecimal floating point format for exact representation
+                    let bits = f.to_bits();
+                    format!("0x{:016X}", bits)
+                };
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
+                    result_var, stack_var, float_str
+                )
+                .unwrap();
+                Ok(result_var)
+            }
+
             Statement::BoolLiteral(b) => {
                 let result_var = self.fresh_temp();
                 let val = if *b { 1 } else { 0 };
@@ -554,6 +595,22 @@ impl CodeGen {
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),
                     "variant-field-at" => "patch_seq_variant_field_at".to_string(),
+                    // Float arithmetic operations (dot notation → underscore)
+                    "f.add" => "patch_seq_f_add".to_string(),
+                    "f.subtract" => "patch_seq_f_subtract".to_string(),
+                    "f.multiply" => "patch_seq_f_multiply".to_string(),
+                    "f.divide" => "patch_seq_f_divide".to_string(),
+                    // Float comparison operations (symbolic → named)
+                    "f.=" => "patch_seq_f_eq".to_string(),
+                    "f.<" => "patch_seq_f_lt".to_string(),
+                    "f.>" => "patch_seq_f_gt".to_string(),
+                    "f.<=" => "patch_seq_f_lte".to_string(),
+                    "f.>=" => "patch_seq_f_gte".to_string(),
+                    "f.<>" => "patch_seq_f_neq".to_string(),
+                    // Float type conversions
+                    "int->float" => "patch_seq_int_to_float".to_string(),
+                    "float->int" => "patch_seq_float_to_int".to_string(),
+                    "float->string" => "patch_seq_float_to_string".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     _ => format!("seq_{}", name),
                 };

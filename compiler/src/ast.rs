@@ -50,6 +50,9 @@ pub enum Statement {
     /// Integer literal: pushes value onto stack
     IntLiteral(i64),
 
+    /// Floating-point literal: pushes IEEE 754 double onto stack
+    FloatLiteral(f64),
+
     /// Boolean literal: pushes true/false onto stack
     BoolLiteral(bool),
 
@@ -167,6 +170,22 @@ impl Program {
             "tcp-read",
             "tcp-write",
             "tcp-close",
+            // Float arithmetic operations
+            "f.add",
+            "f.subtract",
+            "f.multiply",
+            "f.divide",
+            // Float comparison operations
+            "f.=",
+            "f.<",
+            "f.>",
+            "f.<=",
+            "f.>=",
+            "f.<>",
+            // Type conversions
+            "int->float",
+            "float->int",
+            "float->string",
         ];
 
         for word in &self.words {

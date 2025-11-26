@@ -1,8 +1,8 @@
-# cem3 Type System Guide
+# Seq Type System Guide
 
 ## Overview
 
-cem3 has a **static type system** with **row polymorphism** that verifies your programs at compile time. The type checker ensures:
+Seq has a **static type system** with **row polymorphism** that verifies your programs at compile time. The type checker ensures:
 
 - **Stack safety**: Operations receive the correct types
 - **No stack underflow**: Operations never pop from an empty stack
@@ -19,7 +19,7 @@ All type checking happens at **compile time** - there's zero runtime overhead.
 
 Words declare their **stack effect** - how they transform the stack:
 
-```cem
+```seq
 : square ( Int -- Int )
   dup multiply ;
 ```
@@ -32,7 +32,7 @@ Stack effect format: `( inputs -- outputs )`
 
 Stack effects are read **bottom-to-top**, with the **rightmost type** being the **top of stack**:
 
-```cem
+```seq
 : example ( Int String -- Bool )
   # Expects:  Bottom [ Int String ] Top
   # Produces: Bottom [ Bool ] Top
@@ -47,7 +47,7 @@ When this word is called:
 
 ### Examples
 
-```cem
+```seq
 # Takes nothing, produces an Int
 : forty-two ( -- Int )
   42 ;
@@ -73,14 +73,14 @@ When this word is called:
 
 How do we type `dup`? It should work for **any** type:
 
-```cem
+```seq
 42 dup       # Works: Int Int
 "hi" dup     # Works: String String
 ```
 
 But it also needs to work with **any stack depth**:
 
-```cem
+```seq
 # With empty stack
 42 dup            # ( -- Int Int )
 
@@ -93,7 +93,7 @@ But it also needs to work with **any stack depth**:
 
 Row variables represent "the rest of the stack":
 
-```cem
+```seq
 : dup ( ..a T -- ..a T T )
   # ..a = whatever is already on the stack
   # T = type on top
@@ -111,7 +111,7 @@ Row variables represent "the rest of the stack":
 
 All stack operations use row polymorphism:
 
-```cem
+```seq
 # Duplicate top value
 : dup ( ..a T -- ..a T T )
 
@@ -130,7 +130,7 @@ All stack operations use row polymorphism:
 
 Built-in operations also use row polymorphism:
 
-```cem
+```seq
 # Add: works at any stack depth
 : add ( ..a Int Int -- ..a Int )
 
@@ -138,11 +138,44 @@ Built-in operations also use row polymorphism:
 : write_line ( ..a String -- ..a )
 ```
 
+### Implicit Row Polymorphism
+
+**All stack effects in Seq are implicitly row-polymorphic.** You don't need to write `..rest` explicitly - the compiler adds it automatically:
+
+```seq
+# What you write:
+: double ( Int -- Int )
+  dup add ;
+
+# What the compiler understands:
+: double ( ..rest Int -- ..rest Int )
+  dup add ;
+```
+
+This means:
+- `( -- Int )` is treated as `( ..rest -- ..rest Int )` - pushes Int onto any stack
+- `( Int -- )` is treated as `( ..rest Int -- ..rest )` - consumes Int from any stack
+- `( Int Int -- Int )` is treated as `( ..rest Int Int -- ..rest Int )` - works at any depth
+
+**Why this matters:** You can call `double` from any stack state:
+
+```seq
+42 double           # Works: ( -- Int Int )
+10 20 30 double     # Works: ( Int Int -- Int Int Int )
+```
+
+Without implicit row polymorphism, `double` would only work with exactly one Int on the stack - you couldn't compose operations freely.
+
+**When to use explicit row variables:**
+- Use explicit `..a`, `..rest` when you need to **name** the row variable
+- Useful when multiple row variables must **match** (e.g., in quotation types)
+- Example: `( ..a T -- ..a T T )` makes it clear both sides share the same `..a`
+
 ### Why This Matters
 
 Row polymorphism enables **stack operation composition**:
 
-```cem
+```seq
 : swap-and-add ( Int Int Int -- Int )
   swap add ;
 
@@ -156,11 +189,12 @@ Row polymorphism enables **stack operation composition**:
 
 ---
 
-## Types in cem3
+## Types in Seq
 
 ### Concrete Types
 
 - **Int**: Integer numbers (64-bit signed)
+- **Float**: Floating-point numbers (64-bit)
 - **String**: Text strings
 - **Bool**: Not a separate type - represented as Int (0 = false, non-zero = true)
 
@@ -182,7 +216,7 @@ Row polymorphism enables **stack operation composition**:
 
 ### Type Mismatch
 
-```cem
+```seq
 : bad ( Int -- )
   write_line ;  # ERROR: write_line expects String, got Int
 ```
@@ -195,14 +229,14 @@ got Cons { rest: RowVar("a"), top: Int }
 ```
 
 **Fix:** Convert Int to String first:
-```cem
+```seq
 : good ( Int -- )
   int->string write_line ;
 ```
 
 ### Stack Underflow
 
-```cem
+```seq
 : bad ( -- )
   drop ;  # ERROR: can't drop from empty stack
 ```
@@ -215,14 +249,14 @@ got Empty
 ```
 
 **Fix:** Ensure stack has a value first:
-```cem
+```seq
 : good ( Int -- )
   drop ;
 ```
 
 ### Branch Incompatibility
 
-```cem
+```seq
 : bad ( Int -- ? )
   0 > if
     42          # Produces: Int
@@ -239,7 +273,7 @@ else=Cons { rest: RowVar("a"), top: String }
 ```
 
 **Fix:** Both branches must produce the same types:
-```cem
+```seq
 : good ( Int -- String )
   0 > if
     "positive"
@@ -250,7 +284,7 @@ else=Cons { rest: RowVar("a"), top: String }
 
 ### Unbalanced If/Then
 
-```cem
+```seq
 : bad ( Int Int -- Int )
   > if
     100    # Pushes Int
@@ -265,7 +299,7 @@ else=RowVar("a")
 ```
 
 **Fix:** Provide else branch OR don't push in then:
-```cem
+```seq
 : good ( Int Int -- Int )
   > if
     100
@@ -282,7 +316,7 @@ The type checker works in two passes:
 
 ### Pass 1: Collect Signatures
 
-```cem
+```seq
 : helper ( Int -- String ) int->string ;
 : main ( -- ) 42 helper write_line ;
 ```
@@ -333,7 +367,7 @@ This is how the type checker proves stack safety!
 
 Even though the checker can infer types, **always declare effects** for clarity:
 
-```cem
+```seq
 # Good - clear intent
 : double ( Int -- Int )
   2 multiply ;
@@ -345,7 +379,7 @@ Even though the checker can infer types, **always declare effects** for clarity:
 
 ### 2. Use Descriptive Row Variable Names
 
-```cem
+```seq
 # Okay
 : dup ( ..a T -- ..a T T ) ... ;
 
@@ -357,7 +391,7 @@ Even though the checker can infer types, **always declare effects** for clarity:
 
 When using conditionals, ensure **both branches** produce the same effect:
 
-```cem
+```seq
 : abs ( Int -- Int )
   dup 0 < if
     -1 multiply    # Negate
@@ -368,7 +402,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ### 4. Use int->string for Conversions
 
-```cem
+```seq
 : print-number ( Int -- )
   int->string write_line ;
 ```
@@ -379,7 +413,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ### Simple Math
 
-```cem
+```seq
 : square ( Int -- Int )
   dup multiply ;
 
@@ -392,7 +426,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ### String Operations
 
-```cem
+```seq
 : greet ( String -- )
   "Hello, " swap   # Would need concat - not yet implemented
   write_line ;
@@ -403,7 +437,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ### Conditionals
 
-```cem
+```seq
 : max ( Int Int -- Int )
   2dup > if
     drop    # Keep first
@@ -421,7 +455,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ### Stack Shuffling
 
-```cem
+```seq
 : rot-sum ( Int Int Int -- Int )
   # Sum three numbers after rotation
   rot add add ;
@@ -435,35 +469,45 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ## Current Limitations
 
-### No Quotations Yet
+### Quotations and Closures
 
-First-class functions (quotations) are not yet implemented:
+First-class functions (quotations and closures) are supported:
 
-```cem
-# Not yet supported:
-: map ( List [T -- U] -- List )
-  ...
-;
+```seq
+# Quotation - deferred code block
+[ 1 add ] call  # Adds 1 to top of stack
+
+# Used with spawn for concurrency
+[ handle-connection ] spawn
 ```
 
-This is planned for a future phase.
+Higher-order combinators like `map` are not yet in the standard library.
 
-### No User-Defined Types Yet
+### Variants (Runtime Algebraic Types)
 
-Currently only built-in types (Int, String) are supported:
+Seq supports variants (tagged unions) at runtime via `make-variant`:
 
-```cem
+```seq
+# Create a variant with tag 1 and 2 fields
+42 "hello" 2 1 make-variant  # Tag 1, 2 fields
+
+# Access variant data
+variant-tag       # Get the tag (Int)
+0 variant-field-at  # Get field at index 0
+```
+
+Variants are dynamically typed at runtime. Full compile-time algebraic data type syntax is planned for a future phase:
+
+```seq
 # Not yet supported:
 type Option T = Some T | None ;
 ```
-
-Algebraic data types are planned for a future phase.
 
 ### No Type Inference
 
 All word effects must be **explicitly declared**. The checker verifies but doesn't infer:
 
-```cem
+```seq
 # Must declare effect:
 : double ( Int -- Int )
   2 multiply ;
@@ -477,10 +521,11 @@ All word effects must be **explicitly declared**. The checker verifies but doesn
 
 ## Summary
 
-cem3's type system provides:
+Seq's type system provides:
 
 - ✅ **Stack safety** - no underflows, no type mismatches
 - ✅ **Row polymorphism** - stack operations work at any depth
+- ✅ **Implicit row polymorphism** - all effects are automatically row-polymorphic
 - ✅ **Zero runtime cost** - all checking at compile time
 - ✅ **Clear error messages** - tells you exactly what's wrong
 - ✅ **Compile-time guarantees** - if it type checks, stack operations are safe

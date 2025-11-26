@@ -100,6 +100,10 @@ pub unsafe extern "C" fn patch_seq_f_divide(stack: Stack) -> Stack {
 
 /// Float equality: ( Float Float -- Int )
 ///
+/// **Warning:** Direct float equality can be surprising due to IEEE 754
+/// rounding. For example, `0.1 0.2 f.add 0.3 f.=` may return 0.
+/// Consider using epsilon-based comparison for tolerances.
+///
 /// # Safety
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
@@ -239,7 +243,10 @@ pub unsafe extern "C" fn patch_seq_int_to_float(stack: Stack) -> Stack {
 
 /// Convert Float to Int: ( Float -- Int )
 ///
-/// Truncates toward zero (same as Rust's `as i64`)
+/// Truncates toward zero. Values outside i64 range are clamped:
+/// - Values >= i64::MAX become i64::MAX
+/// - Values <= i64::MIN become i64::MIN
+/// - NaN becomes 0
 ///
 /// # Safety
 /// Stack must have a Float value on top
@@ -249,7 +256,19 @@ pub unsafe extern "C" fn patch_seq_float_to_int(stack: Stack) -> Stack {
     let (stack, val) = unsafe { pop(stack) };
 
     match val {
-        Value::Float(f) => unsafe { push(stack, Value::Int(f as i64)) },
+        Value::Float(f) => {
+            // Clamp to i64 range to avoid undefined behavior
+            let i = if f.is_nan() {
+                0
+            } else if f >= i64::MAX as f64 {
+                i64::MAX
+            } else if f <= i64::MIN as f64 {
+                i64::MIN
+            } else {
+                f as i64
+            };
+            unsafe { push(stack, Value::Int(i)) }
+        }
         _ => panic!("float->int: expected Float on stack"),
     }
 }
@@ -532,6 +551,62 @@ mod tests {
 
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(-3)); // Truncates toward zero
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_float_to_int_overflow_positive() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Float(1e20)); // Much larger than i64::MAX
+
+            let stack = float_to_int(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(i64::MAX)); // Clamped to max
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_float_to_int_overflow_negative() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Float(-1e20)); // Much smaller than i64::MIN
+
+            let stack = float_to_int(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(i64::MIN)); // Clamped to min
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_float_to_int_nan() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Float(f64::NAN));
+
+            let stack = float_to_int(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0)); // NaN becomes 0
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_float_to_int_infinity() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Float(f64::INFINITY));
+
+            let stack = float_to_int(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(i64::MAX)); // +Inf becomes MAX
             assert!(stack.is_null());
         }
     }

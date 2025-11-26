@@ -146,6 +146,15 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Statement, String> {
         let token = self.advance().ok_or("Unexpected end of file")?.clone();
 
+        // Check if it looks like a float literal (contains . or scientific notation)
+        // Must check this BEFORE integer parsing
+        if let Some(f) = is_float_literal(&token)
+            .then(|| token.parse::<f64>().ok())
+            .flatten()
+        {
+            return Ok(Statement::FloatLiteral(f));
+        }
+
         // Try to parse as integer literal
         if let Ok(n) = token.parse::<i64>() {
             return Ok(Statement::IntLiteral(n));
@@ -291,6 +300,7 @@ impl Parser {
     fn parse_type(&self, token: &str) -> Result<Type, String> {
         match token {
             "Int" => Ok(Type::Int),
+            "Float" => Ok(Type::Float),
             "Bool" => Ok(Type::Bool),
             "String" => Ok(Type::String),
             _ => {
@@ -537,6 +547,27 @@ impl Parser {
     fn is_at_end(&self) -> bool {
         self.pos >= self.tokens.len()
     }
+}
+
+/// Check if a token looks like a float literal
+///
+/// Float literals contain either:
+/// - A decimal point: `3.14`, `.5`, `5.`
+/// - Scientific notation: `1e10`, `1E-5`, `1.5e3`
+///
+/// This check must happen BEFORE integer parsing to avoid
+/// parsing "5" in "5.0" as an integer.
+fn is_float_literal(token: &str) -> bool {
+    // Skip leading minus sign for negative numbers
+    let s = token.strip_prefix('-').unwrap_or(token);
+
+    // Must have at least one digit
+    if s.is_empty() {
+        return false;
+    }
+
+    // Check for decimal point or scientific notation
+    s.contains('.') || s.contains('e') || s.contains('E')
 }
 
 /// Process escape sequences in a string literal

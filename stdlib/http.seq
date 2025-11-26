@@ -42,8 +42,9 @@
 
 # Build HTTP 200 OK response with body
 # Stack effect: ( body -- response )
+# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
 : http-ok ( String -- String )
-  dup string-length int->string
+  dup string-byte-length int->string
   "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
@@ -51,8 +52,9 @@
 
 # Build HTTP 404 Not Found response with body
 # Stack effect: ( body -- response )
+# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
 : http-not-found ( String -- String )
-  dup string-length int->string
+  dup string-byte-length int->string
   "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
@@ -60,8 +62,9 @@
 
 # Build HTTP 500 Internal Server Error response with body
 # Stack effect: ( body -- response )
+# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
 : http-error ( String -- String )
-  dup string-length int->string
+  dup string-byte-length int->string
   "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
   "\r\n\r\n" string-concat
   swap string-concat
@@ -95,6 +98,7 @@
 
 # Build complete HTTP response with custom status
 # Stack effect: ( status_code reason_phrase body -- response )
+# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
 #
 # Example: 201 "Created" "Resource created" http-response
 : http-response ( Int String String -- String )
@@ -111,9 +115,9 @@
   # Add Content-Type header
   "Content-Type: text/plain\r\n" string-concat
 
-  # Add Content-Length header
+  # Add Content-Length header (uses byte length for HTTP compliance)
   "Content-Length: " string-concat
-  over string-length int->string string-concat
+  over string-byte-length int->string string-concat
   "\r\n\r\n" string-concat
 
   # Add body

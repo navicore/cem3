@@ -10,6 +10,9 @@ pub enum Value {
     /// Integer value
     Int(i64),
 
+    /// Floating-point value (IEEE 754 double precision)
+    Float(f64),
+
     /// Boolean value
     Bool(bool),
 
@@ -35,7 +38,7 @@ pub enum Value {
 }
 
 // Safety: Value can be sent between strands (green threads)
-// - Int, Bool, String are all Send
+// - Int, Float, Bool, String are all Send
 // - Variant contains only Send types (recursively)
 // - Quotation stores function pointer as usize (Send-safe)
 // - Closure: fn_ptr is usize (Send), env is Box<[Value]> (Send because Value is Send)

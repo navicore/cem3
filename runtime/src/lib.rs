@@ -10,6 +10,7 @@ pub mod arithmetic;
 pub mod channel;
 pub mod closures;
 pub mod cond;
+pub mod float_ops;
 pub mod io;
 pub mod pool;
 pub mod quotations;
@@ -37,6 +38,16 @@ pub use arithmetic::{
     patch_seq_gte as gte, patch_seq_lt as lt, patch_seq_lte as lte, patch_seq_multiply as multiply,
     patch_seq_neq as neq, patch_seq_push_bool as push_bool, patch_seq_push_int as push_int,
     patch_seq_subtract as subtract,
+};
+
+// Float operations (exported for LLVM linking)
+pub use float_ops::{
+    patch_seq_f_add as f_add, patch_seq_f_divide as f_divide, patch_seq_f_eq as f_eq,
+    patch_seq_f_gt as f_gt, patch_seq_f_gte as f_gte, patch_seq_f_lt as f_lt,
+    patch_seq_f_lte as f_lte, patch_seq_f_multiply as f_multiply, patch_seq_f_neq as f_neq,
+    patch_seq_f_subtract as f_subtract, patch_seq_float_to_int as float_to_int,
+    patch_seq_float_to_string as float_to_string, patch_seq_int_to_float as int_to_float,
+    patch_seq_push_float as push_float,
 };
 
 // I/O operations (exported for LLVM linking)

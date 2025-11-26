@@ -237,6 +237,11 @@ impl CodeGen {
         writeln!(&mut ir, "; String operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_byte_length(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_char_at(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_substring(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_char_to_string(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_find(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_split(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_contains(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_starts_with(ptr)").unwrap();
@@ -532,6 +537,11 @@ impl CodeGen {
                     // String operations (hyphen → underscore for C compatibility)
                     "string-concat" => "patch_seq_string_concat".to_string(),
                     "string-length" => "patch_seq_string_length".to_string(),
+                    "string-byte-length" => "patch_seq_string_byte_length".to_string(),
+                    "string-char-at" => "patch_seq_string_char_at".to_string(),
+                    "string-substring" => "patch_seq_string_substring".to_string(),
+                    "char->string" => "patch_seq_char_to_string".to_string(),
+                    "string-find" => "patch_seq_string_find".to_string(),
                     "string-split" => "patch_seq_string_split".to_string(),
                     "string-contains" => "patch_seq_string_contains".to_string(),
                     "string-starts-with" => "patch_seq_string_starts_with".to_string(),

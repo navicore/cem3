@@ -545,6 +545,63 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // string-byte-length: ( ..a String -- ..a Int )
+    // Get byte length (for HTTP Content-Length, buffer allocation)
+    sigs.insert(
+        "string-byte-length".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-char-at: ( ..a String Int -- ..a Int )
+    // Get Unicode code point at character index
+    sigs.insert(
+        "string-char-at".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // string-substring: ( ..a String Int Int -- ..a String )
+    // Extract substring by character indices (string, start, length)
+    sigs.insert(
+        "string-substring".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // char->string: ( ..a Int -- ..a String )
+    // Convert Unicode code point to single-character string
+    sigs.insert(
+        "char->string".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-find: ( ..a String String -- ..a Int )
+    // Find first occurrence of substring, returns character index or -1
+    sigs.insert(
+        "string-find".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // Variant operations
     // variant-field-count: ( ..a Variant -- ..a Int )
     // Get number of fields in a variant

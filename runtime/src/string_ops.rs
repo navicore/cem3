@@ -143,9 +143,12 @@ pub unsafe extern "C" fn patch_seq_string_concat(stack: Stack) -> Stack {
     }
 }
 
-/// Get the length of a string
+/// Get the length of a string in Unicode characters (code points)
 ///
 /// Stack effect: ( str -- int )
+///
+/// Note: This returns character count, not byte count.
+/// For UTF-8 byte length (e.g., HTTP Content-Length), use `string-byte-length`.
 ///
 /// # Safety
 /// Stack must have a String value on top
@@ -157,10 +160,183 @@ pub unsafe extern "C" fn patch_seq_string_length(stack: Stack) -> Stack {
 
     match str_val {
         Value::String(s) => {
-            let len = s.as_str().len() as i64;
+            let len = s.as_str().chars().count() as i64;
             unsafe { push(stack, Value::Int(len)) }
         }
         _ => panic!("string_length: expected String on stack"),
+    }
+}
+
+/// Get the byte length of a string (UTF-8 encoded)
+///
+/// Stack effect: ( str -- int )
+///
+/// Use this for HTTP Content-Length headers and buffer allocation.
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_byte_length(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_byte_length: stack is empty");
+
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match str_val {
+        Value::String(s) => {
+            let len = s.as_str().len() as i64;
+            unsafe { push(stack, Value::Int(len)) }
+        }
+        _ => panic!("string_byte_length: expected String on stack"),
+    }
+}
+
+/// Get the Unicode code point at a character index
+///
+/// Stack effect: ( str int -- int )
+///
+/// Returns the code point value at the given character index.
+/// Returns -1 if index is out of bounds.
+///
+/// # Safety
+/// Stack must have a String and Int on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_char_at(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_char_at: stack is empty");
+
+    let (stack, index_val) = unsafe { pop(stack) };
+    assert!(!stack.is_null(), "string_char_at: need string and index");
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match (str_val, index_val) {
+        (Value::String(s), Value::Int(index)) => {
+            let result = if index < 0 {
+                -1
+            } else {
+                s.as_str()
+                    .chars()
+                    .nth(index as usize)
+                    .map(|c| c as i64)
+                    .unwrap_or(-1)
+            };
+            unsafe { push(stack, Value::Int(result)) }
+        }
+        _ => panic!("string_char_at: expected String and Int on stack"),
+    }
+}
+
+/// Extract a substring using character indices
+///
+/// Stack effect: ( str start len -- str )
+///
+/// Arguments:
+/// - str: The source string
+/// - start: Starting character index
+/// - len: Number of characters to extract
+///
+/// Edge cases:
+/// - Start beyond end: returns empty string
+/// - Length extends past end: clamps to available
+///
+/// # Safety
+/// Stack must have String, Int, Int on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_substring(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_substring: stack is empty");
+
+    let (stack, len_val) = unsafe { pop(stack) };
+    assert!(
+        !stack.is_null(),
+        "string_substring: need string, start, len"
+    );
+    let (stack, start_val) = unsafe { pop(stack) };
+    assert!(
+        !stack.is_null(),
+        "string_substring: need string, start, len"
+    );
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match (str_val, start_val, len_val) {
+        (Value::String(s), Value::Int(start), Value::Int(len)) => {
+            let result = if start < 0 || len < 0 {
+                String::new()
+            } else {
+                s.as_str()
+                    .chars()
+                    .skip(start as usize)
+                    .take(len as usize)
+                    .collect()
+            };
+            unsafe { push(stack, Value::String(global_string(result))) }
+        }
+        _ => panic!("string_substring: expected String, Int, Int on stack"),
+    }
+}
+
+/// Convert a Unicode code point to a single-character string
+///
+/// Stack effect: ( int -- str )
+///
+/// Creates a string containing the single character represented by the code point.
+/// Panics if the code point is invalid.
+///
+/// # Safety
+/// Stack must have an Int on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_char_to_string(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "char_to_string: stack is empty");
+
+    let (stack, code_point_val) = unsafe { pop(stack) };
+
+    match code_point_val {
+        Value::Int(code_point) => {
+            let result = if !(0..=0x10FFFF).contains(&code_point) {
+                // Invalid code point - return empty string
+                String::new()
+            } else {
+                match char::from_u32(code_point as u32) {
+                    Some(c) => c.to_string(),
+                    None => String::new(), // Invalid code point (e.g., surrogate)
+                }
+            };
+            unsafe { push(stack, Value::String(global_string(result))) }
+        }
+        _ => panic!("char_to_string: expected Int on stack"),
+    }
+}
+
+/// Find the first occurrence of a substring
+///
+/// Stack effect: ( str needle -- int )
+///
+/// Returns the character index of the first occurrence of needle in str.
+/// Returns -1 if not found.
+///
+/// # Safety
+/// Stack must have two Strings on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_find(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_find: stack is empty");
+
+    let (stack, needle_val) = unsafe { pop(stack) };
+    assert!(!stack.is_null(), "string_find: need string and needle");
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match (str_val, needle_val) {
+        (Value::String(haystack), Value::String(needle)) => {
+            let haystack_str = haystack.as_str();
+            let needle_str = needle.as_str();
+
+            // Find byte position then convert to character position
+            let result = match haystack_str.find(needle_str) {
+                Some(byte_pos) => {
+                    // Count characters up to byte_pos
+                    haystack_str[..byte_pos].chars().count() as i64
+                }
+                None => -1,
+            };
+            unsafe { push(stack, Value::Int(result)) }
+        }
+        _ => panic!("string_find: expected two Strings on stack"),
     }
 }
 
@@ -252,13 +428,18 @@ pub unsafe extern "C" fn patch_seq_string_equal(stack: Stack) -> Stack {
 }
 
 // Public re-exports with short names for internal use
+pub use patch_seq_char_to_string as char_to_string;
+pub use patch_seq_string_byte_length as string_byte_length;
+pub use patch_seq_string_char_at as string_char_at;
 pub use patch_seq_string_concat as string_concat;
 pub use patch_seq_string_contains as string_contains;
 pub use patch_seq_string_empty as string_empty;
 pub use patch_seq_string_equal as string_equal;
+pub use patch_seq_string_find as string_find;
 pub use patch_seq_string_length as string_length;
 pub use patch_seq_string_split as string_split;
 pub use patch_seq_string_starts_with as string_starts_with;
+pub use patch_seq_string_substring as string_substring;
 pub use patch_seq_string_to_lower as string_to_lower;
 pub use patch_seq_string_to_upper as string_to_upper;
 pub use patch_seq_string_trim as string_trim;
@@ -638,6 +819,322 @@ mod tests {
 
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+        }
+    }
+
+    // UTF-8 String Primitives Tests
+
+    #[test]
+    fn test_string_length_utf8() {
+        // "héllo" has 5 characters but 6 bytes (é is 2 bytes in UTF-8)
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("héllo".to_owned())));
+
+            let stack = string_length(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(5)); // Characters, not bytes
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_length_emoji() {
+        // Emoji is one code point but multiple bytes
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hi🎉".to_owned())));
+
+            let stack = string_length(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(3)); // 'h', 'i', and emoji
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_byte_length_ascii() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+
+            let stack = string_byte_length(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(5)); // Same as char length for ASCII
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_byte_length_utf8() {
+        // "héllo" has 5 characters but 6 bytes
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("héllo".to_owned())));
+
+            let stack = string_byte_length(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(6)); // Bytes, not characters
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_char_at_ascii() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::Int(0));
+
+            let stack = string_char_at(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(104)); // 'h' = 104
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_char_at_utf8() {
+        // Get the é character at index 1 in "héllo"
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("héllo".to_owned())));
+            let stack = push(stack, Value::Int(1));
+
+            let stack = string_char_at(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(233)); // 'é' = U+00E9 = 233
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_char_at_out_of_bounds() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::Int(10)); // Out of bounds
+
+            let stack = string_char_at(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(-1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_char_at_negative() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::Int(-1));
+
+            let stack = string_char_at(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(-1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_substring_simple() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::Int(1)); // start
+            let stack = push(stack, Value::Int(3)); // len
+
+            let stack = string_substring(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("ell".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_substring_utf8() {
+        // "héllo" - get "éll" (characters 1-3)
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("héllo".to_owned())));
+            let stack = push(stack, Value::Int(1)); // start
+            let stack = push(stack, Value::Int(3)); // len
+
+            let stack = string_substring(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("éll".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_substring_clamp() {
+        // Request more than available - should clamp
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::Int(2)); // start
+            let stack = push(stack, Value::Int(100)); // len (way too long)
+
+            let stack = string_substring(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("llo".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_substring_beyond_end() {
+        // Start beyond end - returns empty
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::Int(10)); // start (beyond end)
+            let stack = push(stack, Value::Int(3)); // len
+
+            let stack = string_substring(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_char_to_string_ascii() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(65)); // 'A'
+
+            let stack = char_to_string(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("A".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_char_to_string_utf8() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(233)); // 'é' = U+00E9
+
+            let stack = char_to_string(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("é".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_char_to_string_newline() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(10)); // '\n'
+
+            let stack = char_to_string(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("\n".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_char_to_string_invalid() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(-1)); // Invalid
+
+            let stack = char_to_string(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_find_found() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("hello world".to_owned())),
+            );
+            let stack = push(stack, Value::String(global_string("world".to_owned())));
+
+            let stack = string_find(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(6)); // "world" starts at index 6
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_find_not_found() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("hello world".to_owned())),
+            );
+            let stack = push(stack, Value::String(global_string("xyz".to_owned())));
+
+            let stack = string_find(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(-1));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_find_first_match() {
+        // Should return first occurrence
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("hello".to_owned())));
+            let stack = push(stack, Value::String(global_string("l".to_owned())));
+
+            let stack = string_find(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(2)); // First 'l' is at index 2
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_find_utf8() {
+        // Find in UTF-8 string - returns character index, not byte index
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("héllo wörld".to_owned())),
+            );
+            let stack = push(stack, Value::String(global_string("wörld".to_owned())));
+
+            let stack = string_find(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(6)); // Character index, not byte index
             assert!(stack.is_null());
         }
     }

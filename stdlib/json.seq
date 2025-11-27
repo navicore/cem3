@@ -240,7 +240,8 @@
 # where str is the input string and pos is current character position
 
 # Helper: 2dup equivalent ( a b -- a b a b )
-: 2dup ( ..rest String Int -- ..rest String Int String Int )
+# Note: This is specifically typed for json parser state (String, Int)
+: json-2dup ( ..rest String Int -- ..rest String Int String Int )
   over over
 ;
 
@@ -360,6 +361,24 @@
   dup 48 >= swap 57 <= and
 ;
 
+# Check if character starts a JSON number (digit or minus sign)
+# Stack: ( Int -- Int )
+: json-is-number-start? ( ..rest Int -- ..rest Int )
+  dup 45 = swap json-is-digit? or
+;
+
+# Check if character is part of a JSON number (digit, minus, plus, dot, e, E)
+# Stack: ( Int -- Int )
+: json-is-number-char? ( ..rest Int -- ..rest Int )
+  dup json-is-digit? swap
+  dup 45 = swap  # minus
+  dup 43 = swap  # plus
+  dup 46 = swap  # dot
+  dup 101 = swap # e
+  69 =           # E
+  or or or or or
+;
+
 # Check if character code is whitespace
 # Stack: ( Int -- Int )
 : json-is-ws? ( ..rest Int -- ..rest Int )
@@ -381,6 +400,101 @@
   then
 ;
 
+# Helper: Get substring from position to end
+# Stack: ( String Int -- String )
+: string-from ( ..rest String Int -- ..rest String )
+  over string-length over subtract
+  string-substring
+;
+
+# Helper: Get substring from start with given length
+# Stack: ( String Int -- String )
+: string-take ( ..rest String Int -- ..rest String )
+  0 swap string-substring
+;
+
+# Parse a JSON string - simplified version
+# Stack: ( str pos -- str pos JsonValue Int )
+# Expects position to be at opening quote (ASCII 34)
+# For now, assumes pos=0 and string starts/ends with quotes
+: json-parse-string ( ..rest String Int -- ..rest String Int Variant Int )
+  # Check for opening quote
+  json-char-at 34 = if
+    # Stack: str pos
+    drop
+    # Stack: str
+
+    # Get everything after the first quote
+    dup 1 string-from
+    # Stack: str after-open-quote
+
+    # Find closing quote position
+    dup quote-char string-find
+    # Stack: str after-open-quote close-pos
+
+    dup 0 < if
+      # No closing quote found
+      drop drop
+      0 json-null 0
+    else
+      # Stack: str after-open-quote close-pos
+      # Get content = after-open-quote[0:close-pos]
+      string-take
+      # Stack: str content
+
+      json-string
+      # Stack: str json-value
+
+      # Return: str, new-pos (just use string-length), json-value, 1
+      over string-length
+      # Stack: str json-value len
+
+      swap
+      # Stack: str len json-value
+
+      1
+      # Stack: str len json-value 1
+    then
+  else
+    json-null 0
+  then
+;
+
+# Parse a JSON number
+# Stack: ( str pos -- str pos JsonValue Int )
+# Expects position to be at start of number (digit or minus)
+# For now, assumes the entire remaining string is the number (works for json-parse)
+: json-parse-number ( ..rest String Int -- ..rest String Int Variant Int )
+  # Drop pos, we'll set it to string length at the end
+  drop
+  # Stack: str
+
+  # Parse the string as float
+  dup string->float
+  # Stack: str float success
+
+  if
+    # Stack: str float
+    json-number
+    # Stack: str json-value
+
+    # Get new pos (string length)
+    over string-length
+    # Stack: str json-value len
+
+    swap
+    # Stack: str len json-value
+
+    1
+    # Stack: str len json-value 1
+  else
+    # Stack: str float (float is 0.0 on failure)
+    drop
+    0 json-null 0
+    # Stack: str 0 json-null 0
+  then
+;
+
 # Main JSON parser entry point
 # Parses any JSON value
 # Stack: ( str pos -- str pos JsonValue Int )
@@ -389,20 +503,28 @@
     json-null 0
   else
     json-char-at
-    # Check for 'n' (110) - null
+    # Check for double-quote (34) - string
+    dup 34 = if
+      drop json-parse-string
+    else
+    # Check for n (110) - null
     dup 110 = if
       drop json-parse-null
     else
-    # Check for 't' (116) - true
+    # Check for t (116) - true
     dup 116 = if
       drop json-parse-true
     else
-    # Check for 'f' (102) - false
+    # Check for f (102) - false
     dup 102 = if
       drop json-parse-false
     else
+    # Check for number (digit or minus)
+    dup json-is-number-start? if
+      drop json-parse-number
+    else
       drop json-null 0
-    then then then
+    then then then then then
   then
 ;
 

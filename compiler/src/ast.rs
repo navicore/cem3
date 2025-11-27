@@ -187,6 +187,7 @@ impl Program {
             "int->float",
             "float->int",
             "float->string",
+            "string->float",
         ];
 
         for word in &self.words {

@@ -33,6 +33,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Command-line argument operations
+    // arg-count: ( ..a -- ..a Int ) returns number of arguments including program name
+    sigs.insert(
+        "arg-count".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // arg: ( ..a Int -- ..a String ) returns argument at index (0 = program name)
+    sigs.insert(
+        "arg".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
     sigs.insert(
         "int->string".to_string(),
         Effect::new(

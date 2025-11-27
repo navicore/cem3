@@ -3,7 +3,10 @@
 # A practical example: Parse JSON and display structure.
 #
 # Usage:
-#   # With command-line argument (parsed directly):
+#   # With a JSON file:
+#   ./json_tree config.json
+#
+#   # With command-line JSON string:
 #   ./json_tree '42'
 #   ./json_tree 'true'
 #   ./json_tree '[42]'
@@ -14,7 +17,6 @@
 #   echo '42' | ./json_tree
 #
 # ROADMAP - What we still need:
-#   - File I/O (file-read, file-slurp) for: ./json_tree config.json
 #   - write (without newline) for proper formatting
 #   - Multi-element array parsing: [1, 2, 3]
 #   - Object key-value parsing: {"a": 1}
@@ -32,11 +34,35 @@ include std:json
   "  " swap string-concat
 ;
 
-# Get JSON input - either from command line or stdin
+# Check if argument looks like a file (ends with .json)
+# Non-destructive: keeps the string on stack
+: is-json-file? ( String -- String Int )
+  dup ".json" string-contains
+;
+
+# Read file or return empty string if not found
+: read-json-file ( String -- String )
+  dup file-exists? if
+    file-slurp
+  else
+    drop ""
+  then
+;
+
+# Process argument: if it's a .json file, read it; otherwise return as-is
+: process-arg ( String -- String )
+  is-json-file? if
+    read-json-file
+  else
+    # Not a file - return as JSON string directly
+  then
+;
+
+# Get JSON input - from file, command line, or stdin
 : get-json-input ( -- String )
   arg-count 1 > if
-    # Use first command-line argument as JSON
-    1 arg
+    # Have an argument
+    1 arg process-arg
   else
     # No argument - read from stdin
     "Paste JSON and press Enter:" write_line

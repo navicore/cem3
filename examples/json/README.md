@@ -4,7 +4,7 @@ Practical examples demonstrating JSON parsing and serialization in Seq.
 
 ## json_tree.seq - JSON Tree Viewer
 
-An interactive tool that reads JSON from stdin, parses it, and displays the structure.
+An interactive tool that reads JSON from files, command-line, or stdin, parses it, and displays the structure.
 
 ### Usage
 
@@ -13,7 +13,11 @@ An interactive tool that reads JSON from stdin, parses it, and displays the stru
 cargo build --release
 ./target/release/seqc --output json_tree examples/json/json_tree.seq
 
-# Run with command-line argument (preferred)
+# Read from a JSON file (preferred)
+./json_tree config.json
+./json_tree data/users.json
+
+# Or with command-line JSON string
 ./json_tree '42'
 ./json_tree 'true'
 ./json_tree '"hello world"'
@@ -29,9 +33,8 @@ echo '42' | ./json_tree
 ### Example Output
 
 ```
-$ echo '[42]' | ./json_tree
+$ ./json_tree '[42]'
 === JSON Tree Viewer ===
-Paste JSON and press Enter:
 
 Input: [42]
 
@@ -53,13 +56,14 @@ Building this practical example highlighted several missing features that would 
    - `arg` takes an index and returns the argument string
    - Example: `./json_tree '[42]'` now works!
 
+2. **File I/O** (`file-slurp`, `file-exists?`) ✓
+   - `file-slurp` reads entire file contents as a string
+   - `file-exists?` checks if a file exists (returns 1 or 0)
+   - Example: `./json_tree config.json` now works!
+
 ### High Priority
 
-1. **File I/O** (`file-read`, `file-slurp`, `file-exists?`)
-   - Would allow: `./json_tree config.json`
-   - Essential for any file-processing tool
-
-2. **Write without newline** (`write` vs `write_line`)
+1. **Write without newline** (`write` vs `write_line`)
    - Would allow proper indentation output
    - Currently can only output complete lines
 

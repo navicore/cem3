@@ -52,6 +52,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // File operations
+    // file-slurp: ( ..a String -- ..a String ) reads entire file contents
+    sigs.insert(
+        "file-slurp".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // file-exists?: ( ..a String -- ..a Int ) returns 1 if file exists, 0 otherwise
+    sigs.insert(
+        "file-exists?".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     sigs.insert(
         "int->string".to_string(),
         Effect::new(

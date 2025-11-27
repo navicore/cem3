@@ -325,7 +325,12 @@ impl TypeChecker {
                 // Both branches must produce compatible stacks
                 let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
                     format!(
-                        "if branches have incompatible stack effects: then={:?}, else={:?}: {}",
+                        "if/else branches have incompatible stack effects:\n\
+                         \x20 then branch produces: {}\n\
+                         \x20 else branch produces: {}\n\
+                         \x20 Both branches of an if/else must produce the same stack shape.\n\
+                         \x20 Hint: Make sure both branches push/pop the same number of values.\n\
+                         \x20 Error: {}",
                         then_result, else_result, e
                     )
                 })?;

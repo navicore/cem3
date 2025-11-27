@@ -110,6 +110,58 @@ impl Effect {
     }
 }
 
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Int => write!(f, "Int"),
+            Type::Float => write!(f, "Float"),
+            Type::Bool => write!(f, "Bool"),
+            Type::String => write!(f, "String"),
+            Type::Quotation(effect) => write!(f, "[{}]", effect),
+            Type::Closure { effect, captures } => {
+                let cap_str: Vec<_> = captures.iter().map(|t| format!("{}", t)).collect();
+                write!(f, "Closure[{}, captures=({})]", effect, cap_str.join(", "))
+            }
+            Type::Var(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl std::fmt::Display for StackType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StackType::Empty => write!(f, "()"),
+            StackType::RowVar(name) => write!(f, "..{}", name),
+            StackType::Cons { rest, top } => {
+                // Collect all types from top to bottom
+                let mut types = vec![format!("{}", top)];
+                let mut current = rest.as_ref();
+                loop {
+                    match current {
+                        StackType::Empty => break,
+                        StackType::RowVar(name) => {
+                            types.push(format!("..{}", name));
+                            break;
+                        }
+                        StackType::Cons { rest, top } => {
+                            types.push(format!("{}", top));
+                            current = rest;
+                        }
+                    }
+                }
+                types.reverse();
+                write!(f, "({})", types.join(" "))
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Effect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} -- {}", self.inputs, self.outputs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

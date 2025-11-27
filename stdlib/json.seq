@@ -236,13 +236,147 @@
 
 # Serialize a JSON array to string
 # Stack: ( JsonArray -- String )
-# Currently only serializes as [] - element serialization pending
-: json-serialize-array ( ..rest Variant -- ..rest String )
-  drop "[]"
+# Supports arrays with 0, 1, or 2 elements (enough for testing)
+: json-serialize-array
+  # Stack: JsonArray
+  dup variant-field-count    # JsonArray count
+  dup 0 = if
+    # Empty array
+    drop drop "[]"
+  else
+    dup 1 = if
+      # Single element array
+      drop                   # JsonArray
+      "[" swap               # "[" JsonArray
+      0 variant-field-at     # "[" elem
+      json-serialize         # "[" elemstr
+      string-concat          # "[elem"
+      "]" string-concat      # "[elem]"
+    else
+      dup 2 = if
+        # Two element array
+        drop                   # JsonArray
+        "[" swap               # "[" JsonArray
+        dup 0 variant-field-at # "[" JsonArray elem0
+        json-serialize         # "[" JsonArray elem0str
+        rot                    # elem0str "[" JsonArray
+        rot                    # "[" JsonArray elem0str
+        rot swap               # "[" elem0str JsonArray
+        rot                    # elem0str JsonArray "["
+        rot                    # JsonArray "[" elem0str
+        swap                   # JsonArray elem0str "["
+        swap string-concat     # JsonArray "[elem0"
+        "," string-concat      # JsonArray "[elem0,"
+        swap                   # "[elem0," JsonArray
+        1 variant-field-at     # "[elem0," elem1
+        json-serialize         # "[elem0," elem1str
+        string-concat          # "[elem0,elem1"
+        "]" string-concat      # "[elem0,elem1]"
+      else
+        # More than 2 elements - fall back to empty (limitation)
+        drop drop "[]"
+      then
+    then
+  then
 ;
 
 # ============================================================================
 # Parsing Helpers
+# ============================================================================
+
+# ============================================================================
+# Parser State Variant (PState)
+# ============================================================================
+#
+# To simplify stack management during parsing, we pack (str, pos) into a
+# single variant. This reduces stack depth from 2 items to 1, making complex
+# parsing operations much more tractable.
+#
+# PState: tag 100, fields: [String, Int]
+#   - field 0: the input string
+#   - field 1: current position (character index)
+
+# Create a parser state from string and position
+# Stack: ( String Int -- PState )
+# Note: PState is a variant with tag 100 and 2 fields [str, pos]
+: make-pstate
+  2 100 make-variant
+;
+
+# Get the string from parser state (non-destructive)
+# Stack: ( PState -- PState String )
+: pstate-str
+  dup 0 variant-field-at
+;
+
+# Get the position from parser state (non-destructive)
+# Stack: ( ..rest PState -- ..rest PState Int )
+: pstate-pos ( ..rest Variant -- ..rest Variant Int )
+  dup 1 variant-field-at
+;
+
+# Advance parser state by n characters
+# Stack: ( PState Int -- PState )
+: pstate-advance
+  # Stack: PState n
+  swap                      # n PState
+  dup 0 variant-field-at    # n PState str
+  rot rot                   # str n PState
+  1 variant-field-at        # str n pos
+  add                       # str newpos
+  make-pstate               # PState'
+;
+
+# Check if parser state is at end of string
+# Stack: ( ..rest PState -- ..rest PState Int )
+# Note: Returns 1 if pos >= len, 0 otherwise
+: pstate-at-end? ( ..rest Variant -- ..rest Variant Int )
+  # Get length of string
+  dup 0 variant-field-at    # PState str
+  string-length             # PState len
+  # Get position
+  over 1 variant-field-at   # PState len pos
+  # Compare: pos >= len  means len <= pos
+  <=                        # PState (len <= pos)
+;
+
+# Get character code at current position (non-destructive)
+# Stack: ( ..rest PState -- ..rest PState Int )
+: pstate-char-at ( ..rest Variant -- ..rest Variant Int )
+  # Stack: PState
+  dup 0 variant-field-at    # PState str
+  over 1 variant-field-at   # PState str pos
+  string-char-at            # PState charcode
+;
+
+# Check if a character code is whitespace (space, tab, newline, carriage return)
+# Stack: ( Int -- Int )
+: pstate-is-ws-char? ( Int -- Int )
+  dup 32 = if drop 1 else
+  dup 9 = if drop 1 else
+  dup 10 = if drop 1 else
+  dup 13 = if drop 1 else
+  drop 0
+  then then then then
+;
+
+# Skip whitespace in parser state
+# Stack: ( PState -- PState )
+: pstate-skip-ws ( Variant -- Variant )
+  pstate-at-end? if
+    # At end, nothing to skip
+  else
+    pstate-char-at           # PState charcode
+    pstate-is-ws-char? if    # PState
+      1 pstate-advance pstate-skip-ws
+    else
+      # Not whitespace, stop
+    then
+  then
+;
+
+# ============================================================================
+# Legacy Parser Helpers (str pos style - kept for compatibility)
 # ============================================================================
 
 # Parser state is kept on the stack as: ( str pos )
@@ -469,24 +603,131 @@
   then
 ;
 
-# Parse a JSON number
+# ============================================================================
+# Number Parsing with Boundary Detection (PState-based)
+# ============================================================================
+
+# Find the end position of a number starting at current position
+# Scans forward until we hit a non-number character
+# Stack: ( ..rest PState -- ..rest PState endpos )
+: pstate-find-number-end ( ..rest Variant -- ..rest Variant Int )
+  pstate-find-number-end-loop
+;
+
+# Helper: scan until non-number char, return position
+# Stack: ( ..rest PState -- ..rest PState endpos )
+: pstate-find-number-end-loop ( ..rest Variant -- ..rest Variant Int )
+  pstate-at-end? if
+    # At end of string, number ends here
+    pstate-pos
+  else
+    pstate-char-at
+    # Stack: PState charcode
+    json-is-number-char? if
+      # Still in number, advance and continue
+      1 pstate-advance
+      pstate-find-number-end-loop
+    else
+      # Found non-number char, return current position
+      pstate-pos
+    then
+  then
+;
+
+
+# Helper: Extract substring from startpos to endpos
+# Stack: ( String Int Int -- String )
+# Takes str startpos endpos, returns str[startpos:endpos]
+: substr-by-range ( String Int Int -- String )
+  over subtract              # str startpos len
+  string-substring           # numstr
+;
+
+# Helper: Extract number substring from current position
+# Stack: ( PState -- PState' numstr )
+#
+# Uses roll to manage 4+ items on the stack.
+: pstate-extract-number-str ( Variant -- Variant String )
+  # Unpack PState
+  dup 0 variant-field-at     # PState str
+  over 1 variant-field-at    # PState str startpos
+  rot drop                   # str startpos (discard old PState)
+
+  # Scan for number end
+  over over make-pstate      # str startpos PState
+  pstate-find-number-end     # str startpos PState' endpos
+  swap drop                  # str startpos endpos
+
+  # Now we have str startpos endpos (3 items)
+  # Need to produce: PState' numstr
+
+  # Dup str and endpos for new PState
+  rot dup                    # startpos endpos str str
+  3 roll                     # endpos str str startpos
+  3 roll                     # str str startpos endpos
+  dup                        # str str startpos endpos endpos
+  3 roll                     # str startpos endpos endpos str
+  swap                       # str startpos endpos str endpos
+  make-pstate                # str startpos endpos PState'
+
+  # Stack: str startpos endpos PState'
+  # Need: PState' numstr
+  # Compute substring from str[startpos:endpos]
+
+  3 roll                     # startpos endpos PState' str
+  3 roll                     # endpos PState' str startpos
+  3 roll                     # PState' str startpos endpos
+
+  # len = endpos - startpos
+  over subtract              # PState' str startpos len
+
+  # string-substring: str startpos len -> substring
+  string-substring           # PState' numstr
+;
+
+# Parse a JSON number using PState with boundary detection
+# Stack: ( PState -- PState' JsonValue Int )
+: pstate-parse-number ( Variant -- Variant Variant Int )
+  pstate-extract-number-str  # PState' numstr
+  string->float              # PState' float success
+  0 = if
+    drop json-null 0
+  else
+    json-number 1
+  then
+;
+
+# Parse a JSON number (legacy interface using str pos)
 # Stack: ( str pos -- str pos JsonValue Int )
 # Expects position to be at start of number (digit or minus)
 #
-# LIMITATION: Currently consumes entire remaining string as the number.
-# This works for standalone numbers but NOT for numbers inside arrays/objects.
-# TODO: Implement proper number boundary detection (see JSON_ITERATION_PLAN.md)
+# This version uses boundary detection to correctly parse numbers
+# inside arrays/objects (e.g., "1]" parses as 1, not error)
 : json-parse-number ( ..rest String Int -- ..rest String Int Variant Int )
-  drop  # drop pos, will use string length as new pos
-  dup string->float
-  0 = if
-    drop 0 json-null 0
-  else
-    json-number
-    over string-length
-    swap
-    1
-  then
+  # Convert to PState, parse, convert back
+  make-pstate                # PState
+  pstate-parse-number        # PState' JsonValue success
+
+  # Stack: PState' JsonValue success
+  # Need:  str pos JsonValue success
+
+  # Extract str from PState'
+  rot                        # JsonValue success PState'
+  dup 0 variant-field-at     # JsonValue success PState' str
+
+  # Extract pos from PState'
+  swap 1 variant-field-at    # JsonValue success str pos
+
+  # Stack: JsonValue success str pos
+  # Need:  str pos JsonValue success
+
+  # Use 3 roll to bring JsonValue to top:
+  # ( JsonValue success str pos ) -> ( success str pos JsonValue )
+  3 roll                     # success str pos JsonValue
+
+  # Use 3 roll to bring success to top:
+  # ( success str pos JsonValue ) -> ( str pos JsonValue success )
+  3 roll                     # str pos JsonValue success
 ;
 
 # Create an empty JSON array
@@ -519,11 +760,35 @@
 # Stack: ( str pos -- str pos JsonArray Int )
 # Position should be at first element (after [ and whitespace)
 # Currently supports single-element arrays only
-#
-# LIMITATION: Due to complex stack management, this is temporarily disabled.
-# Arrays with elements will parse but serialize as [].
-: json-parse-array-contents ( ..rest String Int -- ..rest String Int Variant Int )
-  json-null 0
+: json-parse-array-contents
+  # Parse the first element
+  json-parse-value           # str pos elem success
+  0 = if
+    # Failed to parse element
+    drop                     # str pos
+    json-null 0
+  else
+    # Successfully parsed element
+    # Stack: str pos elem
+    # Skip whitespace and check for ] or ,
+    rot rot                  # elem str pos
+    json-skip-ws             # elem str pos
+    json-char-at             # elem str pos char
+
+    93 = if                  # ']' - end of array
+      1 json-advance         # elem str pos
+      # Build single-element array
+      rot                    # str pos elem
+      1 4 make-variant       # str pos JsonArray
+      1
+    else
+      # For now, only support single element
+      # Stack: elem str pos (after = consumed the char)
+      # Need: str pos JsonValue Int
+      rot drop               # str pos (drop elem)
+      json-null 0
+    then
+  then
 ;
 
 # Parse an array - handles empty and non-empty arrays

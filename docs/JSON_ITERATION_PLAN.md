@@ -22,7 +22,7 @@ The following JSON features work correctly:
 "[true]" → parses as: [ then parses "true" → works (keyword parser stops correctly)
 ```
 
-**Root Cause**: The number parser was originally designed for standalone values where `string->float` could consume the whole string. Inside arrays, we need to find where the number ends (first non-digit/non-number-char) and only parse that substring.
+**Root Cause**: The number parser uses `string->float` which consumes the whole remaining string. Inside arrays, we need to find where the number ends (first non-digit/non-number-char) and only parse that substring.
 
 ### 2. Multi-Element Arrays Not Implemented
 
@@ -36,121 +36,260 @@ The following JSON features work correctly:
 
 **Problem**: `\"`, `\\`, `\n`, `\t`, `\uXXXX` are not handled.
 
-## The Core Technical Challenge
+---
 
-### Stack Depth Management
+## Recommended Next Step: Pure Seq Approach
 
-Seq's stack primitives (`rot`, `swap`, `over`, `pick`) work on at most 3-4 items. Complex operations like number parsing inside arrays require juggling 5+ values:
+**Decision**: Rather than adding runtime builtins, solve this in pure Seq using variants to manage parser state. This keeps the JSON library self-contained and demonstrates Seq's capabilities.
 
-- `str` (original string - needed for return)
-- `startpos` (where number starts)
-- `endpos` (where number ends)
-- `len` (endpos - startpos for substring)
-- `numstr` (extracted number string)
-- `float` (parsed value)
-- `jsonval` (wrapped as JSON number)
+### Why This Approach?
 
-Moving values around at this depth is extremely difficult with standard Forth-style operations.
+1. **No runtime changes needed** - JSON stays in stdlib only
+2. **Proves the language** - Shows Seq can handle real parsing tasks
+3. **Cleaner architecture** - JSON doesn't need special compiler support
+4. **Educational value** - Good example of using variants for state management
 
-## Proposed Solutions
+---
 
-### Option A: Add `roll` Builtin (Recommended)
+## Implementation Plan
 
-Add a `roll` operation to the runtime that can rotate items at arbitrary depth:
+### Phase 1: Fix Number Boundary Detection (NEXT)
 
+**Goal**: Make `[1]`, `[42]`, `[-3.14]` parse correctly.
+
+**The Problem**: `json-parse-number` currently uses:
 ```seq
-# n roll: rotate n items, bringing nth item to top
-# Example: a b c d 3 roll → b c d a
+: json-parse-number ( str pos -- str pos JsonValue Int )
+  drop  # drop pos
+  dup string->float  # parse ENTIRE string as float
+  ...
 ```
 
-**Implementation**:
-1. Add to `runtime/src/stack.rs`
-2. Add signature to `compiler/src/builtins.rs`
-3. Add codegen in `compiler/src/codegen.rs`
-4. Add to builtin list in `compiler/src/ast.rs`
+This fails for `"1]"` because `string->float` tries to parse `"1]"` as a number.
 
-**Pros**: Clean, reusable, matches standard Forth
-**Cons**: Requires runtime changes
-
-### Option B: Parser State Variant
-
-Pack parser state into a variant instead of keeping `str` and `pos` as separate stack items:
+**The Solution**: Scan forward to find number boundary, extract substring, then parse.
 
 ```seq
-# Create parser state: ( String Int -- ParserState )
-: make-parser-state  2 100 make-variant ;  # tag 100 for parser state
+# Find where number ends (first char that's not digit/dot/e/E/+/-)
+: json-find-number-end ( str pos -- str endpos )
+  json-at-end? if
+    # Already at end
+  else
+    json-char-at json-is-number-char? if
+      1 json-advance json-find-number-end  # recurse
+    else
+      # Found boundary
+    then
+  then
+;
 
-# Unpack: ( ParserState -- String Int )
-: unpack-parser-state
-  dup 0 variant-field-at  # str
-  swap 1 variant-field-at  # pos
+# New number parser with boundary detection
+: json-parse-number-bounded ( str pos -- str newpos JsonValue Int )
+  # Stack: str pos
+  over over              # str pos str pos
+  json-find-number-end   # str pos str endpos
+  # Now extract substring from pos to endpos
+  over subtract          # str pos str len
+  rot rot                # str str len pos
+  swap string-substring  # str numstr
+  string->float          # str float success
+  0 = if
+    drop 0 json-null 0   # Parse failed
+  else
+    json-number          # str JsonNumber
+    # Need to get endpos back... this is the challenge
+    ...
+  then
 ;
 ```
 
-**Pros**: Reduces stack depth by 1, no runtime changes
-**Cons**: Extra allocation, slightly slower
+**The Stack Challenge**: After parsing, we need both:
+- The original `str` (for further parsing)
+- The new position (`endpos`)
+- The parsed `JsonValue`
+- Success flag
 
-### Option C: Specialized Number Extraction Builtin
+With 4 values and complex intermediate steps, stack management is tricky.
 
-Add a builtin specifically for extracting a number substring:
+**Solution: Use Parser State Variant**
+
+Pack `(str, pos)` into a single variant to reduce stack depth:
 
 ```seq
-# extract-json-number: ( String Int -- String Int String )
-# Input: full string, start position
-# Output: full string, end position, number substring
+# Parser state: tag 100, fields: [str, pos]
+: make-pstate ( str pos -- PState )
+  2 100 make-variant
+;
+
+: pstate-str ( PState -- PState str )
+  dup 0 variant-field-at
+;
+
+: pstate-pos ( PState -- PState pos )
+  dup 1 variant-field-at
+;
+
+: pstate-advance ( PState n -- PState )
+  swap pstate-pos rot add    # str newpos
+  swap pstate-str swap       # str str newpos (wrong order, fix below)
+  # Actually: unpack, advance, repack
+  swap dup 1 variant-field-at  # PState pos
+  rot add                       # PState newpos
+  swap 0 variant-field-at       # newpos str
+  swap make-pstate              # PState'
+;
 ```
 
-**Pros**: Solves the immediate problem efficiently
-**Cons**: Very specialized, doesn't help with other stack challenges
+This keeps parser state as ONE stack item instead of TWO, making all operations easier.
 
-## Recommended Iteration Path
+### Phase 2: Single-Element Arrays
 
-### Phase 1: Fix Number Parsing in Arrays
+**Goal**: Make `[1]`, `[true]`, `["hello"]` work.
 
-**Goal**: Make `[1]`, `[3.14]`, `[-5]` work
+After Phase 1, `json-parse-value` can parse a number and return the correct position. Now:
 
-**Approach**: Implement Option A (add `roll` builtin) or Option B (parser state variant)
-
-**Test cases**:
 ```seq
-"[1]" json-parse drop json-serialize  # Should output: [1]
-"[42]" json-parse drop json-serialize # Should output: [42]
-"[-3.14]" json-parse drop json-serialize # Should output: [-3.14]
+: json-parse-array-contents ( PState -- PState JsonArray Int )
+  # Parse first element
+  json-parse-value        # PState JsonValue success
+  0 = if
+    drop json-empty-array 0
+  else
+    # Stack: PState JsonValue
+    # Skip whitespace, check for ] or ,
+    swap pstate-skip-ws
+    pstate-char-at 93 = if   # ]
+      # Single element array
+      pstate-advance         # PState'
+      swap                   # JsonValue PState'
+      1 4 make-variant       # JsonArray (1 element, tag 4)
+      swap 1                 # PState' JsonArray 1
+    else
+      # Must be comma for multi-element, or error
+      drop json-empty-array 0
+    then
+  then
+;
 ```
 
-### Phase 2: Multi-Element Arrays
+### Phase 3: Multi-Element Arrays
 
-**Goal**: Make `[1, 2, 3]` work
+**Goal**: Make `[1, 2, 3]` work.
 
-**Approach**:
-1. After parsing first element, check for `,` or `]`
-2. If `,`, recursively parse more elements
-3. Track count, then build variant with `count 4 make-variant`
+**Approach**: Recursive helper that accumulates count.
 
-**Challenge**: Elements accumulate on stack below `str`/`pos`. Need to move them above for `make-variant`.
-
-**Test cases**:
 ```seq
-"[1, 2]" json-parse drop json-serialize
-"[true, false, null]" json-parse drop json-serialize
-"[[1], [2]]" json-parse drop json-serialize  # Nested arrays
+# Parse remaining elements after first
+# Stack: ( PState elem1 count -- PState elem1...elemN count )
+: json-parse-more-elements ( PState ... count -- PState ... count )
+  # Check for comma
+  over pstate-skip-ws pstate-char-at 44 = if   # comma
+    # Parse next element
+    swap 1 pstate-advance pstate-skip-ws
+    json-parse-value
+    0 = if
+      drop  # failed, return what we have
+    else
+      # Increment count, continue
+      rot 1 add
+      json-parse-more-elements  # recurse
+    then
+  else
+    # No comma, we're done (expect ])
+  then
+;
 ```
 
-### Phase 3: Array Serialization with Elements
+**Challenge**: Elements accumulate BELOW PState on stack. For `make-variant` we need:
+```
+elem1 elem2 elem3 count tag make-variant
+```
 
-**Goal**: Serialize arrays with actual elements, not just `[]`
+Will need careful stack manipulation at the end.
 
-**Approach**: Loop through variant fields, serialize each, join with `,`
+### Phase 4: Array Serialization
 
-### Phase 4: Objects
+**Goal**: `json-serialize-array` outputs actual elements, not just `[]`.
 
-**Goal**: Make `{"key": "value"}` work
+```seq
+: json-serialize-array ( JsonArray -- String )
+  "[" swap
+  dup variant-field-count    # "[" array count
+  0 = if
+    drop drop "]" string-concat
+  else
+    # Serialize elements with commas
+    json-serialize-array-elements
+    "]" string-concat
+  then
+;
 
-**Approach**: Similar to arrays but parse key-value pairs
+: json-serialize-array-elements ( "[" array -- "[elem,elem,..." )
+  dup variant-field-count   # str array count
+  0                         # str array count idx
+  json-serialize-array-loop
+;
 
-### Phase 5: String Escapes
+: json-serialize-array-loop ( str array count idx -- str' )
+  2dup >= if
+    # idx >= count, done
+    drop drop drop
+  else
+    # Get element at idx
+    2 pick over variant-field-at  # str array count idx elem
+    json-serialize               # str array count idx elemstr
+    # Concat to result
+    4 pick swap string-concat    # str array count idx newstr
+    # Add comma if not last
+    over 1 add 3 pick < if
+      "," string-concat
+    then
+    # Store back and increment idx
+    # ... (complex stack management)
+  then
+;
+```
 
-**Goal**: Handle `\"`, `\\`, `\n`, etc.
+This is where `pick` at depth 4+ gets painful. May need to track state in a variant.
+
+### Phase 5: Objects
+
+**Goal**: `{"key": "value"}` parses and serializes.
+
+Similar to arrays but:
+1. Parse string key
+2. Expect `:`
+3. Parse value
+4. Store as pairs in variant (fields: key1, val1, key2, val2, ...)
+
+### Phase 6: String Escapes
+
+**Goal**: Handle `\"`, `\\`, `\n`, `\t`.
+
+Requires character-by-character scanning in string parser.
+
+---
+
+## Alternative: Add `roll` Builtin (Deferred)
+
+If pure Seq becomes too painful, add Forth-standard `roll`:
+
+```seq
+# n roll: rotate n items, bringing nth item to top
+# a b c d 3 roll → b c d a
+```
+
+**Implementation**:
+1. `runtime/src/stack.rs`: Add `patch_seq_roll`
+2. `compiler/src/builtins.rs`: Add signature
+3. `compiler/src/codegen.rs`: Add call generation
+
+**Deferred** because:
+- Want to prove JSON is doable in pure Seq first
+- Parser state variant may be sufficient
+- Keeps runtime minimal
+
+---
 
 ## Lessons Learned
 
@@ -184,31 +323,56 @@ A common mistake:
 
 The Seq type checker requires all branches of an `if` to have the same stack effect. When you have nested `if`s, trace each complete path from function entry to exit to ensure they all produce the same stack shape.
 
+### Variants Reduce Stack Pressure
+
+Packing related values into a variant reduces the number of stack items to juggle:
+- **Before**: `str pos` = 2 items
+- **After**: `PState` = 1 item
+
+This is especially valuable for recursive parsers where state threads through many calls.
+
+---
+
 ## Key Code Locations
 
-- **Main JSON library**: `stdlib/json.seq`
-- **Number parsing**: `json-parse-number` function (line ~472)
-- **Array parsing**: `json-parse-array-contents` function (line ~533)
-- **Serialization**: `json-serialize` and `json-serialize-array` functions
+| File | Purpose |
+|------|---------|
+| `stdlib/json.seq` | Main JSON library |
+| `json-parse-number` (line ~479) | Number parsing (needs fix) |
+| `json-parse-array-contents` (line ~525) | Array parsing (stub) |
+| `json-serialize` | Main serializer |
+| `json-serialize-array` | Array serializer (returns `[]`) |
+
+---
 
 ## Testing Strategy
 
-Create incremental test files:
-
 ```bash
-# Test standalone values (should all pass now)
-./target/release/seqc --output /tmp/test /tmp/test_primitives.seq && /tmp/test
+# Build compiler
+cargo build --release
 
-# Test arrays with non-number elements (should pass now)
-./target/release/seqc --output /tmp/test /tmp/test_arrays_bool.seq && /tmp/test
+# Test primitives (should pass)
+echo 'include std:json
+: main ( -- Int )
+  "null" json-parse drop json-serialize write_line
+  "true" json-parse drop json-serialize write_line
+  "42" json-parse drop json-serialize write_line
+  0
+;' > /tmp/test.seq
+./target/release/seqc --output /tmp/test /tmp/test.seq && /tmp/test
 
-# Test arrays with numbers (will fail until Phase 1 complete)
-./target/release/seqc --output /tmp/test /tmp/test_arrays_num.seq && /tmp/test
+# Test arrays with numbers (currently fails)
+echo 'include std:json
+: main ( -- Int )
+  "[1]" json-parse drop json-serialize write_line
+  0
+;' > /tmp/test.seq
+./target/release/seqc --output /tmp/test /tmp/test.seq && /tmp/test
 ```
 
-## Notes on Seq Stack Operations
+---
 
-For reference, here's what the standard operations do:
+## Stack Operations Reference
 
 | Operation | Stack Effect | Description |
 |-----------|-------------|-------------|
@@ -221,4 +385,17 @@ For reference, here's what the standard operations do:
 | `tuck` | `( a b -- b a b )` | Copy top below second |
 | `pick` | `( ... n -- ... x )` | Copy nth item to top (0-indexed) |
 
-The `pick` operation helps but can only copy, not move or remove items at depth.
+**Note**: `pick` can only *copy*, not *move* or *remove* items at depth.
+
+---
+
+## Summary: What to Do Next
+
+1. **Implement Parser State Variant** (`make-pstate`, `pstate-str`, `pstate-pos`, `pstate-advance`)
+2. **Rewrite `json-parse-number`** to find number boundary first, then parse substring
+3. **Update all parser functions** to use PState instead of `str pos`
+4. **Test `[1]`** - single element array with number
+5. **Add multi-element support** with comma handling
+6. **Implement array serialization** that outputs actual elements
+
+The parser state variant is the key architectural change that makes everything else tractable.

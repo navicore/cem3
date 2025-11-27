@@ -6,33 +6,42 @@ The following JSON features work correctly:
 
 - **Primitives**: `null`, `true`, `false` parse and serialize
 - **Strings**: `"hello"` parses and serializes (basic - no escape sequences yet)
-- **Numbers**: `42`, `3.14`, `-5`, `1e10` parse and serialize (standalone only)
+- **Numbers**: `42`, `3.14`, `-5`, `1e10` parse and serialize
+- **Single-element arrays**: `[42]`, `["hello"]`, `[true]` parse and serialize
 - **Empty containers**: `[]` and `{}` parse and serialize
 - **Whitespace**: Handled correctly in all positions
 
+## JSON Type Tags Reference
+
+JSON values are represented as Seq variants with these tags:
+
+| Tag | Type       | Fields                          | Example        |
+|-----|------------|---------------------------------|----------------|
+| 0   | JsonNull   | (none)                          | `null`         |
+| 1   | JsonBool   | Int (0=false, 1=true)           | `true`         |
+| 2   | JsonNumber | Float                           | `42`, `3.14`   |
+| 3   | JsonString | String                          | `"hello"`      |
+| 4   | JsonArray  | N JsonValues                    | `[1, 2]`       |
+| 5   | JsonObject | 2N fields (key1, val1, ...)     | `{"a": 1}`     |
+
+Note: JSON numbers (both integers and floats) are stored as Float internally,
+matching JSON's single "number" type.
+
 ## Current Limitations
 
-### 1. Numbers Inside Arrays/Objects Don't Work
+### 1. Multi-Element Arrays Not Implemented
 
-**Problem**: `json-parse-number` consumes the entire remaining string instead of stopping at the number boundary.
+**Problem**: After parsing first element, we need to check for `,` or `]`, then potentially parse more elements. Currently only single-element arrays are supported.
 
-**Example**:
-```
-"[1]" → parses as: [ then tries to parse "1]" as number → fails
-"[true]" → parses as: [ then parses "true" → works (keyword parser stops correctly)
-```
+**Example**: `[1, 2, 3]` does not parse yet.
 
-**Root Cause**: The number parser uses `string->float` which consumes the whole remaining string. Inside arrays, we need to find where the number ends (first non-digit/non-number-char) and only parse that substring.
+### 2. Objects with Key-Value Pairs Not Implemented
 
-### 2. Multi-Element Arrays Not Implemented
+**Problem**: Need to parse string keys, `:` separator, and values. Currently only empty objects `{}` are supported.
 
-**Problem**: After parsing first element, we need to check for `,` or `]`, then potentially parse more elements. This requires complex stack management to track the count of elements while preserving `str` and `pos`.
+**Example**: `{"name": "test"}` does not parse yet.
 
-### 3. Objects with Key-Value Pairs Not Implemented
-
-**Problem**: Similar to arrays, but also need to parse string keys and `:` separator.
-
-### 4. String Escape Sequences Not Implemented
+### 3. String Escape Sequences Not Implemented
 
 **Problem**: `\"`, `\\`, `\n`, `\t`, `\uXXXX` are not handled.
 

@@ -1,0 +1,63 @@
+# JSON Tree Viewer
+#
+# A practical example: Read JSON from stdin and display as a formatted tree.
+#
+# Usage:
+#   echo '42' | ./json_tree
+#   echo 'true' | ./json_tree
+#   echo '[42]' | ./json_tree
+#   echo '"hello"' | ./json_tree
+#
+# ROADMAP - What this example reveals we need:
+#   - Command-line arguments (args, arg-count) for: ./json_tree file.json
+#   - File I/O (file-read, file-slurp) for reading files
+#   - write (without newline) for proper indentation
+#   - Multi-element array parsing
+#   - Object key-value parsing
+#
+# Currently works with:
+#   - Primitives: null, true, false, numbers, strings
+#   - Single-element arrays: [42], ["hello"], [true]
+#   - Empty containers: [], {}
+
+include std:json
+
+# Format a JSON value as an indented string
+# This uses json-serialize for now, but could be expanded
+# to show a proper tree structure with indentation
+: json-format
+  json-serialize
+  "  " swap string-concat
+;
+
+: main ( -- Int )
+  "=== JSON Tree Viewer ===" write_line
+  "Paste JSON and press Enter:" write_line
+  "" write_line
+
+  read_line
+
+  dup string-length 0 = if
+    drop
+    "No input." write_line
+    1
+  else
+    "" write_line
+    "Input: " over string-concat write_line
+    "" write_line
+
+    json-parse
+    0 = if
+      drop
+      "Parse error!" write_line
+      1
+    else
+      "Type: " over variant-tag int->string string-concat write_line
+      # Tag meanings: 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
+
+      "Value:" write_line
+      json-format write_line
+      0
+    then
+  then
+;

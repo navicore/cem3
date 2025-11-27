@@ -272,6 +272,9 @@ impl CodeGen {
         writeln!(&mut ir, "declare void @patch_seq_args_init(i32, ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_arg_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
+        writeln!(&mut ir, "; File operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
@@ -642,6 +645,9 @@ impl CodeGen {
                     "string-to-upper" => "patch_seq_string_to_upper".to_string(),
                     "string-to-lower" => "patch_seq_string_to_lower".to_string(),
                     "string-equal" => "patch_seq_string_equal".to_string(),
+                    // File operations (hyphen → underscore for C compatibility)
+                    "file-slurp" => "patch_seq_file_slurp".to_string(),
+                    "file-exists?" => "patch_seq_file_exists".to_string(),
                     // Variant operations (hyphen → underscore for C compatibility)
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),

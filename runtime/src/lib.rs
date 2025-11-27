@@ -11,6 +11,7 @@ pub mod arithmetic;
 pub mod channel;
 pub mod closures;
 pub mod cond;
+pub mod file;
 pub mod float_ops;
 pub mod io;
 pub mod pool;
@@ -114,3 +115,6 @@ pub use variant_ops::{
 pub use args::{
     patch_seq_arg_at as arg_at, patch_seq_arg_count as arg_count, patch_seq_args_init as args_init,
 };
+
+// File operations (exported for LLVM linking)
+pub use file::{patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp};

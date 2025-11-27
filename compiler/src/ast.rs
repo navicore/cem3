@@ -105,6 +105,9 @@ impl Program {
             "write_line",
             "read_line",
             "int->string",
+            // Command-line arguments
+            "arg-count",
+            "arg",
             // String operations
             "string-concat",
             "string-length",

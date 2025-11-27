@@ -13,12 +13,14 @@ An interactive tool that reads JSON from stdin, parses it, and displays the stru
 cargo build --release
 ./target/release/seqc --output json_tree examples/json/json_tree.seq
 
-# Run with piped input
+# Run with command-line argument (preferred)
+./json_tree '42'
+./json_tree 'true'
+./json_tree '"hello world"'
+./json_tree '[42]'
+
+# Or with piped input
 echo '42' | ./json_tree
-echo 'true' | ./json_tree
-echo '"hello"' | ./json_tree
-echo '[42]' | ./json_tree
-echo '[]' | ./json_tree
 
 # Or interactive (type JSON, press Enter)
 ./json_tree
@@ -44,17 +46,20 @@ Type codes: 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
 
 Building this practical example highlighted several missing features that would make Seq more useful for real-world JSON processing:
 
+### Implemented
+
+1. **Command-line arguments** (`arg-count`, `arg`) ✓
+   - `arg-count` returns number of arguments (including program name)
+   - `arg` takes an index and returns the argument string
+   - Example: `./json_tree '[42]'` now works!
+
 ### High Priority
 
-1. **Command-line arguments** (`args`, `arg-count`)
+1. **File I/O** (`file-read`, `file-slurp`, `file-exists?`)
    - Would allow: `./json_tree config.json`
-   - Currently must use stdin piping
-
-2. **File I/O** (`file-read`, `file-slurp`, `file-exists?`)
-   - Would allow reading JSON files directly
    - Essential for any file-processing tool
 
-3. **Write without newline** (`write` vs `write_line`)
+2. **Write without newline** (`write` vs `write_line`)
    - Would allow proper indentation output
    - Currently can only output complete lines
 

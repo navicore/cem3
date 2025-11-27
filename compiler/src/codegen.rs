@@ -268,6 +268,10 @@ impl CodeGen {
         writeln!(&mut ir, "declare void @patch_seq_scheduler_init()").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_scheduler_run()").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)").unwrap();
+        writeln!(&mut ir, "; Command-line argument operations").unwrap();
+        writeln!(&mut ir, "declare void @patch_seq_args_init(i32, ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_arg_count(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
@@ -580,6 +584,9 @@ impl CodeGen {
                     // I/O operations
                     "write_line" | "read_line" => format!("patch_seq_{}", name),
                     "int->string" => "patch_seq_int_to_string".to_string(),
+                    // Command-line argument operations
+                    "arg-count" => "patch_seq_arg_count".to_string(),
+                    "arg" => "patch_seq_arg_at".to_string(),
                     // Arithmetic operations
                     "add" | "subtract" | "multiply" | "divide" => format!("patch_seq_{}", name),
                     // Comparison operations (symbolic → named)
@@ -822,8 +829,19 @@ impl CodeGen {
 
     /// Generate main function that calls user's main word
     fn codegen_main(&mut self) -> Result<(), String> {
-        writeln!(&mut self.output, "define i32 @main() {{").unwrap();
+        writeln!(
+            &mut self.output,
+            "define i32 @main(i32 %argc, ptr %argv) {{"
+        )
+        .unwrap();
         writeln!(&mut self.output, "entry:").unwrap();
+
+        // Initialize command-line arguments (before scheduler so args are available)
+        writeln!(
+            &mut self.output,
+            "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
+        )
+        .unwrap();
 
         // Initialize scheduler
         writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()").unwrap();
@@ -913,7 +931,7 @@ mod tests {
 
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        assert!(ir.contains("define i32 @main()"));
+        assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"));
         assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write_line"));

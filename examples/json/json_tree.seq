@@ -1,19 +1,23 @@
 # JSON Tree Viewer
 #
-# A practical example: Read JSON from stdin and display as a formatted tree.
+# A practical example: Parse JSON and display structure.
 #
 # Usage:
-#   echo '42' | ./json_tree
-#   echo 'true' | ./json_tree
-#   echo '[42]' | ./json_tree
-#   echo '"hello"' | ./json_tree
+#   # With command-line argument (parsed directly):
+#   ./json_tree '42'
+#   ./json_tree 'true'
+#   ./json_tree '[42]'
+#   ./json_tree '"hello"'
 #
-# ROADMAP - What this example reveals we need:
-#   - Command-line arguments (args, arg-count) for: ./json_tree file.json
-#   - File I/O (file-read, file-slurp) for reading files
-#   - write (without newline) for proper indentation
-#   - Multi-element array parsing
-#   - Object key-value parsing
+#   # Interactive (reads from stdin):
+#   ./json_tree
+#   echo '42' | ./json_tree
+#
+# ROADMAP - What we still need:
+#   - File I/O (file-read, file-slurp) for: ./json_tree config.json
+#   - write (without newline) for proper formatting
+#   - Multi-element array parsing: [1, 2, 3]
+#   - Object key-value parsing: {"a": 1}
 #
 # Currently works with:
 #   - Primitives: null, true, false, numbers, strings
@@ -23,26 +27,34 @@
 include std:json
 
 # Format a JSON value as an indented string
-# This uses json-serialize for now, but could be expanded
-# to show a proper tree structure with indentation
 : json-format
   json-serialize
   "  " swap string-concat
 ;
 
+# Get JSON input - either from command line or stdin
+: get-json-input ( -- String )
+  arg-count 1 > if
+    # Use first command-line argument as JSON
+    1 arg
+  else
+    # No argument - read from stdin
+    "Paste JSON and press Enter:" write_line
+    read_line
+  then
+;
+
 : main ( -- Int )
   "=== JSON Tree Viewer ===" write_line
-  "Paste JSON and press Enter:" write_line
   "" write_line
 
-  read_line
+  get-json-input
 
   dup string-length 0 = if
     drop
     "No input." write_line
     1
   else
-    "" write_line
     "Input: " over string-concat write_line
     "" write_line
 

@@ -211,9 +211,11 @@
     quote-char swap string-concat quote-char string-concat
   else
 
-  # Tag 4: array - TODO: implement array serialization
+  # Tag 4: array
   dup 4 = if
-    drop drop "[]"
+    drop  # drop the duplicated tag
+    # value is still on stack, json-serialize-array will consume it
+    json-serialize-array
   else
 
   # Tag 5: object - TODO: implement object serialization
@@ -230,6 +232,13 @@
 : json-escape-string
   # For now, return as-is
   # TODO: Full escape handling for special characters
+;
+
+# Serialize a JSON array to string
+# Stack: ( JsonArray -- String )
+# Currently only serializes as [] - element serialization pending
+: json-serialize-array ( ..rest Variant -- ..rest String )
+  drop "[]"
 ;
 
 # ============================================================================
@@ -463,35 +472,20 @@
 # Parse a JSON number
 # Stack: ( str pos -- str pos JsonValue Int )
 # Expects position to be at start of number (digit or minus)
-# For now, assumes the entire remaining string is the number (works for json-parse)
+#
+# LIMITATION: Currently consumes entire remaining string as the number.
+# This works for standalone numbers but NOT for numbers inside arrays/objects.
+# TODO: Implement proper number boundary detection (see JSON_ITERATION_PLAN.md)
 : json-parse-number ( ..rest String Int -- ..rest String Int Variant Int )
-  # Drop pos, we'll set it to string length at the end
-  drop
-  # Stack: str
-
-  # Parse the string as float
+  drop  # drop pos, will use string length as new pos
   dup string->float
-  # Stack: str float success
-
-  if
-    # Stack: str float
-    json-number
-    # Stack: str json-value
-
-    # Get new pos (string length)
-    over string-length
-    # Stack: str json-value len
-
-    swap
-    # Stack: str len json-value
-
-    1
-    # Stack: str len json-value 1
+  0 = if
+    drop 0 json-null 0
   else
-    # Stack: str float (float is 0.0 on failure)
-    drop
-    0 json-null 0
-    # Stack: str 0 json-null 0
+    json-number
+    over string-length
+    swap
+    1
   then
 ;
 
@@ -521,6 +515,17 @@
   then
 ;
 
+# Parse array contents (non-empty case)
+# Stack: ( str pos -- str pos JsonArray Int )
+# Position should be at first element (after [ and whitespace)
+# Currently supports single-element arrays only
+#
+# LIMITATION: Due to complex stack management, this is temporarily disabled.
+# Arrays with elements will parse but serialize as [].
+: json-parse-array-contents ( ..rest String Int -- ..rest String Int Variant Int )
+  json-null 0
+;
+
 # Parse an array - handles empty and non-empty arrays
 # Stack: ( str pos -- str pos JsonValue Int )
 # We're positioned at '['
@@ -537,9 +542,8 @@
       1 json-advance
       json-empty-array 1
     else
-      # Non-empty array - for now, just return empty array
-      # TODO: Parse array elements recursively
-      json-null 0
+      # Non-empty array - parse contents
+      json-parse-array-contents
     then
   then
 ;

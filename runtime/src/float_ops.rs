@@ -291,6 +291,31 @@ pub unsafe extern "C" fn patch_seq_float_to_string(stack: Stack) -> Stack {
     }
 }
 
+/// Convert String to Float: ( String -- Float Int )
+/// Returns the parsed float and 1 on success, or 0.0 and 0 on failure
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_to_float(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string->float: stack is empty");
+    let (stack, val) = unsafe { pop(stack) };
+
+    match val {
+        Value::String(s) => match s.as_str().parse::<f64>() {
+            Ok(f) => {
+                let stack = unsafe { push(stack, Value::Float(f)) };
+                unsafe { push(stack, Value::Int(1)) }
+            }
+            Err(_) => {
+                let stack = unsafe { push(stack, Value::Float(0.0)) };
+                unsafe { push(stack, Value::Int(0)) }
+            }
+        },
+        _ => panic!("string->float: expected String on stack"),
+    }
+}
+
 // =============================================================================
 // Public re-exports with short names
 // =============================================================================
@@ -309,6 +334,7 @@ pub use patch_seq_float_to_int as float_to_int;
 pub use patch_seq_float_to_string as float_to_string;
 pub use patch_seq_int_to_float as int_to_float;
 pub use patch_seq_push_float as push_float;
+pub use patch_seq_string_to_float as string_to_float;
 
 // =============================================================================
 // Tests

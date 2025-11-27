@@ -705,6 +705,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // string->float: ( ..a String -- ..a Float Int )
+    // Parse string as float, returns value and success flag (1 on success, 0 on failure)
+    sigs.insert(
+        "string->float".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::Float)
+                .push(Type::Int),
+        ),
+    );
+
     sigs
 }
 
@@ -770,5 +782,9 @@ mod tests {
         assert!(sigs.contains_key("make-channel"));
         assert!(sigs.contains_key("send"));
         assert!(sigs.contains_key("receive"));
+        assert!(
+            sigs.contains_key("string->float"),
+            "string->float should be a builtin"
+        );
     }
 }

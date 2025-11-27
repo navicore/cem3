@@ -309,6 +309,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_int_to_float(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
@@ -653,6 +654,7 @@ impl CodeGen {
                     "int->float" => "patch_seq_int_to_float".to_string(),
                     "float->int" => "patch_seq_float_to_int".to_string(),
                     "float->string" => "patch_seq_float_to_string".to_string(),
+                    "string->float" => "patch_seq_string_to_float".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
                     // Also mangle special characters for LLVM IR compatibility
                     _ => format!("seq_{}", mangle_name(name)),

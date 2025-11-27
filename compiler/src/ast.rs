@@ -147,6 +147,7 @@ impl Program {
             "nip",
             "tuck",
             "pick",
+            "roll",
             // Boolean operations
             "and",
             "or",

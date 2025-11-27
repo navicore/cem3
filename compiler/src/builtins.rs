@@ -219,6 +219,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // roll: ( ..a T_n ... T_1 T_0 Int(n) -- ..a T_(n-1) ... T_1 T_0 T_n )
+    // Rotates n+1 items, bringing the item at depth n to the top.
+    // roll(0) = no-op, roll(1) = swap, roll(2) = rot
+    //
+    // Like pick, the true type requires dependent types. The signature below
+    // is a simplified approximation that validates the depth parameter is Int
+    // and that the stack has at least one item to rotate.
+    //
+    // Runtime validates stack depth (see roll in runtime/src/stack.rs).
+    sigs.insert(
+        "roll".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
+        ),
+    );
+
     // Concurrency operations with row polymorphism
     // make-channel: ( ..a -- ..a Int )
     // Returns channel ID as Int

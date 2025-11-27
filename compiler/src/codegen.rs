@@ -230,6 +230,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_quotation(ptr, i64)").unwrap();
@@ -597,6 +598,7 @@ impl CodeGen {
                     }
                     "drop" => "patch_seq_drop_op".to_string(), // 'drop' is reserved in LLVM IR
                     "pick" => "patch_seq_pick_op".to_string(), // pick takes Int parameter from stack
+                    "roll" => "patch_seq_roll".to_string(),    // roll takes Int depth from stack
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "patch_seq_make_channel".to_string(),
                     "send" => "patch_seq_chan_send".to_string(),

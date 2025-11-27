@@ -495,13 +495,86 @@
   then
 ;
 
-# Main JSON parser entry point
-# Parses any JSON value
+# Create an empty JSON array
+# Stack: ( -- JsonArray )
+: json-empty-array ( -- Variant )
+  0 4 make-variant
+;
+
+# Create an empty JSON object
+# Stack: ( -- JsonObject )
+: json-empty-object ( -- Variant )
+  0 5 make-variant
+;
+
+# Skip whitespace characters
+# Stack: ( str pos -- str pos )
+: json-skip-ws ( ..rest String Int -- ..rest String Int )
+  json-at-end? if
+    # At end, nothing to skip
+  else
+    json-char-at json-is-ws? if
+      1 json-advance json-skip-ws
+    else
+      # Not whitespace, stop skipping
+    then
+  then
+;
+
+# Parse an array - handles empty and non-empty arrays
 # Stack: ( str pos -- str pos JsonValue Int )
-: json-parse-value
+# We're positioned at '['
+: json-parse-array ( ..rest String Int -- ..rest String Int Variant Int )
+  # Move past '['
+  1 json-advance
+  json-skip-ws
+
   json-at-end? if
     json-null 0
   else
+    json-char-at 93 = if
+      # Found ']' immediately - empty array
+      1 json-advance
+      json-empty-array 1
+    else
+      # Non-empty array - for now, just return empty array
+      # TODO: Parse array elements recursively
+      json-null 0
+    then
+  then
+;
+
+# Parse an object - handles empty and non-empty objects
+# Stack: ( str pos -- str pos JsonValue Int )
+# We're positioned at '{'
+: json-parse-object ( ..rest String Int -- ..rest String Int Variant Int )
+  # Move past '{'
+  1 json-advance
+  json-skip-ws
+
+  json-at-end? if
+    json-null 0
+  else
+    json-char-at 125 = if
+      # Found '}' immediately - empty object
+      1 json-advance
+      json-empty-object 1
+    else
+      # Non-empty object - for now, just return empty object
+      # TODO: Parse object key-value pairs recursively
+      json-null 0
+    then
+  then
+;
+
+# Main JSON parser entry point
+# Parses any JSON value
+# Stack: ( str pos -- str pos JsonValue Int )
+: json-parse-value ( ..rest String Int -- ..rest String Int Variant Int )
+  json-at-end? if
+    json-null 0
+  else
+    json-skip-ws
     json-char-at
     # Check for double-quote (34) - string
     dup 34 = if
@@ -523,8 +596,16 @@
     dup json-is-number-start? if
       drop json-parse-number
     else
+    # Check for [ (91) - array
+    dup 91 = if
+      drop json-parse-array
+    else
+    # Check for { (123) - object
+    dup 123 = if
+      drop json-parse-object
+    else
       drop json-null 0
-    then then then then then
+    then then then then then then then
   then
 ;
 

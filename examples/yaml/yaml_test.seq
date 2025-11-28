@@ -1,0 +1,77 @@
+# YAML Parser Test
+#
+# Tests the basic YAML parsing functionality.
+
+include std:yaml
+
+: main ( -- Int )
+  "=== YAML Parser Tests ===" write_line
+
+  # Test 1: Simple key-value
+  "name: John" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: simple key-value" write_line
+  then
+
+  # Test 2: Number value
+  "age: 42" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: number value" write_line
+  then
+
+  # Test 3: Boolean value
+  "active: true" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: boolean value" write_line
+  then
+
+  # Test 4: Null value
+  "data: null" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: null value" write_line
+  then
+
+  # Test 5: Boolean false
+  "enabled: false" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: boolean false" write_line
+  then
+
+  # Test 6: Floating point number
+  "price: 19.99" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: float value" write_line
+  then
+
+  # Test 7: Tilde null
+  "empty: ~" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: tilde null" write_line
+  then
+
+  # Test 8: String with spaces
+  "message: Hello World" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: string with spaces" write_line
+  then
+
+  "" write_line
+  "All tests completed!" write_line
+  0
+;

@@ -470,21 +470,17 @@ impl Parser {
     /// Build a StackType from an optional row variable and a list of types
     /// Example: row_var="a", types=[Int, Bool] => RowVar("a") with Int on top of Bool
     ///
-    /// IMPORTANT: If no row variable is given but types exist, auto-generate one.
-    /// This provides implicit row polymorphism: ( String -- String ) means ( ..rest String -- ..rest String )
+    /// IMPORTANT: ALL stack effects are implicitly row-polymorphic in concatenative languages.
+    /// This means:
+    ///   ( -- )        becomes  ( ..rest -- ..rest )       - no-op, preserves stack
+    ///   ( -- Int )    becomes  ( ..rest -- ..rest Int )   - pushes Int
+    ///   ( Int -- )    becomes  ( ..rest Int -- ..rest )   - consumes Int
+    ///   ( Int -- Int) becomes  ( ..rest Int -- ..rest Int ) - transforms top
     fn build_stack_type(&self, row_var: Option<String>, types: Vec<Type>) -> StackType {
+        // Always use row polymorphism - this is fundamental to concatenative semantics
         let base = match row_var {
             Some(name) => StackType::RowVar(name),
-            None => {
-                // If we have types but no explicit row variable, auto-generate one
-                // This makes ( String -- String ) implicitly row-polymorphic
-                if !types.is_empty() {
-                    StackType::RowVar("rest".to_string())
-                } else {
-                    // Only use Empty for truly empty stacks: ( -- ) or ( -- Int )
-                    StackType::Empty
-                }
-            }
+            None => StackType::RowVar("rest".to_string()),
         };
 
         // Push types onto the stack (bottom to top order)
@@ -995,14 +991,17 @@ mod tests {
     #[test]
     fn test_parse_empty_stack_effect() {
         // Test: ( -- )
+        // In concatenative languages, even empty effects are row-polymorphic
+        // ( -- ) means ( ..rest -- ..rest ) - preserves stack
         let source = ": test ( -- ) ;";
         let mut parser = Parser::new(source);
         let program = parser.parse().unwrap();
 
         let effect = program.words[0].effect.as_ref().unwrap();
 
-        assert_eq!(effect.inputs, StackType::Empty);
-        assert_eq!(effect.outputs, StackType::Empty);
+        // Both inputs and outputs should use the same implicit row variable
+        assert_eq!(effect.inputs, StackType::RowVar("rest".to_string()));
+        assert_eq!(effect.outputs, StackType::RowVar("rest".to_string()));
     }
 
     #[test]
@@ -1167,6 +1166,7 @@ mod tests {
     #[test]
     fn test_parse_empty_quotation_type() {
         // Test: ( [ -- ] -- )
+        // An empty quotation type is also row-polymorphic: [ ..rest -- ..rest ]
         let source = ": empty-quot ( [ -- ] -- ) ;";
         let mut parser = Parser::new(source);
         let program = parser.parse().unwrap();
@@ -1176,8 +1176,9 @@ mod tests {
         let (_, top) = effect.inputs.clone().pop().unwrap();
         match top {
             Type::Quotation(quot_effect) => {
-                assert_eq!(quot_effect.inputs, StackType::Empty);
-                assert_eq!(quot_effect.outputs, StackType::Empty);
+                // Empty quotation preserves the stack (row-polymorphic)
+                assert_eq!(quot_effect.inputs, StackType::RowVar("rest".to_string()));
+                assert_eq!(quot_effect.outputs, StackType::RowVar("rest".to_string()));
             }
             _ => panic!("Expected Quotation type"),
         }

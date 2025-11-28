@@ -105,6 +105,12 @@ impl Program {
             "write_line",
             "read_line",
             "int->string",
+            // Command-line arguments
+            "arg-count",
+            "arg",
+            // File operations
+            "file-slurp",
+            "file-exists?",
             // String operations
             "string-concat",
             "string-length",
@@ -125,6 +131,7 @@ impl Program {
             "variant-field-count",
             "variant-tag",
             "variant-field-at",
+            "make-variant",
             // Arithmetic operations
             "add",
             "subtract",
@@ -146,6 +153,7 @@ impl Program {
             "nip",
             "tuck",
             "pick",
+            "roll",
             // Boolean operations
             "and",
             "or",
@@ -186,6 +194,7 @@ impl Program {
             "int->float",
             "float->int",
             "float->string",
+            "string->float",
         ];
 
         for word in &self.words {

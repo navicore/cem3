@@ -316,6 +316,106 @@ pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
     unsafe { pick(stack, n) }
 }
 
+/// Roll: Rotate n+1 items, bringing the item at depth n to the top
+/// ( x_n x_(n-1) ... x_1 x_0 n -- x_(n-1) ... x_1 x_0 x_n )
+///
+/// Examples:
+/// - roll(0) is a no-op (rotate 1 item)
+/// - roll(1) is equivalent to swap (rotate 2 items)
+/// - roll(2) is equivalent to rot (rotate 3 items)
+/// - roll(3) rotates 4 items: ( a b c d 3 -- b c d a )
+///
+/// This is the standard Forth ROLL word.
+///
+/// # Safety
+/// Stack must have the depth parameter (Int) on top, and at least n+1 values below it
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
+    use crate::value::Value;
+
+    assert!(!stack.is_null(), "roll: stack is empty");
+
+    // Get the depth parameter
+    let depth_value = unsafe { &(*stack).value };
+    let n = match depth_value {
+        Value::Int(i) => {
+            if *i < 0 {
+                panic!("roll: depth must be non-negative, got {}", i);
+            }
+            *i as usize
+        }
+        _ => panic!(
+            "roll: expected Int depth on top of stack, got {:?}",
+            depth_value
+        ),
+    };
+
+    // Pop the depth parameter
+    let (stack, _) = unsafe { pop(stack) };
+
+    // Special cases for efficiency
+    if n == 0 {
+        // roll(0) is a no-op
+        return stack;
+    }
+    if n == 1 {
+        // roll(1) is swap
+        return unsafe { patch_seq_swap(stack) };
+    }
+    if n == 2 {
+        // roll(2) is rot
+        return unsafe { patch_seq_rot(stack) };
+    }
+
+    // General case: rotate n+1 items
+    // We need to pop n+1 items, then push them back in rotated order
+
+    // Validate stack depth
+    let mut count = 0;
+    let mut current = stack;
+    while !current.is_null() && count <= n {
+        count += 1;
+        current = unsafe { (*current).next };
+    }
+
+    if count < n + 1 {
+        panic!(
+            "roll: cannot rotate {} items - stack has only {} value{}",
+            n + 1,
+            count,
+            if count == 1 { "" } else { "s" }
+        );
+    }
+
+    // Pop n+1 items into a vector
+    let mut items = Vec::with_capacity(n + 1);
+    let mut current_stack = stack;
+    for _ in 0..=n {
+        let (rest, val) = unsafe { pop(current_stack) };
+        items.push(val);
+        current_stack = rest;
+    }
+
+    // items[0] = top, items[1] = second, ..., items[n] = bottom of rotated section
+    // We want: items[n] goes to top, items[0..n] shift down
+    // So push order is: items[n-1], items[n-2], ..., items[0], items[n]
+
+    // Take item[n] first using swap_remove (it goes on top at the end)
+    // swap_remove(n) moves the last element to position n, but n IS the last position,
+    // so this just removes and returns items[n]
+    let top_item = items.swap_remove(n);
+
+    // Push items in reverse order (items[n-1] down to items[0])
+    // Drain in reverse to consume the vector without cloning
+    for val in items.into_iter().rev() {
+        current_stack = unsafe { push(current_stack, val) };
+    }
+    // Push the saved item[n] on top (this was at depth n, now at top)
+    current_stack = unsafe { push(current_stack, top_item) };
+
+    current_stack
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_drop_op as drop_op;
 pub use patch_seq_dup as dup;
@@ -323,6 +423,7 @@ pub use patch_seq_nip as nip;
 pub use patch_seq_over as over;
 pub use patch_seq_pick_op as pick_op;
 pub use patch_seq_push_value as push_value;
+pub use patch_seq_roll as roll;
 pub use patch_seq_rot as rot;
 pub use patch_seq_swap as swap;
 pub use patch_seq_tuck as tuck;
@@ -974,6 +1075,162 @@ mod tests {
     // because extern "C" functions cannot be caught with #[should_panic].
     // These cases are validated at runtime with descriptive panic messages.
     // See examples/test-pick.seq for integration testing of valid cases.
+
+    #[test]
+    fn test_roll_0_is_noop() {
+        // roll(0) should be a no-op
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(42));
+            stack = push(stack, Value::Int(0)); // depth parameter
+
+            stack = roll(stack);
+
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(42));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_roll_1_is_swap() {
+        // roll(1) should be equivalent to swap
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(1));
+            stack = push(stack, Value::Int(2));
+            stack = push(stack, Value::Int(1)); // depth parameter
+
+            stack = roll(stack);
+
+            // 1 2 -> 2 1
+            let (stack, val1) = pop(stack);
+            assert_eq!(val1, Value::Int(1));
+            let (stack, val2) = pop(stack);
+            assert_eq!(val2, Value::Int(2));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_roll_2_is_rot() {
+        // roll(2) should be equivalent to rot
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(1));
+            stack = push(stack, Value::Int(2));
+            stack = push(stack, Value::Int(3));
+            stack = push(stack, Value::Int(2)); // depth parameter
+
+            stack = roll(stack);
+
+            // 1 2 3 -> 2 3 1 (rot brings 3rd item to top)
+            let (stack, val1) = pop(stack);
+            assert_eq!(val1, Value::Int(1));
+            let (stack, val2) = pop(stack);
+            assert_eq!(val2, Value::Int(3));
+            let (stack, val3) = pop(stack);
+            assert_eq!(val3, Value::Int(2));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_roll_3_rotates_4_items() {
+        // roll(3) rotates 4 items: ( a b c d 3 -- b c d a )
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(1)); // bottom
+            stack = push(stack, Value::Int(2));
+            stack = push(stack, Value::Int(3));
+            stack = push(stack, Value::Int(4)); // top
+            stack = push(stack, Value::Int(3)); // depth parameter
+
+            stack = roll(stack);
+
+            // 1 2 3 4 -> 2 3 4 1
+            let (stack, val1) = pop(stack);
+            assert_eq!(val1, Value::Int(1)); // was at depth 3, now on top
+            let (stack, val2) = pop(stack);
+            assert_eq!(val2, Value::Int(4));
+            let (stack, val3) = pop(stack);
+            assert_eq!(val3, Value::Int(3));
+            let (stack, val4) = pop(stack);
+            assert_eq!(val4, Value::Int(2));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_roll_deep() {
+        // Test rolling with more items
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            for i in 0..10 {
+                stack = push(stack, Value::Int(i));
+            }
+            // Stack is: 9 8 7 6 5 4 3 2 1 0 (9 on top, 0 at bottom)
+            stack = push(stack, Value::Int(5)); // depth parameter
+
+            stack = roll(stack);
+
+            // roll(5) brings item at depth 5 (which is 4) to top
+            // Stack becomes: 4 9 8 7 6 5 3 2 1 0
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(4)); // 4 is now on top
+
+            // Verify rest of stack
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(9));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(8));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(7));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(6));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(5));
+            // Note: 4 was moved to top, so now we have 3
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(3));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(2));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(1));
+            let (stack, val) = pop(stack);
+            assert_eq!(val, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_roll_with_extra_stack() {
+        // Roll should only affect the top n+1 items, leaving rest unchanged
+        unsafe {
+            let mut stack = std::ptr::null_mut();
+            stack = push(stack, Value::Int(100)); // This should not be affected
+            stack = push(stack, Value::Int(1));
+            stack = push(stack, Value::Int(2));
+            stack = push(stack, Value::Int(3));
+            stack = push(stack, Value::Int(4));
+            stack = push(stack, Value::Int(3)); // depth parameter
+
+            stack = roll(stack);
+
+            // 1 2 3 4 -> 2 3 4 1, but 100 at bottom unchanged
+            let (stack, val1) = pop(stack);
+            assert_eq!(val1, Value::Int(1));
+            let (stack, val2) = pop(stack);
+            assert_eq!(val2, Value::Int(4));
+            let (stack, val3) = pop(stack);
+            assert_eq!(val3, Value::Int(3));
+            let (stack, val4) = pop(stack);
+            assert_eq!(val4, Value::Int(2));
+            let (stack, val5) = pop(stack);
+            assert_eq!(val5, Value::Int(100)); // Unchanged
+            assert!(stack.is_null());
+        }
+    }
 
     #[test]
     fn test_operations_preserve_stack_integrity() {

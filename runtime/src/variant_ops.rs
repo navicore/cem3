@@ -95,7 +95,74 @@ pub unsafe extern "C" fn patch_seq_variant_field_at(stack: Stack) -> Stack {
     }
 }
 
+/// Create a variant with the given tag and fields
+///
+/// Stack effect: ( field1 ... fieldN count tag -- Variant )
+///
+/// Pops `count` values from the stack as fields (in reverse order),
+/// then creates a Variant with the given tag.
+///
+/// Example: `10 20 30 3 42 make-variant` creates a variant with
+/// tag 42 and fields [10, 20, 30].
+///
+/// # Safety
+/// Stack must have tag, count, and count values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_make_variant(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        // Pop tag
+        let (stack, tag_val) = pop(stack);
+        let tag = match tag_val {
+            Value::Int(t) => {
+                if t < 0 {
+                    panic!("make-variant: tag cannot be negative: {}", t);
+                }
+                t as u32
+            }
+            _ => panic!("make-variant: expected Int (tag), got {:?}", tag_val),
+        };
+
+        // Pop count
+        let (stack, count_val) = pop(stack);
+        let count = match count_val {
+            Value::Int(c) => {
+                if c < 0 {
+                    panic!("make-variant: count cannot be negative: {}", c);
+                }
+                c as usize
+            }
+            _ => panic!("make-variant: expected Int (count), got {:?}", count_val),
+        };
+
+        // Pop count values (they come off in reverse order)
+        let mut fields = Vec::with_capacity(count);
+        let mut current_stack = stack;
+
+        for i in 0..count {
+            if current_stack.is_null() {
+                panic!(
+                    "make-variant: stack underflow, expected {} fields but only got {}",
+                    count, i
+                );
+            }
+            let (new_stack, value) = pop(current_stack);
+            fields.push(value);
+            current_stack = new_stack;
+        }
+
+        // Reverse to get original order (first pushed = first field)
+        fields.reverse();
+
+        // Create and push the variant
+        let variant = Value::Variant(Box::new(VariantData::new(tag, fields)));
+        push(current_stack, variant)
+    }
+}
+
 // Public re-exports with short names for internal use
+pub use patch_seq_make_variant as make_variant;
 pub use patch_seq_variant_field_at as variant_field_at;
 pub use patch_seq_variant_field_count as variant_field_count;
 pub use patch_seq_variant_tag as variant_tag;
@@ -199,6 +266,91 @@ mod tests {
 
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_make_variant_with_fields() {
+        unsafe {
+            // Create: 10 20 30 3 42 make-variant
+            // Should produce variant with tag 42 and fields [10, 20, 30]
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(10)); // field 0
+            let stack = push(stack, Value::Int(20)); // field 1
+            let stack = push(stack, Value::Int(30)); // field 2
+            let stack = push(stack, Value::Int(3)); // count
+            let stack = push(stack, Value::Int(42)); // tag
+
+            let stack = make_variant(stack);
+
+            let (stack, result) = pop(stack);
+
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 42);
+                    assert_eq!(v.fields.len(), 3);
+                    assert_eq!(v.fields[0], Value::Int(10));
+                    assert_eq!(v.fields[1], Value::Int(20));
+                    assert_eq!(v.fields[2], Value::Int(30));
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_make_variant_empty() {
+        unsafe {
+            // Create: 0 0 make-variant
+            // Should produce variant with tag 0 and no fields
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(0)); // count
+            let stack = push(stack, Value::Int(0)); // tag
+
+            let stack = make_variant(stack);
+
+            let (stack, result) = pop(stack);
+
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.fields.len(), 0);
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_make_variant_with_mixed_types() {
+        unsafe {
+            let s = global_string("hello".to_string());
+
+            // Create variant with mixed field types
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(42));
+            let stack = push(stack, Value::String(s.clone()));
+            let stack = push(stack, Value::Float(3.5));
+            let stack = push(stack, Value::Int(3)); // count
+            let stack = push(stack, Value::Int(1)); // tag
+
+            let stack = make_variant(stack);
+
+            let (stack, result) = pop(stack);
+
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 1);
+                    assert_eq!(v.fields.len(), 3);
+                    assert_eq!(v.fields[0], Value::Int(42));
+                    assert_eq!(v.fields[1], Value::String(s));
+                    assert_eq!(v.fields[2], Value::Float(3.5));
+                }
+                _ => panic!("Expected Variant"),
+            }
             assert!(stack.is_null());
         }
     }

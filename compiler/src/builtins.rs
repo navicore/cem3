@@ -33,6 +33,44 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Command-line argument operations
+    // arg-count: ( ..a -- ..a Int ) returns number of arguments including program name
+    sigs.insert(
+        "arg-count".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // arg: ( ..a Int -- ..a String ) returns argument at index (0 = program name)
+    sigs.insert(
+        "arg".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // File operations
+    // file-slurp: ( ..a String -- ..a String ) reads entire file contents
+    sigs.insert(
+        "file-slurp".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // file-exists?: ( ..a String -- ..a Int ) returns 1 if file exists, 0 otherwise
+    sigs.insert(
+        "file-exists?".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     sigs.insert(
         "int->string".to_string(),
         Effect::new(
@@ -216,6 +254,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
             StackType::RowVar("a".to_string())
                 .push(Type::Var("T".to_string()))
                 .push(Type::Var("T".to_string())),
+        ),
+    );
+
+    // roll: ( ..a T_n ... T_1 T_0 Int(n) -- ..a T_(n-1) ... T_1 T_0 T_n )
+    // Rotates n+1 items, bringing the item at depth n to the top.
+    // roll(0) = no-op, roll(1) = swap, roll(2) = rot
+    //
+    // Like pick, the true type requires dependent types. The signature below
+    // is a simplified approximation that validates the depth parameter is Int
+    // and that the stack has at least one item to rotate.
+    //
+    // Runtime validates stack depth (see roll in runtime/src/stack.rs).
+    sigs.insert(
+        "roll".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
         ),
     );
 
@@ -635,6 +692,19 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // make-variant: ( ..a field1 ... fieldN count tag -- ..a Variant )
+    // Create a variant with given tag and N fields (count specifies N)
+    // Type signature only validates count and tag are Ints; runtime validates field count
+    sigs.insert(
+        "make-variant".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int) // count
+                .push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
     // Float arithmetic operations ( ..a Float Float -- ..a Float )
     for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
         sigs.insert(
@@ -689,6 +759,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         Effect::new(
             StackType::RowVar("a".to_string()).push(Type::Float),
             StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string->float: ( ..a String -- ..a Float Int )
+    // Parse string as float, returns value and success flag (1 on success, 0 on failure)
+    sigs.insert(
+        "string->float".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::Float)
+                .push(Type::Int),
         ),
     );
 
@@ -757,5 +839,9 @@ mod tests {
         assert!(sigs.contains_key("make-channel"));
         assert!(sigs.contains_key("send"));
         assert!(sigs.contains_key("receive"));
+        assert!(
+            sigs.contains_key("string->float"),
+            "string->float should be a builtin"
+        );
     }
 }

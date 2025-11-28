@@ -161,8 +161,50 @@ pub unsafe extern "C" fn patch_seq_make_variant(stack: Stack) -> Stack {
     }
 }
 
+/// Append a value to a variant, returning a new variant
+///
+/// Stack effect: ( Variant Value -- Variant' )
+///
+/// Creates a new variant with the same tag as the input, but with
+/// the new value appended to its fields. The original variant is
+/// not modified (functional/immutable style).
+///
+/// Example: For arrays, `[1, 2] 3 variant-append` produces `[1, 2, 3]`
+/// Example: For objects, `{} "key" variant-append "val" variant-append` builds `{"key": "val"}`
+///
+/// # Safety
+/// Stack must have a Variant and a Value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_variant_append(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        // Pop the value to append
+        let (stack, value) = pop(stack);
+
+        // Pop the variant
+        let (stack, variant_val) = pop(stack);
+
+        match variant_val {
+            Value::Variant(variant_data) => {
+                // Create new fields vector with the appended value
+                let mut new_fields = variant_data.fields.to_vec();
+                new_fields.push(value);
+
+                // Create new variant with same tag
+                let new_variant =
+                    Value::Variant(Box::new(VariantData::new(variant_data.tag, new_fields)));
+
+                push(stack, new_variant)
+            }
+            _ => panic!("variant-append: expected Variant, got {:?}", variant_val),
+        }
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_make_variant as make_variant;
+pub use patch_seq_variant_append as variant_append;
 pub use patch_seq_variant_field_at as variant_field_at;
 pub use patch_seq_variant_field_count as variant_field_count;
 pub use patch_seq_variant_tag as variant_tag;
@@ -348,6 +390,67 @@ mod tests {
                     assert_eq!(v.fields[0], Value::Int(42));
                     assert_eq!(v.fields[1], Value::String(s));
                     assert_eq!(v.fields[2], Value::Float(3.5));
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_variant_append() {
+        unsafe {
+            // Create an empty variant (tag 4 for array)
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(0)); // count
+            let stack = push(stack, Value::Int(4)); // tag (array)
+            let stack = make_variant(stack);
+
+            // Append a value
+            let stack = push(stack, Value::Int(42));
+            let stack = variant_append(stack);
+
+            // Check result
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 4);
+                    assert_eq!(v.fields.len(), 1);
+                    assert_eq!(v.fields[0], Value::Int(42));
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_variant_append_multiple() {
+        unsafe {
+            // Create an empty variant (tag 5 for object)
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(0)); // count
+            let stack = push(stack, Value::Int(5)); // tag (object)
+            let stack = make_variant(stack);
+
+            // Append key
+            let key = global_string("name".to_string());
+            let stack = push(stack, Value::String(key.clone()));
+            let stack = variant_append(stack);
+
+            // Append value
+            let val = global_string("John".to_string());
+            let stack = push(stack, Value::String(val.clone()));
+            let stack = variant_append(stack);
+
+            // Check result - should have 2 fields
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 5);
+                    assert_eq!(v.fields.len(), 2);
+                    assert_eq!(v.fields[0], Value::String(key));
+                    assert_eq!(v.fields[1], Value::String(val));
                 }
                 _ => panic!("Expected Variant"),
             }

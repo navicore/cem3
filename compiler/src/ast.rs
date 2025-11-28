@@ -132,6 +132,8 @@ impl Program {
             "variant-tag",
             "variant-field-at",
             "variant-append",
+            "variant-last",
+            "variant-init",
             "make-variant",
             // Arithmetic operations
             "add",

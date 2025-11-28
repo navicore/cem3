@@ -61,6 +61,14 @@ Building this practical example highlighted several missing features that would 
    - `file-exists?` checks if a file exists (returns 1 or 0)
    - Example: `./json_tree config.json` now works!
 
+3. **Multi-element arrays (up to 2 elements)** ✓
+   - `[1]`, `[1, 2]`, `["a", "b"]`, `[42, "mixed"]`
+   - Strings, numbers, booleans all work inside arrays
+
+4. **Strings at any position** ✓
+   - Strings now parse correctly whether top-level or inside arrays
+   - `"hello"`, `["hello"]`, `["a", "b"]` all work
+
 ### High Priority
 
 1. **Write without newline** (`write` vs `write_line`)
@@ -69,34 +77,34 @@ Building this practical example highlighted several missing features that would 
 
 ### Medium Priority
 
-4. **Multi-element array parsing**
-   - Currently only single-element arrays work: `[42]`
-   - Need: `[1, 2, 3]`
+2. **Arrays with 3+ elements**
+   - Currently supports 0, 1, or 2 elements
+   - Need: `[1, 2, 3, ...]`
 
-5. **Object key-value parsing**
+3. **Object key-value parsing**
    - Currently only empty objects work: `{}`
    - Need: `{"key": "value"}`
 
-6. **Pattern matching / case statement**
+4. **Pattern matching / case statement**
    - Would simplify tag-based dispatch
    - Currently requires nested if/else chains
 
 ### Nice to Have
 
-7. **String escape sequences** (`\"`, `\\`, `\n`)
-8. **Pretty-print with indentation levels**
-9. **JSON path queries** (`$.foo.bar`)
+5. **String escape sequences** (`\"`, `\\`, `\n`)
+6. **Pretty-print with indentation levels**
+7. **JSON path queries** (`$.foo.bar`)
 
 ## Current JSON Support
 
 Works:
 - Primitives: `null`, `true`, `false`
 - Numbers: `42`, `-3.14`, `1e10`
-- Strings: `"hello"` (no escapes)
-- Single-element arrays: `[42]`, `["hi"]`
-- Empty containers: `[]`, `{}`
+- Strings: `"hello"`, `"hello world"` (no escapes)
+- Arrays: `[]`, `[42]`, `[1, 2]`, `["hello"]`, `["a", "b"]`, `[42, "mixed"]` (up to 2 elements)
+- Empty objects: `{}`
 
 Limitations:
-- Multi-element arrays: `[1, 2]` - not parsed yet
+- Arrays with 3+ elements: not yet supported
 - Objects with data: `{"a": 1}` - not parsed yet
 - String escapes: `"say \"hi\""` - not supported

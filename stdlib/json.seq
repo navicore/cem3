@@ -236,7 +236,7 @@
 
 # Serialize a JSON array to string
 # Stack: ( JsonArray -- String )
-# Supports arrays with 0, 1, or 2 elements (enough for testing)
+# Supports arrays with 0, 1, or 2 elements
 : json-serialize-array
   # Stack: JsonArray
   dup variant-field-count    # JsonArray count
@@ -247,34 +247,30 @@
     dup 1 = if
       # Single element array
       drop                   # JsonArray
-      "[" swap               # "[" JsonArray
-      0 variant-field-at     # "[" elem
-      json-serialize         # "[" elemstr
-      string-concat          # "[elem"
+      0 variant-field-at     # elem
+      json-serialize         # elemstr
+      "[" swap string-concat # "[elem"
       "]" string-concat      # "[elem]"
     else
       dup 2 = if
         # Two element array
         drop                   # JsonArray
-        "[" swap               # "[" JsonArray
-        dup 0 variant-field-at # "[" JsonArray elem0
-        json-serialize         # "[" JsonArray elem0str
-        rot                    # elem0str "[" JsonArray
-        rot                    # "[" JsonArray elem0str
-        rot swap               # "[" elem0str JsonArray
-        rot                    # elem0str JsonArray "["
-        rot                    # JsonArray "[" elem0str
-        swap                   # JsonArray elem0str "["
-        swap string-concat     # JsonArray "[elem0"
-        "," string-concat      # JsonArray "[elem0,"
-        swap                   # "[elem0," JsonArray
-        1 variant-field-at     # "[elem0," elem1
-        json-serialize         # "[elem0," elem1str
-        string-concat          # "[elem0,elem1"
+        # Get first element
+        dup 0 variant-field-at # JsonArray elem0
+        json-serialize         # JsonArray elem0str
+        # Get second element
+        swap                   # elem0str JsonArray
+        1 variant-field-at     # elem0str elem1
+        json-serialize         # elem0str elem1str
+        # Build result: "[" + elem0str + "," + elem1str + "]"
+        swap                   # elem1str elem0str
+        "[" swap string-concat # elem1str "[elem0"
+        "," string-concat      # elem1str "[elem0,"
+        swap string-concat     # "[elem0,elem1"
         "]" string-concat      # "[elem0,elem1]"
       else
-        # More than 2 elements - fall back to empty (limitation)
-        drop drop "[]"
+        # More than 2 elements - fall back to representation
+        drop drop "[...]"
       then
     then
   then
@@ -556,47 +552,79 @@
   0 swap string-substring
 ;
 
-# Parse a JSON string - simplified version
+# Scan for closing quote using PState
+# Stack: ( PState -- PState closepos )
+# Returns position of quote or -1 if not found
+: pstate-scan-for-quote ( Variant -- Variant Int )
+  pstate-at-end? if
+    -1
+  else
+    pstate-char-at           # PState char
+    34 = if
+      # Found quote at current position
+      pstate-pos
+    else
+      # Continue scanning
+      1 pstate-advance
+      pstate-scan-for-quote
+    then
+  then
+;
+
+# Parse a JSON string
 # Stack: ( str pos -- str pos JsonValue Int )
 # Expects position to be at opening quote (ASCII 34)
-# For now, assumes pos=0 and string starts/ends with quotes
+#
+# This version properly returns the new position after the closing quote.
 : json-parse-string ( ..rest String Int -- ..rest String Int Variant Int )
   # Check for opening quote
   json-char-at 34 = if
-    # Stack: str pos
-    drop
-    # Stack: str
+    # Stack: str pos (at opening quote)
+    # Keep original str for later use
+    over                     # str pos str
 
-    # Get everything after the first quote
-    dup 1 string-from
-    # Stack: str after-open-quote
+    # startpos = pos + 1
+    over 1 add               # str pos str startpos
 
-    # Find closing quote position
-    dup quote-char string-find
-    # Stack: str after-open-quote close-pos
+    # Create PState for scanning
+    over over make-pstate    # str pos str startpos PState
+    pstate-scan-for-quote    # str pos str startpos PState closepos
 
     dup 0 < if
-      # No closing quote found
-      drop drop
-      0 json-null 0
+      # No closing quote - cleanup and fail
+      drop drop drop drop    # str pos
+      json-null 0
     else
-      # Stack: str after-open-quote close-pos
-      # Get content = after-open-quote[0:close-pos]
-      string-take
-      # Stack: str content
+      # Stack: str pos str startpos PState closepos
+      # Drop PState, compute len = closepos - startpos
+      swap drop              # str pos str startpos closepos
+      over subtract          # str pos str startpos len
 
-      json-string
-      # Stack: str json-value
+      # Stack: str pos str startpos len
+      # Call string-substring(str, startpos, len)
+      string-substring       # str pos content
 
-      # Return: str, new-pos (just use string-length), json-value, 1
-      over string-length
-      # Stack: str json-value len
+      # Make JsonString
+      json-string            # str pos JsonString
 
-      swap
-      # Stack: str len json-value
+      # Now we need newpos = original_pos + 1 + len + 1 = startpos + len + 1
+      # But we don't have those values anymore.
+      # Let's scan for the second quote to find newpos.
 
+      # Stack: str pos JsonString
+      # Save JsonString, scan original str from pos+1 for quote
+      rot rot                # JsonString str pos
+      over over              # JsonString str pos str pos
+      1 add make-pstate      # JsonString str pos PState(at startpos)
+      pstate-scan-for-quote  # JsonString str pos PState closepos
+      nip                    # JsonString str pos closepos (drop PState)
+      1 add                  # JsonString str pos newpos
+      nip                    # JsonString str newpos (drop old pos)
+      swap                   # JsonString newpos str
+      rot                    # newpos str JsonString
+      rot                    # str JsonString newpos
+      swap                   # str newpos JsonString
       1
-      # Stack: str len json-value 1
     then
   else
     json-null 0
@@ -756,10 +784,66 @@
   then
 ;
 
+# Parse more array elements after first (handles comma then more)
+# Stack: ( elem1 str pos -- str pos JsonArray Int )
+# Called when we've parsed one element and are at a comma
+: json-parse-array-more
+  # Stack: elem1 str pos
+  # We're at comma, skip it and whitespace
+  1 json-advance             # elem1 str pos
+  json-skip-ws               # elem1 str pos
+
+  # Parse second element
+  json-parse-value           # elem1 str pos elem2 success
+  0 = if
+    # Failed
+    drop                     # elem1 str pos
+    rot drop                 # str pos
+    json-null 0
+  else
+    # Have elem1 and elem2
+    # Stack: elem1 str pos elem2
+    # Move str pos to top, keeping elem1 elem2 below
+    # Use 3 roll twice: first brings elem1 to top
+    3 roll                   # str pos elem2 elem1
+    # Now rearrange: pos elem2 elem1 str -> need str pos elem1 elem2
+    # Swap to get: str pos elem2 elem1
+    # Then swap elem1 elem2
+    3 roll                   # pos elem2 elem1 str
+    3 roll                   # elem2 elem1 str pos
+    # Now: elem2 elem1 str pos - need elem1 elem2 str pos
+    3 roll                   # elem1 str pos elem2
+    rot                      # elem1 pos elem2 str
+    rot                      # elem1 elem2 str pos
+    # Now have: elem1 elem2 str pos (correct!)
+
+    json-skip-ws             # elem1 elem2 str pos
+    json-char-at             # elem1 elem2 str pos char
+
+    93 = if                  # ']' - two element array
+      1 json-advance         # elem1 elem2 str pos
+      # Build array - make-variant pops values then reverses
+      # To get [elem1, elem2], need elem2 on top (popped first)
+      # Stack: elem1 elem2 str pos
+      # Use 3 roll to rearrange to: str pos elem1 elem2
+      3 roll                 # elem2 str pos elem1
+      3 roll                 # str pos elem1 elem2 (elem2 on top, correct!)
+      2 4 make-variant       # str pos array
+      1
+    else
+      # More than 2 - not yet supported
+      # Stack: elem1 elem2 str pos
+      3 roll                 # elem1 str pos elem2
+      3 roll                 # str pos elem2 elem1
+      drop drop              # str pos
+      json-null 0
+    then
+  then
+;
+
 # Parse array contents (non-empty case)
 # Stack: ( str pos -- str pos JsonArray Int )
 # Position should be at first element (after [ and whitespace)
-# Currently supports single-element arrays only
 : json-parse-array-contents
   # Parse the first element
   json-parse-value           # str pos elem success
@@ -775,18 +859,21 @@
     json-skip-ws             # elem str pos
     json-char-at             # elem str pos char
 
-    93 = if                  # ']' - end of array
+    dup 93 = if              # ']' - end of array
+      drop                   # elem str pos
       1 json-advance         # elem str pos
       # Build single-element array
       rot                    # str pos elem
       1 4 make-variant       # str pos JsonArray
       1
     else
-      # For now, only support single element
-      # Stack: elem str pos (after = consumed the char)
-      # Need: str pos JsonValue Int
-      rot drop               # str pos (drop elem)
-      json-null 0
+      44 = if                # ',' - more elements
+        json-parse-array-more
+      else
+        # Invalid character
+        rot drop             # str pos
+        json-null 0
+      then
     then
   then
 ;

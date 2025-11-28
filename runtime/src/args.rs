@@ -90,6 +90,11 @@ pub unsafe extern "C" fn patch_seq_arg_at(stack: Stack) -> Stack {
 
     match value {
         Value::Int(idx) => {
+            // Validate index is non-negative
+            if idx < 0 {
+                panic!("arg: index must be non-negative, got {}", idx);
+            }
+
             let arg = ARGS
                 .get()
                 .and_then(|args| args.get(idx as usize))

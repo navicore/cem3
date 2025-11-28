@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 /// Seq words can contain: letters, digits, hyphens, question marks, arrows, etc.
 ///
 /// We escape special characters using underscore-based encoding:
-/// - `-` (hyphen) -> kept as-is (LLVM allows it)
+/// - `-` (hyphen) -> `_` (hyphens not valid in LLVM IR identifiers)
 /// - `?` -> `_Q_` (question)
 /// - `>` -> `_GT_` (greater than, for ->)
 /// - `<` -> `_LT_` (less than)
@@ -50,8 +50,10 @@ fn mangle_name(name: &str) -> String {
             '/' => result.push_str("_SLASH_"),
             '+' => result.push_str("_PLUS_"),
             '=' => result.push_str("_EQ_"),
+            // Hyphens converted to underscores (hyphens not valid in LLVM IR)
+            '-' => result.push('_'),
             // Keep these as-is (valid in LLVM IR)
-            '-' | '_' | '.' | '$' => result.push(c),
+            '_' | '.' | '$' => result.push(c),
             // Alphanumeric kept as-is
             c if c.is_alphanumeric() => result.push(c),
             // Any other character gets hex-encoded

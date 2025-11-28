@@ -400,12 +400,18 @@ pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
     // We want: items[n] goes to top, items[0..n] shift down
     // So push order is: items[n-1], items[n-2], ..., items[0], items[n]
 
-    // Push items[n-1] down to items[0] (these shift down by 1)
-    for i in (0..n).rev() {
-        current_stack = unsafe { push(current_stack, items[i].clone()) };
+    // Take item[n] first using swap_remove (it goes on top at the end)
+    // swap_remove(n) moves the last element to position n, but n IS the last position,
+    // so this just removes and returns items[n]
+    let top_item = items.swap_remove(n);
+
+    // Push items in reverse order (items[n-1] down to items[0])
+    // Drain in reverse to consume the vector without cloning
+    for val in items.into_iter().rev() {
+        current_stack = unsafe { push(current_stack, val) };
     }
-    // Push items[n] on top (this was at depth n, now at top)
-    current_stack = unsafe { push(current_stack, items[n].clone()) };
+    // Push the saved item[n] on top (this was at depth n, now at top)
+    current_stack = unsafe { push(current_stack, top_item) };
 
     current_stack
 }

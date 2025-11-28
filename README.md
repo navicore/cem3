@@ -7,6 +7,7 @@ A concatenative, stack-based programming language with static typing and CSP-sty
 **Compiler:** Functional (compiles .seq source to native executables via LLVM)
 **Runtime:** Strands (green threads), channels, TCP I/O, arena allocation
 **Type System:** Row polymorphic stack effects with type inference
+**Editor Support:** LSP server with diagnostics (see [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) for Neovim)
 **Missing:** Pattern matching, loops, full standard library
 
 See `docs/ROADMAP.md` for the development plan and `CLAUDE.md` for current phase status.
@@ -71,8 +72,25 @@ Working examples in `examples/`:
 - `recursion/fibonacci.seq`, `recursion/factorial.seq` - Recursion
 - `http/*.seq` - HTTP routing and TCP servers (see `examples/http/README.md`)
 
+## Editor Support
+
+The `seq-lsp` language server provides real-time diagnostics in your editor.
+
+**Install:**
+```bash
+just install-lsp   # Installs to ~/.local/bin/seq-lsp
+```
+
+**Neovim:** Use [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) with Lazy:
+```lua
+{ "navicore/patch-seq.nvim", ft = "seq", opts = {} }
+```
+
+Features: Parse errors, type errors, undefined word detection, syntax highlighting.
+
 ## Documentation
 
+- `docs/ARCHITECTURE.md` - System architecture and design decisions
 - `docs/ROADMAP.md` - Development phases and milestones
 - `docs/CLEAN_CONCATENATIVE_DESIGN.md` - Core design principles
 - `docs/CELL_VS_VALUE_DESIGN.md` - Why we separate Value from StackNode

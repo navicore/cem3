@@ -46,8 +46,13 @@ seq/
 │   │   ├── arena.rs        # Arena allocation for temporaries
 │   │   └── pool.rs         # Stack node pooling
 │   └── tests/
+├── lsp/                # Rust - seq-lsp language server
+│   └── src/
+│       ├── main.rs         # LSP server entry point (tower-lsp)
+│       └── diagnostics.rs  # Document analysis and error reporting
 ├── stdlib/             # Seq standard library
-│   └── json.seq            # JSON parsing and serialization
+│   ├── json.seq            # JSON parsing and serialization
+│   └── yaml.seq            # YAML parsing and serialization
 ├── examples/           # Example programs
 │   └── json/
 │       ├── json_tree.seq   # JSON viewer tool

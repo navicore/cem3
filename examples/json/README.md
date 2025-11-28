@@ -69,6 +69,21 @@ Building this practical example highlighted several missing features that would 
    - Strings now parse correctly whether top-level or inside arrays
    - `"hello"`, `["hello"]`, `["a", "b"]` all work
 
+5. **Multi-element arrays** ✓
+   - Arrays with any number of elements: `[1, 2, 3, ...]`
+   - Nested arrays: `[[1, 2], [3, 4]]`
+   - Mixed content: `[1, "hello", true, null]`
+
+6. **Multi-pair objects** ✓
+   - Objects with any number of key-value pairs
+   - Nested objects: `{"person": {"name": "John", "age": 30}}`
+   - Complex structures: `[{"name": "John"}, {"name": "Jane"}]`
+
+7. **Functional collection builders** ✓
+   - `array-with`: `( arr val -- arr' )` - append to array
+   - `obj-with`: `( obj key val -- obj' )` - add key-value pair
+   - `variant-append`: low-level primitive for building variants
+
 ### High Priority
 
 1. **Write without newline** (`write` vs `write_line`)
@@ -77,15 +92,7 @@ Building this practical example highlighted several missing features that would 
 
 ### Medium Priority
 
-2. **Arrays with 3+ elements**
-   - Currently supports 0, 1, or 2 elements
-   - Need: `[1, 2, 3, ...]`
-
-3. **Object key-value parsing**
-   - Currently only empty objects work: `{}`
-   - Need: `{"key": "value"}`
-
-4. **Pattern matching / case statement**
+2. **Pattern matching / case statement**
    - Would simplify tag-based dispatch
    - Currently requires nested if/else chains
 
@@ -101,10 +108,13 @@ Works:
 - Primitives: `null`, `true`, `false`
 - Numbers: `42`, `-3.14`, `1e10`
 - Strings: `"hello"`, `"hello world"` (no escapes)
-- Arrays: `[]`, `[42]`, `[1, 2]`, `["hello"]`, `["a", "b"]`, `[42, "mixed"]` (up to 2 elements)
-- Empty objects: `{}`
+- Arrays: `[]`, `[1]`, `[1, 2]`, `[1, 2, 3]`, nested arrays, any length
+- Objects: `{}`, `{"a": 1}`, `{"a": 1, "b": 2}`, nested objects, any number of pairs
+- Complex nested structures: `[{"name": "John", "age": 30}, {"name": "Jane"}]`
+
+Serialization limits (parsing works for any size):
+- Arrays: up to 3 elements display fully, 4+ show as `[...]`
+- Objects: up to 2 pairs display fully, 3+ show as `{...}`
 
 Limitations:
-- Arrays with 3+ elements: not yet supported
-- Objects with data: `{"a": 1}` - not parsed yet
 - String escapes: `"say \"hi\""` - not supported

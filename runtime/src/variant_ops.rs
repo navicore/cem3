@@ -202,11 +202,78 @@ pub unsafe extern "C" fn patch_seq_variant_append(stack: Stack) -> Stack {
     }
 }
 
+/// Get the last field from a variant
+///
+/// Stack effect: ( Variant -- Value )
+///
+/// Returns a clone of the last field. Panics if the variant has no fields.
+/// This is the "peek" operation for using variants as stacks.
+///
+/// # Safety
+/// Stack must have a Variant on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_variant_last(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, variant_val) = pop(stack);
+
+        match variant_val {
+            Value::Variant(variant_data) => {
+                if variant_data.fields.is_empty() {
+                    panic!("variant-last: variant has no fields");
+                }
+
+                let last = variant_data.fields.last().unwrap().clone();
+                push(stack, last)
+            }
+            _ => panic!("variant-last: expected Variant, got {:?}", variant_val),
+        }
+    }
+}
+
+/// Get all but the last field from a variant
+///
+/// Stack effect: ( Variant -- Variant' )
+///
+/// Returns a new variant with the same tag but without the last field.
+/// Panics if the variant has no fields.
+/// This is the "pop" operation for using variants as stacks (without returning the popped value).
+///
+/// # Safety
+/// Stack must have a Variant on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_variant_init(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        let (stack, variant_val) = pop(stack);
+
+        match variant_val {
+            Value::Variant(variant_data) => {
+                if variant_data.fields.is_empty() {
+                    panic!("variant-init: variant has no fields");
+                }
+
+                // Create new fields without the last element
+                let new_fields: Vec<Value> =
+                    variant_data.fields[..variant_data.fields.len() - 1].to_vec();
+
+                let new_variant =
+                    Value::Variant(Box::new(VariantData::new(variant_data.tag, new_fields)));
+
+                push(stack, new_variant)
+            }
+            _ => panic!("variant-init: expected Variant, got {:?}", variant_val),
+        }
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_make_variant as make_variant;
 pub use patch_seq_variant_append as variant_append;
 pub use patch_seq_variant_field_at as variant_field_at;
 pub use patch_seq_variant_field_count as variant_field_count;
+pub use patch_seq_variant_init as variant_init;
+pub use patch_seq_variant_last as variant_last;
 pub use patch_seq_variant_tag as variant_tag;
 
 #[cfg(test)]
@@ -451,6 +518,103 @@ mod tests {
                     assert_eq!(v.fields.len(), 2);
                     assert_eq!(v.fields[0], Value::String(key));
                     assert_eq!(v.fields[1], Value::String(val));
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_variant_last() {
+        unsafe {
+            // Create a variant with 3 fields
+            let variant = Value::Variant(Box::new(VariantData::new(
+                0,
+                vec![Value::Int(10), Value::Int(20), Value::Int(30)],
+            )));
+
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, variant);
+            let stack = variant_last(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(30));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_variant_init() {
+        unsafe {
+            // Create a variant with 3 fields
+            let variant = Value::Variant(Box::new(VariantData::new(
+                42,
+                vec![Value::Int(10), Value::Int(20), Value::Int(30)],
+            )));
+
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, variant);
+            let stack = variant_init(stack);
+
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag, 42); // tag preserved
+                    assert_eq!(v.fields.len(), 2);
+                    assert_eq!(v.fields[0], Value::Int(10));
+                    assert_eq!(v.fields[1], Value::Int(20));
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_variant_stack_operations() {
+        // Test using variant as a stack: append, append, last, init, last
+        unsafe {
+            // Create empty "stack" variant (tag 99)
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::Int(0)); // count
+            let stack = push(stack, Value::Int(99)); // tag
+            let stack = make_variant(stack);
+
+            // Append 10
+            let stack = push(stack, Value::Int(10));
+            let stack = variant_append(stack);
+
+            // Append 20
+            let stack = push(stack, Value::Int(20));
+            let stack = variant_append(stack);
+
+            // Now have variant with [10, 20] on stack
+            // Dup and get last (should be 20)
+            let (stack, variant) = pop(stack);
+            let stack = push(stack, variant.clone());
+            let stack = push(stack, variant);
+            let stack = variant_last(stack);
+            let (stack, top) = pop(stack);
+            assert_eq!(top, Value::Int(20));
+
+            // Now use init to remove last element
+            let stack = variant_init(stack);
+
+            // Dup and get last (should now be 10)
+            let (stack, variant) = pop(stack);
+            let stack = push(stack, variant.clone());
+            let stack = push(stack, variant);
+            let stack = variant_last(stack);
+            let (stack, top) = pop(stack);
+            assert_eq!(top, Value::Int(10));
+
+            // Verify remaining variant has 1 field
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.fields.len(), 1);
+                    assert_eq!(v.fields[0], Value::Int(10));
                 }
                 _ => panic!("Expected Variant"),
             }

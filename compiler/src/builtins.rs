@@ -718,6 +718,26 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // variant-last: ( ..a Variant -- ..a Value )
+    // Get the last field from a variant (peek for stack-like usage)
+    sigs.insert(
+        "variant-last".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
+        ),
+    );
+
+    // variant-init: ( ..a Variant -- ..a Variant' )
+    // Get all but the last field from a variant (pop without returning value)
+    sigs.insert(
+        "variant-init".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
+        ),
+    );
+
     // Float arithmetic operations ( ..a Float Float -- ..a Float )
     for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
         sigs.insert(

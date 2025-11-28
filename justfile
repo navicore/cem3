@@ -7,8 +7,8 @@
 default:
     @just --list
 
-# Build everything (compiler + runtime)
-build: build-runtime build-compiler
+# Build everything (compiler + runtime + lsp)
+build: build-runtime build-compiler build-lsp
 
 # Build the Rust runtime as static library
 build-runtime:
@@ -21,6 +21,12 @@ build-compiler:
     @echo "Building compiler..."
     cargo build --release -p seq-compiler
     @echo "✅ Compiler built: target/release/seqc"
+
+# Build the LSP server
+build-lsp:
+    @echo "Building LSP server..."
+    cargo build --release -p seq-lsp
+    @echo "✅ LSP server built: target/release/seq-lsp"
 
 # Build all example programs
 build-examples: build
@@ -73,9 +79,18 @@ ci: fmt-check lint test build build-examples
     @echo "   - Clippy lints ✓"
     @echo "   - Unit tests ✓"
     @echo "   - Compiler built ✓"
+    @echo "   - LSP server built ✓"
     @echo "   - Examples built ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
+
+# Install seq-lsp to ~/.local/bin (for neovim integration)
+install-lsp: build-lsp
+    @echo "Installing seq-lsp to ~/.local/bin..."
+    mkdir -p ~/.local/bin
+    cp target/release/seq-lsp ~/.local/bin/
+    @echo "✅ seq-lsp installed to ~/.local/bin/seq-lsp"
+    @echo "   Make sure ~/.local/bin is in your PATH"
 
 # Clean all build artifacts
 clean:

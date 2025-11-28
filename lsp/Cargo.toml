@@ -1,0 +1,27 @@
+[package]
+name = "seq-lsp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Language Server Protocol implementation for Seq"
+
+[[bin]]
+name = "seq-lsp"
+path = "src/main.rs"
+
+[dependencies]
+# LSP protocol
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+
+# Seq compiler (package is seq-compiler, lib is seqc)
+seq-compiler = { path = "../compiler" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

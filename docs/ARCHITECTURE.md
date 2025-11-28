@@ -199,21 +199,91 @@ yield                     # Let other strands run
 
 **Note:** Current implementation has known issues with heavy concurrent workloads.
 
+### Why May (Not Tokio)
+
+Seq uses the `may` crate for stackful coroutines (fibers) rather than Rust's
+async/await ecosystem (Tokio, async-std). Key reasons:
+
+1. **No async coloring** - With may, a Seq `spawn` creates a fiber that can
+   call blocking operations (channel send/receive, I/O) and implicitly yield.
+   No `async`/`await` syntax pollution spreading through the call stack.
+
+2. **Erlang/Go mental model** - Fits Seq's concatenative style naturally.
+   `[ code ] spawn` creates a lightweight fiber. Thousands can run concurrently
+   with message passing via channels. This matches how Go goroutines and Erlang
+   processes work - simple synchronous-looking code that yields cooperatively.
+
+3. **Simpler FFI** - LLVM-generated code calls synchronous Rust functions.
+   No async runtime ceremony or `Future` plumbing required.
+
+4. **M:N scheduling** - Like Tokio, may multiplexes many fibers across a small
+   thread pool. We get lightweight concurrency without one OS thread per fiber.
+
+### Tradeoff: libc for stdout
+
+May's implicit yields can occur inside any function call. Rust's `stdout()`
+uses an internal `RefCell` that panics if one coroutine holds a borrow, yields,
+and another coroutine on the same OS thread tries to borrow. This is because
+`RefCell` tracks borrows per-thread, not per-coroutine.
+
+We bypass this by calling `libc::write(1, ...)` directly, protected by
+`may::sync::Mutex` (which yields the coroutine when contended rather than
+blocking the OS thread). This is a small price for may's cleaner programming
+model.
+
+See `runtime/src/io.rs` for the implementation.
+
 ## Memory Management
+
+Seq's stack-based execution creates unique memory allocation patterns that
+don't fit well with general-purpose allocators. Every `push` allocates a node,
+every `pop` frees one. Standard malloc/free would dominate execution time.
 
 ### Stack Node Pooling
 
-Stack nodes are recycled via a thread-local pool, avoiding malloc/free overhead
-for the hot path of push/pop operations.
+**Problem:** A tight loop doing `dup drop` thousands of times would spend more
+time in malloc/free than doing actual work.
+
+**Solution:** Thread-local free list of pre-allocated `StackNode`s.
+
+- Fast path (~10ns): Pop node from free list, return node to free list
+- Slow path (~100ns): Fall back to malloc/free when pool exhausted
+- Bounded size (1024 nodes max) prevents unbounded memory growth
+- Pre-allocate 256 nodes on first use to amortize startup cost
+
+See `runtime/src/pool.rs` for implementation.
 
 ### Arena Allocation
 
-Temporary strings (from parsing, concatenation) use per-strand arenas that are
-bulk-freed when the strand exits.
+**Problem:** String operations (concatenation, substring, parsing) create many
+short-lived intermediate strings. Reference counting each one adds overhead.
+
+**Solution:** Thread-local bump allocator (via `bumpalo` crate).
+
+- Allocation is a pointer bump (~5ns vs ~100ns for malloc)
+- No individual deallocation - entire arena reset at once
+- Reset when strand exits or when arena exceeds 10MB threshold
+- 20x faster than global allocator for allocation-heavy workloads
+
+**Thread-local vs strand-local:** The arena is per-OS-thread, not per-strand.
+If may migrates a strand between threads (rare), some memory stays in the old
+arena until another strand on that thread exits. This is acceptable - the
+common case (strand stays on one thread) is fast, and the 10MB auto-reset
+prevents unbounded growth in the rare migration case.
+
+See `runtime/src/arena.rs` for implementation.
 
 ### Reference Counting
 
-`SeqString` uses atomic reference counting for shared strings.
+`SeqString` uses atomic reference counting for strings that escape the arena:
+
+- Strings passed through channels are cloned to the global allocator
+- Strings stored in closures use reference counting
+- Arena strings are fast for local computation; refcounted strings are safe
+  for sharing across strands
+
+This hybrid approach gives us arena speed for the common case (local string
+manipulation) and correctness for cross-strand communication.
 
 ## Compilation Pipeline
 

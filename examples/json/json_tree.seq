@@ -18,13 +18,13 @@
 #
 # ROADMAP - What we still need:
 #   - write (without newline) for proper formatting
-#   - Multi-element array parsing: [1, 2, 3]
-#   - Object key-value parsing: {"a": 1}
+#   - String escape sequences
 #
 # Currently works with:
 #   - Primitives: null, true, false, numbers, strings
-#   - Single-element arrays: [42], ["hello"], [true]
-#   - Empty containers: [], {}
+#   - Arrays: any length, nested
+#   - Objects: any number of key-value pairs, nested
+#   - Complex structures: [{"name": "John", "age": 30}, ...]
 
 include std:json
 

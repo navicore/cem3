@@ -303,6 +303,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_append(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant(ptr)").unwrap();
         writeln!(&mut ir, "; Float operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
@@ -654,6 +655,7 @@ impl CodeGen {
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),
                     "variant-field-at" => "patch_seq_variant_field_at".to_string(),
+                    "variant-append" => "patch_seq_variant_append".to_string(),
                     "make-variant" => "patch_seq_make_variant".to_string(),
                     // Float arithmetic operations (dot notation → underscore)
                     "f.add" => "patch_seq_f_add".to_string(),

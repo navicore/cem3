@@ -705,6 +705,19 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // variant-append: ( ..a Variant Value -- ..a Variant' )
+    // Append a value to a variant, returning a new variant with the value added
+    // Functional style - original variant is not modified
+    sigs.insert(
+        "variant-append".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Var("T".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
+        ),
+    );
+
     // Float arithmetic operations ( ..a Float Float -- ..a Float )
     for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
         sigs.insert(

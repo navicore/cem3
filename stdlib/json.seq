@@ -112,6 +112,33 @@
 ;
 
 # ============================================================================
+# Functional Array/Object Builders
+# ============================================================================
+#
+# These functions allow building arrays and objects incrementally in a
+# functional (non-mutating) style. Each operation returns a new value.
+
+# Add an element to a JSON array, returning a new array
+# Stack: ( JsonArray JsonValue -- JsonArray' )
+# Example: json-empty-array 42 json-number array-with -> [42]
+: array-with ( ..rest Variant Variant -- ..rest Variant )
+  variant-append
+;
+
+# Add a key-value pair to a JSON object, returning a new object
+# Stack: ( JsonObject JsonString JsonValue -- JsonObject' )
+# Example: json-empty-object "name" json-string "John" json-string obj-with
+# Keys must be JsonString values (tag 3)
+: obj-with ( ..rest Variant Variant Variant -- ..rest Variant )
+  # Stack: obj key val
+  # Need to append key then val to obj
+  rot rot                      # val obj key
+  variant-append               # val obj' (obj with key appended)
+  swap                         # obj' val
+  variant-append               # obj'' (obj with key and val)
+;
+
+# ============================================================================
 # Type Predicates (non-destructive - uses dup)
 # ============================================================================
 
@@ -218,9 +245,10 @@
     json-serialize-array
   else
 
-  # Tag 5: object - TODO: implement object serialization
+  # Tag 5: object
   dup 5 = if
-    drop drop "{}"
+    drop
+    json-serialize-object
   else
     # Unknown tag - should not happen
     drop drop "null"
@@ -269,8 +297,80 @@
         swap string-concat     # "[elem0,elem1"
         "]" string-concat      # "[elem0,elem1]"
       else
-        # More than 2 elements - fall back to representation
-        drop drop "[...]"
+        dup 3 = if
+          # Three element array
+          drop                     # JsonArray
+          # Build incrementally using over
+          "["                      # JsonArray "["
+          over 0 variant-field-at  # JsonArray "[" elem0
+          json-serialize string-concat  # JsonArray "[elem0"
+          "," string-concat        # JsonArray "[elem0,"
+          over 1 variant-field-at  # JsonArray "[elem0," elem1
+          json-serialize string-concat  # JsonArray "[elem0,elem1"
+          "," string-concat        # JsonArray "[elem0,elem1,"
+          swap 2 variant-field-at  # "[elem0,elem1," elem2
+          json-serialize string-concat  # "[elem0,elem1,elem2"
+          "]" string-concat        # "[elem0,elem1,elem2]"
+        else
+          # More than 3 elements - fall back to representation
+          drop drop "[...]"
+        then
+      then
+    then
+  then
+;
+
+# Serialize a JSON object to string
+# Stack: ( JsonObject -- String )
+# Objects have 2N fields: key1 val1 key2 val2 ...
+# Currently supports 0 or 1 key-value pairs (0 or 2 fields)
+: json-serialize-object
+  # Stack: JsonObject
+  dup variant-field-count      # JsonObject count
+  dup 0 = if
+    # Empty object
+    drop drop "{}"
+  else
+    dup 2 = if
+      # Single key-value pair (2 fields)
+      drop                     # JsonObject
+      # Get key (field 0) and value (field 1)
+      dup 0 variant-field-at   # JsonObject key
+      json-serialize           # JsonObject keystr
+      swap                     # keystr JsonObject
+      1 variant-field-at       # keystr val
+      json-serialize           # keystr valstr
+      # Build: "{" + keystr + ":" + valstr + "}"
+      swap                     # valstr keystr
+      "{" swap string-concat   # valstr "{key"
+      ":" string-concat        # valstr "{key:"
+      swap string-concat       # "{key:val"
+      "}" string-concat        # "{key:val}"
+    else
+      dup 4 = if
+        # Two key-value pairs (4 fields)
+        drop                     # JsonObject
+        # Strategy: build result string incrementally, keep obj on stack
+        "{"                      # JsonObject "{"
+        over 0 variant-field-at  # JsonObject "{" key1
+        json-serialize           # JsonObject "{" key1str
+        string-concat            # JsonObject "{key1"
+        ":" string-concat        # JsonObject "{key1:"
+        over 1 variant-field-at  # JsonObject "{key1:" val1
+        json-serialize           # JsonObject "{key1:" val1str
+        string-concat            # JsonObject "{key1:val1"
+        "," string-concat        # JsonObject "{key1:val1,"
+        over 2 variant-field-at  # JsonObject "{key1:val1," key2
+        json-serialize           # JsonObject "{key1:val1," key2str
+        string-concat            # JsonObject "{key1:val1,key2"
+        ":" string-concat        # JsonObject "{key1:val1,key2:"
+        swap 3 variant-field-at  # "{key1:val1,key2:" val2
+        json-serialize           # "{key1:val1,key2:" val2str
+        string-concat            # "{key1:val1,key2:val2"
+        "}" string-concat        # "{key1:val1,key2:val2}"
+      else
+        # More than 2 pairs - fall back for now
+        drop drop "{...}"
       then
     then
   then
@@ -784,97 +884,97 @@
   then
 ;
 
-# Parse more array elements after first (handles comma then more)
-# Stack: ( elem1 str pos -- str pos JsonArray Int )
-# Called when we've parsed one element and are at a comma
-: json-parse-array-more
-  # Stack: elem1 str pos
-  # We're at comma, skip it and whitespace
-  1 json-advance             # elem1 str pos
-  json-skip-ws               # elem1 str pos
-
-  # Parse second element
-  json-parse-value           # elem1 str pos elem2 success
+# Parse a single array element and add it to an array
+# Stack: ( PState arr -- PState' arr' Int )
+# Returns success=1 if element was parsed and added, 0 on failure
+: pstate-parse-one-element ( ..rest Variant Variant -- ..rest Variant Variant Int )
+  # Stack: PState arr
+  swap                           # arr PState
+  # Parse the element
+  dup 0 variant-field-at         # arr PState str
+  over 1 variant-field-at        # arr PState str pos
+  json-parse-value               # arr PState str' pos' elem success
   0 = if
-    # Failed
-    drop                     # elem1 str pos
-    rot drop                 # str pos
-    json-null 0
+    # Failed to parse element
+    drop drop drop               # arr PState
+    swap                         # PState arr
+    0
   else
-    # Have elem1 and elem2
-    # Stack: elem1 str pos elem2
-    # Move str pos to top, keeping elem1 elem2 below
-    # Use 3 roll twice: first brings elem1 to top
-    3 roll                   # str pos elem2 elem1
-    # Now rearrange: pos elem2 elem1 str -> need str pos elem1 elem2
-    # Swap to get: str pos elem2 elem1
-    # Then swap elem1 elem2
-    3 roll                   # pos elem2 elem1 str
-    3 roll                   # elem2 elem1 str pos
-    # Now: elem2 elem1 str pos - need elem1 elem2 str pos
-    3 roll                   # elem1 str pos elem2
-    rot                      # elem1 pos elem2 str
-    rot                      # elem1 elem2 str pos
-    # Now have: elem1 elem2 str pos (correct!)
+    # Stack: arr PState str' pos' elem
+    # Update PState
+    rot rot                      # arr PState elem str' pos'
+    make-pstate                  # arr PState elem PState'
+    rot drop                     # arr elem PState'
+    # Add element to array using array-with
+    # array-with expects: arr elem -- arr'
+    rot rot                      # PState' arr elem
+    array-with                   # PState' arr'
+    1
+  then
+;
 
-    json-skip-ws             # elem1 elem2 str pos
-    json-char-at             # elem1 elem2 str pos char
+# Parse array elements recursively
+# Stack: ( PState arr -- PState' arr' Int )
+# Parses elements until ] is found
+: pstate-parse-array-elements ( ..rest Variant Variant -- ..rest Variant Variant Int )
+  pstate-parse-one-element       # PState' arr' success
+  0 = if
+    # Failed to parse element
+    0
+  else
+    # Successfully parsed one element, check for more
+    # Stack: PState' arr'
+    swap pstate-skip-ws          # arr' PState'
+    pstate-char-at
 
-    93 = if                  # ']' - two element array
-      1 json-advance         # elem1 elem2 str pos
-      # Build array - make-variant pops values then reverses
-      # To get [elem1, elem2], need elem2 on top (popped first)
-      # Stack: elem1 elem2 str pos
-      # Use 3 roll to rearrange to: str pos elem1 elem2
-      3 roll                 # elem2 str pos elem1
-      3 roll                 # str pos elem1 elem2 (elem2 on top, correct!)
-      2 4 make-variant       # str pos array
+    dup 93 = if                  # ']' - end of array
+      drop                       # arr' PState'
+      1 pstate-advance           # arr' PState''
+      swap                       # PState'' arr'
       1
     else
-      # More than 2 - not yet supported
-      # Stack: elem1 elem2 str pos
-      3 roll                 # elem1 str pos elem2
-      3 roll                 # str pos elem2 elem1
-      drop drop              # str pos
-      json-null 0
+      44 = if                    # ',' - more elements
+        1 pstate-advance         # arr' PState''
+        pstate-skip-ws           # arr' PState''
+        swap                     # PState'' arr'
+        pstate-parse-array-elements  # recurse
+      else
+        # Unexpected character
+        swap                     # PState' arr'
+        0
+      then
     then
   then
+;
+
+# Parse array contents using PState with array-with for building
+# Stack: ( PState -- PState JsonArray Int )
+# Position should be at first element (after [ and whitespace)
+: pstate-parse-array-contents ( ..rest Variant -- ..rest Variant Variant Int )
+  json-empty-array               # PState arr
+  pstate-parse-array-elements    # PState' arr' success
 ;
 
 # Parse array contents (non-empty case)
 # Stack: ( str pos -- str pos JsonArray Int )
 # Position should be at first element (after [ and whitespace)
 : json-parse-array-contents
-  # Parse the first element
-  json-parse-value           # str pos elem success
+  # Convert to PState for easier manipulation
+  make-pstate                    # PState
+  pstate-parse-array-contents    # PState' arr success
   0 = if
-    # Failed to parse element
-    drop                     # str pos
+    # Failed - extract str pos from PState
+    drop                         # PState'
+    dup 0 variant-field-at       # PState' str
+    swap 1 variant-field-at      # str pos
     json-null 0
   else
-    # Successfully parsed element
-    # Stack: str pos elem
-    # Skip whitespace and check for ] or ,
-    rot rot                  # elem str pos
-    json-skip-ws             # elem str pos
-    json-char-at             # elem str pos char
-
-    dup 93 = if              # ']' - end of array
-      drop                   # elem str pos
-      1 json-advance         # elem str pos
-      # Build single-element array
-      rot                    # str pos elem
-      1 4 make-variant       # str pos JsonArray
-      1
-    else
-      44 = if                # ',' - more elements
-        json-parse-array-more
-      else
-        # Invalid character
-        rot drop             # str pos
-        json-null 0
-      then
-    then
+    # Success - extract str pos from PState
+    swap                         # arr PState'
+    dup 0 variant-field-at       # arr PState' str
+    swap 1 variant-field-at      # arr str pos
+    rot                          # str pos arr
+    1
   then
 ;
 
@@ -900,6 +1000,143 @@
   then
 ;
 
+# Parse a single key-value pair and add it to an object
+# Stack: ( PState obj -- PState' obj' Int )
+# Returns success=1 if pair was parsed and added, 0 on failure
+: pstate-parse-one-pair ( ..rest Variant Variant -- ..rest Variant Variant Int )
+  # Stack: PState obj
+  swap                           # obj PState
+  pstate-char-at 34 = if         # Check for opening quote
+    # Unpack PState to call json-parse-string
+    dup 0 variant-field-at       # obj PState str
+    over 1 variant-field-at      # obj PState str pos
+    json-parse-string            # obj PState str' pos' JsonString success
+    0 = if
+      # Failed to parse key
+      drop drop drop             # obj PState
+      swap                       # PState obj
+      0
+    else
+      # Stack: obj PState str' pos' JsonString
+      # Update PState with new position
+      rot rot                    # obj PState JsonString str' pos'
+      make-pstate                # obj PState JsonString PState'
+      rot drop                   # obj JsonString PState'
+
+      # Skip whitespace and expect colon
+      pstate-skip-ws
+      pstate-char-at 58 = if     # ':' = 58
+        1 pstate-advance         # obj JsonString PState'
+        pstate-skip-ws           # obj JsonString PState'
+
+        # Parse the value
+        dup 0 variant-field-at   # obj JsonString PState' str
+        over 1 variant-field-at  # obj JsonString PState' str pos
+        json-parse-value         # obj JsonString PState' str' pos' val success
+        0 = if
+          # Failed to parse value
+          drop drop drop         # obj JsonString PState'
+          rot drop               # PState' obj
+          swap                   # obj PState'
+          swap                   # PState' obj
+          0
+        else
+          # Stack: obj JsonString PState' str' pos' val
+          # Update PState
+          rot rot                # obj JsonString PState' val str' pos'
+          make-pstate            # obj JsonString PState' val PState''
+          rot drop               # obj JsonString val PState''
+
+          # Add key-value pair to object using obj-with
+          # Stack: obj JsonString val PState''
+          # obj-with expects: obj key val -- obj'
+          # Move PState'' to bottom using 3 roll
+          3 roll                 # JsonString val PState'' obj
+          3 roll                 # val PState'' obj JsonString
+          3 roll                 # PState'' obj JsonString val
+          obj-with               # PState'' obj'
+          1
+        then
+      else
+        # Missing colon
+        rot drop                 # PState' obj
+        swap                     # obj PState'
+        swap                     # PState' obj
+        0
+      then
+    then
+  else
+    # Key must start with quote
+    swap                         # PState obj
+    0
+  then
+;
+
+# Parse object pairs recursively
+# Stack: ( PState obj -- PState' obj' Int )
+# Parses pairs until } is found
+: pstate-parse-object-pairs ( ..rest Variant Variant -- ..rest Variant Variant Int )
+  pstate-parse-one-pair          # PState' obj' success
+  0 = if
+    # Failed to parse pair
+    0
+  else
+    # Successfully parsed one pair, check for more
+    # Stack: PState' obj'
+    swap pstate-skip-ws          # obj' PState'
+    pstate-char-at
+
+    dup 125 = if                 # '}' - end of object
+      drop                       # obj' PState'
+      1 pstate-advance           # obj' PState''
+      swap                       # PState'' obj'
+      1
+    else
+      44 = if                    # ',' - more pairs
+        1 pstate-advance         # obj' PState''
+        pstate-skip-ws           # obj' PState''
+        swap                     # PState'' obj'
+        pstate-parse-object-pairs  # recurse
+      else
+        # Unexpected character
+        swap                     # PState' obj'
+        0
+      then
+    then
+  then
+;
+
+# Parse object contents using PState with obj-with for building
+# Stack: ( PState -- PState JsonObject Int )
+# Position should be at first key (after { and whitespace)
+: pstate-parse-object-contents ( ..rest Variant -- ..rest Variant Variant Int )
+  json-empty-object              # PState obj
+  pstate-parse-object-pairs      # PState' obj' success
+;
+
+# Parse object contents (non-empty case) - single pair only
+# Stack: ( str pos -- str pos JsonObject Int )
+# Position should be at first key (after { and whitespace)
+: json-parse-object-contents ( ..rest String Int -- ..rest String Int Variant Int )
+  # Convert to PState for easier manipulation
+  make-pstate                    # PState
+  pstate-parse-object-contents   # PState' obj success
+  0 = if
+    # Failed - extract str pos from PState
+    drop                         # PState'
+    dup 0 variant-field-at       # PState' str
+    swap 1 variant-field-at      # str pos
+    json-null 0
+  else
+    # Success - extract str pos from PState
+    swap                         # obj PState'
+    dup 0 variant-field-at       # obj PState' str
+    swap 1 variant-field-at      # obj str pos
+    rot                          # str pos obj
+    1
+  then
+;
+
 # Parse an object - handles empty and non-empty objects
 # Stack: ( str pos -- str pos JsonValue Int )
 # We're positioned at '{'
@@ -916,9 +1153,8 @@
       1 json-advance
       json-empty-object 1
     else
-      # Non-empty object - for now, just return empty object
-      # TODO: Parse object key-value pairs recursively
-      json-null 0
+      # Non-empty object - parse contents
+      json-parse-object-contents
     then
   then
 ;

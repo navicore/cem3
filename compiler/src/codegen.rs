@@ -22,6 +22,47 @@ use crate::types::Type;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+/// Mangle a Seq word name into a valid LLVM IR identifier.
+///
+/// LLVM IR identifiers can contain: letters, digits, underscores, dollars, periods.
+/// Seq words can contain: letters, digits, hyphens, question marks, arrows, etc.
+///
+/// We escape special characters using underscore-based encoding:
+/// - `-` (hyphen) -> `_` (hyphens not valid in LLVM IR identifiers)
+/// - `?` -> `_Q_` (question)
+/// - `>` -> `_GT_` (greater than, for ->)
+/// - `<` -> `_LT_` (less than)
+/// - `!` -> `_BANG_`
+/// - `*` -> `_STAR_`
+/// - `/` -> `_SLASH_`
+/// - `+` -> `_PLUS_`
+/// - `=` -> `_EQ_`
+/// - `.` -> `_DOT_`
+fn mangle_name(name: &str) -> String {
+    let mut result = String::new();
+    for c in name.chars() {
+        match c {
+            '?' => result.push_str("_Q_"),
+            '>' => result.push_str("_GT_"),
+            '<' => result.push_str("_LT_"),
+            '!' => result.push_str("_BANG_"),
+            '*' => result.push_str("_STAR_"),
+            '/' => result.push_str("_SLASH_"),
+            '+' => result.push_str("_PLUS_"),
+            '=' => result.push_str("_EQ_"),
+            // Hyphens converted to underscores (hyphens not valid in LLVM IR)
+            '-' => result.push('_'),
+            // Keep these as-is (valid in LLVM IR)
+            '_' | '.' | '$' => result.push(c),
+            // Alphanumeric kept as-is
+            c if c.is_alphanumeric() => result.push(c),
+            // Any other character gets hex-encoded
+            _ => result.push_str(&format!("_x{:02X}_", c as u32)),
+        }
+    }
+    result
+}
+
 pub struct CodeGen {
     output: String,
     string_globals: String,
@@ -191,6 +232,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_quotation(ptr, i64)").unwrap();
@@ -228,6 +270,13 @@ impl CodeGen {
         writeln!(&mut ir, "declare void @patch_seq_scheduler_init()").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_scheduler_run()").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)").unwrap();
+        writeln!(&mut ir, "; Command-line argument operations").unwrap();
+        writeln!(&mut ir, "declare void @patch_seq_args_init(i32, ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_arg_count(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
+        writeln!(&mut ir, "; File operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
@@ -254,6 +303,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant(ptr)").unwrap();
         writeln!(&mut ir, "; Float operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
@@ -269,6 +319,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_int_to_float(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
@@ -290,7 +341,8 @@ impl CodeGen {
     /// Generate code for a word definition
     fn codegen_word(&mut self, word: &WordDef) -> Result<(), String> {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
-        let function_name = format!("seq_{}", word.name);
+        // Also mangle special characters that aren't valid in LLVM IR identifiers
+        let function_name = format!("seq_{}", mangle_name(&word.name));
         writeln!(
             &mut self.output,
             "define ptr @{}(ptr %stack) {{",
@@ -537,6 +589,9 @@ impl CodeGen {
                     // I/O operations
                     "write_line" | "read_line" => format!("patch_seq_{}", name),
                     "int->string" => "patch_seq_int_to_string".to_string(),
+                    // Command-line argument operations
+                    "arg-count" => "patch_seq_arg_count".to_string(),
+                    "arg" => "patch_seq_arg_at".to_string(),
                     // Arithmetic operations
                     "add" | "subtract" | "multiply" | "divide" => format!("patch_seq_{}", name),
                     // Comparison operations (symbolic → named)
@@ -555,6 +610,7 @@ impl CodeGen {
                     }
                     "drop" => "patch_seq_drop_op".to_string(), // 'drop' is reserved in LLVM IR
                     "pick" => "patch_seq_pick_op".to_string(), // pick takes Int parameter from stack
+                    "roll" => "patch_seq_roll".to_string(),    // roll takes Int depth from stack
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "patch_seq_make_channel".to_string(),
                     "send" => "patch_seq_chan_send".to_string(),
@@ -591,10 +647,14 @@ impl CodeGen {
                     "string-to-upper" => "patch_seq_string_to_upper".to_string(),
                     "string-to-lower" => "patch_seq_string_to_lower".to_string(),
                     "string-equal" => "patch_seq_string_equal".to_string(),
+                    // File operations (hyphen → underscore for C compatibility)
+                    "file-slurp" => "patch_seq_file_slurp".to_string(),
+                    "file-exists?" => "patch_seq_file_exists".to_string(),
                     // Variant operations (hyphen → underscore for C compatibility)
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),
                     "variant-field-at" => "patch_seq_variant_field_at".to_string(),
+                    "make-variant" => "patch_seq_make_variant".to_string(),
                     // Float arithmetic operations (dot notation → underscore)
                     "f.add" => "patch_seq_f_add".to_string(),
                     "f.subtract" => "patch_seq_f_subtract".to_string(),
@@ -611,8 +671,10 @@ impl CodeGen {
                     "int->float" => "patch_seq_int_to_float".to_string(),
                     "float->int" => "patch_seq_float_to_int".to_string(),
                     "float->string" => "patch_seq_float_to_string".to_string(),
+                    "string->float" => "patch_seq_string_to_float".to_string(),
                     // User-defined word (prefix to avoid C symbol conflicts)
-                    _ => format!("seq_{}", name),
+                    // Also mangle special characters for LLVM IR compatibility
+                    _ => format!("seq_{}", mangle_name(name)),
                 };
                 writeln!(
                     &mut self.output,
@@ -775,8 +837,19 @@ impl CodeGen {
 
     /// Generate main function that calls user's main word
     fn codegen_main(&mut self) -> Result<(), String> {
-        writeln!(&mut self.output, "define i32 @main() {{").unwrap();
+        writeln!(
+            &mut self.output,
+            "define i32 @main(i32 %argc, ptr %argv) {{"
+        )
+        .unwrap();
         writeln!(&mut self.output, "entry:").unwrap();
+
+        // Initialize command-line arguments (before scheduler so args are available)
+        writeln!(
+            &mut self.output,
+            "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
+        )
+        .unwrap();
 
         // Initialize scheduler
         writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()").unwrap();
@@ -866,7 +939,7 @@ mod tests {
 
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        assert!(ir.contains("define i32 @main()"));
+        assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"));
         assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write_line"));

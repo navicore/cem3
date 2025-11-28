@@ -122,9 +122,19 @@ impl TypeChecker {
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // First pass: collect all word signatures
+        // For words without explicit effects, use a maximally polymorphic placeholder
+        // This allows calls to work, and actual type safety comes from checking the body
         for word in &program.words {
             if let Some(effect) = &word.effect {
                 self.env.insert(word.name.clone(), effect.clone());
+            } else {
+                // Use placeholder effect: ( ..input -- ..output )
+                // This is maximally polymorphic and allows any usage
+                let placeholder = Effect::new(
+                    StackType::RowVar("input".to_string()),
+                    StackType::RowVar("output".to_string()),
+                );
+                self.env.insert(word.name.clone(), placeholder);
             }
         }
 
@@ -315,7 +325,12 @@ impl TypeChecker {
                 // Both branches must produce compatible stacks
                 let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
                     format!(
-                        "if branches have incompatible stack effects: then={:?}, else={:?}: {}",
+                        "if/else branches have incompatible stack effects:\n\
+                         \x20 then branch produces: {}\n\
+                         \x20 else branch produces: {}\n\
+                         \x20 Both branches of an if/else must produce the same stack shape.\n\
+                         \x20 Hint: Make sure both branches push/pop the same number of values.\n\
+                         \x20 Error: {}",
                         then_result, else_result, e
                     )
                 })?;

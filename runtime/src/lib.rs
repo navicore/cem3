@@ -6,10 +6,12 @@
 //! - Variant fields: Stored in arrays, NOT linked via next pointers
 
 pub mod arena;
+pub mod args;
 pub mod arithmetic;
 pub mod channel;
 pub mod closures;
 pub mod cond;
+pub mod file;
 pub mod float_ops;
 pub mod io;
 pub mod pool;
@@ -105,6 +107,14 @@ pub use tcp::{
 
 // Variant operations (exported for LLVM linking)
 pub use variant_ops::{
-    patch_seq_variant_field_at as variant_field_at,
+    patch_seq_make_variant as make_variant, patch_seq_variant_field_at as variant_field_at,
     patch_seq_variant_field_count as variant_field_count, patch_seq_variant_tag as variant_tag,
 };
+
+// Command-line argument operations (exported for LLVM linking)
+pub use args::{
+    patch_seq_arg_at as arg_at, patch_seq_arg_count as arg_count, patch_seq_args_init as args_init,
+};
+
+// File operations (exported for LLVM linking)
+pub use file::{patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp};

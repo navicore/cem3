@@ -1,0 +1,19 @@
+# Test yaml-strip-simple
+
+include std:yaml
+
+: main ( -- Int )
+  "Test yaml-strip-simple" write_line
+
+  # Test 1: Strip spaces from lines
+  "  host: localhost" write_line
+  "  host: localhost" yaml-strip-simple
+  "Stripped: " swap string-concat write_line
+
+  # Test 2: Multi-line
+  "  host: localhost
+  port: 8080" yaml-strip-simple
+  "Stripped multi: " swap string-concat write_line
+
+  0
+;

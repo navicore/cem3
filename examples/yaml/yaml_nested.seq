@@ -1,0 +1,50 @@
+# Nested YAML Parser Test
+#
+# Tests parsing YAML with nested objects via indentation.
+
+include std:yaml
+
+# Helper to create a newline string
+: newline-str
+  10 char->string
+;
+
+: main ( -- Int )
+  "=== Nested YAML Tests ===" write_line
+
+  # Test 1: Simple nested object
+  "server:" newline-str string-concat
+  "  host: localhost" string-concat newline-str string-concat
+  "  port: 8080" string-concat
+
+  "Input:" write_line
+  dup write_line
+  "" write_line
+
+  yaml-parse
+  if
+    "PASS nested: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: nested object" write_line
+  then
+
+  # Test 2: Nested with sibling
+  "server:" newline-str string-concat
+  "  host: localhost" string-concat newline-str string-concat
+  "name: myapp" string-concat
+
+  "Input:" write_line
+  dup write_line
+  "" write_line
+
+  yaml-parse
+  if
+    "PASS nested+sibling: " swap yaml-serialize string-concat write_line
+  else
+    drop "FAIL: nested with sibling" write_line
+  then
+
+  "" write_line
+  "Nested tests completed!" write_line
+  0
+;

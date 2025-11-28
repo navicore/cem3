@@ -22,6 +22,28 @@
 # - Tag 4: JsonArray (N fields, each a JsonValue)
 # - Tag 5: JsonObject (2N fields: key1 val1 key2 val2 ...)
 #
+# ## Known Limitations
+#
+# ### Serialization (json-serialize)
+# The serializer uses nested if/else chains to handle different sizes.
+# This is a workaround for lack of loops/recursion over variant fields.
+#
+# Current limits:
+# - Arrays: 0-3 elements serialize fully, 4+ show as "[...]"
+# - Objects: 0-2 pairs serialize fully, 3+ show as "{...}"
+#
+# To fix: Need either:
+# 1. Loops (for i in 0..count) - not yet in language
+# 2. Recursion with accumulator - possible but complex stack management
+# 3. A runtime helper: variant-fold or variant-map
+#
+# ### Parsing
+# Parsing works for arbitrary sizes using recursive descent with
+# functional builders (array-with, obj-with). No size limits.
+#
+# ### String Escapes
+# String escape sequences (backslash-quote, backslash-n, etc.) are not supported.
+#
 # ## Available Functions
 #
 # ### Value Constructors
@@ -31,6 +53,10 @@
 # - json-false: ( -- JsonValue )
 # - json-number: ( Float -- JsonValue )
 # - json-string: ( String -- JsonValue )
+#
+# ### Functional Builders
+# - array-with: ( JsonArray JsonValue -- JsonArray' )
+# - obj-with: ( JsonObject JsonString JsonValue -- JsonObject' )
 #
 # ### Type Predicates
 # - json-null?: ( JsonValue -- JsonValue Int ) - 1 if null
@@ -48,8 +74,8 @@
 # ### Serialization
 # - json-serialize: ( JsonValue -- String )
 #
-# ### Parsing (TODO)
-# - json-parse: ( String -- JsonValue )
+# ### Parsing
+# - json-parse: ( String -- JsonValue Int ) - returns value and success flag
 #
 
 # ============================================================================

@@ -118,3 +118,27 @@ Serialization limits (parsing works for any size):
 
 Limitations:
 - String escapes: `"say \"hi\""` - not supported
+
+## Technical Notes
+
+### Why Serialization Has Size Limits
+
+The serializer (`json-serialize-array`, `json-serialize-object`) uses nested if/else
+chains to handle different sizes (0, 1, 2, 3 elements). This is because Seq currently
+lacks:
+
+1. **Loops** - No `for i in 0..count` construct
+2. **Tail-call optimization** - Recursion would blow the stack for large collections
+3. **Variant fold/map** - No way to iterate over variant fields from Seq
+
+Possible solutions:
+- Add a `variant-fold` runtime primitive: `( variant init quot -- result )`
+- Add counted loops to the language
+- Implement TCO for recursive serialization
+
+### Why Parsing Has No Size Limits
+
+Parsing uses recursive descent with the functional builders (`array-with`, `obj-with`).
+Each recursive call builds up the collection incrementally. The stack usage is
+proportional to nesting depth, not collection size, so `[1,2,3,...,1000]` works fine
+but deeply nested structures could overflow.

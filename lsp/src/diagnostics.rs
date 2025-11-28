@@ -17,7 +17,16 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
         }
     };
 
-    // Phase 2: Type check
+    // Phase 2: Validate word calls (check for undefined words)
+    // This catches references to words that don't exist as either
+    // user-defined words or builtins.
+    if let Err(err) = program.validate_word_calls() {
+        debug!("Validation error: {}", err);
+        diagnostics.push(error_to_diagnostic(&err, source));
+        // Continue to type checking - may find additional errors
+    }
+
+    // Phase 3: Type check
     // Note: We skip resolution (include handling) for now since we're checking
     // a single document without filesystem access to included files.
     let mut typechecker = TypeChecker::new();
@@ -37,6 +46,13 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
 fn error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
     let (line, message) = extract_line_info(error, source);
 
+    // Calculate actual line length for proper highlighting
+    let line_length = source
+        .lines()
+        .nth(line)
+        .map(|l| l.len() as u32)
+        .unwrap_or(0);
+
     Diagnostic {
         range: Range {
             start: Position {
@@ -45,7 +61,7 @@ fn error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
             },
             end: Position {
                 line: line as u32,
-                character: 1000, // Highlight whole line
+                character: line_length,
             },
         },
         severity: Some(DiagnosticSeverity::ERROR),
@@ -65,6 +81,7 @@ fn error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
 /// - "at line N: ..."
 /// - "line N: ..."
 /// - "Unknown word: 'foo'" (search for 'foo' in source)
+/// - "Undefined word 'foo' called in word 'bar'" (search for 'foo' in source)
 ///
 /// Returns (line_number, cleaned_message)
 fn extract_line_info<'a>(error: &'a str, source: &str) -> (usize, &'a str) {
@@ -88,8 +105,17 @@ fn extract_line_info<'a>(error: &'a str, source: &str) -> (usize, &'a str) {
         }
     }
 
-    // Try to find unknown word in source
+    // Try to find unknown word in source (old format)
     if let Some(rest) = error.strip_prefix("Unknown word: '")
+        && let Some(end) = rest.find('\'')
+        && let Some(line) = find_word_line(source, &rest[..end])
+    {
+        return (line, error);
+    }
+
+    // Try to find undefined word in source (new format from validate_word_calls)
+    // Format: "Undefined word 'foo' called in word 'bar'"
+    if let Some(rest) = error.strip_prefix("Undefined word '")
         && let Some(end) = rest.find('\'')
         && let Some(line) = find_word_line(source, &rest[..end])
     {
@@ -102,13 +128,25 @@ fn extract_line_info<'a>(error: &'a str, source: &str) -> (usize, &'a str) {
 }
 
 /// Find the line number where a word appears in the source.
+///
+/// Seq words can contain special characters like `-`, `>`, `?`, etc.
+/// We need to match whole words accounting for these characters.
 fn find_word_line(source: &str, word: &str) -> Option<usize> {
     for (line_num, line) in source.lines().enumerate() {
-        // Simple word boundary check
-        if line.contains(word) {
-            // Verify it's not part of a larger word
-            let trimmed = line.trim();
-            if trimmed.split_whitespace().any(|w| w == word) {
+        if !line.contains(word) {
+            continue;
+        }
+
+        // Skip comment lines
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        // Check each potential word position
+        // Seq words are separated by whitespace, so we can use that
+        for token in trimmed.split_whitespace() {
+            if token == word {
                 return Some(line_num);
             }
         }
@@ -137,9 +175,36 @@ mod tests {
     }
 
     #[test]
+    fn test_undefined_word() {
+        let source = ": main ( -- Int ) undefined-word 0 ;";
+        let diagnostics = check_document(source);
+        // Should error on undefined word
+        assert!(!diagnostics.is_empty(), "Expected diagnostics but got none");
+        assert!(
+            diagnostics[0].message.contains("Undefined word"),
+            "Expected 'Undefined word' in message, got: {}",
+            diagnostics[0].message
+        );
+    }
+
+    #[test]
     fn test_valid_program() {
         let source = ": main ( -- Int ) 0 ;";
         let diagnostics = check_document(source);
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_find_word_with_special_chars() {
+        let source = "string->float\nfile-exists?\nsome-word";
+        assert_eq!(find_word_line(source, "string->float"), Some(0));
+        assert_eq!(find_word_line(source, "file-exists?"), Some(1));
+        assert_eq!(find_word_line(source, "some-word"), Some(2));
+    }
+
+    #[test]
+    fn test_find_word_skips_comments() {
+        let source = "# string->float comment\nstring->float";
+        assert_eq!(find_word_line(source, "string->float"), Some(1));
     }
 }

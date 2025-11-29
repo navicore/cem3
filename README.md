@@ -4,31 +4,14 @@ A concatenative, stack-based programming language with static typing and CSP-sty
 
 ## Status
 
-**Compiler:** Functional (compiles .seq source to native executables via LLVM)
+**Compiler:** Functional (compiles .seq source to native executables via LLVM IR)
 **Runtime:** Strands (green threads), channels, TCP I/O, arena allocation
 **Type System:** Row polymorphic stack effects with type inference
-**Editor Support:** LSP server with diagnostics (see [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) for Neovim)
-**Missing:** Pattern matching, loops, full standard library
+**Standard Library:** JSON, YAML, HTTP, math utilities
+**Editor Support:** LSP server with diagnostics and completions
+**Missing:** Pattern matching, loops
 
-See `docs/ROADMAP.md` for the development plan and `CLAUDE.md` for current phase status.
-
-## What's Different from cem2?
-
-Seq separates **Values** (data) from **StackNodes** (stack structure):
-
-- **Value**: Pure data (Int, Bool, String, Variant, Quotation, Closure)
-- **StackNode**: Linked list node (value + next pointer)
-- **Variant fields**: Stored in heap arrays, NOT linked via stack pointers
-
-This separation prevents the data corruption bug that plagued cem2 during stack shuffling.
-
-## Philosophy
-
-**Foundation First:** Get the concatenative core bulletproof before adding advanced features.
-
-**No Compromises:** If something doesn't feel clean, we stop and redesign.
-
-**Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. Seq does it right from the start.
+See `docs/ROADMAP.md` for the development plan.
 
 ## Installation
 
@@ -72,35 +55,46 @@ cargo test --all
 
 ## What Works
 
-- **Stack operations:** dup, drop, swap, over, rot, nip, tuck, pick
-- **Arithmetic:** +, -, *, / with overflow checking
-- **Comparisons:** =, <, >, <=, >=, <> (return Int: 0 or 1)
-- **Conditionals:** if/else/then
-- **I/O:** write_line, read_line
-- **Strings:** concat, split, trim, length, contains, starts-with, to-upper, to-lower
-- **Quotations:** First-class functions with `call`, `times`, `while`, `until`, `forever`
-- **Closures:** Captured environments with type-driven inference
-- **Concurrency:** spawn, make-channel, send, receive, close-channel
-- **TCP:** tcp-listen, tcp-accept, tcp-read, tcp-write, tcp-close
-- **Type system:** Row polymorphic stack effects with unification
+**Core Language:**
+- Stack operations: `dup`, `drop`, `swap`, `over`, `rot`, `nip`, `tuck`, `pick`
+- Arithmetic: `+`, `-`, `*`, `/` with overflow checking
+- Comparisons: `=`, `<`, `>`, `<=`, `>=`, `<>`
+- Conditionals: `if`/`else`/`then`
+- Quotations: First-class functions with `call`, `times`, `while`, `until`, `forever`
+- Closures: Captured environments with type-driven inference
+
+**I/O and Strings:**
+- Console: `write_line`, `read_line`
+- Files: `file-read`, `file-write`, `file-exists?`
+- Strings: `concat`, `split`, `trim`, `length`, `contains`, `starts-with`, `to-upper`, `to-lower`
+
+**Concurrency:**
+- Strands: `spawn` (green threads)
+- Channels: `make-channel`, `send`, `receive`, `close-channel`
+- TCP: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`, `tcp-close`
+
+**Standard Library** (via `include std:module`):
+- `std:json` - JSON parsing and serialization
+- `std:yaml` - YAML parsing and serialization
+- `std:http` - HTTP request/response utilities
+- `std:math` - Mathematical functions
+- `std:stack-utils` - Stack manipulation utilities
 
 ## Examples
 
-Working examples in `examples/`:
+See `examples/` for working programs:
 - `hello-world.seq` - Basic I/O
-- `test-if.seq`, `test-if-else.seq`, `test-nested-if.seq` - Conditionals
-- `test-comparison.seq` - All comparison operators
-- `test-pick.seq` - Stack manipulation
 - `recursion/fibonacci.seq`, `recursion/factorial.seq` - Recursion
-- `http/*.seq` - HTTP routing and TCP servers (see `examples/http/README.md`)
+- `json/json_tree.seq` - JSON parsing with the stdlib
+- `http/*.seq` - HTTP routing and TCP servers
 
 ## Editor Support
 
-The `seq-lsp` language server provides real-time diagnostics in your editor.
+The `seq-lsp` language server provides IDE features in your editor.
 
 **Install:**
 ```bash
-just install-lsp   # Installs to ~/.local/bin/seq-lsp
+cargo install seq-lsp
 ```
 
 **Neovim:** Use [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) with Lazy:
@@ -108,7 +102,11 @@ just install-lsp   # Installs to ~/.local/bin/seq-lsp
 { "navicore/patch-seq.nvim", ft = "seq", opts = {} }
 ```
 
-Features: Parse errors, type errors, undefined word detection, syntax highlighting.
+**Features:**
+- Real-time diagnostics (parse errors, type errors, undefined words)
+- Autocompletion for builtins, local words, and included modules
+- Context-aware completions (stack effects, include statements)
+- Syntax highlighting
 
 ## Documentation
 

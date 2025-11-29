@@ -45,7 +45,7 @@ jobs:
               { print }
             ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 
-            cargo update -w
+            cargo generate-lockfile
 
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"

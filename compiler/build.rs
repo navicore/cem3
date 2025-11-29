@@ -17,9 +17,9 @@ fn main() {
     // Navigate up from OUT_DIR to find target directory
     // OUT_DIR = target/<profile>/build/<pkg>-<hash>/out
     let target_dir = out_dir
-        .parent()  // build/<pkg>-<hash>/out -> build/<pkg>-<hash>
-        .and_then(|p| p.parent())  // -> build
-        .and_then(|p| p.parent())  // -> <profile> (release/debug)
+        .parent() // build/<pkg>-<hash>/out -> build/<pkg>-<hash>
+        .and_then(|p| p.parent()) // -> build
+        .and_then(|p| p.parent()) // -> <profile> (release/debug)
         .expect("Could not find target directory");
 
     // Try to find libseq_runtime.a
@@ -30,8 +30,8 @@ fn main() {
     } else {
         // Search in deps directory for libseq_runtime-*.a
         let deps_dir = target_dir.join("deps");
-        find_runtime_in_deps(&deps_dir)
-            .unwrap_or_else(|| panic!(
+        find_runtime_in_deps(&deps_dir).unwrap_or_else(|| {
+            panic!(
                 "Runtime library not found.\n\
                  Looked in: {}\n\
                  And deps: {}\n\
@@ -39,7 +39,8 @@ fn main() {
                 direct_lib.display(),
                 deps_dir.display(),
                 out_dir.display()
-            ))
+            )
+        })
     };
 
     // Set environment variable for include_bytes! in lib.rs

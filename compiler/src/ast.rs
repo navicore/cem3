@@ -98,6 +98,17 @@ impl Program {
 
     /// Validate that all word calls reference either a defined word or a built-in
     pub fn validate_word_calls(&self) -> Result<(), String> {
+        self.validate_word_calls_with_externals(&[])
+    }
+
+    /// Validate that all word calls reference a defined word, built-in, or external word.
+    ///
+    /// The `external_words` parameter should contain names of words available from
+    /// external sources (e.g., included modules) that should be considered valid.
+    pub fn validate_word_calls_with_externals(
+        &self,
+        external_words: &[&str],
+    ) -> Result<(), String> {
         // List of known runtime built-ins
         // IMPORTANT: Keep this in sync with codegen.rs WordCall matching
         let builtins = [
@@ -201,7 +212,7 @@ impl Program {
         ];
 
         for word in &self.words {
-            self.validate_statements(&word.body, &word.name, &builtins)?;
+            self.validate_statements(&word.body, &word.name, &builtins, external_words)?;
         }
 
         Ok(())
@@ -213,6 +224,7 @@ impl Program {
         statements: &[Statement],
         word_name: &str,
         builtins: &[&str],
+        external_words: &[&str],
     ) -> Result<(), String> {
         for statement in statements {
             match statement {
@@ -223,6 +235,10 @@ impl Program {
                     }
                     // Check if it's a user-defined word
                     if self.find_word(name).is_some() {
+                        continue;
+                    }
+                    // Check if it's an external word (from includes)
+                    if external_words.contains(&name.as_str()) {
                         continue;
                     }
                     // Undefined word!
@@ -237,14 +253,14 @@ impl Program {
                     else_branch,
                 } => {
                     // Recursively validate both branches
-                    self.validate_statements(then_branch, word_name, builtins)?;
+                    self.validate_statements(then_branch, word_name, builtins, external_words)?;
                     if let Some(eb) = else_branch {
-                        self.validate_statements(eb, word_name, builtins)?;
+                        self.validate_statements(eb, word_name, builtins, external_words)?;
                     }
                 }
                 Statement::Quotation { body, .. } => {
                     // Recursively validate quotation body
-                    self.validate_statements(body, word_name, builtins)?;
+                    self.validate_statements(body, word_name, builtins, external_words)?;
                 }
                 _ => {} // Literals don't need validation
             }

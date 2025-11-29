@@ -1,9 +1,25 @@
+use crate::includes::IncludedWord;
 use seqc::{Parser, TypeChecker};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use tracing::{debug, warn};
 
 /// Check a document for parse and type errors, returning LSP diagnostics.
+///
+/// This version doesn't know about included words - use `check_document_with_includes`
+/// for include-aware diagnostics.
+#[cfg(test)]
 pub fn check_document(source: &str) -> Vec<Diagnostic> {
+    check_document_with_includes(source, &[])
+}
+
+/// Check a document for parse and type errors, with knowledge of included words.
+///
+/// The `included_words` parameter should contain all words available from
+/// included modules, with their effects if known.
+pub fn check_document_with_includes(
+    source: &str,
+    included_words: &[IncludedWord],
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     // Phase 1: Parse
@@ -17,19 +33,30 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
         }
     };
 
+    // Extract names for word call validation
+    let included_word_names: Vec<&str> = included_words.iter().map(|w| w.name.as_str()).collect();
+
     // Phase 2: Validate word calls (check for undefined words)
     // This catches references to words that don't exist as either
     // user-defined words or builtins.
-    if let Err(err) = program.validate_word_calls() {
+    // We pass included word names so they aren't flagged as undefined.
+    if let Err(err) = program.validate_word_calls_with_externals(&included_word_names) {
         debug!("Validation error: {}", err);
         diagnostics.push(error_to_diagnostic(&err, source));
         // Continue to type checking - may find additional errors
     }
 
     // Phase 3: Type check
-    // Note: We skip resolution (include handling) for now since we're checking
-    // a single document without filesystem access to included files.
+    // Register external words with the typechecker so it knows about included words
     let mut typechecker = TypeChecker::new();
+
+    // Build list of external words with their effects (or None for placeholder)
+    let external_words: Vec<(&str, Option<&seqc::Effect>)> = included_words
+        .iter()
+        .map(|w| (w.name.as_str(), w.effect.as_ref()))
+        .collect();
+    typechecker.register_external_words(&external_words);
+
     if let Err(err) = typechecker.check_program(&program) {
         debug!("Type error: {}", err);
         diagnostics.push(error_to_diagnostic(&err, source));

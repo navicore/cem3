@@ -5,21 +5,95 @@ use tracing::info;
 
 mod completion;
 mod diagnostics;
+mod includes;
 
+use includes::{IncludedWord, LocalWord};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::RwLock;
+
+/// State for a single document
+struct DocumentState {
+    /// Document content
+    content: String,
+    /// File path (for resolving relative includes)
+    file_path: Option<PathBuf>,
+    /// Words available from includes (cached)
+    included_words: Vec<IncludedWord>,
+    /// Words defined in this document
+    local_words: Vec<LocalWord>,
+}
 
 struct SeqLanguageServer {
     client: Client,
-    /// Document contents cache for context-aware completion
-    documents: RwLock<HashMap<String, String>>,
+    /// Document state cache
+    documents: RwLock<HashMap<String, DocumentState>>,
+    /// Path to stdlib (cached on startup)
+    stdlib_path: Option<PathBuf>,
 }
 
 impl SeqLanguageServer {
     fn new(client: Client) -> Self {
+        let stdlib_path = includes::find_stdlib_path();
+        if let Some(ref path) = stdlib_path {
+            info!("Found stdlib at: {}", path.display());
+        } else {
+            info!("Stdlib not found - include completions will be limited");
+        }
+
         Self {
             client,
             documents: RwLock::new(HashMap::new()),
+            stdlib_path,
+        }
+    }
+
+    /// Get all words available from includes for a document
+    fn get_included_words(&self, uri: &str) -> Vec<IncludedWord> {
+        if let Ok(docs) = self.documents.read()
+            && let Some(state) = docs.get(uri)
+        {
+            return state.included_words.clone();
+        }
+        Vec::new()
+    }
+
+    /// Update document state and resolve includes
+    fn update_document(&self, uri: &str, content: String, file_path: Option<PathBuf>) {
+        // Parse document to extract includes and local words
+        let (includes, local_words) = includes::parse_document(&content);
+
+        info!(
+            "Parsed document: {} includes, {} local words, stdlib_path={:?}, file_path={:?}",
+            includes.len(),
+            local_words.len(),
+            self.stdlib_path,
+            file_path
+        );
+
+        // Resolve includes to get words from included files
+        let included_words = includes::resolve_includes(
+            &includes,
+            file_path.as_deref(),
+            self.stdlib_path.as_deref(),
+        );
+
+        info!(
+            "Document has {} local words, {} included words from {} includes",
+            local_words.len(),
+            included_words.len(),
+            includes.len()
+        );
+
+        let state = DocumentState {
+            content,
+            file_path,
+            included_words,
+            local_words,
+        };
+
+        if let Ok(mut docs) = self.documents.write() {
+            docs.insert(uri.to_string(), state);
         }
     }
 }
@@ -71,12 +145,21 @@ impl LanguageServer for SeqLanguageServer {
 
         info!("Document opened: {}", uri);
 
-        // Cache document content
-        if let Ok(mut docs) = self.documents.write() {
-            docs.insert(uri.to_string(), text.clone());
-        }
+        // Extract file path from URI
+        let file_path = includes::uri_to_path(uri.as_str());
+        info!("File path: {:?}", file_path);
 
-        let diagnostics = diagnostics::check_document(&text);
+        // Update document state (parses includes)
+        self.update_document(uri.as_str(), text.clone(), file_path);
+
+        // Get included words for diagnostics
+        let included_words = self.get_included_words(uri.as_str());
+        info!(
+            "Got {} included words for diagnostics",
+            included_words.len()
+        );
+
+        let diagnostics = diagnostics::check_document_with_includes(&text, &included_words);
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -91,12 +174,20 @@ impl LanguageServer for SeqLanguageServer {
 
             info!("Document changed: {}", uri);
 
-            // Update cached document content
-            if let Ok(mut docs) = self.documents.write() {
-                docs.insert(uri.to_string(), text.clone());
-            }
+            // Get existing file path from cache
+            let file_path = if let Ok(docs) = self.documents.read() {
+                docs.get(uri.as_str()).and_then(|s| s.file_path.clone())
+            } else {
+                None
+            };
 
-            let diagnostics = diagnostics::check_document(&text);
+            // Update document state (re-parses includes)
+            self.update_document(uri.as_str(), text.clone(), file_path);
+
+            // Get included words for diagnostics
+            let included_words = self.get_included_words(uri.as_str());
+
+            let diagnostics = diagnostics::check_document_with_includes(&text, &included_words);
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
@@ -109,7 +200,7 @@ impl LanguageServer for SeqLanguageServer {
 
         // Remove from cache
         if let Ok(mut docs) = self.documents.write() {
-            docs.remove(&uri.to_string());
+            docs.remove(uri.as_str());
         }
 
         // Clear diagnostics when document is closed
@@ -139,23 +230,38 @@ impl LanguageServer for SeqLanguageServer {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
-        // Try to get the current line prefix from cached document
-        let line_prefix: Option<String> = if let Ok(docs) = self.documents.read() {
-            docs.get(&uri.to_string()).and_then(|text| {
-                text.lines().nth(position.line as usize).map(|line| {
-                    let end = (position.character as usize).min(line.len());
-                    line[..end].to_string()
-                })
-            })
+        // Get document state
+        let (line_prefix, included_words, local_words) = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                let prefix = state
+                    .content
+                    .lines()
+                    .nth(position.line as usize)
+                    .map(|line| {
+                        let end = (position.character as usize).min(line.len());
+                        line[..end].to_string()
+                    });
+                (
+                    prefix,
+                    state.included_words.clone(),
+                    state.local_words.clone(),
+                )
+            } else {
+                (None, Vec::new(), Vec::new())
+            }
         } else {
-            None
+            (None, Vec::new(), Vec::new())
         };
 
-        let items = completion::get_completions(line_prefix.as_ref().map(|prefix| {
-            completion::CompletionContext {
+        let context = line_prefix
+            .as_ref()
+            .map(|prefix| completion::CompletionContext {
                 line_prefix: prefix,
-            }
-        }));
+                included_words: &included_words,
+                local_words: &local_words,
+            });
+
+        let items = completion::get_completions(context);
         Ok(Some(CompletionResponse::Array(items)))
     }
 }

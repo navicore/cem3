@@ -9,7 +9,6 @@ A concatenative, stack-based programming language with static typing and CSP-sty
 **Type System:** Row polymorphic stack effects with type inference
 **Standard Library:** JSON, YAML, HTTP, math utilities
 **Editor Support:** LSP server with diagnostics and completions
-**Missing:** Pattern matching, loops
 
 See `docs/ROADMAP.md` for the development plan.
 

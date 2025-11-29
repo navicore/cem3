@@ -3,30 +3,43 @@
 //! Locates the seq-runtime static library so it can be embedded into the compiler.
 
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
 fn main() {
-    // The runtime is built by cargo as a dependency
-    // We need to find the .a file in the target directory
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let workspace_root = PathBuf::from(&manifest_dir).parent().unwrap().to_path_buf();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Check release first, then debug
-    let release_lib = workspace_root.join("target/release/libseq_runtime.a");
-    let debug_lib = workspace_root.join("target/debug/libseq_runtime.a");
+    // OUT_DIR is something like:
+    // target/release/build/seq-compiler-xxx/out
+    // We need to find libseq_runtime.a in:
+    // target/release/libseq_runtime.a or target/release/deps/libseq_runtime-xxx.a
 
-    let runtime_lib = if release_lib.exists() {
-        release_lib
-    } else if debug_lib.exists() {
-        debug_lib
+    // Navigate up from OUT_DIR to find target directory
+    // OUT_DIR = target/<profile>/build/<pkg>-<hash>/out
+    let target_dir = out_dir
+        .parent()  // build/<pkg>-<hash>/out -> build/<pkg>-<hash>
+        .and_then(|p| p.parent())  // -> build
+        .and_then(|p| p.parent())  // -> <profile> (release/debug)
+        .expect("Could not find target directory");
+
+    // Try to find libseq_runtime.a
+    let direct_lib = target_dir.join("libseq_runtime.a");
+
+    let runtime_lib = if direct_lib.exists() {
+        direct_lib
     } else {
-        panic!(
-            "Runtime library not found. Please build seq-runtime first:\n\
-             cargo build --release -p seq-runtime\n\
-             Looked in:\n  {}\n  {}",
-            release_lib.display(),
-            debug_lib.display()
-        );
+        // Search in deps directory for libseq_runtime-*.a
+        let deps_dir = target_dir.join("deps");
+        find_runtime_in_deps(&deps_dir)
+            .unwrap_or_else(|| panic!(
+                "Runtime library not found.\n\
+                 Looked in: {}\n\
+                 And deps: {}\n\
+                 OUT_DIR was: {}",
+                direct_lib.display(),
+                deps_dir.display(),
+                out_dir.display()
+            ))
     };
 
     // Set environment variable for include_bytes! in lib.rs
@@ -37,4 +50,21 @@ fn main() {
 
     // Rerun if the runtime library changes
     println!("cargo:rerun-if-changed={}", runtime_lib.display());
+}
+
+fn find_runtime_in_deps(deps_dir: &PathBuf) -> Option<PathBuf> {
+    if !deps_dir.exists() {
+        return None;
+    }
+
+    fs::read_dir(deps_dir).ok()?.find_map(|entry| {
+        let entry = entry.ok()?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with("libseq_runtime") && name_str.ends_with(".a") {
+            Some(entry.path())
+        } else {
+            None
+        }
+    })
 }

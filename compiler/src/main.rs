@@ -8,6 +8,7 @@ use std::process;
 
 #[derive(ClapParser)]
 #[command(name = "seqc")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Seq compiler - compile .seq programs to executables", long_about = None)]
 struct Cli {
     /// Input .seq source file

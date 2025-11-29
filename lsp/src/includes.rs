@@ -235,9 +235,12 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
     }
 }
 
-/// Simple percent decoding for file paths
+/// Percent decoding for file paths with proper UTF-8 handling.
+///
+/// URIs encode multi-byte UTF-8 characters as multiple %XX sequences
+/// (e.g., `é` becomes `%C3%A9`). We collect all bytes and decode as UTF-8.
 fn percent_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
+    let mut bytes = Vec::with_capacity(s.len());
     let mut chars = s.chars().peekable();
 
     while let Some(c) = chars.next() {
@@ -246,17 +249,23 @@ fn percent_decode(s: &str) -> String {
             if hex.len() == 2
                 && let Ok(byte) = u8::from_str_radix(&hex, 16)
             {
-                result.push(byte as char);
+                bytes.push(byte);
                 continue;
             }
-            result.push('%');
-            result.push_str(&hex);
+            // Invalid escape sequence, keep as-is
+            bytes.push(b'%');
+            bytes.extend(hex.as_bytes());
+        } else if c.is_ascii() {
+            bytes.push(c as u8);
         } else {
-            result.push(c);
+            // Non-ASCII char not percent-encoded, add its UTF-8 bytes
+            let mut buf = [0u8; 4];
+            let encoded = c.encode_utf8(&mut buf);
+            bytes.extend(encoded.as_bytes());
         }
     }
 
-    result
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 #[cfg(test)]
@@ -275,6 +284,14 @@ mod tests {
         let uri = "file:///Users/test/my%20code/example.seq";
         let path = uri_to_path(uri).unwrap();
         assert_eq!(path, PathBuf::from("/Users/test/my code/example.seq"));
+    }
+
+    #[test]
+    fn test_uri_to_path_with_utf8() {
+        // é is encoded as %C3%A9 in UTF-8
+        let uri = "file:///Users/test/caf%C3%A9/example.seq";
+        let path = uri_to_path(uri).unwrap();
+        assert_eq!(path, PathBuf::from("/Users/test/café/example.seq"));
     }
 
     #[test]

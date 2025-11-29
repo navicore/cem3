@@ -51,6 +51,11 @@ pub fn check_document_with_includes(
     let mut typechecker = TypeChecker::new();
 
     // Build list of external words with their effects (or None for placeholder)
+    // TODO: When effect is None, a maximally polymorphic placeholder (..a -- ..b) is used.
+    // This may allow type-incorrect code to pass the typechecker. Consider:
+    // - Emitting a warning when a word has no effect signature
+    // - Requiring all exported words to have effects
+    // - Tracking which words used placeholders and showing them in diagnostics
     let external_words: Vec<(&str, Option<&seqc::Effect>)> = included_words
         .iter()
         .map(|w| (w.name.as_str(), w.effect.as_ref()))

@@ -3,15 +3,24 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::info;
 
+mod completion;
 mod diagnostics;
+
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 struct SeqLanguageServer {
     client: Client,
+    /// Document contents cache for context-aware completion
+    documents: RwLock<HashMap<String, String>>,
 }
 
 impl SeqLanguageServer {
     fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            documents: RwLock::new(HashMap::new()),
+        }
     }
 }
 
@@ -25,6 +34,14 @@ impl LanguageServer for SeqLanguageServer {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![
+                        " ".to_string(),
+                        "\n".to_string(),
+                        ":".to_string(),
+                    ]),
+                    ..Default::default()
+                }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
@@ -54,6 +71,11 @@ impl LanguageServer for SeqLanguageServer {
 
         info!("Document opened: {}", uri);
 
+        // Cache document content
+        if let Ok(mut docs) = self.documents.write() {
+            docs.insert(uri.to_string(), text.clone());
+        }
+
         let diagnostics = diagnostics::check_document(&text);
         self.client
             .publish_diagnostics(uri, diagnostics, None)
@@ -69,6 +91,11 @@ impl LanguageServer for SeqLanguageServer {
 
             info!("Document changed: {}", uri);
 
+            // Update cached document content
+            if let Ok(mut docs) = self.documents.write() {
+                docs.insert(uri.to_string(), text.clone());
+            }
+
             let diagnostics = diagnostics::check_document(&text);
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
@@ -79,6 +106,11 @@ impl LanguageServer for SeqLanguageServer {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         info!("Document closed: {}", uri);
+
+        // Remove from cache
+        if let Ok(mut docs) = self.documents.write() {
+            docs.remove(&uri.to_string());
+        }
 
         // Clear diagnostics when document is closed
         self.client.publish_diagnostics(uri, vec![], None).await;
@@ -101,6 +133,30 @@ impl LanguageServer for SeqLanguageServer {
 
         // TODO: Implement go-to-definition for word calls
         Ok(None)
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        // Try to get the current line prefix from cached document
+        let line_prefix: Option<String> = if let Ok(docs) = self.documents.read() {
+            docs.get(&uri.to_string()).and_then(|text| {
+                text.lines().nth(position.line as usize).map(|line| {
+                    let end = (position.character as usize).min(line.len());
+                    line[..end].to_string()
+                })
+            })
+        } else {
+            None
+        };
+
+        let items = completion::get_completions(line_prefix.as_ref().map(|prefix| {
+            completion::CompletionContext {
+                line_prefix: prefix,
+            }
+        }));
+        Ok(Some(CompletionResponse::Array(items)))
     }
 }
 

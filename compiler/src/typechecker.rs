@@ -33,6 +33,25 @@ impl TypeChecker {
         }
     }
 
+    /// Register external word effects (e.g., from included modules).
+    ///
+    /// Words with `Some(effect)` get their actual signature.
+    /// Words with `None` get a maximally polymorphic placeholder `( ..a -- ..b )`.
+    pub fn register_external_words(&mut self, words: &[(&str, Option<&Effect>)]) {
+        for (name, effect) in words {
+            if let Some(eff) = effect {
+                self.env.insert(name.to_string(), (*eff).clone());
+            } else {
+                // Maximally polymorphic placeholder
+                let placeholder = Effect::new(
+                    StackType::RowVar("ext_in".to_string()),
+                    StackType::RowVar("ext_out".to_string()),
+                );
+                self.env.insert(name.to_string(), placeholder);
+            }
+        }
+    }
+
     /// Extract the type map (quotation ID -> inferred type)
     ///
     /// This should be called after check_program() to get the inferred types

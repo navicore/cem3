@@ -19,8 +19,12 @@ pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+
+/// Embedded runtime library (built by build.rs)
+static RUNTIME_LIB: &[u8] = include_bytes!(env!("SEQ_RUNTIME_LIB_PATH"));
 
 /// Compile a .seq source file to an executable
 pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Result<(), String> {
@@ -67,14 +71,13 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
     let ir_path = output_path.with_extension("ll");
     fs::write(&ir_path, ir).map_err(|e| format!("Failed to write IR file: {}", e))?;
 
-    // Validate runtime library exists
-    let runtime_lib = Path::new("target/release/libseq_runtime.a");
-    if !runtime_lib.exists() {
-        return Err(format!(
-            "Runtime library not found at {}. \
-             Please run 'cargo build --release -p seq-runtime' first.",
-            runtime_lib.display()
-        ));
+    // Extract embedded runtime library to a temp file
+    let runtime_path = std::env::temp_dir().join("libseq_runtime.a");
+    {
+        let mut file = fs::File::create(&runtime_path)
+            .map_err(|e| format!("Failed to create runtime lib: {}", e))?;
+        file.write_all(RUNTIME_LIB)
+            .map_err(|e| format!("Failed to write runtime lib: {}", e))?;
     }
 
     // Compile IR to executable using clang
@@ -83,10 +86,13 @@ pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Re
         .arg("-o")
         .arg(output_path)
         .arg("-L")
-        .arg("target/release")
+        .arg(runtime_path.parent().unwrap())
         .arg("-lseq_runtime")
         .output()
         .map_err(|e| format!("Failed to run clang: {}", e))?;
+
+    // Clean up temp runtime lib
+    fs::remove_file(&runtime_path).ok();
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

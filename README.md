@@ -30,17 +30,39 @@ This separation prevents the data corruption bug that plagued cem2 during stack 
 
 **Learn from cem2:** cem2 taught us what happens when you conflate StackCell with Value. Seq does it right from the start.
 
-## Quick Start
+## Installation
 
-**Build:**
+### Prerequisites
+
+**clang** is required to compile Seq programs (used to compile LLVM IR to native executables):
+- macOS: `xcode-select --install`
+- Ubuntu/Debian: `apt install clang`
+- Fedora: `dnf install clang`
+
+### Install from crates.io
+
+```bash
+cargo install seq-compiler  # installs seqc
+cargo install seq-lsp       # installs seq-lsp (optional, for editor support)
+```
+
+### Build from source
+
 ```bash
 cargo build --release
 ```
 
+## Quick Start
+
 **Compile and run a program:**
 ```bash
-./target/release/seqc examples/hello-world.seq --output /tmp/hello
+seqc examples/hello-world.seq --output /tmp/hello
 /tmp/hello
+```
+
+**Check version:**
+```bash
+seqc --version
 ```
 
 **Run tests:**

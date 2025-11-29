@@ -102,14 +102,30 @@ fn detect_context(line_prefix: &str) -> ContextType {
     }
 
     // Check for stack effect context - inside ( ... )
-    // Count unmatched opening parens
-    let open_parens = line_prefix.chars().filter(|&c| c == '(').count();
-    let close_parens = line_prefix.chars().filter(|&c| c == ')').count();
-    if open_parens > close_parens {
+    // Count unmatched opening parens, ignoring those inside strings
+    let unmatched_parens = count_unmatched_parens(line_prefix);
+    if unmatched_parens > 0 {
         return ContextType::InStackEffect;
     }
 
     ContextType::Code
+}
+
+/// Count unmatched opening parentheses, ignoring those inside strings
+fn count_unmatched_parens(text: &str) -> i32 {
+    let mut in_string = false;
+    let mut count = 0;
+
+    for c in text.chars() {
+        match c {
+            '"' => in_string = !in_string,
+            '(' if !in_string => count += 1,
+            ')' if !in_string => count -= 1,
+            _ => {}
+        }
+    }
+
+    count
 }
 
 /// Check if cursor position is inside a string literal
@@ -435,6 +451,9 @@ mod tests {
         assert_eq!(detect_context("( Int"), ContextType::InStackEffect);
         assert_eq!(detect_context("( Int -- "), ContextType::InStackEffect);
         assert_eq!(detect_context("( Int -- Int )"), ContextType::Code);
+        // Parens inside strings should be ignored
+        assert_eq!(detect_context("\"(\" dup"), ContextType::Code);
+        assert_eq!(detect_context("\")\" dup"), ContextType::Code);
     }
 
     #[test]

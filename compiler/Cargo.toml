@@ -2,13 +2,19 @@
 name = "seq-compiler"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Compiler for the Seq programming language"
+repository = "https://github.com/navicore/patch-seq"
+keywords = ["compiler", "language", "seq"]
+categories = ["compilers", "development-tools"]
 
 [[bin]]
 name = "seqc"
 path = "src/main.rs"
 
 [dependencies]
-seq-runtime = { path = "../runtime" }
+seq-runtime = { path = "../runtime", version = "0.3" }
 clap = { version = "4.5", features = ["derive"] }
 
 [lib]

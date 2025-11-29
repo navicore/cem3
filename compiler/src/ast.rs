@@ -28,6 +28,12 @@ impl SourceLocation {
 
     /// Create a source location spanning multiple lines
     pub fn span(file: PathBuf, start_line: usize, end_line: usize) -> Self {
+        debug_assert!(
+            start_line <= end_line,
+            "SourceLocation: start_line ({}) must be <= end_line ({})",
+            start_line,
+            end_line
+        );
         SourceLocation {
             file,
             start_line,

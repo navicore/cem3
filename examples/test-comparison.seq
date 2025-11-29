@@ -7,7 +7,7 @@
 ;
 
 : test-lt ( -- )
-  3 5 < int->string write_line 
+  3 5 < int->string write_line
   5 3 < int->string write_line
 ;
 

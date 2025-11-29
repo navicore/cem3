@@ -61,8 +61,12 @@ impl Parser {
         let mut program = Program::new();
 
         // Check for unclosed string error from tokenizer
-        if self.tokens.iter().any(|t| t == "<<<UNCLOSED_STRING>>>") {
-            return Err("Unclosed string literal - missing closing quote".to_string());
+        if let Some(error_token) = self.tokens.iter().find(|t| *t == "<<<UNCLOSED_STRING>>>") {
+            return Err(format!(
+                "Unclosed string literal at line {}, column {} - missing closing quote",
+                error_token.line + 1, // 1-indexed for user display
+                error_token.column + 1
+            ));
         }
 
         while !self.is_at_end() {
@@ -859,7 +863,19 @@ mod tests {
         let result = parser.parse();
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unclosed string literal"));
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Unclosed string literal"));
+        // Should include position information (line 1, column 15 for the opening quote)
+        assert!(
+            err_msg.contains("line 1"),
+            "Expected line number in error: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("column 15"),
+            "Expected column number in error: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1656,5 +1672,90 @@ mod tests {
             }
             _ => panic!("Expected Closure type in input"),
         }
+    }
+
+    // Tests for token position tracking
+
+    #[test]
+    fn test_token_position_single_line() {
+        // Test token positions on a single line
+        let source = ": main ( -- ) ;";
+        let tokens = tokenize(source);
+
+        // : is at line 0, column 0
+        assert_eq!(tokens[0].text, ":");
+        assert_eq!(tokens[0].line, 0);
+        assert_eq!(tokens[0].column, 0);
+
+        // main is at line 0, column 2
+        assert_eq!(tokens[1].text, "main");
+        assert_eq!(tokens[1].line, 0);
+        assert_eq!(tokens[1].column, 2);
+
+        // ( is at line 0, column 7
+        assert_eq!(tokens[2].text, "(");
+        assert_eq!(tokens[2].line, 0);
+        assert_eq!(tokens[2].column, 7);
+    }
+
+    #[test]
+    fn test_token_position_multiline() {
+        // Test token positions across multiple lines
+        let source = ": main ( -- )\n  42\n;";
+        let tokens = tokenize(source);
+
+        // Find the 42 token (after the newline)
+        let token_42 = tokens.iter().find(|t| t.text == "42").unwrap();
+        assert_eq!(token_42.line, 1);
+        assert_eq!(token_42.column, 2); // After 2 spaces of indentation
+
+        // Find the ; token (on line 2)
+        let token_semi = tokens.iter().find(|t| t.text == ";").unwrap();
+        assert_eq!(token_semi.line, 2);
+        assert_eq!(token_semi.column, 0);
+    }
+
+    #[test]
+    fn test_word_def_source_location_span() {
+        // Test that word definitions capture correct start and end lines
+        let source = r#": helper ( -- )
+  "hello"
+  write_line
+;
+
+: main ( -- )
+  helper
+;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 2);
+
+        // First word: helper spans lines 0-3
+        let helper = &program.words[0];
+        assert_eq!(helper.name, "helper");
+        let helper_source = helper.source.as_ref().unwrap();
+        assert_eq!(helper_source.start_line, 0);
+        assert_eq!(helper_source.end_line, 3);
+
+        // Second word: main spans lines 5-7
+        let main_word = &program.words[1];
+        assert_eq!(main_word.name, "main");
+        let main_source = main_word.source.as_ref().unwrap();
+        assert_eq!(main_source.start_line, 5);
+        assert_eq!(main_source.end_line, 7);
+    }
+
+    #[test]
+    fn test_token_position_string_with_newline() {
+        // Test that newlines inside strings are tracked correctly
+        let source = "\"line1\\nline2\"";
+        let tokens = tokenize(source);
+
+        // The string token should start at line 0, column 0
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].line, 0);
+        assert_eq!(tokens[0].column, 0);
     }
 }

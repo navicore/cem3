@@ -319,16 +319,19 @@ impl LanguageServer for SeqLanguageServer {
     ) -> Result<Option<DocumentSymbolResponse>> {
         let uri = params.text_document.uri;
 
-        // Get local words (word definitions) from document state
-        let local_words = if let Ok(docs) = self.documents.read() {
+        // Get local words and content from document state
+        let (local_words, content) = if let Ok(docs) = self.documents.read() {
             if let Some(state) = docs.get(uri.as_str()) {
-                state.local_words.clone()
+                (state.local_words.clone(), state.content.clone())
             } else {
                 return Ok(None);
             }
         } else {
             return Ok(None);
         };
+
+        // Pre-compute line lengths for accurate end positions
+        let line_lengths: Vec<u32> = content.lines().map(|l| l.len() as u32).collect();
 
         // Convert local words to document symbols for breadcrumbs
         // The range spans the entire word definition so editors show the symbol
@@ -338,6 +341,9 @@ impl LanguageServer for SeqLanguageServer {
         let symbols: Vec<DocumentSymbol> = local_words
             .iter()
             .map(|word| {
+                // Get actual line length for end position
+                let end_char = line_lengths.get(word.end_line).copied().unwrap_or(0);
+
                 #[allow(deprecated)]
                 DocumentSymbol {
                     name: word.name.clone(),
@@ -352,7 +358,7 @@ impl LanguageServer for SeqLanguageServer {
                         },
                         end: Position {
                             line: word.end_line as u32,
-                            character: u32::MAX, // End of line
+                            character: end_char,
                         },
                     },
                     selection_range: Range {

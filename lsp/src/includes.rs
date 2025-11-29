@@ -23,6 +23,10 @@ pub struct IncludedWord {
 pub struct LocalWord {
     pub name: String,
     pub effect: Option<Effect>,
+    /// Line number where the word is defined (0-indexed)
+    pub start_line: usize,
+    /// Line number where the word ends (0-indexed)
+    pub end_line: usize,
 }
 
 /// Find the stdlib path by checking common locations
@@ -82,12 +86,23 @@ pub fn parse_document(source: &str) -> (Vec<Include>, Vec<LocalWord>) {
     let mut parser = Parser::new(source);
     match parser.parse() {
         Ok(program) => {
+            // Extract local words with source locations from the parser
             let local_words = program
                 .words
                 .iter()
-                .map(|w| LocalWord {
-                    name: w.name.clone(),
-                    effect: w.effect.clone(),
+                .map(|w| {
+                    let (start_line, end_line) = w
+                        .source
+                        .as_ref()
+                        .map(|s| (s.start_line, s.end_line))
+                        .unwrap_or((0, 0));
+
+                    LocalWord {
+                        name: w.name.clone(),
+                        effect: w.effect.clone(),
+                        start_line,
+                        end_line,
+                    }
                 })
                 .collect();
             (program.includes, local_words)

@@ -102,8 +102,28 @@ impl SeqLanguageServer {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for SeqLanguageServer {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         info!("Seq LSP server initializing");
+
+        // Check if inlay hints are enabled via initialization options
+        let inlay_hints_enabled = params
+            .initialization_options
+            .as_ref()
+            .and_then(|opts| opts.get("inlay_hints"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let inlay_hint_provider = if inlay_hints_enabled {
+            info!("Inlay hints enabled");
+            Some(OneOf::Right(InlayHintServerCapabilities::Options(
+                InlayHintOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: Default::default(),
+                },
+            )))
+        } else {
+            None
+        };
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -120,6 +140,8 @@ impl LanguageServer for SeqLanguageServer {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                inlay_hint_provider,
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -210,10 +232,34 @@ impl LanguageServer for SeqLanguageServer {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let _uri = params.text_document_position_params.text_document.uri;
-        let _position = params.text_document_position_params.position;
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
 
-        // TODO: Implement hover to show word signatures
+        // Get document state and find word under cursor
+        let (word, local_words, included_words) = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                let word = get_word_at_position(&state.content, position);
+                (
+                    word,
+                    state.local_words.clone(),
+                    state.included_words.clone(),
+                )
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let Some(word) = word else {
+            return Ok(None);
+        };
+
+        // Look up the word in local words, included words, or builtins
+        if let Some(hover) = lookup_word_hover(&word, &local_words, &included_words) {
+            return Ok(Some(hover));
+        }
+
         Ok(None)
     }
 
@@ -266,6 +312,355 @@ impl LanguageServer for SeqLanguageServer {
         let items = completion::get_completions(context);
         Ok(Some(CompletionResponse::Array(items)))
     }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+
+        // Get local words (word definitions) from document state
+        let local_words = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                state.local_words.clone()
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        // Convert local words to document symbols for breadcrumbs
+        // The range spans the entire word definition so editors show the symbol
+        // when cursor is anywhere inside the definition
+        // Note: We don't add child symbols for word calls because most breadcrumb
+        // implementations don't do column-level matching within a line
+        let symbols: Vec<DocumentSymbol> = local_words
+            .iter()
+            .map(|word| {
+                #[allow(deprecated)]
+                DocumentSymbol {
+                    name: word.name.clone(),
+                    detail: None,
+                    kind: SymbolKind::FUNCTION,
+                    tags: None,
+                    deprecated: None,
+                    range: Range {
+                        start: Position {
+                            line: word.start_line as u32,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: word.end_line as u32,
+                            character: u32::MAX, // End of line
+                        },
+                    },
+                    selection_range: Range {
+                        start: Position {
+                            line: word.start_line as u32,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: word.start_line as u32,
+                            character: word.name.len() as u32 + 2, // `: name`
+                        },
+                    },
+                    children: None,
+                }
+            })
+            .collect();
+
+        Ok(Some(DocumentSymbolResponse::Nested(symbols)))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+
+        // Get document state
+        let (content, local_words, included_words) = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                (
+                    state.content.clone(),
+                    state.local_words.clone(),
+                    state.included_words.clone(),
+                )
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let mut hints = Vec::new();
+
+        // Process lines in the visible range
+        for (line_num, line) in content.lines().enumerate() {
+            let line_num = line_num as u32;
+            if line_num < range.start.line || line_num > range.end.line {
+                continue;
+            }
+
+            // Skip comments and include lines
+            let trimmed = line.trim();
+            if trimmed.starts_with('\\') || trimmed.starts_with("include ") {
+                continue;
+            }
+
+            // Find word calls in this line and add inlay hints
+            for hint in find_word_calls_in_line(line, line_num, &local_words, &included_words) {
+                hints.push(hint);
+            }
+        }
+
+        Ok(Some(hints))
+    }
+}
+
+/// Find word calls in a line and return inlay hints for their signatures
+fn find_word_calls_in_line(
+    line: &str,
+    line_num: u32,
+    local_words: &[includes::LocalWord],
+    included_words: &[includes::IncludedWord],
+) -> Vec<InlayHint> {
+    let mut hints = Vec::new();
+
+    // Skip if this is a word definition line (starts with ":")
+    if line.trim().starts_with(':') {
+        return hints;
+    }
+
+    // Skip strings when looking for words
+    let is_word_char = |c: char| c.is_alphanumeric() || "-_>?!<+=*/:".contains(c);
+
+    let mut in_string = false;
+    let mut word_start: Option<usize> = None;
+
+    for (i, c) in line.char_indices() {
+        if c == '"' {
+            in_string = !in_string;
+            continue;
+        }
+
+        if in_string {
+            continue;
+        }
+
+        if is_word_char(c) {
+            if word_start.is_none() {
+                word_start = Some(i);
+            }
+        } else if let Some(start) = word_start {
+            let word = &line[start..i];
+            if let Some(hint) =
+                make_inlay_hint_for_word(word, line_num, i as u32, local_words, included_words)
+            {
+                hints.push(hint);
+            }
+            word_start = None;
+        }
+    }
+
+    // Handle word at end of line
+    if let Some(start) = word_start {
+        let word = &line[start..];
+        if let Some(hint) = make_inlay_hint_for_word(
+            word,
+            line_num,
+            line.len() as u32,
+            local_words,
+            included_words,
+        ) {
+            hints.push(hint);
+        }
+    }
+
+    hints
+}
+
+/// Create an inlay hint for a word if it has a known signature
+fn make_inlay_hint_for_word(
+    word: &str,
+    line: u32,
+    end_col: u32,
+    local_words: &[includes::LocalWord],
+    included_words: &[includes::IncludedWord],
+) -> Option<InlayHint> {
+    // Skip common control flow and simple words that would be noisy
+    let skip_words = [
+        "if", "else", "then", "do", "loop", "begin", "until", "while", "dup", "drop", "swap",
+        "over", "rot", "nip", "tuck", "pick", "+", "-", "*", "/", "=", "<", ">", "<=", ">=", "<>",
+        "and", "or", "not", "true", "false",
+    ];
+    if skip_words.contains(&word) {
+        return None;
+    }
+
+    // Look up in local words
+    for local in local_words {
+        if local.name == word
+            && let Some(ref effect) = local.effect
+        {
+            let effect_str = completion::format_effect(effect);
+            return Some(InlayHint {
+                position: Position {
+                    line,
+                    character: end_col,
+                },
+                label: InlayHintLabel::String(format!(": {}", effect_str)),
+                kind: Some(InlayHintKind::TYPE),
+                text_edits: None,
+                tooltip: None,
+                padding_left: Some(false),
+                padding_right: Some(true),
+                data: None,
+            });
+        }
+    }
+
+    // Look up in included words
+    for included in included_words {
+        if included.name == word
+            && let Some(ref effect) = included.effect
+        {
+            let effect_str = completion::format_effect(effect);
+            return Some(InlayHint {
+                position: Position {
+                    line,
+                    character: end_col,
+                },
+                label: InlayHintLabel::String(format!(": {}", effect_str)),
+                kind: Some(InlayHintKind::TYPE),
+                text_edits: None,
+                tooltip: None,
+                padding_left: Some(false),
+                padding_right: Some(true),
+                data: None,
+            });
+        }
+    }
+
+    // Look up in builtins
+    for (name, effect) in seqc::builtins::builtin_signatures() {
+        if name == word {
+            let effect_str = completion::format_effect(&effect);
+            return Some(InlayHint {
+                position: Position {
+                    line,
+                    character: end_col,
+                },
+                label: InlayHintLabel::String(format!(": {}", effect_str)),
+                kind: Some(InlayHintKind::TYPE),
+                text_edits: None,
+                tooltip: None,
+                padding_left: Some(false),
+                padding_right: Some(true),
+                data: None,
+            });
+        }
+    }
+
+    None
+}
+
+/// Get the word at a given position in the document
+fn get_word_at_position(content: &str, position: Position) -> Option<String> {
+    let line = content.lines().nth(position.line as usize)?;
+    let col = position.character as usize;
+
+    // Find word boundaries - Seq words can contain special chars like -, >, ?, !
+    let is_word_char = |c: char| c.is_alphanumeric() || "-_>?!<+=*/:".contains(c);
+
+    // Find start of word
+    let start = line[..col.min(line.len())]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !is_word_char(*c))
+        .map(|(i, _)| i + 1)
+        .unwrap_or(0);
+
+    // Find end of word
+    let end = line[col.min(line.len())..]
+        .char_indices()
+        .find(|(_, c)| !is_word_char(*c))
+        .map(|(i, _)| col + i)
+        .unwrap_or(line.len());
+
+    if start >= end {
+        return None;
+    }
+
+    Some(line[start..end].to_string())
+}
+
+/// Look up a word and return hover information
+fn lookup_word_hover(
+    word: &str,
+    local_words: &[includes::LocalWord],
+    included_words: &[includes::IncludedWord],
+) -> Option<Hover> {
+    use tower_lsp::lsp_types::{HoverContents, MarkupContent, MarkupKind};
+
+    // Check local words first
+    for local in local_words {
+        if local.name == word {
+            let effect = local
+                .effect
+                .as_ref()
+                .map(completion::format_effect)
+                .unwrap_or_else(|| "( ? )".to_string());
+
+            return Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!(
+                        "```seq\n: {} {}\n```\n\n*Defined in this file*",
+                        word, effect
+                    ),
+                }),
+                range: None,
+            });
+        }
+    }
+
+    // Check included words
+    for included in included_words {
+        if included.name == word {
+            let effect = included
+                .effect
+                .as_ref()
+                .map(completion::format_effect)
+                .unwrap_or_else(|| "( ? )".to_string());
+
+            return Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!(
+                        "```seq\n: {} {}\n```\n\n*From {}*",
+                        word, effect, included.source
+                    ),
+                }),
+                range: None,
+            });
+        }
+    }
+
+    // Check builtins
+    for (name, effect) in seqc::builtins::builtin_signatures() {
+        if name == word {
+            let signature = completion::format_effect(&effect);
+            return Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!("```seq\n{} {}\n```\n\n*Built-in*", word, signature),
+                }),
+                range: None,
+            });
+        }
+    }
+
+    None
 }
 
 #[tokio::main]

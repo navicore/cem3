@@ -11,8 +11,36 @@
 use crate::ast::{Include, Program, Statement, WordDef};
 use crate::types::{Effect, StackType, Type};
 
+/// A token with source position information
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub text: String,
+    /// Line number (0-indexed for LSP compatibility)
+    pub line: usize,
+    /// Column number (0-indexed)
+    pub column: usize,
+}
+
+impl Token {
+    fn new(text: String, line: usize, column: usize) -> Self {
+        Token { text, line, column }
+    }
+}
+
+impl PartialEq<&str> for Token {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
+impl PartialEq<str> for Token {
+    fn eq(&self, other: &str) -> bool {
+        self.text == other
+    }
+}
+
 pub struct Parser {
-    tokens: Vec<String>,
+    tokens: Vec<Token>,
     pos: usize,
     /// Counter for assigning unique IDs to quotations
     /// Used by the typechecker to track inferred types
@@ -95,6 +123,9 @@ impl Parser {
     }
 
     fn parse_word_def(&mut self) -> Result<WordDef, String> {
+        // Capture start line from ':' token
+        let start_line = self.current_token().map(|t| t.line).unwrap_or(0);
+
         // Expect ':'
         if !self.consume(":") {
             return Err(format!(
@@ -132,6 +163,9 @@ impl Parser {
             body.push(self.parse_statement()?);
         }
 
+        // Capture end line from ';' token before consuming
+        let end_line = self.current_token().map(|t| t.line).unwrap_or(start_line);
+
         // Consume ';'
         self.consume(";");
 
@@ -139,7 +173,11 @@ impl Parser {
             name,
             effect,
             body,
-            source: None,
+            source: Some(crate::ast::SourceLocation::span(
+                std::path::PathBuf::new(),
+                start_line,
+                end_line,
+            )),
         })
     }
 
@@ -522,21 +560,32 @@ impl Parser {
         }
     }
 
+    /// Get the text of the current token
     fn current(&self) -> &str {
         if self.is_at_end() {
             ""
         } else {
-            &self.tokens[self.pos]
+            &self.tokens[self.pos].text
         }
     }
 
+    /// Get the full current token with position info
+    fn current_token(&self) -> Option<&Token> {
+        if self.is_at_end() {
+            None
+        } else {
+            Some(&self.tokens[self.pos])
+        }
+    }
+
+    /// Advance and return the token text (for compatibility with existing code)
     fn advance(&mut self) -> Option<&String> {
         if self.is_at_end() {
             None
         } else {
             let token = &self.tokens[self.pos];
             self.pos += 1;
-            Some(token)
+            Some(&token.text)
         }
     }
 
@@ -608,11 +657,17 @@ fn unescape_string(s: &str) -> Result<String, String> {
     Ok(result)
 }
 
-fn tokenize(source: &str) -> Vec<String> {
+fn tokenize(source: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut current = String::new();
+    let mut current_start_line = 0;
+    let mut current_start_col = 0;
     let mut in_string = false;
     let mut prev_was_backslash = false;
+
+    // Track current position (0-indexed)
+    let mut line = 0;
+    let mut col = 0;
 
     for ch in source.chars() {
         if in_string {
@@ -620,7 +675,11 @@ fn tokenize(source: &str) -> Vec<String> {
             if ch == '"' && !prev_was_backslash {
                 // Unescaped quote ends the string
                 in_string = false;
-                tokens.push(current.clone());
+                tokens.push(Token::new(
+                    current.clone(),
+                    current_start_line,
+                    current_start_col,
+                ));
                 current.clear();
                 prev_was_backslash = false;
             } else if ch == '\\' && !prev_was_backslash {
@@ -630,31 +689,63 @@ fn tokenize(source: &str) -> Vec<String> {
                 // Regular character or escaped character
                 prev_was_backslash = false;
             }
+            // Track newlines inside strings
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
         } else if ch == '"' {
             if !current.is_empty() {
-                tokens.push(current.clone());
+                tokens.push(Token::new(
+                    current.clone(),
+                    current_start_line,
+                    current_start_col,
+                ));
                 current.clear();
             }
             in_string = true;
+            current_start_line = line;
+            current_start_col = col;
             current.push(ch);
             prev_was_backslash = false;
+            col += 1;
         } else if ch.is_whitespace() {
             if !current.is_empty() {
-                tokens.push(current.clone());
+                tokens.push(Token::new(
+                    current.clone(),
+                    current_start_line,
+                    current_start_col,
+                ));
                 current.clear();
             }
             // Preserve newlines for comment handling
             if ch == '\n' {
-                tokens.push("\n".to_string());
+                tokens.push(Token::new("\n".to_string(), line, col));
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
             }
         } else if "():;[]".contains(ch) {
             if !current.is_empty() {
-                tokens.push(current.clone());
+                tokens.push(Token::new(
+                    current.clone(),
+                    current_start_line,
+                    current_start_col,
+                ));
                 current.clear();
             }
-            tokens.push(ch.to_string());
+            tokens.push(Token::new(ch.to_string(), line, col));
+            col += 1;
         } else {
+            if current.is_empty() {
+                current_start_line = line;
+                current_start_col = col;
+            }
             current.push(ch);
+            col += 1;
         }
     }
 
@@ -662,9 +753,13 @@ fn tokenize(source: &str) -> Vec<String> {
     if in_string {
         // Return error by adding a special error token
         // The parser will handle this as a parse error
-        tokens.push("<<<UNCLOSED_STRING>>>".to_string());
+        tokens.push(Token::new(
+            "<<<UNCLOSED_STRING>>>".to_string(),
+            current_start_line,
+            current_start_col,
+        ));
     } else if !current.is_empty() {
-        tokens.push(current);
+        tokens.push(Token::new(current, current_start_line, current_start_col));
     }
 
     tokens

@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::env;
+use std::path::PathBuf;
+use std::sync::RwLock;
+
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -8,9 +13,6 @@ mod diagnostics;
 mod includes;
 
 use includes::{IncludedWord, LocalWord};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::RwLock;
 
 /// State for a single document
 struct DocumentState {
@@ -268,6 +270,13 @@ impl LanguageServer for SeqLanguageServer {
 
 #[tokio::main]
 async fn main() {
+    // Handle --version flag
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("seq-lsp {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     // Set up logging
     tracing_subscriber::fmt()
         .with_env_filter(

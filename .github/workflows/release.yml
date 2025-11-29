@@ -32,7 +32,10 @@ jobs:
           CURRENT_VERSION=$(grep -A5 '\[workspace.package\]' Cargo.toml | grep '^version' | cut -d'"' -f2)
 
           if [ "$CURRENT_VERSION" != "${{ steps.version.outputs.version }}" ]; then
-            sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' Cargo.toml
+            # Update only the version in [workspace.package] section
+            # Find line number of [workspace.package], then update the next version line
+            LINE=$(grep -n '\[workspace.package\]' Cargo.toml | cut -d: -f1)
+            sed -i "$((LINE+1))s/version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
 
             cargo update -w
 

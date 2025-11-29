@@ -82,3 +82,13 @@ jobs:
         run: cargo publish -p seq-lsp --token ${{ secrets.CRATES_IO_TOKEN }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Build runtime library
+        run: cargo build --release -p seq-runtime
+
+      - name: Upload runtime library to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/release/libseq_runtime.a
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}

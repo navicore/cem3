@@ -18,6 +18,7 @@
 //! - Stack type is represented as `ptr` (opaque pointer in modern LLVM)
 
 use crate::ast::{Program, Statement, WordDef};
+use crate::config::CompilerConfig;
 use crate::types::Type;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -73,6 +74,7 @@ pub struct CodeGen {
     string_constants: HashMap<String, String>, // string content -> global name
     quotation_functions: String, // Accumulates generated quotation functions
     type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
+    external_builtins: HashMap<String, String>, // seq_name -> symbol (for external builtins)
 }
 
 impl CodeGen {
@@ -87,6 +89,7 @@ impl CodeGen {
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
             type_map: HashMap::new(),
+            external_builtins: HashMap::new(),
         }
     }
 
@@ -167,8 +170,28 @@ impl CodeGen {
         program: &Program,
         type_map: HashMap<usize, Type>,
     ) -> Result<String, String> {
+        self.codegen_program_with_config(program, type_map, &CompilerConfig::default())
+    }
+
+    /// Generate LLVM IR for entire program with custom configuration
+    ///
+    /// This allows external projects to extend the compiler with additional
+    /// builtins that will be declared and callable from Seq code.
+    pub fn codegen_program_with_config(
+        &mut self,
+        program: &Program,
+        type_map: HashMap<usize, Type>,
+        config: &CompilerConfig,
+    ) -> Result<String, String> {
         // Store type map for use during code generation
         self.type_map = type_map;
+
+        // Build external builtins map from config
+        self.external_builtins = config
+            .external_builtins
+            .iter()
+            .map(|b| (b.seq_name.clone(), b.symbol.clone()))
+            .collect();
 
         // Verify we have a main word
         if program.find_word("main").is_none() {
@@ -365,6 +388,16 @@ impl CodeGen {
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
         writeln!(&mut ir).unwrap();
+
+        // External builtin declarations (from config)
+        if !self.external_builtins.is_empty() {
+            writeln!(&mut ir, "; External builtin declarations").unwrap();
+            for symbol in self.external_builtins.values() {
+                // All external builtins follow the standard stack convention: ptr -> ptr
+                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol).unwrap();
+            }
+            writeln!(&mut ir).unwrap();
+        }
 
         // Quotation functions (generated from quotation literals)
         if !self.quotation_functions.is_empty() {
@@ -805,9 +838,18 @@ impl CodeGen {
                     "float->int" => "patch_seq_float_to_int".to_string(),
                     "float->string" => "patch_seq_float_to_string".to_string(),
                     "string->float" => "patch_seq_string_to_float".to_string(),
-                    // User-defined word (prefix to avoid C symbol conflicts)
-                    // Also mangle special characters for LLVM IR compatibility
-                    _ => format!("seq_{}", mangle_name(name)),
+                    // Check for external builtins (from config)
+                    // Then fall through to user-defined words
+                    _ => {
+                        if let Some(symbol) = self.external_builtins.get(name) {
+                            // External builtin from config
+                            symbol.clone()
+                        } else {
+                            // User-defined word (prefix to avoid C symbol conflicts)
+                            // Also mangle special characters for LLVM IR compatibility
+                            format!("seq_{}", mangle_name(name))
+                        }
+                    }
                 };
                 writeln!(
                     &mut self.output,
@@ -1110,5 +1152,147 @@ mod tests {
         assert_eq!(CodeGen::escape_llvm_string("a\nb"), r"a\0Ab");
         assert_eq!(CodeGen::escape_llvm_string("a\tb"), r"a\09b");
         assert_eq!(CodeGen::escape_llvm_string("a\"b"), r"a\22b");
+    }
+
+    #[test]
+    fn test_external_builtins_declared() {
+        use crate::config::{CompilerConfig, ExternalBuiltin};
+
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::IntLiteral(42),
+                    Statement::WordCall("my-external-op".to_string()),
+                ],
+                source: None,
+            }],
+        };
+
+        let config = CompilerConfig::new()
+            .with_builtin(ExternalBuiltin::new("my-external-op", "test_runtime_my_op"));
+
+        let ir = codegen
+            .codegen_program_with_config(&program, HashMap::new(), &config)
+            .unwrap();
+
+        // Should declare the external builtin
+        assert!(
+            ir.contains("declare ptr @test_runtime_my_op(ptr)"),
+            "IR should declare external builtin"
+        );
+
+        // Should call the external builtin
+        assert!(
+            ir.contains("call ptr @test_runtime_my_op"),
+            "IR should call external builtin"
+        );
+    }
+
+    #[test]
+    fn test_multiple_external_builtins() {
+        use crate::config::{CompilerConfig, ExternalBuiltin};
+
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::WordCall("actor-self".to_string()),
+                    Statement::WordCall("journal-append".to_string()),
+                ],
+                source: None,
+            }],
+        };
+
+        let config = CompilerConfig::new()
+            .with_builtin(ExternalBuiltin::new("actor-self", "seq_actors_self"))
+            .with_builtin(ExternalBuiltin::new(
+                "journal-append",
+                "seq_actors_journal_append",
+            ));
+
+        let ir = codegen
+            .codegen_program_with_config(&program, HashMap::new(), &config)
+            .unwrap();
+
+        // Should declare both external builtins
+        assert!(ir.contains("declare ptr @seq_actors_self(ptr)"));
+        assert!(ir.contains("declare ptr @seq_actors_journal_append(ptr)"));
+
+        // Should call both
+        assert!(ir.contains("call ptr @seq_actors_self"));
+        assert!(ir.contains("call ptr @seq_actors_journal_append"));
+    }
+
+    #[test]
+    fn test_external_builtins_with_library_paths() {
+        use crate::config::{CompilerConfig, ExternalBuiltin};
+
+        let config = CompilerConfig::new()
+            .with_builtin(ExternalBuiltin::new("my-op", "runtime_my_op"))
+            .with_library_path("/custom/lib")
+            .with_library("myruntime");
+
+        assert_eq!(config.external_builtins.len(), 1);
+        assert_eq!(config.library_paths, vec!["/custom/lib"]);
+        assert_eq!(config.libraries, vec!["myruntime"]);
+    }
+
+    #[test]
+    fn test_external_builtin_full_pipeline() {
+        // Test that external builtins work through the full compile pipeline
+        // including parser, AST validation, type checker, and codegen
+        use crate::compile_to_ir_with_config;
+        use crate::config::{CompilerConfig, ExternalBuiltin};
+
+        let source = r#"
+            : main ( -- Int )
+              42 my-transform
+              0
+            ;
+        "#;
+
+        let config = CompilerConfig::new().with_builtin(ExternalBuiltin::new(
+            "my-transform",
+            "ext_runtime_transform",
+        ));
+
+        // This should succeed - the external builtin is registered
+        let result = compile_to_ir_with_config(source, &config);
+        assert!(
+            result.is_ok(),
+            "Compilation should succeed: {:?}",
+            result.err()
+        );
+
+        let ir = result.unwrap();
+        assert!(ir.contains("declare ptr @ext_runtime_transform(ptr)"));
+        assert!(ir.contains("call ptr @ext_runtime_transform"));
+    }
+
+    #[test]
+    fn test_external_builtin_without_config_fails() {
+        // Test that using an external builtin without config fails validation
+        use crate::compile_to_ir;
+
+        let source = r#"
+            : main ( -- Int )
+              42 unknown-builtin
+              0
+            ;
+        "#;
+
+        // This should fail - unknown-builtin is not registered
+        let result = compile_to_ir(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unknown-builtin"));
     }
 }

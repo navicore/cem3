@@ -94,6 +94,17 @@ pub fn compile_file_with_config(
 
     // Type check (validates stack effects, especially for conditionals)
     let mut type_checker = TypeChecker::new();
+
+    // Register external builtins with the type checker
+    if !config.external_builtins.is_empty() {
+        let external_effects: Vec<(&str, Option<&types::Effect>)> = config
+            .external_builtins
+            .iter()
+            .map(|b| (b.seq_name.as_str(), b.effect.as_ref()))
+            .collect();
+        type_checker.register_external_words(&external_effects);
+    }
+
     type_checker.check_program(&program)?;
 
     // Extract inferred quotation types (in DFS traversal order)
@@ -170,6 +181,17 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
     program.validate_word_calls_with_externals(&external_names)?;
 
     let mut type_checker = TypeChecker::new();
+
+    // Register external builtins with the type checker
+    if !config.external_builtins.is_empty() {
+        let external_effects: Vec<(&str, Option<&types::Effect>)> = config
+            .external_builtins
+            .iter()
+            .map(|b| (b.seq_name.as_str(), b.effect.as_ref()))
+            .collect();
+        type_checker.register_external_words(&external_effects);
+    }
+
     type_checker.check_program(&program)?;
 
     let quotation_types = type_checker.take_quotation_types();

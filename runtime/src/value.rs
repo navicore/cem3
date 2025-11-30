@@ -1,4 +1,51 @@
 use crate::seqstring::SeqString;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+
+/// MapKey: Hashable subset of Value for use as map keys
+///
+/// Only types that can be meaningfully hashed are allowed as map keys:
+/// Int, String, Bool. Float is excluded due to NaN equality issues.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MapKey {
+    Int(i64),
+    String(SeqString),
+    Bool(bool),
+}
+
+impl Hash for MapKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Discriminant for type safety
+        std::mem::discriminant(self).hash(state);
+        match self {
+            MapKey::Int(n) => n.hash(state),
+            MapKey::String(s) => s.as_str().hash(state),
+            MapKey::Bool(b) => b.hash(state),
+        }
+    }
+}
+
+impl MapKey {
+    /// Try to convert a Value to a MapKey
+    /// Returns None for non-hashable types (Float, Variant, Quotation, Closure, Map)
+    pub fn from_value(value: &Value) -> Option<MapKey> {
+        match value {
+            Value::Int(n) => Some(MapKey::Int(*n)),
+            Value::String(s) => Some(MapKey::String(s.clone())),
+            Value::Bool(b) => Some(MapKey::Bool(*b)),
+            _ => None,
+        }
+    }
+
+    /// Convert MapKey back to Value
+    pub fn to_value(&self) -> Value {
+        match self {
+            MapKey::Int(n) => Value::Int(*n),
+            MapKey::String(s) => Value::String(s.clone()),
+            MapKey::Bool(b) => Value::Bool(*b),
+        }
+    }
+}
 
 /// Value: What the language talks about
 ///
@@ -21,6 +68,10 @@ pub enum Value {
 
     /// Variant (sum type with tagged fields)
     Variant(Box<VariantData>),
+
+    /// Map (key-value dictionary with O(1) lookup)
+    /// Keys must be hashable types (Int, String, Bool)
+    Map(Box<HashMap<MapKey, Value>>),
 
     /// Quotation (stateless function pointer stored as usize for Send safety)
     /// No captured environment - backward compatible

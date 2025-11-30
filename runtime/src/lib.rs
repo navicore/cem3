@@ -15,6 +15,7 @@ pub mod file;
 pub mod float_ops;
 pub mod io;
 pub mod list_ops;
+pub mod map_ops;
 pub mod pool;
 pub mod quotations;
 pub mod scheduler;
@@ -33,7 +34,7 @@ pub use stack::{
     patch_seq_push_value as push_value, patch_seq_rot as rot, patch_seq_swap as swap,
     patch_seq_tuck as tuck, peek, pick, pop, push,
 };
-pub use value::{Value, VariantData};
+pub use value::{MapKey, Value, VariantData};
 
 // Arithmetic operations (exported for LLVM linking)
 pub use arithmetic::{
@@ -131,4 +132,13 @@ pub use list_ops::{
     patch_seq_list_each as list_each, patch_seq_list_empty as list_empty,
     patch_seq_list_filter as list_filter, patch_seq_list_fold as list_fold,
     patch_seq_list_length as list_length, patch_seq_list_map as list_map,
+};
+
+// Map operations (exported for LLVM linking)
+pub use map_ops::{
+    patch_seq_make_map as make_map, patch_seq_map_empty as map_empty, patch_seq_map_get as map_get,
+    patch_seq_map_get_safe as map_get_safe, patch_seq_map_has as map_has,
+    patch_seq_map_keys as map_keys, patch_seq_map_remove as map_remove,
+    patch_seq_map_set as map_set, patch_seq_map_size as map_size,
+    patch_seq_map_values as map_values,
 };

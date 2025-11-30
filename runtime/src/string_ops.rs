@@ -464,8 +464,9 @@ pub unsafe extern "C" fn patch_seq_json_escape(stack: Stack) -> Stack {
                     '\x08' => result.push_str("\\b"), // backspace
                     '\x0C' => result.push_str("\\f"), // form feed
                     // Control characters (0x00-0x1F except those handled above)
+                    // RFC 8259 uses uppercase hex in examples for Unicode escapes
                     c if c.is_control() => {
-                        result.push_str(&format!("\\u{:04x}", c as u32));
+                        result.push_str(&format!("\\u{:04X}", c as u32));
                     }
                     c => result.push(c),
                 }
@@ -1294,13 +1295,36 @@ mod tests {
     fn test_json_escape_unicode_control() {
         unsafe {
             let stack = std::ptr::null_mut();
-            // Test null character (0x00) - should be escaped as \u0000
+            // Test null character (0x00) - should be escaped as \u0000 (uppercase hex per RFC 8259)
             let stack = push(stack, Value::String(global_string("a\x00b".to_owned())));
 
             let stack = json_escape(stack);
 
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::String(global_string("a\\u0000b".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_mixed_special_chars() {
+        // Test combination of multiple special characters
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("Line 1\nLine \"2\"\ttab\r\n".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string(
+                    "Line 1\\nLine \\\"2\\\"\\ttab\\r\\n".to_owned()
+                ))
+            );
             assert!(stack.is_null());
         }
     }

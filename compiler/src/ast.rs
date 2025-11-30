@@ -165,6 +165,7 @@ impl Program {
             "arg",
             // File operations
             "file-slurp",
+            "file-slurp-safe",
             "file-exists?",
             // String operations
             "string-concat",

@@ -62,6 +62,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // file-slurp-safe: ( ..a String -- ..a String Int )
+    // Reads entire file, returns (contents 1) on success or ("" 0) on failure
+    sigs.insert(
+        "file-slurp-safe".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
     // file-exists?: ( ..a String -- ..a Int ) returns 1 if file exists, 0 otherwise
     sigs.insert(
         "file-exists?".to_string(),

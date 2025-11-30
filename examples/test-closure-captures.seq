@@ -21,7 +21,7 @@
 ;
 
 : use-float ( Float -- )
-  3.14 f.> if "PASS: captured float > 3.14" write_line else "FAIL: captured float" write_line then
+  1.0 f.> if "PASS: captured float > 1.0" write_line else "FAIL: captured float" write_line then
 ;
 
 : use-quotation ( [Int -- Int] -- )
@@ -51,7 +51,7 @@
 # Test Float capture
 : test-float-capture ( -- )
   "Testing Float capture..." write_line
-  3.14159 [ use-float ] call
+  1.234 [ use-float ] call
 ;
 
 # Test Quotation capture

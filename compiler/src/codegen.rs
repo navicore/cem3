@@ -248,9 +248,21 @@ impl CodeGen {
         writeln!(&mut ir, "declare void @patch_seq_env_set(ptr, i32, %Value)").unwrap();
         writeln!(&mut ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)").unwrap();
-        writeln!(&mut ir, "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)").unwrap();
-        writeln!(&mut ir, "declare double @patch_seq_env_get_float(ptr, i64, i32)").unwrap();
-        writeln!(&mut ir, "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)").unwrap();
+        writeln!(
+            &mut ir,
+            "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(
+            &mut ir,
+            "declare double @patch_seq_env_get_float(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(
+            &mut ir,
+            "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)"
+        )
+        .unwrap();
         writeln!(
             &mut ir,
             "declare ptr @patch_seq_env_get_string(ptr, i64, i32)"

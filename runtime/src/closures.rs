@@ -269,7 +269,13 @@ pub unsafe extern "C" fn patch_seq_env_get_bool(
     let value = unsafe { &*env_data.add(idx) };
 
     match value {
-        Value::Bool(b) => if *b { 1 } else { 0 },
+        Value::Bool(b) => {
+            if *b {
+                1
+            } else {
+                0
+            }
+        }
         _ => panic!(
             "env_get_bool: expected Bool at index {}, got {:?}",
             index, value
@@ -605,15 +611,15 @@ mod tests {
         let env = create_env(2);
 
         unsafe {
-            env_set(env, 0, Value::Float(3.14159));
-            env_set(env, 1, Value::Float(-2.5));
+            env_set(env, 0, Value::Float(1.234));
+            env_set(env, 1, Value::Float(-5.678));
 
             let env_slice = &*env;
             let env_data = env_slice.as_ptr();
             let env_len = env_slice.len();
 
-            assert!((env_get_float(env_data, env_len, 0) - 3.14159).abs() < 0.0001);
-            assert!((env_get_float(env_data, env_len, 1) - (-2.5)).abs() < 0.0001);
+            assert!((env_get_float(env_data, env_len, 0) - 1.234).abs() < 0.0001);
+            assert!((env_get_float(env_data, env_len, 1) - (-5.678)).abs() < 0.0001);
 
             let _ = Box::from_raw(env);
         }

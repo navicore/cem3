@@ -295,6 +295,13 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_file_slurp_safe(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
+        writeln!(&mut ir, "; List operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_list_map(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_list_filter(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_list_fold(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_list_each(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_list_length(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_list_empty(ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
@@ -744,6 +751,13 @@ impl CodeGen {
                     "file-slurp" => "patch_seq_file_slurp".to_string(),
                     "file-slurp-safe" => "patch_seq_file_slurp_safe".to_string(),
                     "file-exists?" => "patch_seq_file_exists".to_string(),
+                    // List operations (hyphen → underscore for C compatibility)
+                    "list-map" => "patch_seq_list_map".to_string(),
+                    "list-filter" => "patch_seq_list_filter".to_string(),
+                    "list-fold" => "patch_seq_list_fold".to_string(),
+                    "list-each" => "patch_seq_list_each".to_string(),
+                    "list-length" => "patch_seq_list_length".to_string(),
+                    "list-empty?" => "patch_seq_list_empty".to_string(),
                     // Variant operations (hyphen → underscore for C compatibility)
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),

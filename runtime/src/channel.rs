@@ -8,15 +8,21 @@
 //! All channel operations (`send`, `receive`) cooperatively block using May's scheduler.
 //! They NEVER block OS threads - May handles scheduling other strands while waiting.
 //!
-//! ## Panic Behavior
+//! ## Error Handling
 //!
-//! Channel operations panic on:
-//! - Invalid channel IDs (negative or non-existent)
-//! - Closed channels
-//! - Empty stacks or type mismatches
+//! Two variants are available for send/receive:
 //!
-//! This is intentional for the current implementation. Future versions may use
-//! Result-based error handling or error channels for more graceful degradation.
+//! - `send` / `receive` - Panic on errors (closed channel, invalid ID)
+//! - `send-safe` / `receive-safe` - Return success flag instead of panicking
+//!
+//! The safe variants enable graceful shutdown patterns:
+//! ```seq
+//! value channel-id send-safe if
+//!   # sent successfully
+//! else
+//!   # channel closed, handle gracefully
+//! then
+//! ```
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
@@ -257,9 +263,152 @@ pub unsafe extern "C" fn patch_seq_close_channel(stack: Stack) -> Stack {
     rest
 }
 
+/// Send a value through a channel, with error handling
+///
+/// Stack effect: ( value channel_id -- success_flag )
+///
+/// Returns 1 on success, 0 on failure (closed channel or invalid ID).
+/// Does not panic on errors - returns 0 instead.
+///
+/// # Safety
+/// Stack must have a channel ID (Int) on top and a value below it
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "send-safe: stack is empty");
+
+    // Pop channel ID
+    let (stack, channel_id_value) = unsafe { pop(stack) };
+    let channel_id = match channel_id_value {
+        Value::Int(id) => {
+            if id < 0 {
+                // Invalid channel ID - consume value and return failure
+                if !stack.is_null() {
+                    let (rest, _value) = unsafe { pop(stack) };
+                    return unsafe { push(rest, Value::Int(0)) };
+                }
+                return unsafe { push(stack, Value::Int(0)) };
+            }
+            id as u64
+        }
+        _ => panic!("send-safe: expected channel ID (Int) on stack"),
+    };
+
+    if stack.is_null() {
+        // No value to send - return failure
+        return unsafe { push(stack, Value::Int(0)) };
+    }
+
+    // Pop value to send
+    let (rest, value) = unsafe { pop(stack) };
+
+    // Get sender from registry
+    let sender = {
+        let guard = match CHANNEL_REGISTRY.lock() {
+            Ok(g) => g,
+            Err(_) => return unsafe { push(rest, Value::Int(0)) },
+        };
+
+        let registry = match guard.as_ref() {
+            Some(r) => r,
+            None => return unsafe { push(rest, Value::Int(0)) },
+        };
+
+        match registry.get(&channel_id) {
+            Some(p) => p.sender.clone(),
+            None => return unsafe { push(rest, Value::Int(0)) },
+        }
+    };
+
+    // Clone the value before sending to ensure arena strings are promoted to global
+    let global_value = value.clone();
+
+    // Send the value
+    match sender.send(global_value) {
+        Ok(()) => unsafe { push(rest, Value::Int(1)) },
+        Err(_) => unsafe { push(rest, Value::Int(0)) },
+    }
+}
+
+/// Receive a value from a channel, with error handling
+///
+/// Stack effect: ( channel_id -- value success_flag )
+///
+/// Returns (value, 1) on success, (0, 0) on failure (closed channel or invalid ID).
+/// Does not panic on errors - returns (0, 0) instead.
+///
+/// # Safety
+/// Stack must have a channel ID (Int) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "receive-safe: stack is empty");
+
+    // Pop channel ID
+    let (rest, channel_id_value) = unsafe { pop(stack) };
+    let channel_id = match channel_id_value {
+        Value::Int(id) => {
+            if id < 0 {
+                // Invalid channel ID - return failure
+                let stack = unsafe { push(rest, Value::Int(0)) };
+                return unsafe { push(stack, Value::Int(0)) };
+            }
+            id as u64
+        }
+        _ => panic!("receive-safe: expected channel ID (Int) on stack"),
+    };
+
+    // Get receiver Arc from registry
+    let receiver_arc = {
+        let guard = match CHANNEL_REGISTRY.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                let stack = unsafe { push(rest, Value::Int(0)) };
+                return unsafe { push(stack, Value::Int(0)) };
+            }
+        };
+
+        let registry = match guard.as_ref() {
+            Some(r) => r,
+            None => {
+                let stack = unsafe { push(rest, Value::Int(0)) };
+                return unsafe { push(stack, Value::Int(0)) };
+            }
+        };
+
+        match registry.get(&channel_id) {
+            Some(p) => Arc::clone(&p.receiver),
+            None => {
+                let stack = unsafe { push(rest, Value::Int(0)) };
+                return unsafe { push(stack, Value::Int(0)) };
+            }
+        }
+    };
+
+    // Receive a value
+    let receiver = match receiver_arc.lock() {
+        Ok(r) => r,
+        Err(_) => {
+            let stack = unsafe { push(rest, Value::Int(0)) };
+            return unsafe { push(stack, Value::Int(0)) };
+        }
+    };
+
+    match receiver.recv() {
+        Ok(value) => {
+            let stack = unsafe { push(rest, value) };
+            unsafe { push(stack, Value::Int(1)) }
+        }
+        Err(_) => {
+            let stack = unsafe { push(rest, Value::Int(0)) };
+            unsafe { push(stack, Value::Int(0)) }
+        }
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_chan_receive as receive;
+pub use patch_seq_chan_receive_safe as receive_safe;
 pub use patch_seq_chan_send as send;
+pub use patch_seq_chan_send_safe as send_safe;
 pub use patch_seq_close_channel as close_channel;
 pub use patch_seq_make_channel as make_channel;
 
@@ -487,4 +636,131 @@ mod tests {
     // Note: Cannot test negative channel ID panics with #[should_panic] because
     // these are extern "C" functions which cannot unwind. The validation is still
     // in place at runtime - see lines 100-102, 157-159, 217-219.
+
+    #[test]
+    fn test_send_safe_success() {
+        unsafe {
+            // Create a channel
+            let mut stack = std::ptr::null_mut();
+            stack = make_channel(stack);
+            let (_, channel_id_value) = pop(stack);
+
+            // Send value using send-safe
+            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            stack = push(stack, channel_id_value.clone());
+            stack = send_safe(stack);
+
+            // Should return success (1)
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(1));
+            assert!(stack.is_null());
+
+            // Receive value to verify it was sent
+            let mut stack = push(std::ptr::null_mut(), channel_id_value);
+            stack = receive(stack);
+            let (_, received) = pop(stack);
+            assert_eq!(received, Value::Int(42));
+        }
+    }
+
+    #[test]
+    fn test_send_safe_invalid_channel() {
+        unsafe {
+            // Try to send to invalid channel ID
+            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            stack = push(stack, Value::Int(999999)); // Non-existent channel
+            stack = send_safe(stack);
+
+            // Should return failure (0)
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_send_safe_negative_channel() {
+        unsafe {
+            // Try to send to negative channel ID
+            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            stack = push(stack, Value::Int(-1));
+            stack = send_safe(stack);
+
+            // Should return failure (0), value consumed per stack effect
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+            assert!(stack.is_null()); // Value was properly consumed
+        }
+    }
+
+    #[test]
+    fn test_receive_safe_success() {
+        unsafe {
+            // Create a channel and send a value
+            let mut stack = std::ptr::null_mut();
+            stack = make_channel(stack);
+            let (_, channel_id_value) = pop(stack);
+
+            // Send value
+            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            stack = push(stack, channel_id_value.clone());
+            let _ = send(stack);
+
+            // Receive using receive-safe
+            let mut stack = push(std::ptr::null_mut(), channel_id_value);
+            stack = receive_safe(stack);
+
+            // Should return (value, 1)
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            assert_eq!(value, Value::Int(42));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_receive_safe_invalid_channel() {
+        unsafe {
+            // Try to receive from invalid channel ID
+            let mut stack = push(std::ptr::null_mut(), Value::Int(999999));
+            stack = receive_safe(stack);
+
+            // Should return (0, 0)
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(0));
+            assert_eq!(value, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_receive_safe_closed_channel() {
+        unsafe {
+            // Create a channel
+            let mut stack = std::ptr::null_mut();
+            stack = make_channel(stack);
+            let (_, channel_id_value) = pop(stack);
+            let channel_id = match &channel_id_value {
+                Value::Int(id) => *id,
+                _ => panic!("Expected Int"),
+            };
+
+            // Close the channel
+            let stack = push(std::ptr::null_mut(), channel_id_value);
+            let _ = close_channel(stack);
+
+            // Try to receive from closed channel
+            let mut stack = push(std::ptr::null_mut(), Value::Int(channel_id));
+            stack = receive_safe(stack);
+
+            // Should return (0, 0)
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(0));
+            assert_eq!(value, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
 }

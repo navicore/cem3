@@ -3,7 +3,7 @@
 claude.md
 **/*.rs.bk
 *.pdb
-
+output
 # LLVM IR output
 *.ll
 *.bc

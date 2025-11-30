@@ -68,7 +68,8 @@ pub use scheduler::{
 
 // Channel operations (exported for LLVM linking)
 pub use channel::{
-    patch_seq_chan_receive as receive, patch_seq_chan_send as send,
+    patch_seq_chan_receive as receive, patch_seq_chan_receive_safe as receive_safe,
+    patch_seq_chan_send as send, patch_seq_chan_send_safe as send_safe,
     patch_seq_close_channel as close_channel, patch_seq_make_channel as make_channel,
 };
 
@@ -119,4 +120,7 @@ pub use args::{
 };
 
 // File operations (exported for LLVM linking)
-pub use file::{patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp};
+pub use file::{
+    patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp,
+    patch_seq_file_slurp_safe as file_slurp_safe,
+};

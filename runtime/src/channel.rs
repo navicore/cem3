@@ -281,7 +281,11 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
     let channel_id = match channel_id_value {
         Value::Int(id) => {
             if id < 0 {
-                // Invalid channel ID - return failure
+                // Invalid channel ID - consume value and return failure
+                if !stack.is_null() {
+                    let (rest, _value) = unsafe { pop(stack) };
+                    return unsafe { push(rest, Value::Int(0)) };
+                }
                 return unsafe { push(stack, Value::Int(0)) };
             }
             id as u64
@@ -682,12 +686,10 @@ mod tests {
             stack = push(stack, Value::Int(-1));
             stack = send_safe(stack);
 
-            // Should return failure (0), value consumed
+            // Should return failure (0), value consumed per stack effect
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            // Value is still on stack since we returned early
-            let (stack, _value) = pop(stack);
-            assert!(stack.is_null());
+            assert!(stack.is_null()); // Value was properly consumed
         }
     }
 

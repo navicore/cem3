@@ -7,6 +7,12 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    // Verify that seq-runtime version matches compiler version
+    verify_runtime_version();
+
+    // Rerun verification if Cargo.toml changes
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // OUT_DIR is something like:
@@ -68,4 +74,59 @@ fn find_runtime_in_deps(deps_dir: &PathBuf) -> Option<PathBuf> {
             None
         }
     })
+}
+
+/// Verify that the seq-runtime version matches the seq-compiler version
+/// by parsing the Cargo.toml files using a proper TOML parser
+fn verify_runtime_version() {
+    let compiler_version = env!("CARGO_PKG_VERSION");
+
+    // Read and parse the compiler's Cargo.toml
+    let cargo_toml_content =
+        fs::read_to_string("Cargo.toml").expect("Failed to read compiler/Cargo.toml");
+
+    let cargo_toml: toml::Value = cargo_toml_content
+        .parse()
+        .expect("Failed to parse Cargo.toml");
+
+    // Extract the seq-runtime version from build-dependencies
+    let runtime_version = cargo_toml
+        .get("build-dependencies")
+        .and_then(|deps| deps.get("seq-runtime"))
+        .and_then(|dep| {
+            // Handle both inline table and string formats
+            match dep {
+                toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str()),
+                toml::Value::String(s) => Some(s.as_str()),
+                _ => None,
+            }
+        })
+        .expect("Could not find seq-runtime version in Cargo.toml");
+
+    // Remove the '=' prefix from exact version requirement
+    let runtime_version = runtime_version.trim_start_matches('=');
+
+    if compiler_version != runtime_version {
+        panic!(
+            "\n\n\
+            ╔══════════════════════════════════════════════════════════════╗\n\
+            ║ VERSION MISMATCH ERROR                                       ║\n\
+            ╠══════════════════════════════════════════════════════════════╣\n\
+            ║ seq-compiler version: {:<39}║\n\
+            ║ seq-runtime version:  {:<39}║\n\
+            ║                                                              ║\n\
+            ║ The embedded runtime MUST match the compiler version.       ║\n\
+            ║ This ensures published crates.io packages are trustworthy.  ║\n\
+            ║                                                              ║\n\
+            ║ Update compiler/Cargo.toml to pin seq-runtime to:           ║\n\
+            ║ version = \"={:<46}║\n\
+            ╚══════════════════════════════════════════════════════════════╝\n",
+            compiler_version, runtime_version, compiler_version
+        );
+    }
+
+    println!(
+        "cargo:warning=✓ Version verified: seq-compiler {} with seq-runtime {}",
+        compiler_version, runtime_version
+    );
 }

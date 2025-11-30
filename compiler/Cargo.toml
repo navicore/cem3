@@ -18,7 +18,7 @@ clap = { version = "4.5", features = ["derive"] }
 
 [build-dependencies]
 # Version must EXACTLY match workspace version - enforced by build.rs and CI
-seq-runtime = { path = "../runtime", version = "=0.4.1" }
+seq-runtime = { path = "../runtime", version = "=0.4.2" }
 toml = "0.8"
 
 [lib]

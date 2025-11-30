@@ -1,0 +1,61 @@
+# Test string->int and int->string conversions
+
+# Helper to print a test result (Int: 0=fail, non-zero=pass)
+: print-result ( Int String -- )
+  swap if
+    " PASS" string-concat write_line
+  else
+    " FAIL" string-concat write_line
+  then
+;
+
+# Test int->string conversion
+: test-int-to-string ( -- )
+  42 int->string "42" string-equal "int->string 42" print-result
+  0 int->string "0" string-equal "int->string 0" print-result
+  0 1 subtract int->string "-1" string-equal "int->string -1" print-result
+;
+
+# Test string->int success cases
+: test-string-to-int-success ( -- )
+  "42" string->int
+  swap 42 = and "string->int 42" print-result
+
+  "-7" string->int
+  swap 0 7 subtract = and "string->int -7" print-result
+
+  "  123  " string->int
+  swap 123 = and "string->int with whitespace" print-result
+
+  "007" string->int
+  swap 7 = and "string->int leading zeros" print-result
+;
+
+# Test string->int failure cases
+: test-string-to-int-failure ( -- )
+  "not-a-number" string->int
+  not swap drop "string->int invalid returns 0" print-result
+
+  "" string->int
+  not swap drop "string->int empty returns 0" print-result
+;
+
+# Round-trip test
+: test-roundtrip ( -- )
+  12345 int->string string->int
+  swap 12345 = and "int->string->int roundtrip" print-result
+;
+
+: main ( -- )
+  "Testing int->string:" write_line
+  test-int-to-string
+
+  "Testing string->int (success):" write_line
+  test-string-to-int-success
+
+  "Testing string->int (failure):" write_line
+  test-string-to-int-failure
+
+  "Testing roundtrip:" write_line
+  test-roundtrip
+;

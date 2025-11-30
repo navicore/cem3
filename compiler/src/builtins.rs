@@ -612,6 +612,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // string->int: ( ..a String -- ..a Int Int )
+    // Parse string to integer, returns value and success flag (1=ok, 0=fail)
+    sigs.insert(
+        "string->int".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+        ),
+    );
+
     // string-byte-length: ( ..a String -- ..a Int )
     // Get byte length (for HTTP Content-Length, buffer allocation)
     sigs.insert(

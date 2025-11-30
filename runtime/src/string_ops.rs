@@ -478,6 +478,34 @@ pub unsafe extern "C" fn patch_seq_json_escape(stack: Stack) -> Stack {
     }
 }
 
+/// Convert String to Int: ( String -- Int Int )
+/// Returns the parsed int and 1 on success, or 0 and 0 on failure.
+/// Accepts integers in range [-9223372036854775808, 9223372036854775807] (i64).
+/// Trims leading/trailing whitespace before parsing.
+/// Leading zeros are accepted (e.g., "007" parses to 7).
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_to_int(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string->int: stack is empty");
+    let (stack, val) = unsafe { pop(stack) };
+
+    match val {
+        Value::String(s) => match s.as_str().trim().parse::<i64>() {
+            Ok(i) => {
+                let stack = unsafe { push(stack, Value::Int(i)) };
+                unsafe { push(stack, Value::Int(1)) }
+            }
+            Err(_) => {
+                let stack = unsafe { push(stack, Value::Int(0)) };
+                unsafe { push(stack, Value::Int(0)) }
+            }
+        },
+        _ => panic!("string->int: expected String on stack"),
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_char_to_string as char_to_string;
 pub use patch_seq_json_escape as json_escape;
@@ -492,6 +520,7 @@ pub use patch_seq_string_length as string_length;
 pub use patch_seq_string_split as string_split;
 pub use patch_seq_string_starts_with as string_starts_with;
 pub use patch_seq_string_substring as string_substring;
+pub use patch_seq_string_to_int as string_to_int;
 pub use patch_seq_string_to_lower as string_to_lower;
 pub use patch_seq_string_to_upper as string_to_upper;
 pub use patch_seq_string_trim as string_trim;
@@ -1360,6 +1389,107 @@ mod tests {
 
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::String(global_string("".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    // string->int tests
+
+    #[test]
+    fn test_string_to_int_success() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("42".to_owned())));
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            assert_eq!(value, Value::Int(42));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_int_negative() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("-99".to_owned())));
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            assert_eq!(value, Value::Int(-99));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_int_with_whitespace() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("  123  ".to_owned())));
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            assert_eq!(value, Value::Int(123));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_int_failure() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("not a number".to_owned())),
+            );
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(0));
+            assert_eq!(value, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_int_empty() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("".to_owned())));
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(0));
+            assert_eq!(value, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_int_leading_zeros() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("007".to_owned())));
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            assert_eq!(value, Value::Int(7));
             assert!(stack.is_null());
         }
     }

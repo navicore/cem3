@@ -796,6 +796,90 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // List operations (higher-order combinators for Variants used as lists)
+    // list-map: ( ..a Variant Quotation -- ..a Variant )
+    // Apply quotation to each element, return new variant with transformed elements
+    sigs.insert(
+        "list-map".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
+                    StackType::RowVar("b".to_string()).push(Type::Var("U".to_string())),
+                )))),
+            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
+        ),
+    );
+
+    // list-filter: ( ..a Variant Quotation -- ..a Variant )
+    // Keep elements where quotation returns non-zero
+    sigs.insert(
+        "list-filter".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
+                    StackType::RowVar("b".to_string()).push(Type::Int),
+                )))),
+            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
+        ),
+    );
+
+    // list-fold: ( ..a Variant init Quotation -- ..a result )
+    // Fold over list with accumulator; quotation has effect ( acc elem -- acc' )
+    sigs.insert(
+        "list-fold".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Var("Acc".to_string()))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("b".to_string())
+                        .push(Type::Var("Acc".to_string()))
+                        .push(Type::Var("T".to_string())),
+                    StackType::RowVar("b".to_string()).push(Type::Var("Acc".to_string())),
+                )))),
+            StackType::RowVar("a".to_string()).push(Type::Var("Acc".to_string())),
+        ),
+    );
+
+    // list-each: ( ..a Variant Quotation -- ..a )
+    // Apply quotation to each element for side effects only
+    sigs.insert(
+        "list-each".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
+                    StackType::RowVar("b".to_string()),
+                )))),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // list-length: ( ..a Variant -- ..a Int )
+    // Get number of elements in list (alias for variant-field-count)
+    sigs.insert(
+        "list-length".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // list-empty?: ( ..a Variant -- ..a Int )
+    // Check if list has no elements (returns 1 if empty, 0 otherwise)
+    sigs.insert(
+        "list-empty?".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // Float arithmetic operations ( ..a Float Float -- ..a Float )
     for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
         sigs.insert(

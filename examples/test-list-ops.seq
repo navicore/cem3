@@ -1,0 +1,87 @@
+# Test list operations: map, filter, fold, each
+
+: print-result ( Int String -- )
+  swap if
+    " PASS" string-concat write_line
+  else
+    " FAIL" string-concat write_line
+  then
+;
+
+# Create a test list using string-split (produces Variant of strings)
+: make-string-list ( -- Variant )
+  "apple banana cherry" " " string-split
+;
+
+# Test list-map: uppercase each string
+: test-list-map ( -- )
+  make-string-list [ string-to-upper ] list-map
+  # Result should be ["APPLE", "BANANA", "CHERRY"]
+  # Check first element
+  dup 0 variant-field-at "APPLE" string-equal
+  "list-map: first element uppercased" print-result
+  # Check last element
+  2 variant-field-at "CHERRY" string-equal
+  "list-map: last element uppercased" print-result
+;
+
+# Test list-filter: keep strings starting with 'b' or longer than 5 chars
+: test-list-filter ( -- )
+  make-string-list [ string-length 5 > ] list-filter
+  # Result should be ["banana", "cherry"] (both > 5 chars)
+  dup list-length 2 =
+  "list-filter: correct length" print-result
+  0 variant-field-at "banana" string-equal
+  "list-filter: first kept element is banana" print-result
+;
+
+# Test list-fold: concatenate all strings
+: test-list-fold ( -- )
+  # Fold quotation receives ( acc elem -- acc' )
+  # We want acc ++ elem, so: string-concat gives us acc ++ elem
+  make-string-list "" [ string-concat ] list-fold
+  # Result should be "applebananacherry"
+  "applebananacherry" string-equal
+  "list-fold: concatenation works" print-result
+;
+
+# Test list-length
+: test-list-length ( -- )
+  make-string-list list-length 3 =
+  "list-length: returns 3" print-result
+;
+
+# Test list-empty?
+: test-list-empty ( -- )
+  make-string-list list-empty? not
+  "list-empty?: returns 0 for non-empty list" print-result
+;
+
+# Test list-each: print each element (visual check)
+: test-list-each ( -- )
+  "  Elements:" write_line
+  make-string-list [ "    - " swap string-concat write_line ] list-each
+  1 "list-each: printed all elements" print-result
+;
+
+: main ( -- Int )
+  "Testing list-map:" write_line
+  test-list-map
+
+  "Testing list-filter:" write_line
+  test-list-filter
+
+  "Testing list-fold:" write_line
+  test-list-fold
+
+  "Testing list-length:" write_line
+  test-list-length
+
+  "Testing list-empty?:" write_line
+  test-list-empty
+
+  "Testing list-each:" write_line
+  test-list-each
+
+  0
+;

@@ -185,6 +185,13 @@ impl Program {
             "string-equal",
             "json-escape",
             "string->int",
+            // List operations
+            "list-map",
+            "list-filter",
+            "list-fold",
+            "list-each",
+            "list-length",
+            "list-empty?",
             // Variant operations
             "variant-field-count",
             "variant-tag",

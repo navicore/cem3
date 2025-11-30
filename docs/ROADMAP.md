@@ -34,28 +34,30 @@ Each type requires:
 1. ✅ **JSON escape handling** - Properly escape special characters in `json-escape-string`
 2. ✅ **Integer I/O** - `int->string` and `string->int` conversions
 
+### Safe Error Handling
+
+Non-panicking variants for fallible operations:
+
+- ✅ **File I/O** - `file-slurp-safe` returns `( String -- String Int )`
+- ✅ **Channel operations** - `send-safe`, `receive-safe` return success flags
+- ✅ **Type conversions** - `string->int`, `string->float` already return success flags
+
+### List Operations
+
+Higher-order combinators for Variants used as lists:
+
+- ✅ **list-map** - `( Variant Quotation -- Variant )` transform each element
+- ✅ **list-filter** - `( Variant Quotation -- Variant )` keep elements matching predicate
+- ✅ **list-fold** - `( Variant init Quotation -- result )` reduce with accumulator
+- ✅ **list-each** - `( Variant Quotation -- )` apply for side effects
+- ✅ **list-length** - `( Variant -- Int )` alias for variant-field-count
+- ✅ **list-empty?** - `( Variant -- Int )` check if list has no elements
+
 ## Medium-Term Goals
-
-### Spawn with Captured Data
-
-Currently `spawn` only works with empty-effect quotations. Allowing captured data would enable:
-```seq
-42 [ dup * write-int ] spawn  # Currently not possible
-```
-
-This requires solving ownership/copying semantics for spawned strands.
 
 ### Collections
 
-- Lists/arrays with stack-friendly operations
 - Maps/dictionaries
-
-### Error Handling
-
-Move from panic-based to Result-based error handling for:
-- File I/O
-- Channel operations
-- Type conversions
 
 ## Long-Term Goals
 

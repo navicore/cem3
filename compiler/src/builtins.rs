@@ -62,6 +62,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // file-slurp-safe: ( ..a String -- ..a String Int )
+    // Reads entire file, returns (contents 1) on success or ("" 0) on failure
+    sigs.insert(
+        "file-slurp-safe".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
     // file-exists?: ( ..a String -- ..a Int ) returns 1 if file exists, 0 otherwise
     sigs.insert(
         "file-exists?".to_string(),
@@ -299,6 +311,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // send-safe: ( ..a T Int -- ..a Int )
+    // Takes value T and channel Int, returns 1 on success, 0 on failure
+    sigs.insert(
+        "send-safe".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // receive: ( ..a Int -- ..a T )
     // Takes channel Int, returns value T
     sigs.insert(
@@ -306,6 +330,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         Effect::new(
             StackType::RowVar("a".to_string()).push(Type::Int),
             StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
+        ),
+    );
+
+    // receive-safe: ( ..a Int -- ..a T Int )
+    // Takes channel Int, returns (value, 1) on success or (0, 0) on failure
+    sigs.insert(
+        "receive-safe".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Int),
         ),
     );
 

@@ -165,6 +165,7 @@ impl Program {
             "arg",
             // File operations
             "file-slurp",
+            "file-slurp-safe",
             "file-exists?",
             // String operations
             "string-concat",
@@ -221,7 +222,9 @@ impl Program {
             // Concurrency operations
             "make-channel",
             "send",
+            "send-safe",
             "receive",
+            "receive-safe",
             "close-channel",
             "yield",
             // Quotation operations

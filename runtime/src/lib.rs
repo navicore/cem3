@@ -14,6 +14,7 @@ pub mod cond;
 pub mod file;
 pub mod float_ops;
 pub mod io;
+pub mod list_ops;
 pub mod pool;
 pub mod quotations;
 pub mod scheduler;
@@ -123,4 +124,11 @@ pub use args::{
 pub use file::{
     patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp,
     patch_seq_file_slurp_safe as file_slurp_safe,
+};
+
+// List operations (exported for LLVM linking)
+pub use list_ops::{
+    patch_seq_list_each as list_each, patch_seq_list_empty as list_empty,
+    patch_seq_list_filter as list_filter, patch_seq_list_fold as list_fold,
+    patch_seq_list_length as list_length, patch_seq_list_map as list_map,
 };

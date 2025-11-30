@@ -295,16 +295,7 @@ impl LanguageServer for SeqLanguageServer {
             if local.name == word {
                 let location = Location {
                     uri: uri.clone(),
-                    range: Range {
-                        start: Position {
-                            line: local.start_line as u32,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: local.start_line as u32,
-                            character: (local.name.len() + 2) as u32, // `: name`
-                        },
-                    },
+                    range: make_definition_range(local.start_line, &local.name),
                 };
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
@@ -314,20 +305,12 @@ impl LanguageServer for SeqLanguageServer {
         for included in &included_words {
             if included.name == word
                 && let Some(ref file_path) = included.file_path
+                && file_path.exists()
                 && let Ok(file_uri) = Url::from_file_path(file_path)
             {
                 let location = Location {
                     uri: file_uri,
-                    range: Range {
-                        start: Position {
-                            line: included.start_line as u32,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: included.start_line as u32,
-                            character: (included.name.len() + 2) as u32, // `: name`
-                        },
-                    },
+                    range: make_definition_range(included.start_line, &included.name),
                 };
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
@@ -661,6 +644,22 @@ fn get_word_at_position(content: &str, position: Position) -> Option<String> {
     }
 
     Some(line[start..end].to_string())
+}
+
+/// Create a Range for a word definition (`: word-name`)
+/// Uses character count (not byte length) for proper UTF-8 support
+fn make_definition_range(start_line: usize, name: &str) -> Range {
+    Range {
+        start: Position {
+            line: start_line as u32,
+            character: 0,
+        },
+        end: Position {
+            line: start_line as u32,
+            // +2 for `: ` prefix, use chars().count() for UTF-8 correctness
+            character: (name.chars().count() + 2) as u32,
+        },
+    }
 }
 
 /// Look up a word and return hover information

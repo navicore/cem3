@@ -1245,4 +1245,54 @@ mod tests {
         assert_eq!(config.library_paths, vec!["/custom/lib"]);
         assert_eq!(config.libraries, vec!["myruntime"]);
     }
+
+    #[test]
+    fn test_external_builtin_full_pipeline() {
+        // Test that external builtins work through the full compile pipeline
+        // including parser, AST validation, type checker, and codegen
+        use crate::compile_to_ir_with_config;
+        use crate::config::{CompilerConfig, ExternalBuiltin};
+
+        let source = r#"
+            : main ( -- Int )
+              42 my-transform
+              0
+            ;
+        "#;
+
+        let config = CompilerConfig::new().with_builtin(ExternalBuiltin::new(
+            "my-transform",
+            "ext_runtime_transform",
+        ));
+
+        // This should succeed - the external builtin is registered
+        let result = compile_to_ir_with_config(source, &config);
+        assert!(
+            result.is_ok(),
+            "Compilation should succeed: {:?}",
+            result.err()
+        );
+
+        let ir = result.unwrap();
+        assert!(ir.contains("declare ptr @ext_runtime_transform(ptr)"));
+        assert!(ir.contains("call ptr @ext_runtime_transform"));
+    }
+
+    #[test]
+    fn test_external_builtin_without_config_fails() {
+        // Test that using an external builtin without config fails validation
+        use crate::compile_to_ir;
+
+        let source = r#"
+            : main ( -- Int )
+              42 unknown-builtin
+              0
+            ;
+        "#;
+
+        // This should fail - unknown-builtin is not registered
+        let result = compile_to_ir(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unknown-builtin"));
+    }
 }

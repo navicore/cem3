@@ -46,12 +46,11 @@ impl Resolver {
         let mut all_words = Vec::new();
 
         for mut word in program.words {
-            // Set source location if not already set
-            if word.source.is_none() {
-                word.source = Some(SourceLocation {
-                    file: source_path.clone(),
-                    line: 0, // TODO: Track actual line numbers
-                });
+            // Update source location with file path
+            if let Some(ref mut source) = word.source {
+                source.file = source_path.clone();
+            } else {
+                word.source = Some(SourceLocation::new(source_path.clone(), 0));
             }
             all_words.push(word);
         }
@@ -248,19 +247,13 @@ mod tests {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
-                source: Some(SourceLocation {
-                    file: PathBuf::from("a.seq"),
-                    line: 1,
-                }),
+                source: Some(SourceLocation::new(PathBuf::from("a.seq"), 1)),
             },
             WordDef {
                 name: "bar".to_string(),
                 effect: None,
                 body: vec![],
-                source: Some(SourceLocation {
-                    file: PathBuf::from("b.seq"),
-                    line: 1,
-                }),
+                source: Some(SourceLocation::new(PathBuf::from("b.seq"), 1)),
             },
         ];
 
@@ -274,19 +267,13 @@ mod tests {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
-                source: Some(SourceLocation {
-                    file: PathBuf::from("a.seq"),
-                    line: 1,
-                }),
+                source: Some(SourceLocation::new(PathBuf::from("a.seq"), 1)),
             },
             WordDef {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
-                source: Some(SourceLocation {
-                    file: PathBuf::from("b.seq"),
-                    line: 5,
-                }),
+                source: Some(SourceLocation::new(PathBuf::from("b.seq"), 5)),
             },
         ];
 
@@ -308,19 +295,13 @@ mod tests {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
-                source: Some(SourceLocation {
-                    file: PathBuf::from("a.seq"),
-                    line: 1,
-                }),
+                source: Some(SourceLocation::new(PathBuf::from("a.seq"), 1)),
             },
             WordDef {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
-                source: Some(SourceLocation {
-                    file: PathBuf::from("a.seq"),
-                    line: 5,
-                }),
+                source: Some(SourceLocation::new(PathBuf::from("a.seq"), 5)),
             },
         ];
 

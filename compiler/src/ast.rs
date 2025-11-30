@@ -6,16 +6,60 @@
 use crate::types::Effect;
 use std::path::PathBuf;
 
-/// Source location for error reporting
+/// Source location for error reporting and tooling
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceLocation {
     pub file: PathBuf,
-    pub line: usize,
+    /// Start line (0-indexed for LSP compatibility)
+    pub start_line: usize,
+    /// End line (0-indexed, inclusive)
+    pub end_line: usize,
+}
+
+impl SourceLocation {
+    /// Create a new source location with just a single line (for backward compatibility)
+    pub fn new(file: PathBuf, line: usize) -> Self {
+        SourceLocation {
+            file,
+            start_line: line,
+            end_line: line,
+        }
+    }
+
+    /// Create a source location spanning multiple lines
+    pub fn span(file: PathBuf, start_line: usize, end_line: usize) -> Self {
+        debug_assert!(
+            start_line <= end_line,
+            "SourceLocation: start_line ({}) must be <= end_line ({})",
+            start_line,
+            end_line
+        );
+        SourceLocation {
+            file,
+            start_line,
+            end_line,
+        }
+    }
+
+    /// Get the line number (for backward compatibility, returns start_line)
+    pub fn line(&self) -> usize {
+        self.start_line
+    }
 }
 
 impl std::fmt::Display for SourceLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.file.display(), self.line)
+        if self.start_line == self.end_line {
+            write!(f, "{}:{}", self.file.display(), self.start_line + 1)
+        } else {
+            write!(
+                f,
+                "{}:{}-{}",
+                self.file.display(),
+                self.start_line + 1,
+                self.end_line + 1
+            )
+        }
     }
 }
 

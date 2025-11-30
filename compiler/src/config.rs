@@ -30,16 +30,40 @@ use crate::types::Effect;
 ///
 /// External builtins are functions provided by a runtime extension
 /// (like an actor system) that should be callable from Seq code.
+///
+/// # Type Safety
+///
+/// External builtins can optionally specify their stack effect for type checking.
+/// This affects how the type checker validates code using the builtin:
+///
+/// - **With effect**: The type checker enforces the declared signature.
+///   Use this when you know the exact stack effect (recommended).
+///
+/// - **Without effect (`None`)**: The type checker assigns a maximally polymorphic
+///   signature `( ..a -- ..b )`, meaning "accepts any stack, produces any stack".
+///   This **disables type checking** for calls to this builtin - type errors
+///   involving this builtin will only be caught at runtime.
+///
+/// For best type safety, always provide an explicit effect when possible.
 #[derive(Debug, Clone)]
 pub struct ExternalBuiltin {
     /// The name used in Seq code (e.g., "journal-append")
     pub seq_name: String,
 
     /// The symbol name for linking (e.g., "seq_actors_journal_append")
+    ///
+    /// Must contain only alphanumeric characters, underscores, and periods.
+    /// This is validated at construction time to prevent LLVM IR injection.
     pub symbol: String,
 
-    /// Optional stack effect for type checking
-    /// If None, the builtin is treated as having unknown effect
+    /// Optional stack effect for type checking.
+    ///
+    /// - `Some(effect)`: Type checker enforces this signature
+    /// - `None`: Type checker uses maximally polymorphic `( ..a -- ..b )`,
+    ///   effectively disabling type checking for this builtin
+    ///
+    /// **Warning**: Using `None` can hide type errors until runtime.
+    /// Prefer providing an explicit effect when the signature is known.
     pub effect: Option<Effect>,
 }
 

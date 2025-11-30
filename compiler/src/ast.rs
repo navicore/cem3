@@ -183,6 +183,7 @@ impl Program {
             "string-to-lower",
             "string-equal",
             "json-escape",
+            "string->int",
             // Variant operations
             "variant-field-count",
             "variant-tag",

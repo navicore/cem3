@@ -267,10 +267,73 @@ impl LanguageServer for SeqLanguageServer {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let _uri = params.text_document_position_params.text_document.uri;
-        let _position = params.text_document_position_params.position;
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
 
-        // TODO: Implement go-to-definition for word calls
+        // Get document state and find word under cursor
+        let (word, local_words, included_words) = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                let word = get_word_at_position(&state.content, position);
+                (
+                    word,
+                    state.local_words.clone(),
+                    state.included_words.clone(),
+                )
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let Some(word) = word else {
+            return Ok(None);
+        };
+
+        // Check local words first - jump to definition in current file
+        for local in &local_words {
+            if local.name == word {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: local.start_line as u32,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: local.start_line as u32,
+                            character: (local.name.len() + 2) as u32, // `: name`
+                        },
+                    },
+                };
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+        }
+
+        // Check included words - jump to definition in included file
+        for included in &included_words {
+            if included.name == word
+                && let Some(ref file_path) = included.file_path
+                && let Ok(file_uri) = Url::from_file_path(file_path)
+            {
+                let location = Location {
+                    uri: file_uri,
+                    range: Range {
+                        start: Position {
+                            line: included.start_line as u32,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: included.start_line as u32,
+                            character: (included.name.len() + 2) as u32, // `: name`
+                        },
+                    },
+                };
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+        }
+
+        // Builtins don't have a definition location
         Ok(None)
     }
 

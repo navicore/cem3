@@ -12,8 +12,8 @@ Seq is a functional concatenative language with:
 
 ### LSP Enhancements
 
-1. **Hover for word signatures** - Show stack effect when hovering over a word
-2. **Go-to-definition** - Navigate to word definitions
+1. ✅ **Hover for word signatures** - Show stack effect when hovering over a word
+2. ✅ **Go-to-definition** - Navigate to word definitions (local and included files)
 
 ### Closure Capture Support
 

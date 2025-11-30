@@ -427,8 +427,60 @@ pub unsafe extern "C" fn patch_seq_string_equal(stack: Stack) -> Stack {
     }
 }
 
+/// Escape a string for JSON output
+///
+/// Stack effect: ( str -- str )
+///
+/// Escapes special characters according to JSON spec:
+/// - `"` → `\"`
+/// - `\` → `\\`
+/// - newline → `\n`
+/// - carriage return → `\r`
+/// - tab → `\t`
+/// - backspace → `\b`
+/// - form feed → `\f`
+/// - Control characters (0x00-0x1F) → `\uXXXX`
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_json_escape(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "json_escape: stack is empty");
+
+    let (stack, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::String(s) => {
+            let input = s.as_str();
+            let mut result = String::with_capacity(input.len() + 16);
+
+            for ch in input.chars() {
+                match ch {
+                    '"' => result.push_str("\\\""),
+                    '\\' => result.push_str("\\\\"),
+                    '\n' => result.push_str("\\n"),
+                    '\r' => result.push_str("\\r"),
+                    '\t' => result.push_str("\\t"),
+                    '\x08' => result.push_str("\\b"), // backspace
+                    '\x0C' => result.push_str("\\f"), // form feed
+                    // Control characters (0x00-0x1F except those handled above)
+                    // RFC 8259 uses uppercase hex in examples for Unicode escapes
+                    c if c.is_control() => {
+                        result.push_str(&format!("\\u{:04X}", c as u32));
+                    }
+                    c => result.push(c),
+                }
+            }
+
+            unsafe { push(stack, Value::String(global_string(result))) }
+        }
+        _ => panic!("json_escape: expected String on stack"),
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_char_to_string as char_to_string;
+pub use patch_seq_json_escape as json_escape;
 pub use patch_seq_string_byte_length as string_byte_length;
 pub use patch_seq_string_char_at as string_char_at;
 pub use patch_seq_string_concat as string_concat;
@@ -1135,6 +1187,179 @@ mod tests {
 
             let (stack, result) = pop(stack);
             assert_eq!(result, Value::Int(6)); // Character index, not byte index
+            assert!(stack.is_null());
+        }
+    }
+
+    // JSON Escape Tests
+
+    #[test]
+    fn test_json_escape_quotes() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("hello \"world\"".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("hello \\\"world\\\"".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_backslash() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("path\\to\\file".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("path\\\\to\\\\file".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_newline_tab() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("line1\nline2\ttabbed".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("line1\\nline2\\ttabbed".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_carriage_return() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("line1\r\nline2".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("line1\\r\\nline2".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_control_chars() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            // Test backspace (0x08) and form feed (0x0C)
+            let stack = push(
+                stack,
+                Value::String(global_string("a\x08b\x0Cc".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("a\\bb\\fc".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_unicode_control() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            // Test null character (0x00) - should be escaped as \u0000 (uppercase hex per RFC 8259)
+            let stack = push(stack, Value::String(global_string("a\x00b".to_owned())));
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("a\\u0000b".to_owned())));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_mixed_special_chars() {
+        // Test combination of multiple special characters
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("Line 1\nLine \"2\"\ttab\r\n".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string(
+                    "Line 1\\nLine \\\"2\\\"\\ttab\\r\\n".to_owned()
+                ))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_no_change() {
+        // Normal string without special chars should pass through unchanged
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(
+                stack,
+                Value::String(global_string("Hello, World!".to_owned())),
+            );
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(
+                result,
+                Value::String(global_string("Hello, World!".to_owned()))
+            );
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_json_escape_empty_string() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("".to_owned())));
+
+            let stack = json_escape(stack);
+
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::String(global_string("".to_owned())));
             assert!(stack.is_null());
         }
     }

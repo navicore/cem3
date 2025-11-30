@@ -314,6 +314,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_equal(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_json_escape(ptr)").unwrap();
         writeln!(&mut ir, "; Variant operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
@@ -731,6 +732,7 @@ impl CodeGen {
                     "string-to-upper" => "patch_seq_string_to_upper".to_string(),
                     "string-to-lower" => "patch_seq_string_to_lower".to_string(),
                     "string-equal" => "patch_seq_string_equal".to_string(),
+                    "json-escape" => "patch_seq_json_escape".to_string(),
                     // File operations (hyphen → underscore for C compatibility)
                     "file-slurp" => "patch_seq_file_slurp".to_string(),
                     "file-exists?" => "patch_seq_file_exists".to_string(),

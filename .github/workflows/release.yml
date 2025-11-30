@@ -57,7 +57,7 @@ jobs:
             # Update seq-compiler dependency version in lsp/Cargo.toml
             # This ensures the LSP pins to the exact compiler version
             awk -v new_version="${{ steps.version.outputs.version }}" '
-              /seq-compiler = \{ path = "\.\.\/compiler", version = "=/ {
+              /^seq-compiler = \{ path = "\.\.\/compiler"/ {
                 sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
               }
               { print }

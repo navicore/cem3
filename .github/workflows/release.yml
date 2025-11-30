@@ -47,8 +47,12 @@ jobs:
 
             # Update seq-runtime build dependency version in compiler/Cargo.toml
             # This ensures the compiler pins to the exact runtime version
-            sed -i.bak 's/seq-runtime = { path = "..\/runtime", version = "=[^"]*" }/seq-runtime = { path = "..\/runtime", version = "=${{ steps.version.outputs.version }}" }/' compiler/Cargo.toml
-            rm -f compiler/Cargo.toml.bak
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /seq-runtime = \{ path = "\.\.\/runtime", version = "=/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' compiler/Cargo.toml > compiler/Cargo.toml.tmp && mv compiler/Cargo.toml.tmp compiler/Cargo.toml
 
             cargo generate-lockfile
 

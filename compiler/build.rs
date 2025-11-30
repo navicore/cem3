@@ -9,6 +9,10 @@ use std::path::PathBuf;
 fn main() {
     // Verify that seq-runtime version matches compiler version
     verify_runtime_version();
+
+    // Rerun verification if Cargo.toml changes
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // OUT_DIR is something like:
@@ -73,27 +77,33 @@ fn find_runtime_in_deps(deps_dir: &PathBuf) -> Option<PathBuf> {
 }
 
 /// Verify that the seq-runtime version matches the seq-compiler version
-/// by parsing the Cargo.toml files
+/// by parsing the Cargo.toml files using a proper TOML parser
 fn verify_runtime_version() {
     let compiler_version = env!("CARGO_PKG_VERSION");
 
-    // Read and parse the compiler's Cargo.toml to get the runtime dependency version
-    let cargo_toml = fs::read_to_string("Cargo.toml").expect("Failed to read compiler/Cargo.toml");
+    // Read and parse the compiler's Cargo.toml
+    let cargo_toml_content =
+        fs::read_to_string("Cargo.toml").expect("Failed to read compiler/Cargo.toml");
 
-    // Extract the exact version requirement for seq-runtime
-    // Looking for: seq-runtime = { path = "../runtime", version = "=X.Y.Z" }
+    let cargo_toml: toml::Value = cargo_toml_content
+        .parse()
+        .expect("Failed to parse Cargo.toml");
+
+    // Extract the seq-runtime version from build-dependencies
     let runtime_version = cargo_toml
-        .lines()
-        .find(|line| line.contains("seq-runtime") && line.contains("version"))
-        .and_then(|line| {
-            // Extract version string between quotes after "version = "
-            line.split("version = \"")
-                .nth(1)
-                .and_then(|s| s.split('"').next())
+        .get("build-dependencies")
+        .and_then(|deps| deps.get("seq-runtime"))
+        .and_then(|dep| {
+            // Handle both inline table and string formats
+            match dep {
+                toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str()),
+                toml::Value::String(s) => Some(s.as_str()),
+                _ => None,
+            }
         })
         .expect("Could not find seq-runtime version in Cargo.toml");
 
-    // Remove the '=' prefix from exact version
+    // Remove the '=' prefix from exact version requirement
     let runtime_version = runtime_version.trim_start_matches('=');
 
     if compiler_version != runtime_version {

@@ -267,10 +267,56 @@ impl LanguageServer for SeqLanguageServer {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let _uri = params.text_document_position_params.text_document.uri;
-        let _position = params.text_document_position_params.position;
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
 
-        // TODO: Implement go-to-definition for word calls
+        // Get document state and find word under cursor
+        let (word, local_words, included_words) = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                let word = get_word_at_position(&state.content, position);
+                (
+                    word,
+                    state.local_words.clone(),
+                    state.included_words.clone(),
+                )
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let Some(word) = word else {
+            return Ok(None);
+        };
+
+        // Check local words first - jump to definition in current file
+        for local in &local_words {
+            if local.name == word {
+                let location = Location {
+                    uri: uri.clone(),
+                    range: make_definition_range(local.start_line, &local.name),
+                };
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+        }
+
+        // Check included words - jump to definition in included file
+        for included in &included_words {
+            if included.name == word
+                && let Some(ref file_path) = included.file_path
+                && file_path.exists()
+                && let Ok(file_uri) = Url::from_file_path(file_path)
+            {
+                let location = Location {
+                    uri: file_uri,
+                    range: make_definition_range(included.start_line, &included.name),
+                };
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+        }
+
+        // Builtins don't have a definition location
         Ok(None)
     }
 
@@ -598,6 +644,22 @@ fn get_word_at_position(content: &str, position: Position) -> Option<String> {
     }
 
     Some(line[start..end].to_string())
+}
+
+/// Create a Range for a word definition (`: word-name`)
+/// Uses character count (not byte length) for proper UTF-8 support
+fn make_definition_range(start_line: usize, name: &str) -> Range {
+    Range {
+        start: Position {
+            line: start_line as u32,
+            character: 0,
+        },
+        end: Position {
+            line: start_line as u32,
+            // +2 for `: ` prefix, use chars().count() for UTF-8 correctness
+            character: (name.chars().count() + 2) as u32,
+        },
+    }
 }
 
 /// Look up a word and return hover information

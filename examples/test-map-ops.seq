@@ -97,6 +97,36 @@
   "integer keys: works correctly" print-result
 ;
 
+# Test with boolean keys
+: test-bool-keys ( -- )
+  make-map
+  true "yes" map-set
+  false "no" map-set
+  true map-get "yes" string-equal
+  "boolean keys: works correctly" print-result
+;
+
+# Test key overwrite behavior
+: test-key-overwrite ( -- )
+  make-map
+  "key" 100 map-set
+  "key" 200 map-set
+  dup map-size 1 =
+  "key overwrite: size remains 1" print-result
+  "key" map-get 200 =
+  "key overwrite: value updated to 200" print-result
+;
+
+# Test mixed key types in same map
+: test-mixed-keys ( -- )
+  make-map
+  "str" 1 map-set
+  42 2 map-set
+  true 3 map-set
+  map-size 3 =
+  "mixed key types: all three keys stored" print-result
+;
+
 : main ( -- Int )
   "Testing make-map and map-set:" write_line
   test-make-set
@@ -127,6 +157,15 @@
 
   "Testing integer keys:" write_line
   test-int-keys
+
+  "Testing boolean keys:" write_line
+  test-bool-keys
+
+  "Testing key overwrite:" write_line
+  test-key-overwrite
+
+  "Testing mixed key types:" write_line
+  test-mixed-keys
 
   0
 ;

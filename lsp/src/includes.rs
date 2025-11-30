@@ -16,6 +16,10 @@ pub struct IncludedWord {
     pub effect: Option<Effect>,
     /// Source module name (e.g., "std:json" or "utils")
     pub source: String,
+    /// File path where the word is defined
+    pub file_path: Option<PathBuf>,
+    /// Line number where the word is defined (0-indexed)
+    pub start_line: usize,
 }
 
 /// A word defined in the current document
@@ -185,10 +189,13 @@ fn resolve_include_recursive(
 
     // Extract words from this file
     for word in &program.words {
+        let start_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
         words.push(IncludedWord {
             name: word.name.clone(),
             effect: word.effect.clone(),
             source: source_name.clone(),
+            file_path: Some(canonical.clone()),
+            start_line,
         });
     }
 

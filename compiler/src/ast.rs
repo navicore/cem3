@@ -192,6 +192,17 @@ impl Program {
             "list-each",
             "list-length",
             "list-empty?",
+            // Map operations
+            "make-map",
+            "map-get",
+            "map-get-safe",
+            "map-set",
+            "map-has?",
+            "map-remove",
+            "map-keys",
+            "map-values",
+            "map-size",
+            "map-empty?",
             // Variant operations
             "variant-field-count",
             "variant-tag",

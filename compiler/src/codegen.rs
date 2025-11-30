@@ -291,6 +291,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
         writeln!(&mut ir, "; File operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp_safe(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
@@ -737,6 +738,7 @@ impl CodeGen {
                     "string->int" => "patch_seq_string_to_int".to_string(),
                     // File operations (hyphen → underscore for C compatibility)
                     "file-slurp" => "patch_seq_file_slurp".to_string(),
+                    "file-slurp-safe" => "patch_seq_file_slurp_safe".to_string(),
                     "file-exists?" => "patch_seq_file_exists".to_string(),
                     // Variant operations (hyphen → underscore for C compatibility)
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),

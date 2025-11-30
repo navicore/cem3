@@ -119,4 +119,7 @@ pub use args::{
 };
 
 // File operations (exported for LLVM linking)
-pub use file::{patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp};
+pub use file::{
+    patch_seq_file_exists as file_exists, patch_seq_file_slurp as file_slurp,
+    patch_seq_file_slurp_safe as file_slurp_safe,
+};

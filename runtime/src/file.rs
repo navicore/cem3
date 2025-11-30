@@ -87,9 +87,45 @@ pub unsafe extern "C" fn patch_seq_file_exists(stack: Stack) -> Stack {
     }
 }
 
+/// Read entire file contents as a string, with error handling
+///
+/// Stack effect: ( String -- String Int )
+///
+/// Takes a file path, attempts to read the entire file.
+/// Returns (contents 1) on success, or ("" 0) on failure.
+/// Failure cases: file not found, permission denied, not valid UTF-8, etc.
+///
+/// # Safety
+/// - `stack` must be a valid, non-null stack pointer with a String value on top
+/// - Caller must ensure stack is not concurrently modified
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_file_slurp_safe(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "file-slurp-safe: stack is empty");
+
+    let (rest, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::String(path) => match fs::read_to_string(path.as_str()) {
+            Ok(contents) => {
+                let stack = unsafe { push(rest, Value::String(contents.into())) };
+                unsafe { push(stack, Value::Int(1)) }
+            }
+            Err(_) => {
+                let stack = unsafe { push(rest, Value::String("".into())) };
+                unsafe { push(stack, Value::Int(0)) }
+            }
+        },
+        _ => panic!(
+            "file-slurp-safe: expected String path on stack, got {:?}",
+            value
+        ),
+    }
+}
+
 // Public re-exports
 pub use patch_seq_file_exists as file_exists;
 pub use patch_seq_file_slurp as file_slurp;
+pub use patch_seq_file_slurp_safe as file_slurp_safe;
 
 #[cfg(test)]
 mod tests {
@@ -179,6 +215,67 @@ mod tests {
 
             let (stack, value) = pop(stack);
             match value {
+                Value::String(s) => assert_eq!(s.as_str(), ""),
+                _ => panic!("Expected String"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_file_slurp_safe_success() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "Safe read!").unwrap();
+        let path = temp_file.path().to_str().unwrap().to_string();
+
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(path.into()));
+            let stack = patch_seq_file_slurp_safe(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, contents) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            match contents {
+                Value::String(s) => assert_eq!(s.as_str().trim(), "Safe read!"),
+                _ => panic!("Expected String"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_file_slurp_safe_not_found() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String("/nonexistent/path/to/file.txt".into()));
+            let stack = patch_seq_file_slurp_safe(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, contents) = pop(stack);
+            assert_eq!(success, Value::Int(0));
+            match contents {
+                Value::String(s) => assert_eq!(s.as_str(), ""),
+                _ => panic!("Expected String"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_file_slurp_safe_empty_file() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let path = temp_file.path().to_str().unwrap().to_string();
+
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(path.into()));
+            let stack = patch_seq_file_slurp_safe(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, contents) = pop(stack);
+            assert_eq!(success, Value::Int(1)); // Empty file is still success
+            match contents {
                 Value::String(s) => assert_eq!(s.as_str(), ""),
                 _ => panic!("Expected String"),
             }

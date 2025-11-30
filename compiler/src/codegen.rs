@@ -278,7 +278,9 @@ impl CodeGen {
         writeln!(&mut ir, "; Concurrency operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_chan_send(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_send_safe(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_chan_receive(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive_safe(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)").unwrap();
         writeln!(&mut ir, "; Scheduler operations").unwrap();
@@ -701,7 +703,9 @@ impl CodeGen {
                     // Concurrency operations (hyphen → underscore for C compatibility)
                     "make-channel" => "patch_seq_make_channel".to_string(),
                     "send" => "patch_seq_chan_send".to_string(),
+                    "send-safe" => "patch_seq_chan_send_safe".to_string(),
                     "receive" => "patch_seq_chan_receive".to_string(),
+                    "receive-safe" => "patch_seq_chan_receive_safe".to_string(),
                     "close-channel" => "patch_seq_close_channel".to_string(),
                     "yield" => "patch_seq_yield_strand".to_string(),
                     // Quotation operations

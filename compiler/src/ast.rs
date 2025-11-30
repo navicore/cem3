@@ -222,7 +222,9 @@ impl Program {
             // Concurrency operations
             "make-channel",
             "send",
+            "send-safe",
             "receive",
+            "receive-safe",
             "close-channel",
             "yield",
             // Quotation operations

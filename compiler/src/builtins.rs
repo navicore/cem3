@@ -880,6 +880,120 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Map operations (dictionary/hash map with O(1) lookup)
+    // make-map: ( ..a -- ..a Map )
+    // Create an empty map
+    sigs.insert(
+        "make-map".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
+        ),
+    );
+
+    // map-get: ( ..a Map key -- ..a value )
+    // Get value by key (panics if not found)
+    sigs.insert(
+        "map-get".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("M".to_string()))
+                .push(Type::Var("K".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // map-get-safe: ( ..a Map key -- ..a value Int )
+    // Get value with success flag (1=found, 0=not found)
+    sigs.insert(
+        "map-get-safe".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("M".to_string()))
+                .push(Type::Var("K".to_string())),
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("V".to_string()))
+                .push(Type::Int),
+        ),
+    );
+
+    // map-set: ( ..a Map key value -- ..a Map )
+    // Set key-value pair, returns new map
+    sigs.insert(
+        "map-set".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("M".to_string()))
+                .push(Type::Var("K".to_string()))
+                .push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("M2".to_string())),
+        ),
+    );
+
+    // map-has?: ( ..a Map key -- ..a Int )
+    // Check if key exists (1=yes, 0=no)
+    sigs.insert(
+        "map-has?".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("M".to_string()))
+                .push(Type::Var("K".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // map-remove: ( ..a Map key -- ..a Map )
+    // Remove key, returns new map
+    sigs.insert(
+        "map-remove".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("M".to_string()))
+                .push(Type::Var("K".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("M2".to_string())),
+        ),
+    );
+
+    // map-keys: ( ..a Map -- ..a Variant )
+    // Get all keys as a list
+    sigs.insert(
+        "map-keys".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // map-values: ( ..a Map -- ..a Variant )
+    // Get all values as a list
+    sigs.insert(
+        "map-values".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // map-size: ( ..a Map -- ..a Int )
+    // Get number of entries
+    sigs.insert(
+        "map-size".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // map-empty?: ( ..a Map -- ..a Int )
+    // Check if map is empty (1=yes, 0=no)
+    sigs.insert(
+        "map-empty?".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // Float arithmetic operations ( ..a Float Float -- ..a Float )
     for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
         sigs.insert(

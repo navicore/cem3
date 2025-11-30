@@ -302,6 +302,17 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_list_each(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_list_length(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_list_empty(ptr)").unwrap();
+        writeln!(&mut ir, "; Map operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_map(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_get(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_get_safe(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_set(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_has(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_remove(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_keys(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_values(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_size(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_map_empty(ptr)").unwrap();
         writeln!(&mut ir, "; TCP operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
@@ -758,6 +769,17 @@ impl CodeGen {
                     "list-each" => "patch_seq_list_each".to_string(),
                     "list-length" => "patch_seq_list_length".to_string(),
                     "list-empty?" => "patch_seq_list_empty".to_string(),
+                    // Map operations (hyphen → underscore for C compatibility)
+                    "make-map" => "patch_seq_make_map".to_string(),
+                    "map-get" => "patch_seq_map_get".to_string(),
+                    "map-get-safe" => "patch_seq_map_get_safe".to_string(),
+                    "map-set" => "patch_seq_map_set".to_string(),
+                    "map-has?" => "patch_seq_map_has".to_string(),
+                    "map-remove" => "patch_seq_map_remove".to_string(),
+                    "map-keys" => "patch_seq_map_keys".to_string(),
+                    "map-values" => "patch_seq_map_values".to_string(),
+                    "map-size" => "patch_seq_map_size".to_string(),
+                    "map-empty?" => "patch_seq_map_empty".to_string(),
                     // Variant operations (hyphen → underscore for C compatibility)
                     "variant-field-count" => "patch_seq_variant_field_count".to_string(),
                     "variant-tag" => "patch_seq_variant_tag".to_string(),

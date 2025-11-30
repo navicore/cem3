@@ -19,8 +19,21 @@
 //! my-list [ write_line ] list-each
 //! ```
 
-use crate::stack::{Stack, pop, push};
+use crate::stack::{Stack, is_empty, pop, push};
 use crate::value::{Value, VariantData};
+
+/// Helper to drain and free any remaining stack nodes
+///
+/// This ensures no memory is leaked if a quotation misbehaves
+/// by leaving extra values on the stack.
+unsafe fn drain_stack(mut stack: Stack) {
+    unsafe {
+        while !is_empty(stack) {
+            let (rest, _) = pop(stack);
+            stack = rest;
+        }
+    }
+}
 
 /// Helper to call a quotation or closure with a value on the stack
 ///
@@ -84,9 +97,17 @@ pub unsafe extern "C" fn patch_seq_list_map(stack: Stack) -> Stack {
             // Call quotation with element on stack
             let temp_stack = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
 
-            // Pop result
-            let (_, result) = pop(temp_stack);
+            // Pop result - quotation should have effect ( elem -- elem' )
+            if is_empty(temp_stack) {
+                panic!("list-map: quotation consumed element without producing result");
+            }
+            let (remaining, result) = pop(temp_stack);
             results.push(result);
+
+            // Stack hygiene: drain any extra values left by misbehaving quotation
+            if !is_empty(remaining) {
+                drain_stack(remaining);
+            }
         }
 
         // Create new variant with same tag
@@ -135,8 +156,11 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
             // Call quotation with element on stack
             let temp_stack = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
 
-            // Pop result (should be Int)
-            let (_, result) = pop(temp_stack);
+            // Pop result - quotation should have effect ( elem -- Int )
+            if is_empty(temp_stack) {
+                panic!("list-filter: quotation consumed element without producing result");
+            }
+            let (remaining, result) = pop(temp_stack);
 
             let keep = match result {
                 Value::Int(n) => n != 0,
@@ -145,6 +169,11 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
 
             if keep {
                 results.push(field.clone());
+            }
+
+            // Stack hygiene: drain any extra values left by misbehaving quotation
+            if !is_empty(remaining) {
+                drain_stack(remaining);
             }
         }
 
@@ -211,9 +240,17 @@ pub unsafe extern "C" fn patch_seq_list_fold(stack: Stack) -> Stack {
                 _ => unreachable!(),
             };
 
-            // Pop new accumulator
-            let (_, new_acc) = pop(temp_stack);
+            // Pop new accumulator - quotation should have effect ( acc elem -- acc' )
+            if is_empty(temp_stack) {
+                panic!("list-fold: quotation consumed inputs without producing result");
+            }
+            let (remaining, new_acc) = pop(temp_stack);
             acc = new_acc;
+
+            // Stack hygiene: drain any extra values left by misbehaving quotation
+            if !is_empty(remaining) {
+                drain_stack(remaining);
+            }
         }
 
         push(stack, acc)
@@ -254,8 +291,11 @@ pub unsafe extern "C" fn patch_seq_list_each(stack: Stack) -> Stack {
 
         // Call quotation for each element (for side effects)
         for field in variant_data.fields.iter() {
-            let _ = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
-            // Discard result
+            let temp_stack = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
+            // Stack hygiene: drain any values left by quotation (effect should be ( elem -- ))
+            if !is_empty(temp_stack) {
+                drain_stack(temp_stack);
+            }
         }
 
         stack
@@ -545,6 +585,58 @@ mod tests {
                     assert_eq!(v.tag, 42); // Tag preserved
                     assert_eq!(v.fields[0], Value::Int(2));
                     assert_eq!(v.fields[1], Value::Int(4));
+                }
+                _ => panic!("Expected Variant"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    // Helper closure function: adds captured value to element
+    // Closure receives: stack with element, env with [captured_value]
+    unsafe extern "C" fn add_captured_closure(
+        stack: Stack,
+        env: *const Value,
+        _env_len: usize,
+    ) -> Stack {
+        unsafe {
+            let (stack, val) = pop(stack);
+            let captured = &*env; // First (and only) captured value
+            match (val, captured) {
+                (Value::Int(n), Value::Int(c)) => push(stack, Value::Int(n + c)),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_list_map_with_closure() {
+        unsafe {
+            // Create list [1, 2, 3]
+            let list = Value::Variant(Box::new(VariantData::new(
+                0,
+                vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+            )));
+
+            // Create closure that adds 10 to each element
+            let env: Box<[Value]> = vec![Value::Int(10)].into_boxed_slice();
+            let closure = Value::Closure {
+                fn_ptr: add_captured_closure as usize,
+                env,
+            };
+
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, list);
+            let stack = push(stack, closure);
+            let stack = list_map(stack);
+
+            let (stack, result) = pop(stack);
+            match result {
+                Value::Variant(v) => {
+                    assert_eq!(v.fields.len(), 3);
+                    assert_eq!(v.fields[0], Value::Int(11)); // 1 + 10
+                    assert_eq!(v.fields[1], Value::Int(12)); // 2 + 10
+                    assert_eq!(v.fields[2], Value::Int(13)); // 3 + 10
                 }
                 _ => panic!("Expected Variant"),
             }

@@ -182,6 +182,7 @@ impl Program {
             "string-to-upper",
             "string-to-lower",
             "string-equal",
+            "json-escape",
             // Variant operations
             "variant-field-count",
             "variant-tag",

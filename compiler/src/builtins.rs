@@ -602,6 +602,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // json-escape: ( ..a String -- ..a String )
+    // Escape special characters for JSON output
+    sigs.insert(
+        "json-escape".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
     // string-byte-length: ( ..a String -- ..a Int )
     // Get byte length (for HTTP Content-Length, buffer allocation)
     sigs.insert(

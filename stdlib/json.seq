@@ -283,9 +283,9 @@
 
 # Escape special characters in a string for JSON output
 # Stack: ( String -- String )
+# Handles: quotes, backslashes, newlines, tabs, carriage-returns, backspace, form-feed, and control chars
 : json-escape-string
-  # For now, return as-is
-  # TODO: Full escape handling for special characters
+  json-escape
 ;
 
 # Serialize a JSON array to string

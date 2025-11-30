@@ -33,7 +33,7 @@ Each type requires:
 
 ### Stdlib Improvements
 
-1. **JSON escape handling** - Properly escape special characters in `json-escape-string`
+1. ✅ **JSON escape handling** - Properly escape special characters in `json-escape-string`
 2. **Integer I/O** - `int->string` and `string->int` conversions
 
 ## Medium-Term Goals

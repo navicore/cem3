@@ -74,9 +74,10 @@ pub use channel::{
 
 // String operations (exported for LLVM linking)
 pub use string_ops::{
-    patch_seq_string_concat as string_concat, patch_seq_string_contains as string_contains,
-    patch_seq_string_empty as string_empty, patch_seq_string_length as string_length,
-    patch_seq_string_split as string_split, patch_seq_string_starts_with as string_starts_with,
+    patch_seq_json_escape as json_escape, patch_seq_string_concat as string_concat,
+    patch_seq_string_contains as string_contains, patch_seq_string_empty as string_empty,
+    patch_seq_string_length as string_length, patch_seq_string_split as string_split,
+    patch_seq_string_starts_with as string_starts_with,
     patch_seq_string_to_lower as string_to_lower, patch_seq_string_to_upper as string_to_upper,
     patch_seq_string_trim as string_trim,
 };

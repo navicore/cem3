@@ -19,6 +19,19 @@
 //! my-map map-keys    # -> ["name", "age"]
 //! my-map map-values  # -> ["Alice", 30]
 //! ```
+//!
+//! # Panic Behavior
+//!
+//! - Operations panic on invalid key types (Float, Variant, Quotation, etc.)
+//! - `map-get` panics if key not found (use `map-get-safe` for error handling)
+//! - Type errors (e.g., calling map operations on non-Map values) cause panics
+//!
+//! # Performance Notes
+//!
+//! - Operations use functional style: `map-set` and `map-remove` return new maps
+//! - Each mutation clones the underlying HashMap (O(n) for n entries)
+//! - For small maps (<100 entries), this is typically fast enough
+//! - Key/value iteration order is not guaranteed (HashMap iteration order)
 
 use crate::stack::{Stack, pop, push};
 use crate::value::{MapKey, Value, VariantData};
@@ -582,6 +595,96 @@ mod tests {
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "yes"),
                 _ => panic!("Expected String"),
+            }
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_map_key_overwrite() {
+        // Test that map-set with existing key overwrites the value
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = make_map(stack);
+
+            // Set initial value
+            let stack = push(stack, Value::String("key".into()));
+            let stack = push(stack, Value::Int(100));
+            let stack = map_set(stack);
+
+            // Overwrite with new value
+            let stack = push(stack, Value::String("key".into()));
+            let stack = push(stack, Value::Int(200));
+            let stack = map_set(stack);
+
+            // Verify size is still 1 (not 2)
+            let stack = crate::stack::dup(stack);
+            let stack = map_size(stack);
+            let (stack, size) = pop(stack);
+            assert_eq!(size, Value::Int(1));
+
+            // Verify value was updated
+            let stack = push(stack, Value::String("key".into()));
+            let stack = map_get(stack);
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(200));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_map_mixed_key_types() {
+        // Test that a single map can have different key types
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = make_map(stack);
+
+            // Add string key
+            let stack = push(stack, Value::String("name".into()));
+            let stack = push(stack, Value::String("Alice".into()));
+            let stack = map_set(stack);
+
+            // Add integer key
+            let stack = push(stack, Value::Int(42));
+            let stack = push(stack, Value::String("answer".into()));
+            let stack = map_set(stack);
+
+            // Add boolean key
+            let stack = push(stack, Value::Bool(true));
+            let stack = push(stack, Value::String("yes".into()));
+            let stack = map_set(stack);
+
+            // Verify size is 3
+            let stack = crate::stack::dup(stack);
+            let stack = map_size(stack);
+            let (stack, size) = pop(stack);
+            assert_eq!(size, Value::Int(3));
+
+            // Verify each key retrieves correct value
+            let stack = crate::stack::dup(stack);
+            let stack = push(stack, Value::String("name".into()));
+            let stack = map_get(stack);
+            let (stack, result) = pop(stack);
+            match result {
+                Value::String(s) => assert_eq!(s.as_str(), "Alice"),
+                _ => panic!("Expected String for name key"),
+            }
+
+            let stack = crate::stack::dup(stack);
+            let stack = push(stack, Value::Int(42));
+            let stack = map_get(stack);
+            let (stack, result) = pop(stack);
+            match result {
+                Value::String(s) => assert_eq!(s.as_str(), "answer"),
+                _ => panic!("Expected String for int key"),
+            }
+
+            let stack = push(stack, Value::Bool(true));
+            let stack = map_get(stack);
+            let (stack, result) = pop(stack);
+            match result {
+                Value::String(s) => assert_eq!(s.as_str(), "yes"),
+                _ => panic!("Expected String for bool key"),
             }
             assert!(stack.is_null());
         }

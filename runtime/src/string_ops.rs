@@ -479,7 +479,10 @@ pub unsafe extern "C" fn patch_seq_json_escape(stack: Stack) -> Stack {
 }
 
 /// Convert String to Int: ( String -- Int Int )
-/// Returns the parsed int and 1 on success, or 0 and 0 on failure
+/// Returns the parsed int and 1 on success, or 0 and 0 on failure.
+/// Accepts integers in range [-9223372036854775808, 9223372036854775807] (i64).
+/// Trims leading/trailing whitespace before parsing.
+/// Leading zeros are accepted (e.g., "007" parses to 7).
 ///
 /// # Safety
 /// Stack must have a String value on top
@@ -1471,6 +1474,22 @@ mod tests {
             let (stack, value) = pop(stack);
             assert_eq!(success, Value::Int(0));
             assert_eq!(value, Value::Int(0));
+            assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_string_to_int_leading_zeros() {
+        unsafe {
+            let stack = std::ptr::null_mut();
+            let stack = push(stack, Value::String(global_string("007".to_owned())));
+
+            let stack = string_to_int(stack);
+
+            let (stack, success) = pop(stack);
+            let (stack, value) = pop(stack);
+            assert_eq!(success, Value::Int(1));
+            assert_eq!(value, Value::Int(7));
             assert!(stack.is_null());
         }
     }

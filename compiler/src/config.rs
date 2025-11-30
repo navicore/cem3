@@ -44,24 +44,57 @@ pub struct ExternalBuiltin {
 }
 
 impl ExternalBuiltin {
+    /// Validate that a symbol name is safe for LLVM IR
+    ///
+    /// Valid symbols contain only: alphanumeric characters, underscores, and periods.
+    /// This prevents injection of arbitrary LLVM IR directives.
+    fn validate_symbol(symbol: &str) -> Result<(), String> {
+        if symbol.is_empty() {
+            return Err("Symbol name cannot be empty".to_string());
+        }
+        for c in symbol.chars() {
+            if !c.is_alphanumeric() && c != '_' && c != '.' {
+                return Err(format!(
+                    "Invalid character '{}' in symbol '{}'. \
+                     Symbols may only contain alphanumeric characters, underscores, and periods.",
+                    c, symbol
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Create a new external builtin with just name and symbol
+    ///
+    /// # Panics
+    ///
+    /// Panics if the symbol contains invalid characters for LLVM IR.
+    /// Valid symbols contain only alphanumeric characters, underscores, and periods.
     pub fn new(seq_name: impl Into<String>, symbol: impl Into<String>) -> Self {
+        let symbol = symbol.into();
+        Self::validate_symbol(&symbol).expect("Invalid symbol name");
         ExternalBuiltin {
             seq_name: seq_name.into(),
-            symbol: symbol.into(),
+            symbol,
             effect: None,
         }
     }
 
     /// Create a new external builtin with a stack effect
+    ///
+    /// # Panics
+    ///
+    /// Panics if the symbol contains invalid characters for LLVM IR.
     pub fn with_effect(
         seq_name: impl Into<String>,
         symbol: impl Into<String>,
         effect: Effect,
     ) -> Self {
+        let symbol = symbol.into();
+        Self::validate_symbol(&symbol).expect("Invalid symbol name");
         ExternalBuiltin {
             seq_name: seq_name.into(),
-            symbol: symbol.into(),
+            symbol,
             effect: Some(effect),
         }
     }
@@ -155,5 +188,34 @@ mod tests {
 
         let names = config.external_names();
         assert_eq!(names, vec!["func-a", "func-b"]);
+    }
+
+    #[test]
+    fn test_symbol_validation_valid() {
+        // Valid symbols: alphanumeric, underscores, periods
+        let _ = ExternalBuiltin::new("test", "valid_symbol");
+        let _ = ExternalBuiltin::new("test", "valid.symbol.123");
+        let _ = ExternalBuiltin::new("test", "ValidCamelCase");
+        let _ = ExternalBuiltin::new("test", "seq_actors_journal_append");
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid symbol name")]
+    fn test_symbol_validation_rejects_hyphen() {
+        // Hyphens are not valid in LLVM symbols
+        let _ = ExternalBuiltin::new("test", "invalid-symbol");
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid symbol name")]
+    fn test_symbol_validation_rejects_at() {
+        // @ could be used for LLVM IR injection
+        let _ = ExternalBuiltin::new("test", "@malicious");
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid symbol name")]
+    fn test_symbol_validation_rejects_empty() {
+        let _ = ExternalBuiltin::new("test", "");
     }
 }

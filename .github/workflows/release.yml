@@ -45,12 +45,30 @@ jobs:
               { print }
             ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 
+            # Update seq-runtime build dependency version in compiler/Cargo.toml
+            # This ensures the compiler pins to the exact runtime version
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /seq-runtime = \{ path = "\.\.\/runtime", version = "=/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' compiler/Cargo.toml > compiler/Cargo.toml.tmp && mv compiler/Cargo.toml.tmp compiler/Cargo.toml
+
+            # Update seq-compiler dependency version in lsp/Cargo.toml
+            # This ensures the LSP pins to the exact compiler version
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /^seq-compiler = \{ path = "\.\.\/compiler"/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' lsp/Cargo.toml > lsp/Cargo.toml.tmp && mv lsp/Cargo.toml.tmp lsp/Cargo.toml
+
             cargo generate-lockfile
 
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
 
-            git add Cargo.toml Cargo.lock
+            git add Cargo.toml compiler/Cargo.toml lsp/Cargo.toml Cargo.lock
             git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
             git push origin HEAD:main
 
@@ -61,6 +79,43 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Verify all crates have matching versions
+        run: |
+          WORKSPACE_VERSION=$(grep -A5 '\[workspace.package\]' Cargo.toml | grep '^version' | cut -d'"' -f2)
+          echo "Workspace version: $WORKSPACE_VERSION"
+
+          # Check each crate uses workspace version
+          for crate in runtime compiler lsp; do
+            CRATE_VERSION=$(grep -A10 '^\[package\]' $crate/Cargo.toml | grep '^version' | head -1)
+            if ! echo "$CRATE_VERSION" | grep -q "version.workspace = true"; then
+              echo "ERROR: $crate/Cargo.toml does not use workspace version!"
+              exit 1
+            fi
+            echo "✓ $crate uses workspace version"
+          done
+
+          # Verify compiler's build dependency on runtime has exact version match
+          RUNTIME_DEP=$(grep 'seq-runtime.*path.*runtime' compiler/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          if [ "$RUNTIME_DEP" != "=$WORKSPACE_VERSION" ]; then
+            echo "ERROR: compiler's seq-runtime build dependency version doesn't match!"
+            echo "Expected: =$WORKSPACE_VERSION"
+            echo "Found: $RUNTIME_DEP"
+            exit 1
+          fi
+          echo "✓ compiler build dependency pinned to exact version: $RUNTIME_DEP"
+
+          # Verify lsp's dependency on compiler has exact version match
+          COMPILER_DEP=$(grep 'seq-compiler.*path.*compiler' lsp/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          if [ "$COMPILER_DEP" != "=$WORKSPACE_VERSION" ]; then
+            echo "ERROR: lsp's seq-compiler dependency version doesn't match!"
+            echo "Expected: =$WORKSPACE_VERSION"
+            echo "Found: $COMPILER_DEP"
+            exit 1
+          fi
+          echo "✓ lsp dependency pinned to exact version: $COMPILER_DEP"
+
+          echo "✓ All version checks passed!"
 
       - name: Publish seq-runtime to crates.io
         run: cargo publish -p seq-runtime --token ${{ secrets.CRATES_IO_TOKEN }}

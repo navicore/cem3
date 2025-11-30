@@ -127,3 +127,4 @@ test-critical:
     cargo test test_critical_shuffle_pattern
     cargo test test_multifield_variant_survives_shuffle
     @echo "✅ Core design validated!"
+

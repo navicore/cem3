@@ -78,8 +78,7 @@ fn verify_runtime_version() {
     let compiler_version = env!("CARGO_PKG_VERSION");
 
     // Read and parse the compiler's Cargo.toml to get the runtime dependency version
-    let cargo_toml = fs::read_to_string("Cargo.toml")
-        .expect("Failed to read compiler/Cargo.toml");
+    let cargo_toml = fs::read_to_string("Cargo.toml").expect("Failed to read compiler/Cargo.toml");
 
     // Extract the exact version requirement for seq-runtime
     // Looking for: seq-runtime = { path = "../runtime", version = "=X.Y.Z" }
@@ -116,6 +115,8 @@ fn verify_runtime_version() {
         );
     }
 
-    println!("cargo:warning=✓ Version verified: seq-compiler {} with seq-runtime {}",
-             compiler_version, runtime_version);
+    println!(
+        "cargo:warning=✓ Version verified: seq-compiler {} with seq-runtime {}",
+        compiler_version, runtime_version
+    );
 }

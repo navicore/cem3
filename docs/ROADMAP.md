@@ -24,8 +24,6 @@ Closures can capture these types:
 - ✅ **Bool** - `env_get_bool` returns i64 (0/1)
 - ✅ **Float** - `env_get_float` returns f64
 - ✅ **Quotation** - `env_get_quotation` returns function pointer as i64
-- ⏳ **Variant** - Compound type, more complex (tagged union with fields)
-- ⏳ **Closure** - Nested closures with their own environments
 
 Each type requires:
 - Runtime: `env_get_<type>` function in `closures.rs`
@@ -34,7 +32,7 @@ Each type requires:
 ### Stdlib Improvements
 
 1. ✅ **JSON escape handling** - Properly escape special characters in `json-escape-string`
-2. **Integer I/O** - `int->string` and `string->int` conversions
+2. ✅ **Integer I/O** - `int->string` and `string->int` conversions
 
 ## Medium-Term Goals
 
@@ -58,6 +56,15 @@ Move from panic-based to Result-based error handling for:
 - File I/O
 - Channel operations
 - Type conversions
+
+## Long-Term Goals
+
+### Extended Closure Capture
+
+Additional types for closure capture (lower priority since error messages now help users work around limitations):
+
+- ⏳ **Variant** - Compound type, more complex (tagged union with fields)
+- ⏳ **Closure** - Nested closures with their own environments
 
 ## Non-Goals
 

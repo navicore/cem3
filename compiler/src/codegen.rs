@@ -250,6 +250,21 @@ impl CodeGen {
         writeln!(&mut ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)").unwrap();
         writeln!(
             &mut ir,
+            "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(
+            &mut ir,
+            "declare double @patch_seq_env_get_float(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(
+            &mut ir,
+            "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(
+            &mut ir,
             "declare ptr @patch_seq_env_get_string(ptr, i64, i32)"
         )
         .unwrap();
@@ -443,14 +458,80 @@ impl CodeGen {
                             .unwrap();
                             stack_var = new_stack_var;
                         }
+                        Type::Bool => {
+                            // Bool is stored as i64 (0 or 1)
+                            let bool_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call i64 @patch_seq_env_get_bool(ptr %env_data, i64 %env_len, i32 {})",
+                                bool_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
+                                new_stack_var, stack_var, bool_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
+                        Type::Float => {
+                            let float_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call double @patch_seq_env_get_float(ptr %env_data, i64 %env_len, i32 {})",
+                                float_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @patch_seq_push_float(ptr %{}, double %{})",
+                                new_stack_var, stack_var, float_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
+                        Type::Quotation(_effect) => {
+                            // Quotation is just a function pointer (i64)
+                            let fn_ptr_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call i64 @patch_seq_env_get_quotation(ptr %env_data, i64 %env_len, i32 {})",
+                                fn_ptr_var, index
+                            )
+                            .unwrap();
+                            let new_stack_var = self.fresh_temp();
+                            writeln!(
+                                &mut self.output,
+                                "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{})",
+                                new_stack_var, stack_var, fn_ptr_var
+                            )
+                            .unwrap();
+                            stack_var = new_stack_var;
+                        }
+                        Type::Closure { .. } => {
+                            return Err(
+                                "Closure captures are not yet supported. \
+                                 Closures capturing other closures require additional implementation. \
+                                 Supported capture types: Int, Bool, Float, String, Quotation."
+                                    .to_string(),
+                            );
+                        }
+                        Type::Var(name) if name.starts_with("Variant") => {
+                            return Err(
+                                "Variant captures are not yet supported. \
+                                 Capturing Variants in closures requires additional implementation. \
+                                 Supported capture types: Int, Bool, Float, String, Quotation."
+                                    .to_string(),
+                            );
+                        }
                         _ => {
-                            // TODO: Implement type-specific getters for Bool and other types
-                            // Each type needs:
-                            //   - Runtime: env_get_<type> in closures.rs
-                            //   - CodeGen: Match arm here to call the right getter
+                            // Unknown type - provide helpful error
                             return Err(format!(
-                                "CodeGen: Only Int and String captures are currently supported, got {:?}. \
-                                 Other types require implementing env_get_<type> functions.",
+                                "Unsupported capture type: {:?}. \
+                                 Supported capture types: Int, Bool, Float, String, Quotation.",
                                 capture_type
                             ));
                         }

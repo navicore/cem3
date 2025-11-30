@@ -13,13 +13,14 @@
 //!
 //! Currently supported capture types:
 //! - **Int** (via `env_get_int`)
+//! - **Bool** (via `env_get_bool`) - returns i64 (0/1)
+//! - **Float** (via `env_get_float`) - returns f64
 //! - **String** (via `env_get_string`)
+//! - **Quotation** (via `env_get_quotation`) - returns function pointer as i64
 //!
 //! Types to be added in future PR:
-//! - Bool
-//! - Quotation (nested quotations)
-//! - Closure (nested closures)
-//! - Variant
+//! - Closure (nested closures with their own environments)
+//! - Variant (tagged unions)
 //!
 //! See https://github.com/navicore/patch-seq for roadmap.
 
@@ -232,6 +233,143 @@ pub unsafe extern "C" fn patch_seq_env_get_string(
     }
 }
 
+/// Get a Bool value from the closure environment
+///
+/// Returns i64 (0 for false, 1 for true) to match LLVM IR representation.
+/// Bools are stored as i64 in the generated code for simplicity.
+///
+/// # Safety
+/// - env_data must be a valid pointer to an array of Values
+/// - env_len must match the actual array length
+/// - index must be in bounds [0, env_len)
+/// - The value at index must be Value::Bool
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_env_get_bool(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> i64 {
+    if env_data.is_null() {
+        panic!("env_get_bool: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_bool: index cannot be negative: {}", index);
+    }
+
+    let idx = index as usize;
+
+    if idx >= env_len {
+        panic!(
+            "env_get_bool: index {} out of bounds for environment of size {}",
+            index, env_len
+        );
+    }
+
+    let value = unsafe { &*env_data.add(idx) };
+
+    match value {
+        Value::Bool(b) => {
+            if *b {
+                1
+            } else {
+                0
+            }
+        }
+        _ => panic!(
+            "env_get_bool: expected Bool at index {}, got {:?}",
+            index, value
+        ),
+    }
+}
+
+/// Get a Float value from the closure environment
+///
+/// Returns f64 directly for efficient LLVM IR integration.
+///
+/// # Safety
+/// - env_data must be a valid pointer to an array of Values
+/// - env_len must match the actual array length
+/// - index must be in bounds [0, env_len)
+/// - The value at index must be Value::Float
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_env_get_float(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> f64 {
+    if env_data.is_null() {
+        panic!("env_get_float: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_float: index cannot be negative: {}", index);
+    }
+
+    let idx = index as usize;
+
+    if idx >= env_len {
+        panic!(
+            "env_get_float: index {} out of bounds for environment of size {}",
+            index, env_len
+        );
+    }
+
+    let value = unsafe { &*env_data.add(idx) };
+
+    match value {
+        Value::Float(f) => *f,
+        _ => panic!(
+            "env_get_float: expected Float at index {}, got {:?}",
+            index, value
+        ),
+    }
+}
+
+/// Get a Quotation function pointer from the closure environment
+///
+/// Returns i64 (the function pointer as usize) for LLVM IR.
+/// Quotations are stateless, so only the function pointer is needed.
+///
+/// # Safety
+/// - env_data must be a valid pointer to an array of Values
+/// - env_len must match the actual array length
+/// - index must be in bounds [0, env_len)
+/// - The value at index must be Value::Quotation
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_env_get_quotation(
+    env_data: *const Value,
+    env_len: usize,
+    index: i32,
+) -> i64 {
+    if env_data.is_null() {
+        panic!("env_get_quotation: null environment pointer");
+    }
+
+    if index < 0 {
+        panic!("env_get_quotation: index cannot be negative: {}", index);
+    }
+
+    let idx = index as usize;
+
+    if idx >= env_len {
+        panic!(
+            "env_get_quotation: index {} out of bounds for environment of size {}",
+            index, env_len
+        );
+    }
+
+    let value = unsafe { &*env_data.add(idx) };
+
+    match value {
+        Value::Quotation(fn_ptr) => *fn_ptr as i64,
+        _ => panic!(
+            "env_get_quotation: expected Quotation at index {}, got {:?}",
+            index, value
+        ),
+    }
+}
+
 /// Create a closure value from a function pointer and environment
 ///
 /// Takes ownership of the environment (converts raw pointer back to Box).
@@ -312,7 +450,10 @@ pub unsafe extern "C" fn patch_seq_push_closure(
 // Public re-exports with short names for internal use
 pub use patch_seq_create_env as create_env;
 pub use patch_seq_env_get as env_get;
+pub use patch_seq_env_get_bool as env_get_bool;
+pub use patch_seq_env_get_float as env_get_float;
 pub use patch_seq_env_get_int as env_get_int;
+pub use patch_seq_env_get_quotation as env_get_quotation;
 pub use patch_seq_env_get_string as env_get_string;
 pub use patch_seq_env_set as env_set;
 pub use patch_seq_make_closure as make_closure;
@@ -444,5 +585,61 @@ mod tests {
 
         // Stack should be empty
         assert!(stack.is_null());
+    }
+
+    #[test]
+    fn test_env_get_bool() {
+        let env = create_env(2);
+
+        unsafe {
+            env_set(env, 0, Value::Bool(true));
+            env_set(env, 1, Value::Bool(false));
+
+            let env_slice = &*env;
+            let env_data = env_slice.as_ptr();
+            let env_len = env_slice.len();
+
+            assert_eq!(env_get_bool(env_data, env_len, 0), 1);
+            assert_eq!(env_get_bool(env_data, env_len, 1), 0);
+
+            let _ = Box::from_raw(env);
+        }
+    }
+
+    #[test]
+    fn test_env_get_float() {
+        let env = create_env(2);
+
+        unsafe {
+            env_set(env, 0, Value::Float(1.234));
+            env_set(env, 1, Value::Float(-5.678));
+
+            let env_slice = &*env;
+            let env_data = env_slice.as_ptr();
+            let env_len = env_slice.len();
+
+            assert!((env_get_float(env_data, env_len, 0) - 1.234).abs() < 0.0001);
+            assert!((env_get_float(env_data, env_len, 1) - (-5.678)).abs() < 0.0001);
+
+            let _ = Box::from_raw(env);
+        }
+    }
+
+    #[test]
+    fn test_env_get_quotation() {
+        let env = create_env(1);
+        let fn_ptr: usize = 0xDEADBEEF;
+
+        unsafe {
+            env_set(env, 0, Value::Quotation(fn_ptr));
+
+            let env_slice = &*env;
+            let env_data = env_slice.as_ptr();
+            let env_len = env_slice.len();
+
+            assert_eq!(env_get_quotation(env_data, env_len, 0), fn_ptr as i64);
+
+            let _ = Box::from_raw(env);
+        }
     }
 }

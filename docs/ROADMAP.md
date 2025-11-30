@@ -17,12 +17,15 @@ Seq is a functional concatenative language with:
 
 ### Closure Capture Support
 
-Currently closures only capture Int and String values. Need to add support for:
+Closures can capture these types:
 
-1. **Bool** - Same pattern as Int (i64 representation)
-2. **Float** - f64 representation
-3. **Quotation** - Function pointer + environment
-4. **Variant** - Tagged union with fields
+- ✅ **Int** - `env_get_int` returns i64
+- ✅ **String** - `env_get_string` returns SeqString
+- ✅ **Bool** - `env_get_bool` returns i64 (0/1)
+- ✅ **Float** - `env_get_float` returns f64
+- ✅ **Quotation** - `env_get_quotation` returns function pointer as i64
+- ⏳ **Variant** - Compound type, more complex (tagged union with fields)
+- ⏳ **Closure** - Nested closures with their own environments
 
 Each type requires:
 - Runtime: `env_get_<type>` function in `closures.rs`

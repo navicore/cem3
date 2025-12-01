@@ -20,6 +20,7 @@ pub mod pool;
 pub mod quotations;
 pub mod scheduler;
 pub mod seqstring;
+pub mod serialize;
 pub mod stack;
 pub mod string_ops;
 pub mod tcp;
@@ -35,6 +36,9 @@ pub use stack::{
     patch_seq_tuck as tuck, peek, pick, pop, push,
 };
 pub use value::{MapKey, Value, VariantData};
+
+// Serialization types (for persistence/exchange with external systems)
+pub use serialize::{SerializeError, TypedMapKey, TypedValue, ValueSerialize};
 
 // Arithmetic operations (exported for LLVM linking)
 pub use arithmetic::{

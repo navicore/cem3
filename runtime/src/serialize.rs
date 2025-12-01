@@ -16,6 +16,18 @@
 //! which aren't directly serializable. `TypedValue` uses owned `String`s
 //! and can be serialized with serde/bincode.
 //!
+//! # Why BTreeMap instead of HashMap?
+//!
+//! `TypedValue::Map` uses `BTreeMap` (not `HashMap`) for deterministic serialization.
+//! This ensures that the same logical map always serializes to identical bytes,
+//! which is important for:
+//! - Content-addressable storage (hashing serialized data)
+//! - Reproducible snapshots for testing and debugging
+//! - Consistent behavior across runs
+//!
+//! The O(n log n) insertion overhead is acceptable since serialization is
+//! typically infrequent (snapshots, persistence) rather than on the hot path.
+//!
 //! # Performance
 //!
 //! Uses bincode for fast, compact binary serialization.
@@ -33,10 +45,12 @@ pub enum SerializeError {
     QuotationNotSerializable,
     /// Cannot serialize closures
     ClosureNotSerializable,
-    /// Bincode encoding/decoding error
-    BincodeError(String),
+    /// Bincode encoding/decoding error (preserves original error for debugging)
+    BincodeError(Box<bincode::Error>),
     /// Invalid data structure
     InvalidData(String),
+    /// Non-finite float (NaN or Infinity)
+    NonFiniteFloat(f64),
 }
 
 impl std::fmt::Display for SerializeError {
@@ -48,17 +62,27 @@ impl std::fmt::Display for SerializeError {
             SerializeError::ClosureNotSerializable => {
                 write!(f, "Closures cannot be serialized - code is not data")
             }
-            SerializeError::BincodeError(msg) => write!(f, "Bincode error: {}", msg),
+            SerializeError::BincodeError(e) => write!(f, "Bincode error: {}", e),
             SerializeError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
+            SerializeError::NonFiniteFloat(v) => {
+                write!(f, "Cannot serialize non-finite float: {}", v)
+            }
         }
     }
 }
 
-impl std::error::Error for SerializeError {}
+impl std::error::Error for SerializeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SerializeError::BincodeError(e) => Some(e.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 impl From<bincode::Error> for SerializeError {
     fn from(e: bincode::Error) -> Self {
-        SerializeError::BincodeError(e.to_string())
+        SerializeError::BincodeError(Box::new(e))
     }
 }
 
@@ -124,11 +148,18 @@ pub enum TypedValue {
 impl TypedValue {
     /// Convert from runtime Value
     ///
-    /// Returns error if Value contains code (Quotation/Closure)
+    /// Returns error if Value contains:
+    /// - Code (Quotation/Closure) - not serializable
+    /// - Non-finite floats (NaN/Infinity) - could cause logic issues
     pub fn from_value(value: &Value) -> Result<Self, SerializeError> {
         match value {
             Value::Int(v) => Ok(TypedValue::Int(*v)),
-            Value::Float(v) => Ok(TypedValue::Float(*v)),
+            Value::Float(v) => {
+                if !v.is_finite() {
+                    return Err(SerializeError::NonFiniteFloat(*v));
+                }
+                Ok(TypedValue::Float(*v))
+            }
             Value::Bool(v) => Ok(TypedValue::Bool(*v)),
             Value::String(s) => Ok(TypedValue::String(s.as_str().to_string())),
             Value::Map(map) => {
@@ -410,5 +441,47 @@ mod tests {
         let bytes = outer.to_bytes().unwrap();
         let parsed = TypedValue::from_bytes(&bytes).unwrap();
         assert_eq!(outer, parsed);
+    }
+
+    #[test]
+    fn test_nan_not_serializable() {
+        let value = Value::Float(f64::NAN);
+        let result = TypedValue::from_value(&value);
+        assert!(matches!(result, Err(SerializeError::NonFiniteFloat(_))));
+    }
+
+    #[test]
+    fn test_infinity_not_serializable() {
+        let value = Value::Float(f64::INFINITY);
+        let result = TypedValue::from_value(&value);
+        assert!(matches!(result, Err(SerializeError::NonFiniteFloat(_))));
+
+        let value = Value::Float(f64::NEG_INFINITY);
+        let result = TypedValue::from_value(&value);
+        assert!(matches!(result, Err(SerializeError::NonFiniteFloat(_))));
+    }
+
+    #[test]
+    fn test_corrupted_data_returns_error() {
+        // Random bytes that aren't valid bincode
+        let corrupted = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let result = TypedValue::from_bytes(&corrupted);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_data_returns_error() {
+        let result = TypedValue::from_bytes(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_truncated_data_returns_error() {
+        // Serialize valid data, then truncate
+        let typed = TypedValue::String("hello world".to_string());
+        let bytes = typed.to_bytes().unwrap();
+        let truncated = &bytes[..bytes.len() / 2];
+        let result = TypedValue::from_bytes(truncated);
+        assert!(result.is_err());
     }
 }

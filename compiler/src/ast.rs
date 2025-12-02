@@ -211,6 +211,11 @@ impl Program {
             "variant-last",
             "variant-init",
             "make-variant",
+            "make-variant-0",
+            "make-variant-1",
+            "make-variant-2",
+            "make-variant-3",
+            "make-variant-4",
             // Arithmetic operations
             "add",
             "subtract",

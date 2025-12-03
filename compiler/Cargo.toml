@@ -8,6 +8,7 @@ description = "Compiler for the Seq programming language"
 repository = "https://github.com/navicore/patch-seq"
 keywords = ["compiler", "language", "seq"]
 categories = ["compilers", "development-tools"]
+include = ["src/**/*", "stdlib/**/*", "build.rs", "Cargo.toml"]
 
 [[bin]]
 name = "seqc"

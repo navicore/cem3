@@ -9,11 +9,11 @@ use std::sync::LazyLock;
 /// Embedded stdlib files (name -> content)
 static STDLIB: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     let mut m = HashMap::new();
-    m.insert("math", include_str!("../../stdlib/math.seq"));
-    m.insert("json", include_str!("../../stdlib/json.seq"));
-    m.insert("yaml", include_str!("../../stdlib/yaml.seq"));
-    m.insert("http", include_str!("../../stdlib/http.seq"));
-    m.insert("stack-utils", include_str!("../../stdlib/stack-utils.seq"));
+    m.insert("math", include_str!("../stdlib/math.seq"));
+    m.insert("json", include_str!("../stdlib/json.seq"));
+    m.insert("yaml", include_str!("../stdlib/yaml.seq"));
+    m.insert("http", include_str!("../stdlib/http.seq"));
+    m.insert("stack-utils", include_str!("../stdlib/stack-utils.seq"));
     m
 });
 

@@ -161,6 +161,168 @@ pub unsafe extern "C" fn patch_seq_make_variant(stack: Stack) -> Stack {
     }
 }
 
+// ============================================================================
+// Type-safe variant constructors with fixed arity
+// ============================================================================
+
+/// Create a variant with 0 fields (just a tag)
+///
+/// Stack effect: ( tag -- Variant )
+///
+/// # Safety
+/// Stack must have at least one Int (the tag) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_make_variant_0(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        let (stack, tag_val) = pop(stack);
+        let tag = match tag_val {
+            Value::Int(t) => {
+                if t < 0 {
+                    panic!("make-variant-0: tag cannot be negative: {}", t);
+                }
+                t as u32
+            }
+            _ => panic!("make-variant-0: expected Int (tag), got {:?}", tag_val),
+        };
+
+        let variant = Value::Variant(Box::new(VariantData::new(tag, vec![])));
+        push(stack, variant)
+    }
+}
+
+/// Create a variant with 1 field
+///
+/// Stack effect: ( field1 tag -- Variant )
+///
+/// # Safety
+/// Stack must have field1 and tag on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_make_variant_1(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        let (stack, tag_val) = pop(stack);
+        let tag = match tag_val {
+            Value::Int(t) => {
+                if t < 0 {
+                    panic!("make-variant-1: tag cannot be negative: {}", t);
+                }
+                t as u32
+            }
+            _ => panic!("make-variant-1: expected Int (tag), got {:?}", tag_val),
+        };
+
+        let (stack, field1) = pop(stack);
+        let variant = Value::Variant(Box::new(VariantData::new(tag, vec![field1])));
+        push(stack, variant)
+    }
+}
+
+/// Create a variant with 2 fields
+///
+/// Stack effect: ( field1 field2 tag -- Variant )
+///
+/// # Safety
+/// Stack must have field1, field2, and tag on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_make_variant_2(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        let (stack, tag_val) = pop(stack);
+        let tag = match tag_val {
+            Value::Int(t) => {
+                if t < 0 {
+                    panic!("make-variant-2: tag cannot be negative: {}", t);
+                }
+                t as u32
+            }
+            _ => panic!("make-variant-2: expected Int (tag), got {:?}", tag_val),
+        };
+
+        let (stack, field2) = pop(stack);
+        let (stack, field1) = pop(stack);
+        let variant = Value::Variant(Box::new(VariantData::new(tag, vec![field1, field2])));
+        push(stack, variant)
+    }
+}
+
+/// Create a variant with 3 fields
+///
+/// Stack effect: ( field1 field2 field3 tag -- Variant )
+///
+/// # Safety
+/// Stack must have field1, field2, field3, and tag on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_make_variant_3(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        let (stack, tag_val) = pop(stack);
+        let tag = match tag_val {
+            Value::Int(t) => {
+                if t < 0 {
+                    panic!("make-variant-3: tag cannot be negative: {}", t);
+                }
+                t as u32
+            }
+            _ => panic!("make-variant-3: expected Int (tag), got {:?}", tag_val),
+        };
+
+        let (stack, field3) = pop(stack);
+        let (stack, field2) = pop(stack);
+        let (stack, field1) = pop(stack);
+        let variant = Value::Variant(Box::new(VariantData::new(
+            tag,
+            vec![field1, field2, field3],
+        )));
+        push(stack, variant)
+    }
+}
+
+/// Create a variant with 4 fields
+///
+/// Stack effect: ( field1 field2 field3 field4 tag -- Variant )
+///
+/// # Safety
+/// Stack must have field1, field2, field3, field4, and tag on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_make_variant_4(stack: Stack) -> Stack {
+    use crate::value::VariantData;
+
+    unsafe {
+        let (stack, tag_val) = pop(stack);
+        let tag = match tag_val {
+            Value::Int(t) => {
+                if t < 0 {
+                    panic!("make-variant-4: tag cannot be negative: {}", t);
+                }
+                t as u32
+            }
+            _ => panic!("make-variant-4: expected Int (tag), got {:?}", tag_val),
+        };
+
+        let (stack, field4) = pop(stack);
+        let (stack, field3) = pop(stack);
+        let (stack, field2) = pop(stack);
+        let (stack, field1) = pop(stack);
+        let variant = Value::Variant(Box::new(VariantData::new(
+            tag,
+            vec![field1, field2, field3, field4],
+        )));
+        push(stack, variant)
+    }
+}
+
+// Re-exports for internal use
+pub use patch_seq_make_variant_0 as make_variant_0;
+pub use patch_seq_make_variant_1 as make_variant_1;
+pub use patch_seq_make_variant_2 as make_variant_2;
+pub use patch_seq_make_variant_3 as make_variant_3;
+pub use patch_seq_make_variant_4 as make_variant_4;
+
 /// Append a value to a variant, returning a new variant
 ///
 /// Stack effect: ( Variant Value -- Variant' )

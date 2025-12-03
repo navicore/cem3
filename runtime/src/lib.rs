@@ -116,7 +116,10 @@ pub use tcp::{
 
 // Variant operations (exported for LLVM linking)
 pub use variant_ops::{
-    patch_seq_make_variant as make_variant, patch_seq_variant_field_at as variant_field_at,
+    patch_seq_make_variant as make_variant, patch_seq_make_variant_0 as make_variant_0,
+    patch_seq_make_variant_1 as make_variant_1, patch_seq_make_variant_2 as make_variant_2,
+    patch_seq_make_variant_3 as make_variant_3, patch_seq_make_variant_4 as make_variant_4,
+    patch_seq_variant_field_at as variant_field_at,
     patch_seq_variant_field_count as variant_field_count, patch_seq_variant_tag as variant_tag,
 };
 

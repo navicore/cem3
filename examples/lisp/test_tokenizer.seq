@@ -1,0 +1,13 @@
+# Test tokenizer
+
+include "tokenizer"
+
+: main ( -- )
+  "Testing tokenizer:" write_line
+
+  "(+ 1 2)" tokenize print-tokens
+
+  "---" write_line
+
+  "(define x 42)" tokenize print-tokens
+;

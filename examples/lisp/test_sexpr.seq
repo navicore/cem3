@@ -1,0 +1,23 @@
+# Test s-expression types
+
+include "sexpr"
+
+: main ( -- )
+  # Test snum
+  42 snum sexpr-to-string write_line
+
+  # Test ssym
+  "hello" ssym sexpr-to-string write_line
+
+  # Test empty list
+  snil slist sexpr-to-string write_line
+
+  # Test list with one element: (42)
+  42 snum snil scons slist sexpr-to-string write_line
+
+  # Test list with two elements: (1 2)
+  1 snum 2 snum snil scons scons slist sexpr-to-string write_line
+
+  # Test nested: (+ 1 2)
+  "+" ssym 1 snum 2 snum snil scons scons scons slist sexpr-to-string write_line
+;

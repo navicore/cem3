@@ -1,0 +1,108 @@
+# S-Expression Data Types for SeqLisp
+#
+# An s-expression is either:
+#   (SNum Int)        - a number (tag 1)
+#   (SSym String)     - a symbol (tag 2)
+#   (SList List)      - a list of s-expressions (tag 3)
+#
+# Lists use the standard Cons/Nil pattern:
+#   (Nil)             - empty list (tag 0)
+#   (Cons Sexpr List) - cons cell (tag 1)
+
+# ============================================
+# Constructors - using type-safe make-variant-N
+# ============================================
+
+# Wrap an integer as an s-expression number
+: snum ( Int -- Variant )
+  1 make-variant-1 ;
+
+# Wrap a string as an s-expression symbol
+: ssym ( String -- Variant )
+  2 make-variant-1 ;
+
+# Wrap a list as an s-expression list
+: slist ( Variant -- Variant )
+  3 make-variant-1 ;
+
+# Create an empty list (Nil)
+: snil ( -- Variant )
+  0 make-variant-0 ;
+
+# Create a cons cell (head, tail)
+: scons ( Variant Variant -- Variant )
+  1 make-variant-2 ;
+
+# ============================================
+# Predicates
+# ============================================
+
+: snum? ( Variant -- Int )
+  variant-tag 1 = ;
+
+: ssym? ( Variant -- Int )
+  variant-tag 2 = ;
+
+: slist? ( Variant -- Int )
+  variant-tag 3 = ;
+
+: snil? ( Variant -- Int )
+  variant-tag 0 = ;
+
+# ============================================
+# Accessors
+# ============================================
+
+: snum-val ( Variant -- Int )
+  0 variant-field-at ;
+
+: ssym-val ( Variant -- String )
+  0 variant-field-at ;
+
+: slist-val ( Variant -- Variant )
+  0 variant-field-at ;
+
+: scar ( Variant -- Variant )
+  0 variant-field-at ;
+
+: scdr ( Variant -- Variant )
+  1 variant-field-at ;
+
+# ============================================
+# Pretty Printing
+# ============================================
+
+: sexpr-to-string ( Variant -- String )
+  dup variant-tag
+  dup 1 = if
+    drop snum-val int->string
+  else
+    dup 2 = if
+      drop ssym-val
+    else
+      3 = if
+        slist-val list-to-string
+      else
+        drop "???"
+      then
+    then
+  then
+;
+
+: list-to-string ( Variant -- String )
+  "(" swap list-items-to-string ")" string-concat string-concat
+;
+
+: list-items-to-string ( Variant -- String )
+  dup snil? if
+    drop ""
+  else
+    dup scar sexpr-to-string
+    swap scdr
+    dup snil? if
+      drop
+    else
+      " " swap list-items-to-string string-concat string-concat
+    then
+  then
+;

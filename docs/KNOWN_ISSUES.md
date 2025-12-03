@@ -34,3 +34,17 @@ Added type-safe variant constructors with fixed arity:
 ### Note
 
 The original `make-variant` is still available for backward compatibility and for cases where the field count is dynamic, but it provides incomplete type checking. Prefer the typed `make-variant-N` variants for type safety.
+
+### Future Work
+
+We plan to revisit the type inference system to:
+
+1. **Remove `make-variant`**: Once all code is migrated to use the typed `make-variant-N` variants, deprecate and remove the original `make-variant` to prevent accidentally bypassing type safety.
+
+2. **Evaluate more robust solutions**: The fixed-arity approach works but has limitations (max 4 fields, verbose for common cases). Potential improvements to discuss:
+   - **Literal tracking in type system**: Infer field count from compile-time literal values
+   - **Dependent types**: Full dependent type support (significant complexity)
+   - **Macro-based generation**: Generate `make-variant-N` at compile time based on usage
+   - **Builder pattern**: Functional variant construction with `variant-new` / `variant-with-field`
+
+3. **Update stdlib**: Migrate `json.seq`, `yaml.seq`, and other stdlib code to use typed variants.

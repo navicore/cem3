@@ -22,6 +22,7 @@ pub mod codegen;
 pub mod config;
 pub mod parser;
 pub mod resolver;
+pub mod stdlib_embed;
 pub mod typechecker;
 pub mod types;
 pub mod unification;
@@ -72,7 +73,7 @@ pub fn compile_file_with_config(
 
     // Resolve includes (if any)
     let program = if !program.includes.is_empty() {
-        let stdlib_path = find_stdlib()?;
+        let stdlib_path = find_stdlib();
         let mut resolver = Resolver::new(stdlib_path);
         resolver.resolve(source_path, program)?
     } else {

@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Result of resolving an include - either embedded content or a file path
+#[derive(Debug)]
 enum ResolvedInclude {
     /// Embedded stdlib content (name, content)
     Embedded(String, &'static str),
@@ -27,13 +28,13 @@ pub struct Resolver {
     included_files: HashSet<PathBuf>,
     /// Set of embedded stdlib modules already included
     included_embedded: HashSet<String>,
-    /// Path to stdlib directory (fallback for non-embedded modules)
-    stdlib_path: PathBuf,
+    /// Path to stdlib directory (fallback for non-embedded modules), if available
+    stdlib_path: Option<PathBuf>,
 }
 
 impl Resolver {
-    /// Create a new resolver with the given stdlib path
-    pub fn new(stdlib_path: PathBuf) -> Self {
+    /// Create a new resolver with an optional stdlib path for filesystem fallback
+    pub fn new(stdlib_path: Option<PathBuf>) -> Self {
         Resolver {
             included_files: HashSet::new(),
             included_embedded: HashSet::new(),
@@ -69,53 +70,8 @@ impl Resolver {
 
         // Process includes
         for include in &program.includes {
-            let resolved = self.resolve_include(include, source_dir)?;
-
-            match resolved {
-                ResolvedInclude::Embedded(name, content) => {
-                    // Skip if already included
-                    if self.included_embedded.contains(&name) {
-                        continue;
-                    }
-                    self.included_embedded.insert(name.clone());
-
-                    // Parse the embedded content
-                    let mut parser = Parser::new(content);
-                    let included_program = parser.parse()?;
-
-                    // Create a pseudo-path for source locations
-                    let pseudo_path = PathBuf::from(format!("<stdlib:{}>", name));
-
-                    // Recursively resolve includes (embedded modules can include others)
-                    let resolved_words =
-                        self.resolve_embedded(&pseudo_path, included_program, source_dir)?;
-                    all_words.extend(resolved_words);
-                }
-                ResolvedInclude::FilePath(included_path) => {
-                    // Skip if already included (prevents diamond dependency issues)
-                    let canonical = included_path.canonicalize().map_err(|e| {
-                        format!("Failed to canonicalize {}: {}", included_path.display(), e)
-                    })?;
-
-                    if self.included_files.contains(&canonical) {
-                        continue;
-                    }
-
-                    // Read and parse the included file
-                    let content = std::fs::read_to_string(&included_path).map_err(|e| {
-                        format!("Failed to read {}: {}", included_path.display(), e)
-                    })?;
-
-                    let mut parser = Parser::new(&content);
-                    let included_program = parser.parse()?;
-
-                    // Recursively resolve includes in the included file
-                    let resolved = self.resolve(&included_path, included_program)?;
-
-                    // Add all words from the resolved program
-                    all_words.extend(resolved.words);
-                }
-            }
+            let words = self.process_include(include, source_dir)?;
+            all_words.extend(words);
         }
 
         Ok(Program {
@@ -124,68 +80,86 @@ impl Resolver {
         })
     }
 
-    /// Resolve includes in an embedded module
-    fn resolve_embedded(
+    /// Process a single include and return the resolved words
+    fn process_include(
         &mut self,
-        pseudo_path: &Path,
-        program: Program,
-        original_source_dir: &Path,
+        include: &Include,
+        source_dir: &Path,
     ) -> Result<Vec<WordDef>, String> {
-        let mut all_words = Vec::new();
+        let resolved = self.resolve_include(include, source_dir)?;
 
-        for mut word in program.words {
-            // Set source location to the pseudo-path
+        match resolved {
+            ResolvedInclude::Embedded(name, content) => {
+                self.process_embedded_include(&name, content, source_dir)
+            }
+            ResolvedInclude::FilePath(path) => self.process_file_include(&path),
+        }
+    }
+
+    /// Process an embedded stdlib include
+    fn process_embedded_include(
+        &mut self,
+        name: &str,
+        content: &str,
+        source_dir: &Path,
+    ) -> Result<Vec<WordDef>, String> {
+        // Skip if already included
+        if self.included_embedded.contains(name) {
+            return Ok(Vec::new());
+        }
+        self.included_embedded.insert(name.to_string());
+
+        // Parse the embedded content
+        let mut parser = Parser::new(content);
+        let included_program = parser
+            .parse()
+            .map_err(|e| format!("Failed to parse embedded module '{}': {}", name, e))?;
+
+        // Create a pseudo-path for source locations
+        let pseudo_path = PathBuf::from(format!("<stdlib:{}>", name));
+
+        // Collect words with updated source locations
+        let mut all_words = Vec::new();
+        for mut word in included_program.words {
             if let Some(ref mut source) = word.source {
-                source.file = pseudo_path.to_path_buf();
+                source.file = pseudo_path.clone();
             } else {
-                word.source = Some(SourceLocation::new(pseudo_path.to_path_buf(), 0));
+                word.source = Some(SourceLocation::new(pseudo_path.clone(), 0));
             }
             all_words.push(word);
         }
 
-        // Process includes from embedded module
-        for include in &program.includes {
-            let resolved = self.resolve_include(include, original_source_dir)?;
-
-            match resolved {
-                ResolvedInclude::Embedded(name, content) => {
-                    if self.included_embedded.contains(&name) {
-                        continue;
-                    }
-                    self.included_embedded.insert(name.clone());
-
-                    let mut parser = Parser::new(content);
-                    let included_program = parser.parse()?;
-                    let inner_pseudo_path = PathBuf::from(format!("<stdlib:{}>", name));
-                    let resolved_words = self.resolve_embedded(
-                        &inner_pseudo_path,
-                        included_program,
-                        original_source_dir,
-                    )?;
-                    all_words.extend(resolved_words);
-                }
-                ResolvedInclude::FilePath(included_path) => {
-                    let canonical = included_path.canonicalize().map_err(|e| {
-                        format!("Failed to canonicalize {}: {}", included_path.display(), e)
-                    })?;
-
-                    if self.included_files.contains(&canonical) {
-                        continue;
-                    }
-
-                    let content = std::fs::read_to_string(&included_path).map_err(|e| {
-                        format!("Failed to read {}: {}", included_path.display(), e)
-                    })?;
-
-                    let mut parser = Parser::new(&content);
-                    let included_program = parser.parse()?;
-                    let resolved = self.resolve(&included_path, included_program)?;
-                    all_words.extend(resolved.words);
-                }
-            }
+        // Recursively process includes from embedded module
+        for include in &included_program.includes {
+            let words = self.process_include(include, source_dir)?;
+            all_words.extend(words);
         }
 
         Ok(all_words)
+    }
+
+    /// Process a filesystem include
+    fn process_file_include(&mut self, path: &Path) -> Result<Vec<WordDef>, String> {
+        // Skip if already included (prevents diamond dependency issues)
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize {}: {}", path.display(), e))?;
+
+        if self.included_files.contains(&canonical) {
+            return Ok(Vec::new());
+        }
+
+        // Read and parse the included file
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+        let mut parser = Parser::new(&content);
+        let included_program = parser.parse()?;
+
+        // Recursively resolve includes in the included file
+        let resolved = self.resolve(path, included_program)?;
+
+        Ok(resolved.words)
     }
 
     /// Resolve an include to either embedded content or a file path
@@ -201,16 +175,24 @@ impl Resolver {
                     return Ok(ResolvedInclude::Embedded(name.clone(), content));
                 }
 
-                // Fall back to filesystem
-                let path = self.stdlib_path.join(format!("{}.seq", name));
-                if !path.exists() {
-                    return Err(format!(
-                        "Standard library module '{}' not found (not embedded and not at {})",
-                        name,
-                        path.display()
-                    ));
+                // Fall back to filesystem if stdlib_path is available
+                if let Some(ref stdlib_path) = self.stdlib_path {
+                    let path = stdlib_path.join(format!("{}.seq", name));
+                    if path.exists() {
+                        return Ok(ResolvedInclude::FilePath(path));
+                    }
                 }
-                Ok(ResolvedInclude::FilePath(path))
+
+                // Not found anywhere
+                Err(format!(
+                    "Standard library module '{}' not found (not embedded{})",
+                    name,
+                    if self.stdlib_path.is_some() {
+                        " and not in stdlib directory"
+                    } else {
+                        ""
+                    }
+                ))
             }
             Include::Relative(rel_path) => Ok(ResolvedInclude::FilePath(
                 self.resolve_relative_path(rel_path, source_dir)?,
@@ -298,28 +280,26 @@ pub fn check_collisions(words: &[WordDef]) -> Result<(), String> {
     }
 }
 
-/// Find the stdlib directory
+/// Find the stdlib directory for filesystem fallback
 ///
 /// Searches in order:
 /// 1. SEQ_STDLIB environment variable
 /// 2. Relative to the current executable (for installed compilers)
 /// 3. Relative to current directory (for development)
-/// 4. Returns a dummy path (embedded stdlib will be used)
 ///
-/// Note: With embedded stdlib support, this function always succeeds.
-/// The embedded stdlib is the primary source; filesystem is a fallback
-/// for modules not in the embedded set.
-pub fn find_stdlib() -> Result<PathBuf, String> {
+/// Returns None if no stdlib directory is found (embedded stdlib will be used).
+pub fn find_stdlib() -> Option<PathBuf> {
     // Check environment variable first
     if let Ok(path) = std::env::var("SEQ_STDLIB") {
         let path = PathBuf::from(path);
         if path.is_dir() {
-            return Ok(path);
+            return Some(path);
         }
-        return Err(format!(
-            "SEQ_STDLIB is set to '{}' but that directory doesn't exist",
+        // If SEQ_STDLIB is set but invalid, log warning but continue
+        eprintln!(
+            "Warning: SEQ_STDLIB is set to '{}' but that directory doesn't exist",
             path.display()
-        ));
+        );
     }
 
     // Check relative to executable
@@ -328,13 +308,13 @@ pub fn find_stdlib() -> Result<PathBuf, String> {
     {
         let stdlib_path = exe_dir.join("stdlib");
         if stdlib_path.is_dir() {
-            return Ok(stdlib_path);
+            return Some(stdlib_path);
         }
         // Also check one level up (for development builds)
         if let Some(parent) = exe_dir.parent() {
             let stdlib_path = parent.join("stdlib");
             if stdlib_path.is_dir() {
-                return Ok(stdlib_path);
+                return Some(stdlib_path);
             }
         }
     }
@@ -342,12 +322,11 @@ pub fn find_stdlib() -> Result<PathBuf, String> {
     // Check relative to current directory (development)
     let local_stdlib = PathBuf::from("stdlib");
     if local_stdlib.is_dir() {
-        return Ok(local_stdlib.canonicalize().unwrap_or(local_stdlib));
+        return Some(local_stdlib.canonicalize().unwrap_or(local_stdlib));
     }
 
     // No filesystem stdlib found - that's OK, we have embedded stdlib
-    // Return a non-existent path; the resolver will use embedded modules
-    Ok(PathBuf::from("<embedded-stdlib>"))
+    None
 }
 
 #[cfg(test)]
@@ -422,5 +401,68 @@ mod tests {
         // This IS a collision - same name defined twice
         let result = check_collisions(&words);
         assert!(result.is_err());
+    }
+
+    // Integration tests for embedded stdlib
+
+    #[test]
+    fn test_embedded_stdlib_math_available() {
+        assert!(stdlib_embed::has_stdlib("math"));
+    }
+
+    #[test]
+    fn test_embedded_stdlib_resolution() {
+        let resolver = Resolver::new(None);
+        let include = Include::Std("math".to_string());
+        let result = resolver.resolve_include(&include, Path::new("."));
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ResolvedInclude::Embedded(name, content) => {
+                assert_eq!(name, "math");
+                assert!(content.contains("abs"));
+            }
+            ResolvedInclude::FilePath(_) => panic!("Expected embedded, got file path"),
+        }
+    }
+
+    #[test]
+    fn test_nonexistent_stdlib_module() {
+        let resolver = Resolver::new(None);
+        let include = Include::Std("nonexistent".to_string());
+        let result = resolver.resolve_include(&include, Path::new("."));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_resolver_with_no_stdlib_path() {
+        // Resolver should work with None stdlib_path, using only embedded modules
+        let resolver = Resolver::new(None);
+        assert!(resolver.stdlib_path.is_none());
+    }
+
+    #[test]
+    fn test_double_include_prevention_embedded() {
+        let mut resolver = Resolver::new(None);
+
+        // First include should work
+        let result1 = resolver.process_embedded_include(
+            "math",
+            stdlib_embed::get_stdlib("math").unwrap(),
+            Path::new("."),
+        );
+        assert!(result1.is_ok());
+        let words1 = result1.unwrap();
+        assert!(!words1.is_empty());
+
+        // Second include of same module should return empty (already included)
+        let result2 = resolver.process_embedded_include(
+            "math",
+            stdlib_embed::get_stdlib("math").unwrap(),
+            Path::new("."),
+        );
+        assert!(result2.is_ok());
+        let words2 = result2.unwrap();
+        assert!(words2.is_empty());
     }
 }

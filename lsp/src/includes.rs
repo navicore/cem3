@@ -44,15 +44,17 @@ pub fn find_stdlib_path() -> Option<PathBuf> {
     }
 
     // 2. Relative to current executable
-    if let Ok(exe) = std::env::current_exe() {
-        // Try ../stdlib (for installed binaries)
-        if let Some(parent) = exe.parent() {
-            let stdlib = parent.join("../stdlib");
-            if stdlib.exists() {
-                return Some(stdlib);
-            }
-            // Try ../../stdlib (for target/release/seq-lsp)
-            let stdlib = parent.join("../../stdlib");
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        // Try paths for installed binaries and dev builds
+        let paths = [
+            "../stdlib",
+            "../../stdlib",
+            "../../compiler/stdlib", // for target/debug or target/release
+        ];
+        for path in paths {
+            let stdlib = parent.join(path);
             if stdlib.exists() {
                 return Some(stdlib);
             }
@@ -74,7 +76,15 @@ pub fn find_stdlib_path() -> Option<PathBuf> {
     }
 
     // 4. Development location - check if we're in the repo
-    let dev_paths = ["./stdlib", "../stdlib", "../../stdlib"];
+    // stdlib is now in compiler/stdlib (embedded in compiler crate)
+    let dev_paths = [
+        "./compiler/stdlib",
+        "../compiler/stdlib",
+        "../../compiler/stdlib",
+        "./stdlib",
+        "../stdlib",
+        "../../stdlib",
+    ];
     for path in dev_paths {
         let p = PathBuf::from(path);
         if p.exists() {

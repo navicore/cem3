@@ -368,6 +368,11 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_variant_last(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_init(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_0(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_1(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_3(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_4(ptr)").unwrap();
         writeln!(&mut ir, "; Float operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
@@ -821,6 +826,11 @@ impl CodeGen {
                     "variant-last" => "patch_seq_variant_last".to_string(),
                     "variant-init" => "patch_seq_variant_init".to_string(),
                     "make-variant" => "patch_seq_make_variant".to_string(),
+                    "make-variant-0" => "patch_seq_make_variant_0".to_string(),
+                    "make-variant-1" => "patch_seq_make_variant_1".to_string(),
+                    "make-variant-2" => "patch_seq_make_variant_2".to_string(),
+                    "make-variant-3" => "patch_seq_make_variant_3".to_string(),
+                    "make-variant-4" => "patch_seq_make_variant_4".to_string(),
                     // Float arithmetic operations (dot notation → underscore)
                     "f.add" => "patch_seq_f_add".to_string(),
                     "f.subtract" => "patch_seq_f_subtract".to_string(),

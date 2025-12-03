@@ -1,0 +1,116 @@
+# Test type-safe make-variant-N builtins
+#
+# These builtins properly account for field consumption in the type system,
+# unlike the original make-variant which has incomplete type checking.
+
+# 0 fields: empty variant
+: make-empty ( -- Variant )
+  0 make-variant-0 ;
+
+# 1 field: wrap a value
+: make-box ( Int -- Variant )
+  1 make-variant-1 ;
+
+# 2 fields: a pair
+: make-pair ( Int String -- Variant )
+  2 make-variant-2 ;
+
+# 3 fields: a triple
+: make-triple ( Int Int Int -- Variant )
+  3 make-variant-3 ;
+
+# 4 fields: a quad
+: make-quad ( Int Int Int Int -- Variant )
+  4 make-variant-4 ;
+
+: test-empty ( -- )
+  make-empty variant-tag 0 = if
+    "PASS: make-variant-0" write_line
+  else
+    "FAIL: make-variant-0" write_line
+  then
+;
+
+: test-box ( -- )
+  42 make-box
+  dup variant-tag 1 = if
+    0 variant-field-at 42 = if
+      "PASS: make-variant-1" write_line
+    else
+      "FAIL: make-variant-1 field" write_line
+    then
+  else
+    drop "FAIL: make-variant-1 tag" write_line
+  then
+;
+
+: test-pair ( -- )
+  100 "hello" make-pair
+  dup variant-tag 2 = if
+    dup 0 variant-field-at 100 = if
+      1 variant-field-at "hello" string-equal if
+        "PASS: make-variant-2" write_line
+      else
+        "FAIL: make-variant-2 field1" write_line
+      then
+    else
+      drop "FAIL: make-variant-2 field0" write_line
+    then
+  else
+    drop "FAIL: make-variant-2 tag" write_line
+  then
+;
+
+: test-triple ( -- )
+  1 2 3 make-triple
+  dup variant-tag 3 = if
+    dup 0 variant-field-at 1 = if
+      dup 1 variant-field-at 2 = if
+        2 variant-field-at 3 = if
+          "PASS: make-variant-3" write_line
+        else
+          "FAIL: make-variant-3 field2" write_line
+        then
+      else
+        drop "FAIL: make-variant-3 field1" write_line
+      then
+    else
+      drop "FAIL: make-variant-3 field0" write_line
+    then
+  else
+    drop "FAIL: make-variant-3 tag" write_line
+  then
+;
+
+: test-quad ( -- )
+  10 20 30 40 make-quad
+  dup variant-tag 4 = if
+    dup 0 variant-field-at 10 = if
+      dup 1 variant-field-at 20 = if
+        dup 2 variant-field-at 30 = if
+          3 variant-field-at 40 = if
+            "PASS: make-variant-4" write_line
+          else
+            "FAIL: make-variant-4 field3" write_line
+          then
+        else
+          drop "FAIL: make-variant-4 field2" write_line
+        then
+      else
+        drop "FAIL: make-variant-4 field1" write_line
+      then
+    else
+      drop "FAIL: make-variant-4 field0" write_line
+    then
+  else
+    drop "FAIL: make-variant-4 tag" write_line
+  then
+;
+
+: main ( -- )
+  test-empty
+  test-box
+  test-pair
+  test-triple
+  test-quad
+;

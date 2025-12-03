@@ -36,6 +36,11 @@ build-examples: build
     mkdir -p target/examples
     # Find all .seq files in examples subdirectories
     find examples -name "*.seq" -type f | while read -r file; do
+        # Skip library files (those without a main word definition)
+        if ! grep -q '^: main\b' "$file"; then
+            echo "  Skipping $file (library file, no main)"
+            continue
+        fi
         # Get category and name (e.g., examples/basics/hello-world.seq -> basics-hello-world)
         category=$(dirname "$file" | sed 's|examples/||' | sed 's|examples||')
         name=$(basename "$file" .seq)

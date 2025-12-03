@@ -753,11 +753,79 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // make-variant: ( ..a field1 ... fieldN count tag -- ..a Variant )
     // Create a variant with given tag and N fields (count specifies N)
     // Type signature only validates count and tag are Ints; runtime validates field count
+    // WARNING: This builtin has incomplete type checking - use make-variant-N for type safety
     sigs.insert(
         "make-variant".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string())
                 .push(Type::Int) // count
+                .push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // Type-safe variant constructors with fixed arity
+    // These have proper type signatures that account for all consumed values
+
+    // make-variant-0: ( ..a tag -- ..a Variant )
+    // Create a variant with 0 fields (just tag)
+    sigs.insert(
+        "make-variant-0".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // make-variant-1: ( ..a field1 tag -- ..a Variant )
+    // Create a variant with 1 field
+    sigs.insert(
+        "make-variant-1".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T1".to_string())) // field1
+                .push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // make-variant-2: ( ..a field1 field2 tag -- ..a Variant )
+    // Create a variant with 2 fields
+    sigs.insert(
+        "make-variant-2".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T1".to_string())) // field1
+                .push(Type::Var("T2".to_string())) // field2
+                .push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // make-variant-3: ( ..a field1 field2 field3 tag -- ..a Variant )
+    // Create a variant with 3 fields
+    sigs.insert(
+        "make-variant-3".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T1".to_string())) // field1
+                .push(Type::Var("T2".to_string())) // field2
+                .push(Type::Var("T3".to_string())) // field3
+                .push(Type::Int), // tag
+            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
+        ),
+    );
+
+    // make-variant-4: ( ..a field1 field2 field3 field4 tag -- ..a Variant )
+    // Create a variant with 4 fields
+    sigs.insert(
+        "make-variant-4".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T1".to_string())) // field1
+                .push(Type::Var("T2".to_string())) // field2
+                .push(Type::Var("T3".to_string())) // field3
+                .push(Type::Var("T4".to_string())) // field4
                 .push(Type::Int), // tag
             StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
         ),

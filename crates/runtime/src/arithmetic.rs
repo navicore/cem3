@@ -21,7 +21,7 @@
 //!
 //! This matches the behavior of Forth and Factor, providing consistency for low-level code.
 
-use crate::stack::{Stack, pop, push};
+use crate::stack::{Stack, pop, pop_two, push};
 use crate::value::Value;
 
 /// Push an integer literal onto the stack (for compiler-generated code)
@@ -54,16 +54,11 @@ pub unsafe extern "C" fn patch_seq_push_bool(stack: Stack, value: bool) -> Stack
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_add(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "add: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "add: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "add") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => {
-            let result = a_val.wrapping_add(b_val); // Wrapping for defined overflow behavior
-            unsafe { push(rest, Value::Int(result)) }
-        }
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(a_val.wrapping_add(b_val)))
+        },
         _ => panic!("add: expected two integers on stack"),
     }
 }
@@ -76,16 +71,11 @@ pub unsafe extern "C" fn patch_seq_add(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_subtract(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "subtract: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "subtract: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "subtract") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => {
-            let result = a_val.wrapping_sub(b_val);
-            unsafe { push(rest, Value::Int(result)) }
-        }
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(a_val.wrapping_sub(b_val)))
+        },
         _ => panic!("subtract: expected two integers on stack"),
     }
 }
@@ -98,16 +88,11 @@ pub unsafe extern "C" fn patch_seq_subtract(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_multiply(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "multiply: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "multiply: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "multiply") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => {
-            let result = a_val.wrapping_mul(b_val);
-            unsafe { push(rest, Value::Int(result)) }
-        }
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
+            push(rest, Value::Int(a_val.wrapping_mul(b_val)))
+        },
         _ => panic!("multiply: expected two integers on stack"),
     }
 }
@@ -120,11 +105,7 @@ pub unsafe extern "C" fn patch_seq_multiply(stack: Stack) -> Stack {
 /// Stack must have two Int values on top, b must not be zero
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "divide: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "divide: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "divide") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => {
             assert!(
@@ -134,9 +115,7 @@ pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
                 b_val
             );
             // Use wrapping_div to handle i64::MIN / -1 overflow edge case
-            // (consistent with wrapping semantics for add/subtract/multiply)
-            let result = a_val.wrapping_div(b_val);
-            unsafe { push(rest, Value::Int(result)) }
+            unsafe { push(rest, Value::Int(a_val.wrapping_div(b_val))) }
         }
         _ => panic!("divide: expected two integers on stack"),
     }
@@ -151,16 +130,12 @@ pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_eq(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "eq: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "eq: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "=") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(rest, Value::Int(if a_val == b_val { 1 } else { 0 }))
         },
-        _ => panic!("eq: expected two integers on stack"),
+        _ => panic!("=: expected two integers on stack"),
     }
 }
 
@@ -173,16 +148,12 @@ pub unsafe extern "C" fn patch_seq_eq(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_lt(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "lt: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "lt: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "<") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(rest, Value::Int(if a_val < b_val { 1 } else { 0 }))
         },
-        _ => panic!("lt: expected two integers on stack"),
+        _ => panic!("<: expected two integers on stack"),
     }
 }
 
@@ -195,16 +166,12 @@ pub unsafe extern "C" fn patch_seq_lt(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_gt(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "gt: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "gt: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, ">") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(rest, Value::Int(if a_val > b_val { 1 } else { 0 }))
         },
-        _ => panic!("gt: expected two integers on stack"),
+        _ => panic!(">: expected two integers on stack"),
     }
 }
 
@@ -217,16 +184,12 @@ pub unsafe extern "C" fn patch_seq_gt(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_lte(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "lte: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "lte: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "<=") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(rest, Value::Int(if a_val <= b_val { 1 } else { 0 }))
         },
-        _ => panic!("lte: expected two integers on stack"),
+        _ => panic!("<=: expected two integers on stack"),
     }
 }
 
@@ -239,16 +202,12 @@ pub unsafe extern "C" fn patch_seq_lte(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_gte(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "gte: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "gte: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, ">=") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(rest, Value::Int(if a_val >= b_val { 1 } else { 0 }))
         },
-        _ => panic!("gte: expected two integers on stack"),
+        _ => panic!(">=: expected two integers on stack"),
     }
 }
 
@@ -261,16 +220,12 @@ pub unsafe extern "C" fn patch_seq_gte(stack: Stack) -> Stack {
 /// Stack must have two Int values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_neq(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "neq: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "neq: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "<>") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(rest, Value::Int(if a_val != b_val { 1 } else { 0 }))
         },
-        _ => panic!("neq: expected two integers on stack"),
+        _ => panic!("<>: expected two integers on stack"),
     }
 }
 
@@ -284,11 +239,7 @@ pub unsafe extern "C" fn patch_seq_neq(stack: Stack) -> Stack {
 /// Stack must have at least two Int values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_and(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "and: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "and: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "and") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(
@@ -310,11 +261,7 @@ pub unsafe extern "C" fn patch_seq_and(stack: Stack) -> Stack {
 /// Stack must have at least two Int values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_or(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "or: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "or: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "or") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
             push(

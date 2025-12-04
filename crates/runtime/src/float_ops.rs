@@ -4,7 +4,7 @@
 //! All float operations use the `f.` prefix to distinguish from integer operations.
 
 use crate::seqstring::global_string;
-use crate::stack::{Stack, pop, push};
+use crate::stack::{Stack, pop, pop_two, push};
 use crate::value::Value;
 
 // =============================================================================
@@ -30,13 +30,9 @@ pub unsafe extern "C" fn patch_seq_push_float(stack: Stack, value: f64) -> Stack
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_add(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.add: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.add: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.add") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => unsafe { push(stack, Value::Float(x + y)) },
+        (Value::Float(x), Value::Float(y)) => unsafe { push(rest, Value::Float(x + y)) },
         _ => panic!("f.add: expected two Floats on stack"),
     }
 }
@@ -47,13 +43,9 @@ pub unsafe extern "C" fn patch_seq_f_add(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_subtract(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.subtract: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.subtract: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.subtract") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => unsafe { push(stack, Value::Float(x - y)) },
+        (Value::Float(x), Value::Float(y)) => unsafe { push(rest, Value::Float(x - y)) },
         _ => panic!("f.subtract: expected two Floats on stack"),
     }
 }
@@ -64,13 +56,9 @@ pub unsafe extern "C" fn patch_seq_f_subtract(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_multiply(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.multiply: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.multiply: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.multiply") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => unsafe { push(stack, Value::Float(x * y)) },
+        (Value::Float(x), Value::Float(y)) => unsafe { push(rest, Value::Float(x * y)) },
         _ => panic!("f.multiply: expected two Floats on stack"),
     }
 }
@@ -83,13 +71,9 @@ pub unsafe extern "C" fn patch_seq_f_multiply(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_divide(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.divide: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.divide: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.divide") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => unsafe { push(stack, Value::Float(x / y)) },
+        (Value::Float(x), Value::Float(y)) => unsafe { push(rest, Value::Float(x / y)) },
         _ => panic!("f.divide: expected two Floats on stack"),
     }
 }
@@ -108,16 +92,11 @@ pub unsafe extern "C" fn patch_seq_f_divide(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_eq(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.=: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.=: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.=") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => {
-            let result = if x == y { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
-        }
+        (Value::Float(x), Value::Float(y)) => unsafe {
+            push(rest, Value::Int(if x == y { 1 } else { 0 }))
+        },
         _ => panic!("f.=: expected two Floats on stack"),
     }
 }
@@ -128,16 +107,11 @@ pub unsafe extern "C" fn patch_seq_f_eq(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_lt(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.<: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.<: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.<") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => {
-            let result = if x < y { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
-        }
+        (Value::Float(x), Value::Float(y)) => unsafe {
+            push(rest, Value::Int(if x < y { 1 } else { 0 }))
+        },
         _ => panic!("f.<: expected two Floats on stack"),
     }
 }
@@ -148,16 +122,11 @@ pub unsafe extern "C" fn patch_seq_f_lt(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_gt(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.>: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.>: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.>") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => {
-            let result = if x > y { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
-        }
+        (Value::Float(x), Value::Float(y)) => unsafe {
+            push(rest, Value::Int(if x > y { 1 } else { 0 }))
+        },
         _ => panic!("f.>: expected two Floats on stack"),
     }
 }
@@ -168,16 +137,11 @@ pub unsafe extern "C" fn patch_seq_f_gt(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_lte(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.<=: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.<=: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.<=") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => {
-            let result = if x <= y { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
-        }
+        (Value::Float(x), Value::Float(y)) => unsafe {
+            push(rest, Value::Int(if x <= y { 1 } else { 0 }))
+        },
         _ => panic!("f.<=: expected two Floats on stack"),
     }
 }
@@ -188,16 +152,11 @@ pub unsafe extern "C" fn patch_seq_f_lte(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_gte(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.>=: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.>=: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.>=") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => {
-            let result = if x >= y { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
-        }
+        (Value::Float(x), Value::Float(y)) => unsafe {
+            push(rest, Value::Int(if x >= y { 1 } else { 0 }))
+        },
         _ => panic!("f.>=: expected two Floats on stack"),
     }
 }
@@ -208,16 +167,11 @@ pub unsafe extern "C" fn patch_seq_f_gte(stack: Stack) -> Stack {
 /// Stack must have two Float values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_f_neq(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "f.<>: stack is empty");
-    let (stack, b) = unsafe { pop(stack) };
-    assert!(!stack.is_null(), "f.<>: need two floats");
-    let (stack, a) = unsafe { pop(stack) };
-
+    let (rest, a, b) = unsafe { pop_two(stack, "f.<>") };
     match (a, b) {
-        (Value::Float(x), Value::Float(y)) => {
-            let result = if x != y { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
-        }
+        (Value::Float(x), Value::Float(y)) => unsafe {
+            push(rest, Value::Int(if x != y { 1 } else { 0 }))
+        },
         _ => panic!("f.<>: expected two Floats on stack"),
     }
 }

@@ -61,6 +61,25 @@ pub unsafe fn pop(stack: Stack) -> (Stack, Value) {
     }
 }
 
+/// Pop two values from the stack (for binary operations)
+///
+/// Returns the rest of the stack and both values (first popped, second popped).
+/// This is a common pattern for binary operations like add, subtract, etc.
+///
+/// # Safety
+/// Stack must have at least two values
+///
+/// # Returns
+/// (remaining_stack, second_value, first_value) - note: second is "a", first is "b"
+/// for operations like a - b where b is on top
+pub unsafe fn pop_two(stack: Stack, op_name: &str) -> (Stack, Value, Value) {
+    assert!(!stack.is_null(), "{}: stack is empty", op_name);
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "{}: need two values", op_name);
+    let (rest, a) = unsafe { pop(rest) };
+    (rest, a, b)
+}
+
 /// Check if the stack is empty
 pub fn is_empty(stack: Stack) -> bool {
     stack.is_null()

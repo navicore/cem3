@@ -20,7 +20,7 @@
 use crate::ast::{Program, Statement, WordDef};
 use crate::config::CompilerConfig;
 use crate::types::Type;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
@@ -28,136 +28,141 @@ use std::sync::LazyLock;
 /// Used when a branch ends with a tail call (which emits ret directly).
 const UNREACHABLE_PREDECESSOR: &str = "unreachable";
 
-/// Runtime builtin functions that map to `patch_seq_*` symbols.
-/// These are NOT user-defined words and cannot use tail call optimization
-/// (they use the C calling convention, not `tailcc`).
-static RUNTIME_BUILTINS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    HashSet::from([
+/// Mapping from Seq word names to their C runtime symbol names.
+/// This centralizes all the name transformations in one place:
+/// - Symbolic operators (=, <, >) map to descriptive names (eq, lt, gt)
+/// - Hyphens become underscores for C compatibility
+/// - Special characters get escaped (?, +, ->)
+/// - Reserved words get suffixes (drop -> drop_op)
+static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    HashMap::from([
         // I/O operations
-        "write_line",
-        "read_line",
-        "read_line+",
-        "int->string",
+        ("write_line", "patch_seq_write_line"),
+        ("read_line", "patch_seq_read_line"),
+        ("read_line+", "patch_seq_read_line_plus"),
+        ("int->string", "patch_seq_int_to_string"),
         // Command-line arguments
-        "arg-count",
-        "arg",
+        ("arg-count", "patch_seq_arg_count"),
+        ("arg", "patch_seq_arg_at"),
         // Arithmetic
-        "add",
-        "subtract",
-        "multiply",
-        "divide",
-        // Comparison
-        "=",
-        "<",
-        ">",
-        "<=",
-        ">=",
-        "<>",
+        ("add", "patch_seq_add"),
+        ("subtract", "patch_seq_subtract"),
+        ("multiply", "patch_seq_multiply"),
+        ("divide", "patch_seq_divide"),
+        // Comparison (symbolic -> named)
+        ("=", "patch_seq_eq"),
+        ("<", "patch_seq_lt"),
+        (">", "patch_seq_gt"),
+        ("<=", "patch_seq_lte"),
+        (">=", "patch_seq_gte"),
+        ("<>", "patch_seq_neq"),
         // Boolean
-        "and",
-        "or",
-        "not",
+        ("and", "patch_seq_and"),
+        ("or", "patch_seq_or"),
+        ("not", "patch_seq_not"),
         // Stack operations
-        "dup",
-        "swap",
-        "over",
-        "rot",
-        "nip",
-        "tuck",
-        "drop",
-        "pick",
-        "roll",
+        ("dup", "patch_seq_dup"),
+        ("swap", "patch_seq_swap"),
+        ("over", "patch_seq_over"),
+        ("rot", "patch_seq_rot"),
+        ("nip", "patch_seq_nip"),
+        ("tuck", "patch_seq_tuck"),
+        ("drop", "patch_seq_drop_op"),
+        ("pick", "patch_seq_pick_op"),
+        ("roll", "patch_seq_roll"),
         // Concurrency
-        "make-channel",
-        "send",
-        "send-safe",
-        "receive",
-        "receive-safe",
-        "close-channel",
-        "yield",
+        ("make-channel", "patch_seq_make_channel"),
+        ("send", "patch_seq_chan_send"),
+        ("send-safe", "patch_seq_chan_send_safe"),
+        ("receive", "patch_seq_chan_receive"),
+        ("receive-safe", "patch_seq_chan_receive_safe"),
+        ("close-channel", "patch_seq_close_channel"),
+        ("yield", "patch_seq_yield_strand"),
         // Quotation operations
-        "call",
-        "times",
-        "while",
-        "until",
-        "forever",
-        "spawn",
-        "cond",
+        ("call", "patch_seq_call"),
+        ("times", "patch_seq_times"),
+        ("while", "patch_seq_while_loop"),
+        ("until", "patch_seq_until_loop"),
+        ("forever", "patch_seq_forever"),
+        ("spawn", "patch_seq_spawn"),
+        ("cond", "patch_seq_cond"),
         // TCP operations
-        "tcp-listen",
-        "tcp-accept",
-        "tcp-read",
-        "tcp-write",
-        "tcp-close",
+        ("tcp-listen", "patch_seq_tcp_listen"),
+        ("tcp-accept", "patch_seq_tcp_accept"),
+        ("tcp-read", "patch_seq_tcp_read"),
+        ("tcp-write", "patch_seq_tcp_write"),
+        ("tcp-close", "patch_seq_tcp_close"),
         // String operations
-        "string-concat",
-        "string-length",
-        "string-byte-length",
-        "string-char-at",
-        "string-substring",
-        "char->string",
-        "string-find",
-        "string-split",
-        "string-contains",
-        "string-starts-with",
-        "string-empty",
-        "string-trim",
-        "string-chomp",
-        "string-to-upper",
-        "string-to-lower",
-        "string-equal",
-        "json-escape",
-        "string->int",
+        ("string-concat", "patch_seq_string_concat"),
+        ("string-length", "patch_seq_string_length"),
+        ("string-byte-length", "patch_seq_string_byte_length"),
+        ("string-char-at", "patch_seq_string_char_at"),
+        ("string-substring", "patch_seq_string_substring"),
+        ("char->string", "patch_seq_char_to_string"),
+        ("string-find", "patch_seq_string_find"),
+        ("string-split", "patch_seq_string_split"),
+        ("string-contains", "patch_seq_string_contains"),
+        ("string-starts-with", "patch_seq_string_starts_with"),
+        ("string-empty", "patch_seq_string_empty"),
+        ("string-trim", "patch_seq_string_trim"),
+        ("string-chomp", "patch_seq_string_chomp"),
+        ("string-to-upper", "patch_seq_string_to_upper"),
+        ("string-to-lower", "patch_seq_string_to_lower"),
+        ("string-equal", "patch_seq_string_equal"),
+        ("json-escape", "patch_seq_json_escape"),
+        ("string->int", "patch_seq_string_to_int"),
         // File operations
-        "file-slurp",
-        "file-slurp-safe",
-        "file-exists?",
+        ("file-slurp", "patch_seq_file_slurp"),
+        ("file-slurp-safe", "patch_seq_file_slurp_safe"),
+        ("file-exists?", "patch_seq_file_exists"),
         // List operations
-        "list-map",
-        "list-filter",
-        "list-fold",
-        "list-each",
-        "list-length",
-        "list-empty?",
+        ("list-map", "patch_seq_list_map"),
+        ("list-filter", "patch_seq_list_filter"),
+        ("list-fold", "patch_seq_list_fold"),
+        ("list-each", "patch_seq_list_each"),
+        ("list-length", "patch_seq_list_length"),
+        ("list-empty?", "patch_seq_list_empty"),
         // Map operations
-        "make-map",
-        "map-get",
-        "map-get-safe",
-        "map-set",
-        "map-has?",
-        "map-remove",
-        "map-keys",
-        "map-values",
-        "map-size",
-        "map-empty?",
+        ("make-map", "patch_seq_make_map"),
+        ("map-get", "patch_seq_map_get"),
+        ("map-get-safe", "patch_seq_map_get_safe"),
+        ("map-set", "patch_seq_map_set"),
+        ("map-has?", "patch_seq_map_has"),
+        ("map-remove", "patch_seq_map_remove"),
+        ("map-keys", "patch_seq_map_keys"),
+        ("map-values", "patch_seq_map_values"),
+        ("map-size", "patch_seq_map_size"),
+        ("map-empty?", "patch_seq_map_empty"),
         // Variant operations
-        "variant-field-count",
-        "variant-tag",
-        "variant-field-at",
-        "variant-append",
-        "variant-last",
-        "variant-init",
-        "make-variant",
-        "make-variant-0",
-        "make-variant-1",
-        "make-variant-2",
-        "make-variant-3",
-        "make-variant-4",
-        // Float operations
-        "f.add",
-        "f.subtract",
-        "f.multiply",
-        "f.divide",
-        "f.=",
-        "f.<",
-        "f.>",
-        "f.<=",
-        "f.>=",
-        "f.<>",
-        "int->float",
-        "float->int",
-        "float->string",
-        "string->float",
+        ("variant-field-count", "patch_seq_variant_field_count"),
+        ("variant-tag", "patch_seq_variant_tag"),
+        ("variant-field-at", "patch_seq_variant_field_at"),
+        ("variant-append", "patch_seq_variant_append"),
+        ("variant-last", "patch_seq_variant_last"),
+        ("variant-init", "patch_seq_variant_init"),
+        ("make-variant", "patch_seq_make_variant"),
+        ("make-variant-0", "patch_seq_make_variant_0"),
+        ("make-variant-1", "patch_seq_make_variant_1"),
+        ("make-variant-2", "patch_seq_make_variant_2"),
+        ("make-variant-3", "patch_seq_make_variant_3"),
+        ("make-variant-4", "patch_seq_make_variant_4"),
+        // Float arithmetic
+        ("f.add", "patch_seq_f_add"),
+        ("f.subtract", "patch_seq_f_subtract"),
+        ("f.multiply", "patch_seq_f_multiply"),
+        ("f.divide", "patch_seq_f_divide"),
+        // Float comparison (symbolic -> named)
+        ("f.=", "patch_seq_f_eq"),
+        ("f.<", "patch_seq_f_lt"),
+        ("f.>", "patch_seq_f_gt"),
+        ("f.<=", "patch_seq_f_lte"),
+        ("f.>=", "patch_seq_f_gte"),
+        ("f.<>", "patch_seq_f_neq"),
+        // Float type conversions
+        ("int->float", "patch_seq_int_to_float"),
+        ("float->int", "patch_seq_float_to_int"),
+        ("float->string", "patch_seq_float_to_string"),
+        ("string->float", "patch_seq_string_to_float"),
     ])
 });
 
@@ -669,120 +674,7 @@ impl CodeGen {
                 // Captures are stored bottom-to-top, so push them in order
                 let mut stack_var = "stack".to_string();
                 for (index, capture_type) in captures.iter().enumerate() {
-                    // Use type-specific getters to avoid passing large Value enum through FFI
-                    match capture_type {
-                        Type::Int => {
-                            let int_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call i64 @patch_seq_env_get_int(ptr %env_data, i64 %env_len, i32 {})",
-                                int_var, index
-                            )
-                            .unwrap();
-                            let new_stack_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
-                                new_stack_var, stack_var, int_var
-                            )
-                            .unwrap();
-                            stack_var = new_stack_var;
-                        }
-                        Type::String => {
-                            let string_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call ptr @patch_seq_env_get_string(ptr %env_data, i64 %env_len, i32 {})",
-                                string_var, index
-                            )
-                            .unwrap();
-                            let new_stack_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call ptr @patch_seq_push_seqstring(ptr %{}, ptr %{})",
-                                new_stack_var, stack_var, string_var
-                            )
-                            .unwrap();
-                            stack_var = new_stack_var;
-                        }
-                        Type::Bool => {
-                            // Bool is stored as i64 (0 or 1)
-                            let bool_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call i64 @patch_seq_env_get_bool(ptr %env_data, i64 %env_len, i32 {})",
-                                bool_var, index
-                            )
-                            .unwrap();
-                            let new_stack_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
-                                new_stack_var, stack_var, bool_var
-                            )
-                            .unwrap();
-                            stack_var = new_stack_var;
-                        }
-                        Type::Float => {
-                            let float_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call double @patch_seq_env_get_float(ptr %env_data, i64 %env_len, i32 {})",
-                                float_var, index
-                            )
-                            .unwrap();
-                            let new_stack_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call ptr @patch_seq_push_float(ptr %{}, double %{})",
-                                new_stack_var, stack_var, float_var
-                            )
-                            .unwrap();
-                            stack_var = new_stack_var;
-                        }
-                        Type::Quotation(_effect) => {
-                            // Quotation is just a function pointer (i64)
-                            let fn_ptr_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call i64 @patch_seq_env_get_quotation(ptr %env_data, i64 %env_len, i32 {})",
-                                fn_ptr_var, index
-                            )
-                            .unwrap();
-                            let new_stack_var = self.fresh_temp();
-                            writeln!(
-                                &mut self.output,
-                                "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{})",
-                                new_stack_var, stack_var, fn_ptr_var
-                            )
-                            .unwrap();
-                            stack_var = new_stack_var;
-                        }
-                        Type::Closure { .. } => {
-                            return Err(
-                                "Closure captures are not yet supported. \
-                                 Closures capturing other closures require additional implementation. \
-                                 Supported capture types: Int, Bool, Float, String, Quotation."
-                                    .to_string(),
-                            );
-                        }
-                        Type::Var(name) if name.starts_with("Variant") => {
-                            return Err(
-                                "Variant captures are not yet supported. \
-                                 Capturing Variants in closures requires additional implementation. \
-                                 Supported capture types: Int, Bool, Float, String, Quotation."
-                                    .to_string(),
-                            );
-                        }
-                        _ => {
-                            // Unknown type - provide helpful error
-                            return Err(format!(
-                                "Unsupported capture type: {:?}. \
-                                 Supported capture types: Int, Bool, Float, String, Quotation.",
-                                capture_type
-                            ));
-                        }
-                    }
+                    stack_var = self.emit_capture_push(capture_type, index, &stack_var)?;
                 }
 
                 // Generate code for each statement in the quotation body
@@ -857,7 +749,79 @@ impl CodeGen {
 
     /// Check if a name refers to a runtime builtin (not a user-defined word).
     fn is_runtime_builtin(&self, name: &str) -> bool {
-        RUNTIME_BUILTINS.contains(name) || self.external_builtins.contains_key(name)
+        BUILTIN_SYMBOLS.contains_key(name) || self.external_builtins.contains_key(name)
+    }
+
+    /// Emit code to push a captured value onto the stack.
+    /// Returns the new stack variable name, or an error for unsupported types.
+    fn emit_capture_push(
+        &mut self,
+        capture_type: &Type,
+        index: usize,
+        stack_var: &str,
+    ) -> Result<String, String> {
+        // Each capture type needs: (getter_fn, getter_llvm_type, pusher_fn, pusher_llvm_type)
+        let (getter, getter_type, pusher, pusher_type) = match capture_type {
+            Type::Int => ("patch_seq_env_get_int", "i64", "patch_seq_push_int", "i64"),
+            Type::Bool => ("patch_seq_env_get_bool", "i64", "patch_seq_push_int", "i64"),
+            Type::Float => (
+                "patch_seq_env_get_float",
+                "double",
+                "patch_seq_push_float",
+                "double",
+            ),
+            Type::String => (
+                "patch_seq_env_get_string",
+                "ptr",
+                "patch_seq_push_seqstring",
+                "ptr",
+            ),
+            Type::Quotation(_) => (
+                "patch_seq_env_get_quotation",
+                "i64",
+                "patch_seq_push_quotation",
+                "i64",
+            ),
+            Type::Closure { .. } => {
+                return Err("Closure captures are not yet supported. \
+                     Closures capturing other closures require additional implementation. \
+                     Supported capture types: Int, Bool, Float, String, Quotation."
+                    .to_string());
+            }
+            Type::Var(name) if name.starts_with("Variant") => {
+                return Err("Variant captures are not yet supported. \
+                     Capturing Variants in closures requires additional implementation. \
+                     Supported capture types: Int, Bool, Float, String, Quotation."
+                    .to_string());
+            }
+            _ => {
+                return Err(format!(
+                    "Unsupported capture type: {:?}. \
+                     Supported capture types: Int, Bool, Float, String, Quotation.",
+                    capture_type
+                ));
+            }
+        };
+
+        // Get value from environment
+        let value_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call {} @{}(ptr %env_data, i64 %env_len, i32 {})",
+            value_var, getter_type, getter, index
+        )
+        .unwrap();
+
+        // Push value onto stack
+        let new_stack_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @{}(ptr %{}, {} %{})",
+            new_stack_var, pusher, stack_var, pusher_type, value_var
+        )
+        .unwrap();
+
+        Ok(new_stack_var)
     }
 
     /// Generate code for a single branch of an if statement.
@@ -1135,146 +1099,20 @@ impl CodeGen {
                     return self.codegen_tail_call_quotation(stack_var, &result_var);
                 }
 
-                // Map source-level word names to runtime function names
-                // Most built-ins use their source name directly, but some need mapping:
-                // - Symbolic operators (=, <, >) map to names (eq, lt, gt)
-                // - 'drop' maps to 'drop_op' (drop is LLVM reserved)
-                // - User words get 'seq_' prefix to avoid C symbol conflicts
-                let (function_name, is_seq_word) = match name.as_str() {
-                    // I/O operations
-                    "write_line" | "read_line" => (format!("patch_seq_{}", name), false),
-                    "read_line+" => ("patch_seq_read_line_plus".to_string(), false),
-                    "int->string" => ("patch_seq_int_to_string".to_string(), false),
-                    // Command-line argument operations
-                    "arg-count" => ("patch_seq_arg_count".to_string(), false),
-                    "arg" => ("patch_seq_arg_at".to_string(), false),
-                    // Arithmetic operations
-                    "add" | "subtract" | "multiply" | "divide" => {
-                        (format!("patch_seq_{}", name), false)
-                    }
-                    // Comparison operations (symbolic → named)
-                    // These return Int (0 or 1) for Forth-style boolean semantics
-                    "=" => ("patch_seq_eq".to_string(), false),
-                    "<" => ("patch_seq_lt".to_string(), false),
-                    ">" => ("patch_seq_gt".to_string(), false),
-                    "<=" => ("patch_seq_lte".to_string(), false),
-                    ">=" => ("patch_seq_gte".to_string(), false),
-                    "<>" => ("patch_seq_neq".to_string(), false),
-                    // Boolean operations
-                    "and" | "or" | "not" => (format!("patch_seq_{}", name), false),
-                    // Stack operations (simple - no parameters)
-                    "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => {
-                        (format!("patch_seq_{}", name), false)
-                    }
-                    "drop" => ("patch_seq_drop_op".to_string(), false),
-                    "pick" => ("patch_seq_pick_op".to_string(), false),
-                    "roll" => ("patch_seq_roll".to_string(), false),
-                    // Concurrency operations (hyphen → underscore for C compatibility)
-                    "make-channel" => ("patch_seq_make_channel".to_string(), false),
-                    "send" => ("patch_seq_chan_send".to_string(), false),
-                    "send-safe" => ("patch_seq_chan_send_safe".to_string(), false),
-                    "receive" => ("patch_seq_chan_receive".to_string(), false),
-                    "receive-safe" => ("patch_seq_chan_receive_safe".to_string(), false),
-                    "close-channel" => ("patch_seq_close_channel".to_string(), false),
-                    "yield" => ("patch_seq_yield_strand".to_string(), false),
-                    // Quotation operations
-                    "call" => ("patch_seq_call".to_string(), false),
-                    "times" => ("patch_seq_times".to_string(), false),
-                    "while" => ("patch_seq_while_loop".to_string(), false),
-                    "until" => ("patch_seq_until_loop".to_string(), false),
-                    "forever" => ("patch_seq_forever".to_string(), false),
-                    "spawn" => ("patch_seq_spawn".to_string(), false),
-                    "cond" => ("patch_seq_cond".to_string(), false),
-                    // TCP operations (hyphen → underscore for C compatibility)
-                    "tcp-listen" => ("patch_seq_tcp_listen".to_string(), false),
-                    "tcp-accept" => ("patch_seq_tcp_accept".to_string(), false),
-                    "tcp-read" => ("patch_seq_tcp_read".to_string(), false),
-                    "tcp-write" => ("patch_seq_tcp_write".to_string(), false),
-                    "tcp-close" => ("patch_seq_tcp_close".to_string(), false),
-                    // String operations (hyphen → underscore for C compatibility)
-                    "string-concat" => ("patch_seq_string_concat".to_string(), false),
-                    "string-length" => ("patch_seq_string_length".to_string(), false),
-                    "string-byte-length" => ("patch_seq_string_byte_length".to_string(), false),
-                    "string-char-at" => ("patch_seq_string_char_at".to_string(), false),
-                    "string-substring" => ("patch_seq_string_substring".to_string(), false),
-                    "char->string" => ("patch_seq_char_to_string".to_string(), false),
-                    "string-find" => ("patch_seq_string_find".to_string(), false),
-                    "string-split" => ("patch_seq_string_split".to_string(), false),
-                    "string-contains" => ("patch_seq_string_contains".to_string(), false),
-                    "string-starts-with" => ("patch_seq_string_starts_with".to_string(), false),
-                    "string-empty" => ("patch_seq_string_empty".to_string(), false),
-                    "string-trim" => ("patch_seq_string_trim".to_string(), false),
-                    "string-chomp" => ("patch_seq_string_chomp".to_string(), false),
-                    "string-to-upper" => ("patch_seq_string_to_upper".to_string(), false),
-                    "string-to-lower" => ("patch_seq_string_to_lower".to_string(), false),
-                    "string-equal" => ("patch_seq_string_equal".to_string(), false),
-                    "json-escape" => ("patch_seq_json_escape".to_string(), false),
-                    "string->int" => ("patch_seq_string_to_int".to_string(), false),
-                    // File operations (hyphen → underscore for C compatibility)
-                    "file-slurp" => ("patch_seq_file_slurp".to_string(), false),
-                    "file-slurp-safe" => ("patch_seq_file_slurp_safe".to_string(), false),
-                    "file-exists?" => ("patch_seq_file_exists".to_string(), false),
-                    // List operations (hyphen → underscore for C compatibility)
-                    "list-map" => ("patch_seq_list_map".to_string(), false),
-                    "list-filter" => ("patch_seq_list_filter".to_string(), false),
-                    "list-fold" => ("patch_seq_list_fold".to_string(), false),
-                    "list-each" => ("patch_seq_list_each".to_string(), false),
-                    "list-length" => ("patch_seq_list_length".to_string(), false),
-                    "list-empty?" => ("patch_seq_list_empty".to_string(), false),
-                    // Map operations (hyphen → underscore for C compatibility)
-                    "make-map" => ("patch_seq_make_map".to_string(), false),
-                    "map-get" => ("patch_seq_map_get".to_string(), false),
-                    "map-get-safe" => ("patch_seq_map_get_safe".to_string(), false),
-                    "map-set" => ("patch_seq_map_set".to_string(), false),
-                    "map-has?" => ("patch_seq_map_has".to_string(), false),
-                    "map-remove" => ("patch_seq_map_remove".to_string(), false),
-                    "map-keys" => ("patch_seq_map_keys".to_string(), false),
-                    "map-values" => ("patch_seq_map_values".to_string(), false),
-                    "map-size" => ("patch_seq_map_size".to_string(), false),
-                    "map-empty?" => ("patch_seq_map_empty".to_string(), false),
-                    // Variant operations (hyphen → underscore for C compatibility)
-                    "variant-field-count" => ("patch_seq_variant_field_count".to_string(), false),
-                    "variant-tag" => ("patch_seq_variant_tag".to_string(), false),
-                    "variant-field-at" => ("patch_seq_variant_field_at".to_string(), false),
-                    "variant-append" => ("patch_seq_variant_append".to_string(), false),
-                    "variant-last" => ("patch_seq_variant_last".to_string(), false),
-                    "variant-init" => ("patch_seq_variant_init".to_string(), false),
-                    "make-variant" => ("patch_seq_make_variant".to_string(), false),
-                    "make-variant-0" => ("patch_seq_make_variant_0".to_string(), false),
-                    "make-variant-1" => ("patch_seq_make_variant_1".to_string(), false),
-                    "make-variant-2" => ("patch_seq_make_variant_2".to_string(), false),
-                    "make-variant-3" => ("patch_seq_make_variant_3".to_string(), false),
-                    "make-variant-4" => ("patch_seq_make_variant_4".to_string(), false),
-                    // Float arithmetic operations (dot notation → underscore)
-                    "f.add" => ("patch_seq_f_add".to_string(), false),
-                    "f.subtract" => ("patch_seq_f_subtract".to_string(), false),
-                    "f.multiply" => ("patch_seq_f_multiply".to_string(), false),
-                    "f.divide" => ("patch_seq_f_divide".to_string(), false),
-                    // Float comparison operations (symbolic → named)
-                    "f.=" => ("patch_seq_f_eq".to_string(), false),
-                    "f.<" => ("patch_seq_f_lt".to_string(), false),
-                    "f.>" => ("patch_seq_f_gt".to_string(), false),
-                    "f.<=" => ("patch_seq_f_lte".to_string(), false),
-                    "f.>=" => ("patch_seq_f_gte".to_string(), false),
-                    "f.<>" => ("patch_seq_f_neq".to_string(), false),
-                    // Float type conversions
-                    "int->float" => ("patch_seq_int_to_float".to_string(), false),
-                    "float->int" => ("patch_seq_float_to_int".to_string(), false),
-                    "float->string" => ("patch_seq_float_to_string".to_string(), false),
-                    "string->float" => ("patch_seq_string_to_float".to_string(), false),
-                    // Check for external builtins (from config)
-                    // Then fall through to user-defined words
-                    _ => {
-                        if let Some(symbol) = self.external_builtins.get(name) {
-                            // External builtin from config
-                            (symbol.clone(), false)
-                        } else {
-                            // User-defined word (prefix to avoid C symbol conflicts)
-                            // Also mangle special characters for LLVM IR compatibility
-                            (format!("seq_{}", mangle_name(name)), true)
-                        }
-                    }
-                };
+                // Map source-level word names to runtime function names.
+                // Lookup in BUILTIN_SYMBOLS, then external builtins, then user-defined words.
+                let (function_name, is_seq_word) =
+                    if let Some(&symbol) = BUILTIN_SYMBOLS.get(name.as_str()) {
+                        // Built-in runtime function
+                        (symbol.to_string(), false)
+                    } else if let Some(symbol) = self.external_builtins.get(name) {
+                        // External builtin from config
+                        (symbol.clone(), false)
+                    } else {
+                        // User-defined word (prefix to avoid C symbol conflicts)
+                        // Also mangle special characters for LLVM IR compatibility
+                        (format!("seq_{}", mangle_name(name)), true)
+                    };
 
                 // For tail position calls to user-defined words (seq_* functions),
                 // emit musttail call with tailcc convention.

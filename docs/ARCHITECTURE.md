@@ -290,6 +290,19 @@ See `runtime/src/arena.rs` for implementation.
 This hybrid approach gives us arena speed for the common case (local string
 manipulation) and correctness for cross-strand communication.
 
+### LTO Investigation
+
+We investigated Link-Time Optimization to inline runtime functions into
+Seq-generated code. While technically possible (requires matching LLVM versions
+and function attributes), it doesn't help performance because:
+
+- Pool allocation logic is complex and cannot be simplified by inlining
+- LLVM cannot fold constants across stack operations (`1 2 add` cannot become `3`)
+- Aggressive inlining actually increases code size and register pressure
+
+The current design with pooled allocation and separate runtime is appropriate.
+See `docs/LTO_INVESTIGATION.md` for the full analysis.
+
 ## Compilation Pipeline
 
 1. **Parse** - Tokenize and build AST (`parser.rs`)

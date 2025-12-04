@@ -1,5 +1,5 @@
 [workspace]
-members = ["runtime", "compiler", "lsp"]
+members = ["crates/runtime", "crates/compiler", "crates/lsp"]
 resolver = "2"
 
 [workspace.package]

@@ -45,30 +45,30 @@ jobs:
               { print }
             ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 
-            # Update seq-runtime build dependency version in compiler/Cargo.toml
+            # Update seq-runtime build dependency version in crates/compiler/Cargo.toml
             # This ensures the compiler pins to the exact runtime version
             awk -v new_version="${{ steps.version.outputs.version }}" '
               /seq-runtime = \{ path = "\.\.\/runtime", version = "=/ {
                 sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
               }
               { print }
-            ' compiler/Cargo.toml > compiler/Cargo.toml.tmp && mv compiler/Cargo.toml.tmp compiler/Cargo.toml
+            ' crates/compiler/Cargo.toml > crates/compiler/Cargo.toml.tmp && mv crates/compiler/Cargo.toml.tmp crates/compiler/Cargo.toml
 
-            # Update seq-compiler dependency version in lsp/Cargo.toml
+            # Update seq-compiler dependency version in crates/lsp/Cargo.toml
             # This ensures the LSP pins to the exact compiler version
             awk -v new_version="${{ steps.version.outputs.version }}" '
               /^seq-compiler = \{ path = "\.\.\/compiler"/ {
                 sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
               }
               { print }
-            ' lsp/Cargo.toml > lsp/Cargo.toml.tmp && mv lsp/Cargo.toml.tmp lsp/Cargo.toml
+            ' crates/lsp/Cargo.toml > crates/lsp/Cargo.toml.tmp && mv crates/lsp/Cargo.toml.tmp crates/lsp/Cargo.toml
 
             cargo generate-lockfile
 
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
 
-            git add Cargo.toml compiler/Cargo.toml lsp/Cargo.toml Cargo.lock
+            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml Cargo.lock
             git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
             git push origin HEAD:main
 
@@ -87,16 +87,16 @@ jobs:
 
           # Check each crate uses workspace version
           for crate in runtime compiler lsp; do
-            CRATE_VERSION=$(grep -A10 '^\[package\]' $crate/Cargo.toml | grep '^version' | head -1)
+            CRATE_VERSION=$(grep -A10 '^\[package\]' crates/$crate/Cargo.toml | grep '^version' | head -1)
             if ! echo "$CRATE_VERSION" | grep -q "version.workspace = true"; then
-              echo "ERROR: $crate/Cargo.toml does not use workspace version!"
+              echo "ERROR: crates/$crate/Cargo.toml does not use workspace version!"
               exit 1
             fi
             echo "✓ $crate uses workspace version"
           done
 
           # Verify compiler's build dependency on runtime has exact version match
-          RUNTIME_DEP=$(grep 'seq-runtime.*path.*runtime' compiler/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          RUNTIME_DEP=$(grep 'seq-runtime.*path.*runtime' crates/compiler/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
           if [ "$RUNTIME_DEP" != "=$WORKSPACE_VERSION" ]; then
             echo "ERROR: compiler's seq-runtime build dependency version doesn't match!"
             echo "Expected: =$WORKSPACE_VERSION"
@@ -106,7 +106,7 @@ jobs:
           echo "✓ compiler build dependency pinned to exact version: $RUNTIME_DEP"
 
           # Verify lsp's dependency on compiler has exact version match
-          COMPILER_DEP=$(grep 'seq-compiler.*path.*compiler' lsp/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          COMPILER_DEP=$(grep 'seq-compiler.*path.*compiler' crates/lsp/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
           if [ "$COMPILER_DEP" != "=$WORKSPACE_VERSION" ]; then
             echo "ERROR: lsp's seq-compiler dependency version doesn't match!"
             echo "Expected: =$WORKSPACE_VERSION"

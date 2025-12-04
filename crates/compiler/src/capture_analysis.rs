@@ -73,6 +73,9 @@ pub fn calculate_captures(body_effect: &Effect, call_effect: &Effect) -> Result<
 
 /// Extract concrete types from a stack type (bottom to top order)
 ///
+/// This function traverses a `StackType` and returns a vector of concrete types
+/// in bottom-to-top order (deepest stack element first).
+///
 /// # Example
 ///
 /// ```text
@@ -80,19 +83,33 @@ pub fn calculate_captures(body_effect: &Effect, call_effect: &Effect) -> Result<
 /// Output: [Int, String]  (bottom to top)
 /// ```
 ///
-/// Row variables are not extracted - this works only with concrete stacks.
+/// # Row Variables
+///
+/// Row variables (like `..a`) are skipped - this function only extracts
+/// concrete types. This is appropriate for capture analysis where we need
+/// to know the actual types being captured.
+///
+/// # Performance
+///
+/// Uses recursion to build the vector in the correct order without needing
+/// to clone the entire stack structure or reverse the result.
 pub fn extract_concrete_types(stack: &StackType) -> Vec<Type> {
-    let mut types = Vec::new();
-    let mut current = stack.clone();
-
-    // Pop types from top to bottom
-    while let Some((rest, top)) = current.pop() {
-        types.push(top);
-        current = rest;
+    // Use recursion to build the vector in bottom-to-top order
+    fn collect(stack: &StackType, result: &mut Vec<Type>) {
+        match stack {
+            StackType::Cons { rest, top } => {
+                // First recurse to collect types below, then add this type
+                collect(rest, result);
+                result.push(top.clone());
+            }
+            StackType::Empty | StackType::RowVar(_) => {
+                // Base case: nothing more to collect
+            }
+        }
     }
 
-    // Reverse to get bottom-to-top order
-    types.reverse();
+    let mut types = Vec::new();
+    collect(stack, &mut types);
     types
 }
 

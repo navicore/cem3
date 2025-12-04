@@ -1277,14 +1277,18 @@ impl CodeGen {
                 Ok(result_var)
             }
             Type::Closure { captures, .. } => {
+                let capture_count = i32::try_from(captures.len()).map_err(|_| {
+                    format!(
+                        "Closure has too many captures ({}) - maximum is {}",
+                        captures.len(),
+                        i32::MAX
+                    )
+                })?;
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = call ptr @patch_seq_push_closure(ptr %{}, i64 %{}, i32 {})",
-                    result_var,
-                    stack_var,
-                    fn_ptr_var,
-                    captures.len() as i32
+                    result_var, stack_var, fn_ptr_var, capture_count
                 )
                 .unwrap();
                 Ok(result_var)

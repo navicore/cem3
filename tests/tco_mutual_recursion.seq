@@ -1,0 +1,36 @@
+# TCO Mutual Recursion Test
+#
+# This test verifies that tail call optimization works for mutual recursion.
+# Without TCO, this would cause a stack overflow.
+
+: is-even ( Int -- Int )
+    dup 0 = if
+        drop 1
+    else
+        1 subtract is-odd
+    then
+;
+
+: is-odd ( Int -- Int )
+    dup 0 = if
+        drop 0
+    else
+        1 subtract is-even
+    then
+;
+
+: main ( -- )
+    "Testing TCO with mutual recursion (100000 calls)..." write_line
+    100000 is-even
+    1 = if
+        "Success! 100000 is even." write_line
+    else
+        "ERROR: 100000 should be even!" write_line
+    then
+    99999 is-odd
+    1 = if
+        "Success! 99999 is odd." write_line
+    else
+        "ERROR: 99999 should be odd!" write_line
+    then
+;

@@ -4,7 +4,7 @@
 //!
 //! A closure consists of:
 //! - Function pointer (the compiled quotation code)
-//! - Environment (boxed array of captured values)
+//! - Environment (Arc-shared array of captured values for TCO support)
 //!
 //! Note: These extern "C" functions use Value and slice pointers, which aren't technically FFI-safe,
 //! but they work correctly when called from LLVM-generated code (not actual C interop).
@@ -26,6 +26,7 @@
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
+use std::sync::Arc;
 
 /// Maximum number of captured values allowed in a closure environment.
 /// This prevents unbounded memory allocation and potential resource exhaustion.
@@ -372,7 +373,8 @@ pub unsafe extern "C" fn patch_seq_env_get_quotation(
 
 /// Create a closure value from a function pointer and environment
 ///
-/// Takes ownership of the environment (converts raw pointer back to Box).
+/// Takes ownership of the environment (converts raw pointer to Arc).
+/// Arc enables TCO: no cleanup needed after tail calls.
 ///
 /// # Safety
 /// - fn_ptr must be a valid function pointer (will be transmuted when called)
@@ -390,12 +392,13 @@ pub unsafe extern "C" fn patch_seq_make_closure(fn_ptr: u64, env: *mut [Value]) 
         panic!("make_closure: null environment pointer");
     }
 
-    // Take ownership of the environment
+    // Take ownership of the environment and convert to Arc for TCO support
     let env_box = unsafe { Box::from_raw(env) };
+    let env_arc: Arc<[Value]> = Arc::from(env_box);
 
     Value::Closure {
         fn_ptr: fn_ptr as usize,
-        env: env_box,
+        env: env_arc,
     }
 }
 
@@ -405,7 +408,7 @@ pub unsafe extern "C" fn patch_seq_make_closure(fn_ptr: u64, env: *mut [Value]) 
 /// makes closure, and pushes it onto the stack.
 ///
 /// This is a convenience function for LLVM codegen that handles the entire
-/// closure creation process in one call.
+/// closure creation process in one call. Uses Arc for TCO support.
 ///
 /// # Safety
 /// - fn_ptr must be a valid function pointer
@@ -437,10 +440,10 @@ pub unsafe extern "C" fn patch_seq_push_closure(
         stack = new_stack;
     }
 
-    // Create closure value
+    // Create closure value with Arc for TCO support
     let closure = Value::Closure {
         fn_ptr: fn_ptr as usize,
-        env: captures.into_boxed_slice(),
+        env: Arc::from(captures.into_boxed_slice()),
     };
 
     // Push onto stack

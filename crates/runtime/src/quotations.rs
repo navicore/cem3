@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 /// Type alias for closure registry entries
+/// Uses Box (not Arc) because cross-thread transfer needs owned data
+/// and cloning ensures arena strings become global strings
 type ClosureEntry = (usize, Box<[Value]>);
 
 /// Global registry for closure environments in spawned strands
@@ -97,7 +99,7 @@ extern "C" fn closure_spawn_trampoline(stack: Stack) -> Stack {
         let fn_ref: unsafe extern "C" fn(Stack, *const Value, usize) -> Stack =
             std::mem::transmute(fn_ptr);
 
-        // Call closure and return result (environment is dropped here)
+        // Call closure and return result (Arc ref count decremented after return)
         fn_ref(stack, env_ptr, env_len)
     }
 }
@@ -198,25 +200,19 @@ pub unsafe extern "C" fn patch_seq_call(stack: Stack) -> Stack {
                     panic!("call: closure function pointer is null");
                 }
 
-                // Convert Box<[Value]> to raw parts (data pointer + length)
-                // LLVM IR can't handle Rust's fat pointers, so we pass them separately
-                let env_ptr = Box::into_raw(env);
-                let env_slice = &*env_ptr;
-                let env_data = env_slice.as_ptr();
-                let env_len = env_slice.len();
+                // Get environment data pointer and length from Arc
+                // Arc enables TCO: no explicit cleanup needed, ref-count handles it
+                let env_data = env.as_ptr();
+                let env_len = env.len();
 
                 // SAFETY: fn_ptr was created by the compiler's codegen for a closure.
                 // The compiler guarantees that closure functions have the signature:
                 // unsafe extern "C" fn(Stack, *const Value, usize) -> Stack.
                 // We pass the environment as (data, len) since LLVM can't handle fat pointers.
+                // The Arc keeps the environment alive during the call and is dropped after.
                 let fn_ref: unsafe extern "C" fn(Stack, *const Value, usize) -> Stack =
                     std::mem::transmute(fn_ptr);
-                let result_stack = fn_ref(stack, env_data, env_len);
-
-                // Clean up environment (convert back to Box and drop)
-                let _ = Box::from_raw(env_ptr);
-
-                result_stack
+                fn_ref(stack, env_data, env_len)
             }
             _ => panic!(
                 "call: expected Quotation or Closure on stack, got {:?}",
@@ -540,9 +536,13 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
                 let closure_spawn_id = NEXT_CLOSURE_SPAWN_ID.fetch_add(1, Ordering::Relaxed);
 
                 // Store closure data in registry
+                // Clone the Arc contents to Box - this ensures:
+                // 1. Arena-allocated strings are copied to global memory
+                // 2. The spawned strand gets independent ownership
                 {
+                    let env_box: Box<[Value]> = env.iter().cloned().collect();
                     let mut registry = SPAWN_CLOSURE_REGISTRY.lock().unwrap();
-                    registry.insert(closure_spawn_id, (fn_ptr, env));
+                    registry.insert(closure_spawn_id, (fn_ptr, env_box));
                 }
 
                 // Create a guard to cleanup registry on failure

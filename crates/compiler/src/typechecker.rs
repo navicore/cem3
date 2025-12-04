@@ -5,6 +5,7 @@
 
 use crate::ast::{Program, Statement, WordDef};
 use crate::builtins::builtin_signature;
+use crate::capture_analysis::calculate_captures;
 use crate::types::{Effect, StackType, Type};
 use crate::unification::{Subst, unify_stacks};
 use std::collections::HashMap;
@@ -485,7 +486,7 @@ impl TypeChecker {
                 };
 
                 // Calculate what needs to be captured
-                let captures = self.calculate_captures(actual_effect, expected_effect)?;
+                let captures = calculate_captures(actual_effect, expected_effect)?;
 
                 // Create a Closure type
                 let closure_type = Type::Closure {
@@ -552,7 +553,7 @@ impl TypeChecker {
         match expected {
             Some(Type::Closure { effect, .. }) => {
                 // User declared closure type - calculate captures
-                let captures = self.calculate_captures(body_effect, &effect)?;
+                let captures = calculate_captures(body_effect, &effect)?;
                 Ok(Type::Closure { effect, captures })
             }
             Some(Type::Quotation(expected_effect)) => {
@@ -567,7 +568,7 @@ impl TypeChecker {
                 if expected_is_empty && body_needs_inputs {
                     // Body needs inputs but expected provides none
                     // Auto-create closure to capture the inputs
-                    let captures = self.calculate_captures(body_effect, &expected_effect)?;
+                    let captures = calculate_captures(body_effect, &expected_effect)?;
                     Ok(Type::Closure {
                         effect: expected_effect,
                         captures,
@@ -582,77 +583,6 @@ impl TypeChecker {
                 Ok(Type::Quotation(Box::new(body_effect.clone())))
             }
         }
-    }
-
-    /// Calculate capture types for a closure
-    ///
-    /// Given:
-    ///   - body_effect: what the quotation body needs (e.g., Int Int -- Int)
-    ///   - call_effect: what the call site will provide (e.g., Int -- Int)
-    ///
-    /// Calculate:
-    ///   - captures: types to capture from creation stack (e.g., [Int])
-    ///
-    /// Example:
-    ///   Body needs: (Int Int -- Int)  [2 inputs total]
-    ///   Call provides: (Int -- Int)   [1 input from call site]
-    ///   Captures: 2 - 1 = 1 Int       [1 input from creation site]
-    ///
-    /// Capture Ordering:
-    ///   Captures are returned bottom-to-top (deepest value first).
-    ///   This matches how push_closure pops from the stack:
-    ///   - Stack at creation: ( ...rest bottom top )
-    ///   - push_closure pops top-down: pop top, pop bottom
-    ///   - Stores as: env[0]=top, env[1]=bottom (reversed)
-    ///   - Closure function pushes: push env[0], push env[1]
-    ///   - Result: bottom is deeper, top is shallower (correct order)
-    fn calculate_captures(
-        &self,
-        body_effect: &Effect,
-        call_effect: &Effect,
-    ) -> Result<Vec<Type>, String> {
-        // Extract concrete types from stack types (bottom to top)
-        let body_inputs = self.extract_concrete_types(&body_effect.inputs);
-        let call_inputs = self.extract_concrete_types(&call_effect.inputs);
-
-        // Validate: call site shouldn't provide MORE than body needs
-        if call_inputs.len() > body_inputs.len() {
-            return Err(format!(
-                "Closure signature error: call site provides {} values but body only needs {}",
-                call_inputs.len(),
-                body_inputs.len()
-            ));
-        }
-
-        // Calculate how many to capture (from bottom of stack)
-        let capture_count = body_inputs.len() - call_inputs.len();
-
-        // Captures are the first N types (bottom of stack)
-        // Example: body needs [Int, String] (bottom to top), call provides [String]
-        // Captures: [Int] (the bottom type)
-        Ok(body_inputs[0..capture_count].to_vec())
-    }
-
-    /// Extract concrete types from a stack type (bottom to top order)
-    ///
-    /// Example:
-    ///   Input: Cons { rest: Cons { rest: Empty, top: Int }, top: String }
-    ///   Output: [Int, String]  (bottom to top)
-    ///
-    /// Row variables are not supported - this is only for concrete stacks
-    fn extract_concrete_types(&self, stack: &StackType) -> Vec<Type> {
-        let mut types = Vec::new();
-        let mut current = stack.clone();
-
-        // Pop types from top to bottom
-        while let Some((rest, top)) = current.pop() {
-            types.push(top);
-            current = rest;
-        }
-
-        // Reverse to get bottom-to-top order
-        types.reverse();
-        types
     }
 
     /// Pop a type from a stack type, returning (rest, top)

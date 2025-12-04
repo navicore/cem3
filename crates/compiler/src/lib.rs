@@ -18,6 +18,7 @@
 
 pub mod ast;
 pub mod builtins;
+pub mod capture_analysis;
 pub mod codegen;
 pub mod config;
 pub mod parser;

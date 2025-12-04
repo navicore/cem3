@@ -1006,6 +1006,300 @@ impl CodeGen {
         Ok(closure_result)
     }
 
+    // =========================================================================
+    // Statement Code Generation Helpers
+    // =========================================================================
+
+    /// Generate code for an integer literal: ( -- n )
+    fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, String> {
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+            result_var, stack_var, n
+        )
+        .unwrap();
+        Ok(result_var)
+    }
+
+    /// Generate code for a float literal: ( -- f )
+    ///
+    /// Uses LLVM's hexadecimal floating point format for exact representation.
+    /// Handles special values (NaN, Infinity) explicitly.
+    fn codegen_float_literal(&mut self, stack_var: &str, f: f64) -> Result<String, String> {
+        let result_var = self.fresh_temp();
+        // Format float to ensure LLVM recognizes it as a double literal
+        let float_str = if f.is_nan() {
+            "0x7FF8000000000000".to_string() // NaN
+        } else if f.is_infinite() {
+            if f.is_sign_positive() {
+                "0x7FF0000000000000".to_string() // +Infinity
+            } else {
+                "0xFFF0000000000000".to_string() // -Infinity
+            }
+        } else {
+            // Use LLVM's hexadecimal floating point format for exact representation
+            format!("0x{:016X}", f.to_bits())
+        };
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
+            result_var, stack_var, float_str
+        )
+        .unwrap();
+        Ok(result_var)
+    }
+
+    /// Generate code for a boolean literal: ( -- b )
+    fn codegen_bool_literal(&mut self, stack_var: &str, b: bool) -> Result<String, String> {
+        let result_var = self.fresh_temp();
+        let val = if b { 1 } else { 0 };
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+            result_var, stack_var, val
+        )
+        .unwrap();
+        Ok(result_var)
+    }
+
+    /// Generate code for a string literal: ( -- s )
+    fn codegen_string_literal(&mut self, stack_var: &str, s: &str) -> Result<String, String> {
+        let global = self.get_string_global(s);
+        let ptr_temp = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr inbounds [{} x i8], ptr {}, i32 0, i32 0",
+            ptr_temp,
+            s.len() + 1,
+            global
+        )
+        .unwrap();
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_string(ptr %{}, ptr %{})",
+            result_var, stack_var, ptr_temp
+        )
+        .unwrap();
+        Ok(result_var)
+    }
+
+    /// Generate code for a word call
+    ///
+    /// Handles builtin functions, external builtins, and user-defined words.
+    /// Emits tail calls when appropriate.
+    fn codegen_word_call(
+        &mut self,
+        stack_var: &str,
+        name: &str,
+        position: TailPosition,
+    ) -> Result<String, String> {
+        let result_var = self.fresh_temp();
+
+        // Phase 2 TCO: Special handling for `call` in tail position
+        if name == "call" && position == TailPosition::Tail && !self.inside_closure {
+            return self.codegen_tail_call_quotation(stack_var, &result_var);
+        }
+
+        // Map source-level word names to runtime function names
+        let (function_name, is_seq_word) = if let Some(&symbol) = BUILTIN_SYMBOLS.get(name) {
+            (symbol.to_string(), false)
+        } else if let Some(symbol) = self.external_builtins.get(name) {
+            (symbol.clone(), false)
+        } else {
+            (format!("seq_{}", mangle_name(name)), true)
+        };
+
+        // Emit tail call for user-defined words in tail position
+        let can_tail_call = position == TailPosition::Tail && !self.inside_closure && is_seq_word;
+        if can_tail_call {
+            writeln!(
+                &mut self.output,
+                "  %{} = musttail call tailcc ptr @{}(ptr %{})",
+                result_var, function_name, stack_var
+            )
+            .unwrap();
+            writeln!(&mut self.output, "  ret ptr %{}", result_var).unwrap();
+        } else {
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @{}(ptr %{})",
+                result_var, function_name, stack_var
+            )
+            .unwrap();
+        }
+        Ok(result_var)
+    }
+
+    /// Generate code for an if statement with optional else branch
+    ///
+    /// Handles phi node merging for branches with different control flow.
+    fn codegen_if_statement(
+        &mut self,
+        stack_var: &str,
+        then_branch: &[Statement],
+        else_branch: Option<&Vec<Statement>>,
+        position: TailPosition,
+    ) -> Result<String, String> {
+        // Peek the condition value, then pop to free the stack node
+        let cond_temp = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
+            cond_temp, stack_var
+        )
+        .unwrap();
+
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+            popped_stack, stack_var
+        )
+        .unwrap();
+
+        // Compare with 0 (0 = false, non-zero = true)
+        let cmp_temp = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cmp_temp, cond_temp
+        )
+        .unwrap();
+
+        // Generate unique block labels
+        let then_block = self.fresh_block("if_then");
+        let else_block = self.fresh_block("if_else");
+        let merge_block = self.fresh_block("if_merge");
+
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cmp_temp, then_block, else_block
+        )
+        .unwrap();
+
+        // Then branch
+        writeln!(&mut self.output, "{}:", then_block).unwrap();
+        let then_result = self.codegen_branch(
+            then_branch,
+            &popped_stack,
+            position,
+            &merge_block,
+            "if_then",
+        )?;
+
+        // Else branch
+        writeln!(&mut self.output, "{}:", else_block).unwrap();
+        let else_result = if let Some(eb) = else_branch {
+            self.codegen_branch(eb, &popped_stack, position, &merge_block, "if_else")?
+        } else {
+            // No else clause - emit landing block with unchanged stack
+            let else_pred = self.fresh_block("if_else_end");
+            writeln!(&mut self.output, "  br label %{}", else_pred).unwrap();
+            writeln!(&mut self.output, "{}:", else_pred).unwrap();
+            writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+            BranchResult {
+                stack_var: popped_stack.clone(),
+                emitted_tail_call: false,
+                predecessor: else_pred,
+            }
+        };
+
+        // If both branches emitted tail calls, no merge needed
+        if then_result.emitted_tail_call && else_result.emitted_tail_call {
+            return Ok(then_result.stack_var);
+        }
+
+        // Merge block with phi node
+        writeln!(&mut self.output, "{}:", merge_block).unwrap();
+        let result_var = self.fresh_temp();
+
+        if then_result.emitted_tail_call {
+            writeln!(
+                &mut self.output,
+                "  %{} = phi ptr [ %{}, %{} ]",
+                result_var, else_result.stack_var, else_result.predecessor
+            )
+            .unwrap();
+        } else if else_result.emitted_tail_call {
+            writeln!(
+                &mut self.output,
+                "  %{} = phi ptr [ %{}, %{} ]",
+                result_var, then_result.stack_var, then_result.predecessor
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                &mut self.output,
+                "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
+                result_var,
+                then_result.stack_var,
+                then_result.predecessor,
+                else_result.stack_var,
+                else_result.predecessor
+            )
+            .unwrap();
+        }
+
+        Ok(result_var)
+    }
+
+    /// Generate code for pushing a quotation or closure onto the stack
+    fn codegen_quotation_push(
+        &mut self,
+        stack_var: &str,
+        id: usize,
+        body: &[Statement],
+    ) -> Result<String, String> {
+        let quot_type = self.get_quotation_type(id)?.clone();
+        let fn_name = self.codegen_quotation(body, &quot_type)?;
+
+        // Get function pointer as i64
+        let fn_ptr_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = ptrtoint ptr @{} to i64",
+            fn_ptr_var, fn_name
+        )
+        .unwrap();
+
+        match quot_type {
+            Type::Quotation(_) => {
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{})",
+                    result_var, stack_var, fn_ptr_var
+                )
+                .unwrap();
+                Ok(result_var)
+            }
+            Type::Closure { captures, .. } => {
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_push_closure(ptr %{}, i64 %{}, i32 {})",
+                    result_var,
+                    stack_var,
+                    fn_ptr_var,
+                    captures.len() as i32
+                )
+                .unwrap();
+                Ok(result_var)
+            }
+            _ => Err(format!(
+                "CodeGen: expected Quotation or Closure type, got {:?}",
+                quot_type
+            )),
+        }
+    }
+
+    // =========================================================================
+    // Main Statement Dispatcher
+    // =========================================================================
+
     /// Generate code for a single statement
     ///
     /// The `position` parameter indicates whether this statement is in tail position.
@@ -1017,300 +1311,16 @@ impl CodeGen {
         position: TailPosition,
     ) -> Result<String, String> {
         match statement {
-            Statement::IntLiteral(n) => {
-                let result_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                    result_var, stack_var, n
-                )
-                .unwrap();
-                Ok(result_var)
-            }
-
-            Statement::FloatLiteral(f) => {
-                let result_var = self.fresh_temp();
-                // Format float to ensure LLVM recognizes it as a double literal
-                // Use hex representation for precise and always-valid format
-                let float_str = if f.is_nan() {
-                    "0x7FF8000000000000".to_string() // NaN
-                } else if f.is_infinite() {
-                    if f.is_sign_positive() {
-                        "0x7FF0000000000000".to_string() // +Infinity
-                    } else {
-                        "0xFFF0000000000000".to_string() // -Infinity
-                    }
-                } else {
-                    // Use LLVM's hexadecimal floating point format for exact representation
-                    let bits = f.to_bits();
-                    format!("0x{:016X}", bits)
-                };
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
-                    result_var, stack_var, float_str
-                )
-                .unwrap();
-                Ok(result_var)
-            }
-
-            Statement::BoolLiteral(b) => {
-                let result_var = self.fresh_temp();
-                let val = if *b { 1 } else { 0 };
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                    result_var, stack_var, val
-                )
-                .unwrap();
-                Ok(result_var)
-            }
-
-            Statement::StringLiteral(s) => {
-                let global = self.get_string_global(s);
-                let ptr_temp = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr inbounds [{} x i8], ptr {}, i32 0, i32 0",
-                    ptr_temp,
-                    s.len() + 1,
-                    global
-                )
-                .unwrap();
-                let result_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_push_string(ptr %{}, ptr %{})",
-                    result_var, stack_var, ptr_temp
-                )
-                .unwrap();
-                Ok(result_var)
-            }
-
-            Statement::WordCall(name) => {
-                let result_var = self.fresh_temp();
-
-                // Phase 2 TCO: Special handling for `call` in tail position
-                // When calling a quotation in tail position, we can TCO it by:
-                // 1. Checking if it's a Quotation (not a Closure)
-                // 2. If Quotation: extract fn_ptr and musttail call it
-                // 3. If Closure: fall back to regular patch_seq_call (Phase 3)
-                if name == "call" && position == TailPosition::Tail && !self.inside_closure {
-                    return self.codegen_tail_call_quotation(stack_var, &result_var);
-                }
-
-                // Map source-level word names to runtime function names.
-                // Lookup in BUILTIN_SYMBOLS, then external builtins, then user-defined words.
-                let (function_name, is_seq_word) =
-                    if let Some(&symbol) = BUILTIN_SYMBOLS.get(name.as_str()) {
-                        // Built-in runtime function
-                        (symbol.to_string(), false)
-                    } else if let Some(symbol) = self.external_builtins.get(name) {
-                        // External builtin from config
-                        (symbol.clone(), false)
-                    } else {
-                        // User-defined word (prefix to avoid C symbol conflicts)
-                        // Also mangle special characters for LLVM IR compatibility
-                        (format!("seq_{}", mangle_name(name)), true)
-                    };
-
-                // For tail position calls to user-defined words (seq_* functions),
-                // emit musttail call with tailcc convention.
-                // Note: Closures can't use musttail because their signature differs.
-                let can_tail_call =
-                    position == TailPosition::Tail && !self.inside_closure && is_seq_word;
-                if can_tail_call {
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = musttail call tailcc ptr @{}(ptr %{})",
-                        result_var, function_name, stack_var
-                    )
-                    .unwrap();
-                    writeln!(&mut self.output, "  ret ptr %{}", result_var).unwrap();
-                } else {
-                    // Regular call (non-tail, runtime function, or inside closure)
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = call ptr @{}(ptr %{})",
-                        result_var, function_name, stack_var
-                    )
-                    .unwrap();
-                }
-                Ok(result_var)
-            }
-
+            Statement::IntLiteral(n) => self.codegen_int_literal(stack_var, *n),
+            Statement::FloatLiteral(f) => self.codegen_float_literal(stack_var, *f),
+            Statement::BoolLiteral(b) => self.codegen_bool_literal(stack_var, *b),
+            Statement::StringLiteral(s) => self.codegen_string_literal(stack_var, s),
+            Statement::WordCall(name) => self.codegen_word_call(stack_var, name, position),
             Statement::If {
                 then_branch,
                 else_branch,
-            } => {
-                // NOTE: Stack effect validation is performed by the type checker (see typechecker.rs).
-                // Both branches must produce the same stack depth, which is validated before
-                // we reach codegen. This ensures the phi node merges compatible stack pointers.
-
-                // Peek the condition value first (doesn't modify stack)
-                // Then pop separately to properly free the stack node
-                // (prevents memory leak while allowing us to use the value for branching)
-                let cond_temp = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
-                    cond_temp, stack_var
-                )
-                .unwrap();
-
-                // Pop the condition from the stack (frees the node)
-                let popped_stack = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
-                    popped_stack, stack_var
-                )
-                .unwrap();
-
-                // Compare with 0 (0 = zero, non-zero = non-zero)
-                let cmp_temp = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = icmp ne i64 %{}, 0",
-                    cmp_temp, cond_temp
-                )
-                .unwrap();
-
-                // Generate unique block labels
-                let then_block = self.fresh_block("if_then");
-                let else_block = self.fresh_block("if_else");
-                let merge_block = self.fresh_block("if_merge");
-
-                // Conditional branch
-                writeln!(
-                    &mut self.output,
-                    "  br i1 %{}, label %{}, label %{}",
-                    cmp_temp, then_block, else_block
-                )
-                .unwrap();
-
-                // Then branch (executed when condition is non-zero)
-                writeln!(&mut self.output, "{}:", then_block).unwrap();
-                let then_result = self.codegen_branch(
-                    then_branch,
-                    &popped_stack,
-                    position,
-                    &merge_block,
-                    "if_then",
-                )?;
-
-                // Else branch (executed when condition is zero)
-                writeln!(&mut self.output, "{}:", else_block).unwrap();
-                let else_result = if let Some(eb) = else_branch {
-                    self.codegen_branch(eb, &popped_stack, position, &merge_block, "if_else")?
-                } else {
-                    // No else clause - emit landing block with unchanged stack
-                    let else_pred = self.fresh_block("if_else_end");
-                    writeln!(&mut self.output, "  br label %{}", else_pred).unwrap();
-                    writeln!(&mut self.output, "{}:", else_pred).unwrap();
-                    writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
-                    BranchResult {
-                        stack_var: popped_stack.clone(),
-                        emitted_tail_call: false,
-                        predecessor: else_pred,
-                    }
-                };
-
-                // If both branches emitted tail calls, we don't need a merge block
-                // The function has already returned from both paths
-                if then_result.emitted_tail_call && else_result.emitted_tail_call {
-                    // Both branches returned via tail call, no merge needed
-                    return Ok(then_result.stack_var);
-                }
-
-                // Merge block - phi node to merge stack pointers from both paths
-                writeln!(&mut self.output, "{}:", merge_block).unwrap();
-                let result_var = self.fresh_temp();
-
-                // Build phi node based on which branches reach the merge block
-                if then_result.emitted_tail_call {
-                    // Only else branch reaches merge
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = phi ptr [ %{}, %{} ]",
-                        result_var, else_result.stack_var, else_result.predecessor
-                    )
-                    .unwrap();
-                } else if else_result.emitted_tail_call {
-                    // Only then branch reaches merge
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = phi ptr [ %{}, %{} ]",
-                        result_var, then_result.stack_var, then_result.predecessor
-                    )
-                    .unwrap();
-                } else {
-                    // Both branches reach merge
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
-                        result_var,
-                        then_result.stack_var,
-                        then_result.predecessor,
-                        else_result.stack_var,
-                        else_result.predecessor
-                    )
-                    .unwrap();
-                }
-
-                Ok(result_var)
-            }
-
-            Statement::Quotation { id, body } => {
-                // Get the inferred type for this quotation using its ID
-                let quot_type = self.get_quotation_type(*id)?.clone();
-
-                // Generate a function for the quotation body
-                let fn_name = self.codegen_quotation(body, &quot_type)?;
-
-                // Get function pointer as usize
-                let fn_ptr_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = ptrtoint ptr @{} to i64",
-                    fn_ptr_var, fn_name
-                )
-                .unwrap();
-
-                // Generate code based on quotation type
-                match quot_type {
-                    Type::Quotation(_effect) => {
-                        // Stateless quotation - use push_quotation
-                        let result_var = self.fresh_temp();
-                        writeln!(
-                            &mut self.output,
-                            "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{})",
-                            result_var, stack_var, fn_ptr_var
-                        )
-                        .unwrap();
-                        Ok(result_var)
-                    }
-                    Type::Closure {
-                        effect: _effect,
-                        captures,
-                    } => {
-                        // Closure with captures - use push_closure
-                        let capture_count = captures.len() as i32;
-                        let result_var = self.fresh_temp();
-                        writeln!(
-                            &mut self.output,
-                            "  %{} = call ptr @patch_seq_push_closure(ptr %{}, i64 %{}, i32 {})",
-                            result_var, stack_var, fn_ptr_var, capture_count
-                        )
-                        .unwrap();
-                        Ok(result_var)
-                    }
-                    _ => Err(format!(
-                        "CodeGen: expected Quotation or Closure type, got {:?}",
-                        quot_type
-                    )),
-                }
-            }
+            } => self.codegen_if_statement(stack_var, then_branch, else_branch.as_ref(), position),
+            Statement::Quotation { id, body } => self.codegen_quotation_push(stack_var, *id, body),
         }
     }
 

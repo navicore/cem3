@@ -424,6 +424,9 @@ impl CodeGen {
         writeln!(&mut ir, "; Quotation operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_quotation(ptr, i64)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_call(ptr)").unwrap();
+        // Phase 2 TCO helpers for quotation calls
+        writeln!(&mut ir, "declare i64 @patch_seq_peek_is_quotation(ptr)").unwrap();
+        writeln!(&mut ir, "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_times(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_while_loop(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_until_loop(ptr)").unwrap();
@@ -907,6 +910,7 @@ impl CodeGen {
     ///
     /// Returns true for:
     /// - User-defined word calls (emit `musttail` + `ret`)
+    /// - `call` word (Phase 2 TCO for quotations)
     /// - If statements where BOTH branches emit terminators
     ///
     /// Returns false if inside a closure (closures can't use `musttail` due to
@@ -916,7 +920,13 @@ impl CodeGen {
             return false;
         }
         match statement {
-            Statement::WordCall(name) => !self.is_runtime_builtin(name),
+            Statement::WordCall(name) => {
+                // Phase 2 TCO: `call` is now TCO-eligible (it emits its own ret)
+                if name == "call" {
+                    return true;
+                }
+                !self.is_runtime_builtin(name)
+            }
             Statement::If {
                 then_branch,
                 else_branch,
@@ -934,6 +944,102 @@ impl CodeGen {
             }
             _ => false,
         }
+    }
+
+    /// Generate code for a tail call to a quotation (Phase 2 TCO).
+    ///
+    /// This is called when `call` is in tail position. We generate inline dispatch:
+    /// 1. Check if top of stack is a Quotation (not Closure)
+    /// 2. If Quotation: pop, extract fn_ptr, musttail call it
+    /// 3. If Closure: call regular patch_seq_call (no TCO for closures yet)
+    ///
+    /// The function always emits a `ret`, so no merge block is needed.
+    fn codegen_tail_call_quotation(
+        &mut self,
+        stack_var: &str,
+        _result_var: &str,
+    ) -> Result<String, String> {
+        // Check if top of stack is a quotation
+        let is_quot_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call i64 @patch_seq_peek_is_quotation(ptr %{})",
+            is_quot_var, stack_var
+        )
+        .unwrap();
+
+        // Compare to 1 (true = quotation)
+        let cmp_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp eq i64 %{}, 1",
+            cmp_var, is_quot_var
+        )
+        .unwrap();
+
+        // Create labels for branching
+        let quot_block = self.fresh_block("call_quotation");
+        let closure_block = self.fresh_block("call_closure");
+
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cmp_var, quot_block, closure_block
+        )
+        .unwrap();
+
+        // Quotation path: extract fn_ptr and musttail call
+        writeln!(&mut self.output, "{}:", quot_block).unwrap();
+        let fn_ptr_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call i64 @patch_seq_peek_quotation_fn_ptr(ptr %{})",
+            fn_ptr_var, stack_var
+        )
+        .unwrap();
+
+        // Pop the quotation from the stack
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+            popped_stack, stack_var
+        )
+        .unwrap();
+
+        // Convert i64 fn_ptr to function pointer type
+        let fn_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = inttoptr i64 %{} to ptr",
+            fn_var, fn_ptr_var
+        )
+        .unwrap();
+
+        // Musttail call the quotation function
+        let quot_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = musttail call tailcc ptr %{}(ptr %{})",
+            quot_result, fn_var, popped_stack
+        )
+        .unwrap();
+        writeln!(&mut self.output, "  ret ptr %{}", quot_result).unwrap();
+
+        // Closure path: fall back to regular patch_seq_call
+        // Use a fresh temp to ensure proper SSA numbering (must be >= quotation branch temps)
+        writeln!(&mut self.output, "{}:", closure_block).unwrap();
+        let closure_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_call(ptr %{})",
+            closure_result, stack_var
+        )
+        .unwrap();
+        writeln!(&mut self.output, "  ret ptr %{}", closure_result).unwrap();
+
+        // Return a dummy value - both branches emit ret, so this won't be used
+        Ok(closure_result)
     }
 
     /// Generate code for a single statement
@@ -1019,6 +1125,16 @@ impl CodeGen {
 
             Statement::WordCall(name) => {
                 let result_var = self.fresh_temp();
+
+                // Phase 2 TCO: Special handling for `call` in tail position
+                // When calling a quotation in tail position, we can TCO it by:
+                // 1. Checking if it's a Quotation (not a Closure)
+                // 2. If Quotation: extract fn_ptr and musttail call it
+                // 3. If Closure: fall back to regular patch_seq_call (Phase 3)
+                if name == "call" && position == TailPosition::Tail && !self.inside_closure {
+                    return self.codegen_tail_call_quotation(stack_var, &result_var);
+                }
+
                 // Map source-level word names to runtime function names
                 // Most built-ins use their source name directly, but some need mapping:
                 // - Symbolic operators (=, <, >) map to names (eq, lt, gt)

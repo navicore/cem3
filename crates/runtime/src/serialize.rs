@@ -382,9 +382,10 @@ mod tests {
 
     #[test]
     fn test_closure_not_serializable() {
+        use std::sync::Arc;
         let value = Value::Closure {
             fn_ptr: 12345,
-            env: Box::new([Value::Int(1)]),
+            env: Arc::from(vec![Value::Int(1)].into_boxed_slice()),
         };
         let result = TypedValue::from_value(&value);
         assert!(matches!(

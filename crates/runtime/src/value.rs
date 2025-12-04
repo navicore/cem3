@@ -1,6 +1,7 @@
 use crate::seqstring::SeqString;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 /// MapKey: Hashable subset of Value for use as map keys
 ///
@@ -78,13 +79,14 @@ pub enum Value {
     Quotation(usize),
 
     /// Closure (quotation with captured environment)
-    /// Contains function pointer and boxed array of captured values
+    /// Contains function pointer and Arc-shared array of captured values.
+    /// Arc enables TCO: no cleanup needed after tail call, ref-count handles it.
     Closure {
         /// Function pointer (transmuted to function taking Stack + environment)
         fn_ptr: usize,
-        /// Captured values from creation site
+        /// Captured values from creation site (Arc for TCO support)
         /// Ordered top-down: env[0] is top of stack at creation
-        env: Box<[Value]>,
+        env: Arc<[Value]>,
     },
 }
 
@@ -92,7 +94,8 @@ pub enum Value {
 // - Int, Float, Bool, String are all Send
 // - Variant contains only Send types (recursively)
 // - Quotation stores function pointer as usize (Send-safe)
-// - Closure: fn_ptr is usize (Send), env is Box<[Value]> (Send because Value is Send)
+// - Closure: fn_ptr is usize (Send), env is Arc<[Value]> (Send+Sync because Value is Send)
+// Arc is used instead of Box to enable TCO: the ref-count handles cleanup automatically
 // This is required for channel communication between strands
 unsafe impl Send for Value {}
 

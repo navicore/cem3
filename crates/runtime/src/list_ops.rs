@@ -619,7 +619,8 @@ mod tests {
             )));
 
             // Create closure that adds 10 to each element
-            let env: Box<[Value]> = vec![Value::Int(10)].into_boxed_slice();
+            let env: std::sync::Arc<[Value]> =
+                std::sync::Arc::from(vec![Value::Int(10)].into_boxed_slice());
             let closure = Value::Closure {
                 fn_ptr: add_captured_closure as usize,
                 env,

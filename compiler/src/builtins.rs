@@ -33,6 +33,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // read_line-safe: ( ..a -- ..a String Int )
+    // Returns line and status (1=success, 0=EOF)
+    sigs.insert(
+        "read_line-safe".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
     // Command-line argument operations
     // arg-count: ( ..a -- ..a Int ) returns number of arguments including program name
     sigs.insert(
@@ -600,6 +612,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Trim whitespace from both ends
     sigs.insert(
         "string-trim".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // string-chomp: ( ..a String -- ..a String )
+    // Remove trailing newline (\n or \r\n)
+    sigs.insert(
+        "string-chomp".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string()).push(Type::String),
             StackType::RowVar("a".to_string()).push(Type::String),

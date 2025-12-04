@@ -231,6 +231,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_read_line_safe(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)").unwrap();
@@ -355,6 +356,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_string_starts_with(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_empty(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_string_chomp(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_equal(ptr)").unwrap();
@@ -733,6 +735,7 @@ impl CodeGen {
                 let function_name = match name.as_str() {
                     // I/O operations
                     "write_line" | "read_line" => format!("patch_seq_{}", name),
+                    "read_line-safe" => "patch_seq_read_line_safe".to_string(),
                     "int->string" => "patch_seq_int_to_string".to_string(),
                     // Command-line argument operations
                     "arg-count" => "patch_seq_arg_count".to_string(),
@@ -791,6 +794,7 @@ impl CodeGen {
                     "string-starts-with" => "patch_seq_string_starts_with".to_string(),
                     "string-empty" => "patch_seq_string_empty".to_string(),
                     "string-trim" => "patch_seq_string_trim".to_string(),
+                    "string-chomp" => "patch_seq_string_chomp".to_string(),
                     "string-to-upper" => "patch_seq_string_to_upper".to_string(),
                     "string-to-lower" => "patch_seq_string_to_lower".to_string(),
                     "string-equal" => "patch_seq_string_equal".to_string(),

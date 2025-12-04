@@ -506,11 +506,42 @@ pub unsafe extern "C" fn patch_seq_string_to_int(stack: Stack) -> Stack {
     }
 }
 
+/// Remove trailing newline characters from a string
+///
+/// Stack effect: ( str -- str )
+///
+/// Removes trailing \n or \r\n (handles both Unix and Windows line endings).
+/// If the string doesn't end with a newline, returns it unchanged.
+///
+/// # Safety
+/// Stack must have a String value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_chomp(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_chomp: stack is empty");
+
+    let (stack, str_val) = unsafe { pop(stack) };
+
+    match str_val {
+        Value::String(s) => {
+            let mut result = s.as_str().to_owned();
+            if result.ends_with('\n') {
+                result.pop();
+                if result.ends_with('\r') {
+                    result.pop();
+                }
+            }
+            unsafe { push(stack, Value::String(global_string(result))) }
+        }
+        _ => panic!("string_chomp: expected String on stack"),
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_char_to_string as char_to_string;
 pub use patch_seq_json_escape as json_escape;
 pub use patch_seq_string_byte_length as string_byte_length;
 pub use patch_seq_string_char_at as string_char_at;
+pub use patch_seq_string_chomp as string_chomp;
 pub use patch_seq_string_concat as string_concat;
 pub use patch_seq_string_contains as string_contains;
 pub use patch_seq_string_empty as string_empty;

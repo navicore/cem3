@@ -159,6 +159,7 @@ impl Program {
             // I/O operations
             "write_line",
             "read_line",
+            "read_line-safe",
             "int->string",
             // Command-line arguments
             "arg-count",
@@ -180,6 +181,7 @@ impl Program {
             "string-starts-with",
             "string-empty",
             "string-trim",
+            "string-chomp",
             "string-to-upper",
             "string-to-lower",
             "string-equal",

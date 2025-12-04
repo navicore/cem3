@@ -77,7 +77,11 @@ pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
     }
 }
 
-/// Read a line from stdin (strips trailing newline)
+/// Read a line from stdin (preserves newline characters)
+///
+/// Returns the line including trailing newline (\n or \r\n).
+/// Returns empty string "" at EOF.
+/// Use `string-chomp` to remove trailing newlines if needed.
 ///
 /// Stack effect: ( -- str )
 ///
@@ -95,15 +99,37 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
         .read_line(&mut line)
         .expect("read_line: failed to read from stdin (I/O error or EOF)");
 
-    // Strip trailing newline(s)
-    if line.ends_with('\n') {
-        line.pop();
-        if line.ends_with('\r') {
-            line.pop();
-        }
-    }
-
+    // Preserve newlines - callers can use string-chomp if needed
     unsafe { push(stack, Value::String(line.into())) }
+}
+
+/// Read a line from stdin with explicit EOF detection
+///
+/// Returns the line and a status flag:
+/// - ( line 1 ) on success (line includes trailing newline)
+/// - ( "" 0 ) at EOF
+///
+/// Stack effect: ( -- String Int )
+///
+/// # Safety
+/// Always safe to call
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_read_line_safe(stack: Stack) -> Stack {
+    use std::io::BufRead;
+
+    let stdin = io::stdin();
+    let mut line = String::new();
+
+    let bytes_read = stdin
+        .lock()
+        .read_line(&mut line)
+        .expect("read_line_safe: failed to read from stdin");
+
+    // bytes_read == 0 means EOF
+    let status = if bytes_read > 0 { 1i64 } else { 0i64 };
+
+    let stack = unsafe { push(stack, Value::String(line.into())) };
+    unsafe { push(stack, Value::Int(status)) }
 }
 
 /// Convert an integer to a string
@@ -195,6 +221,7 @@ pub use patch_seq_int_to_string as int_to_string;
 pub use patch_seq_push_seqstring as push_seqstring;
 pub use patch_seq_push_string as push_string;
 pub use patch_seq_read_line as read_line;
+pub use patch_seq_read_line_safe as read_line_safe;
 pub use patch_seq_write_line as write_line;
 
 #[cfg(test)]

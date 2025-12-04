@@ -61,7 +61,7 @@ pub use float_ops::{
 // I/O operations (exported for LLVM linking)
 pub use io::{
     patch_seq_exit_op as exit_op, patch_seq_push_string as push_string,
-    patch_seq_read_line as read_line, patch_seq_read_line_safe as read_line_safe,
+    patch_seq_read_line as read_line, patch_seq_read_line_plus as read_line_plus,
     patch_seq_write_line as write_line,
 };
 

@@ -231,7 +231,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_read_line_safe(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_read_line_plus(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)").unwrap();
@@ -735,7 +735,7 @@ impl CodeGen {
                 let function_name = match name.as_str() {
                     // I/O operations
                     "write_line" | "read_line" => format!("patch_seq_{}", name),
-                    "read_line-safe" => "patch_seq_read_line_safe".to_string(),
+                    "read_line+" => "patch_seq_read_line_plus".to_string(),
                     "int->string" => "patch_seq_int_to_string".to_string(),
                     // Command-line argument operations
                     "arg-count" => "patch_seq_arg_count".to_string(),

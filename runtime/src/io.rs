@@ -111,10 +111,12 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( -- String Int )
 ///
+/// The `+` suffix indicates this returns a result pattern (value + status).
+///
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_read_line_safe(stack: Stack) -> Stack {
+pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
     use std::io::BufRead;
 
     let stdin = io::stdin();
@@ -221,7 +223,7 @@ pub use patch_seq_int_to_string as int_to_string;
 pub use patch_seq_push_seqstring as push_seqstring;
 pub use patch_seq_push_string as push_string;
 pub use patch_seq_read_line as read_line;
-pub use patch_seq_read_line_safe as read_line_safe;
+pub use patch_seq_read_line_plus as read_line_plus;
 pub use patch_seq_write_line as write_line;
 
 #[cfg(test)]

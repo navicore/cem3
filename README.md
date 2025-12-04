@@ -1,11 +1,12 @@
 # Seq - Concatenative Language
 
-A concatenative, stack-based programming language with static typing and CSP-style concurrency.
+A concatenative, stack-based programming language with static typing, tail call optimization, and CSP-style concurrency.
 
 ## Status
 
 **Compiler:** Functional (compiles .seq source to native executables via LLVM IR)
 **Runtime:** Strands (green threads), channels, TCP I/O, arena allocation
+**Tail Call Optimization:** Guaranteed TCO for recursive functions via LLVM `musttail`
 **Type System:** Row polymorphic stack effects with type inference
 **Standard Library:** JSON, YAML, HTTP, math utilities
 **Editor Support:** LSP server with diagnostics and completions
@@ -62,6 +63,13 @@ cargo test --all
 - Quotations: First-class functions with `call`, `times`, `while`, `until`, `forever`
 - Closures: Captured environments with type-driven inference
 
+**Tail Call Optimization:**
+- Guaranteed TCO via LLVM's `musttail` and `tailcc` calling convention
+- Recursive functions execute in constant stack space (100k+ calls tested)
+- Mutual recursion fully supported
+- Quotation calls (`call` word) are TCO-eligible
+- Closures use Arc-based environments for efficient tail calls
+
 **I/O and Strings:**
 - Console: `write_line`, `read_line`
 - Files: `file-read`, `file-write`, `file-exists?`
@@ -110,10 +118,10 @@ cargo install seq-lsp
 ## Documentation
 
 - `docs/ARCHITECTURE.md` - System architecture and design decisions
+- `docs/TCO_DESIGN.md` - Tail call optimization implementation
+- `docs/TYPE_SYSTEM_GUIDE.md` - Type system and stack effects
+- `docs/language-guide.md` - Language syntax and semantics
 - `docs/ROADMAP.md` - Development phases and milestones
-- `docs/CLEAN_CONCATENATIVE_DESIGN.md` - Core design principles
-- `docs/CELL_VS_VALUE_DESIGN.md` - Why we separate Value from StackNode
-- `docs/CONCATENATIVE_CORE_INVARIANTS.md` - Invariants that must hold
 
 ## License
 

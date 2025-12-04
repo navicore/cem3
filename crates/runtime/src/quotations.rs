@@ -114,6 +114,49 @@ pub unsafe extern "C" fn patch_seq_push_quotation(stack: Stack, fn_ptr: usize) -
     unsafe { push(stack, Value::Quotation(fn_ptr)) }
 }
 
+/// Check if the top of stack is a quotation (not a closure)
+///
+/// Used by the compiler for tail call optimization of `call`.
+/// Returns 1 if the top value is a Quotation, 0 otherwise.
+///
+/// Stack effect: ( quot -- quot ) [non-consuming peek]
+///
+/// # Safety
+/// - Stack must not be null
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_peek_is_quotation(stack: Stack) -> i64 {
+    use crate::stack::peek;
+    unsafe {
+        let value = peek(stack);
+        match value {
+            Value::Quotation(_) => 1,
+            _ => 0,
+        }
+    }
+}
+
+/// Get the function pointer from a quotation on top of stack
+///
+/// Used by the compiler for tail call optimization of `call`.
+/// Caller must ensure the top value is a Quotation (use peek_is_quotation first).
+///
+/// Stack effect: ( quot -- quot ) [non-consuming peek]
+///
+/// # Safety
+/// - Stack must not be null
+/// - Top of stack must be a Quotation (panics otherwise)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize {
+    use crate::stack::peek;
+    unsafe {
+        let value = peek(stack);
+        match value {
+            Value::Quotation(fn_ptr) => *fn_ptr,
+            _ => panic!("peek_quotation_fn_ptr: expected Quotation, got {:?}", value),
+        }
+    }
+}
+
 /// Call a quotation or closure
 ///
 /// Pops a quotation or closure from the stack and executes it.

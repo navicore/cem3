@@ -20,8 +20,169 @@
 use crate::ast::{Program, Statement, WordDef};
 use crate::config::CompilerConfig;
 use crate::types::Type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::sync::LazyLock;
+
+/// Sentinel value for unreachable predecessors in phi nodes.
+/// Used when a branch ends with a tail call (which emits ret directly).
+const UNREACHABLE_PREDECESSOR: &str = "unreachable";
+
+/// Runtime builtin functions that map to `patch_seq_*` symbols.
+/// These are NOT user-defined words and cannot use tail call optimization
+/// (they use the C calling convention, not `tailcc`).
+static RUNTIME_BUILTINS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        // I/O operations
+        "write_line",
+        "read_line",
+        "read_line+",
+        "int->string",
+        // Command-line arguments
+        "arg-count",
+        "arg",
+        // Arithmetic
+        "add",
+        "subtract",
+        "multiply",
+        "divide",
+        // Comparison
+        "=",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "<>",
+        // Boolean
+        "and",
+        "or",
+        "not",
+        // Stack operations
+        "dup",
+        "swap",
+        "over",
+        "rot",
+        "nip",
+        "tuck",
+        "drop",
+        "pick",
+        "roll",
+        // Concurrency
+        "make-channel",
+        "send",
+        "send-safe",
+        "receive",
+        "receive-safe",
+        "close-channel",
+        "yield",
+        // Quotation operations
+        "call",
+        "times",
+        "while",
+        "until",
+        "forever",
+        "spawn",
+        "cond",
+        // TCP operations
+        "tcp-listen",
+        "tcp-accept",
+        "tcp-read",
+        "tcp-write",
+        "tcp-close",
+        // String operations
+        "string-concat",
+        "string-length",
+        "string-byte-length",
+        "string-char-at",
+        "string-substring",
+        "char->string",
+        "string-find",
+        "string-split",
+        "string-contains",
+        "string-starts-with",
+        "string-empty",
+        "string-trim",
+        "string-chomp",
+        "string-to-upper",
+        "string-to-lower",
+        "string-equal",
+        "json-escape",
+        "string->int",
+        // File operations
+        "file-slurp",
+        "file-slurp-safe",
+        "file-exists?",
+        // List operations
+        "list-map",
+        "list-filter",
+        "list-fold",
+        "list-each",
+        "list-length",
+        "list-empty?",
+        // Map operations
+        "make-map",
+        "map-get",
+        "map-get-safe",
+        "map-set",
+        "map-has?",
+        "map-remove",
+        "map-keys",
+        "map-values",
+        "map-size",
+        "map-empty?",
+        // Variant operations
+        "variant-field-count",
+        "variant-tag",
+        "variant-field-at",
+        "variant-append",
+        "variant-last",
+        "variant-init",
+        "make-variant",
+        "make-variant-0",
+        "make-variant-1",
+        "make-variant-2",
+        "make-variant-3",
+        "make-variant-4",
+        // Float operations
+        "f.add",
+        "f.subtract",
+        "f.multiply",
+        "f.divide",
+        "f.=",
+        "f.<",
+        "f.>",
+        "f.<=",
+        "f.>=",
+        "f.<>",
+        "int->float",
+        "float->int",
+        "float->string",
+        "string->float",
+    ])
+});
+
+/// Tracks whether a statement is in tail position.
+///
+/// A statement is in tail position when its result is directly returned
+/// from the function without further processing. For tail calls, we can
+/// use LLVM's `musttail` to guarantee tail call optimization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TailPosition {
+    /// This is the last operation before return - can use musttail
+    Tail,
+    /// More operations follow - use regular call
+    NonTail,
+}
+
+/// Result of generating code for an if-statement branch.
+struct BranchResult {
+    /// The stack variable after executing the branch
+    stack_var: String,
+    /// Whether the branch emitted a tail call (and thus a ret)
+    emitted_tail_call: bool,
+    /// The predecessor block label for the phi node (or UNREACHABLE_PREDECESSOR)
+    predecessor: String,
+}
 
 /// Mangle a Seq word name into a valid LLVM IR identifier.
 ///
@@ -75,6 +236,7 @@ pub struct CodeGen {
     quotation_functions: String, // Accumulates generated quotation functions
     type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
     external_builtins: HashMap<String, String>, // seq_name -> symbol (for external builtins)
+    inside_closure: bool, // Track if we're generating code inside a closure (disables TCO)
 }
 
 impl CodeGen {
@@ -85,6 +247,7 @@ impl CodeGen {
             temp_counter: 0,
             string_counter: 0,
             block_counter: 0,
+            inside_closure: false,
             quot_counter: 0,
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
@@ -424,22 +587,36 @@ impl CodeGen {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
         // Also mangle special characters that aren't valid in LLVM IR identifiers
         let function_name = format!("seq_{}", mangle_name(&word.name));
+        // Use tailcc calling convention for guaranteed tail call optimization
         writeln!(
             &mut self.output,
-            "define ptr @{}(ptr %stack) {{",
+            "define tailcc ptr @{}(ptr %stack) {{",
             function_name
         )
         .unwrap();
         writeln!(&mut self.output, "entry:").unwrap();
 
         let mut stack_var = "stack".to_string();
+        let body_len = word.body.len();
 
         // Generate code for each statement
-        for statement in &word.body {
-            stack_var = self.codegen_statement(&stack_var, statement)?;
+        // The last statement is in tail position
+        for (i, statement) in word.body.iter().enumerate() {
+            let position = if i == body_len - 1 {
+                TailPosition::Tail
+            } else {
+                TailPosition::NonTail
+            };
+            stack_var = self.codegen_statement(&stack_var, statement, position)?;
         }
 
-        writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+        // Only emit ret if the last statement wasn't a tail call
+        // (tail calls emit their own ret)
+        if word.body.is_empty()
+            || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
+        {
+            writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+        }
         writeln!(&mut self.output, "}}").unwrap();
         writeln!(&mut self.output).unwrap();
 
@@ -461,18 +638,22 @@ impl CodeGen {
         let saved_output = std::mem::take(&mut self.output);
 
         // Generate function signature based on type
+        // Use tailcc for quotations to enable tail call optimization
         match quot_type {
             Type::Quotation(_) => {
                 // Stateless quotation: fn(Stack) -> Stack
                 writeln!(
                     &mut self.output,
-                    "define ptr @{}(ptr %stack) {{",
+                    "define tailcc ptr @{}(ptr %stack) {{",
                     function_name
                 )
                 .unwrap();
             }
             Type::Closure { captures, .. } => {
                 // Closure: fn(Stack, *const Value, usize) -> Stack
+                // Note: Closures don't use tailcc yet (Phase 3 work)
+                // Mark that we're inside a closure to disable tail calls
+                self.inside_closure = true;
                 writeln!(
                     &mut self.output,
                     "define ptr @{}(ptr %stack, ptr %env_data, i64 %env_len) {{",
@@ -602,19 +783,32 @@ impl CodeGen {
                 }
 
                 // Generate code for each statement in the quotation body
-                for statement in body {
-                    stack_var = self.codegen_statement(&stack_var, statement)?;
+                // Last statement is in tail position
+                let body_len = body.len();
+                for (i, statement) in body.iter().enumerate() {
+                    let position = if i == body_len - 1 {
+                        TailPosition::Tail
+                    } else {
+                        TailPosition::NonTail
+                    };
+                    stack_var = self.codegen_statement(&stack_var, statement, position)?;
                 }
 
-                writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                // Only emit ret if the last statement wasn't a tail call
+                if body.is_empty()
+                    || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail)
+                {
+                    writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                }
                 writeln!(&mut self.output, "}}").unwrap();
                 writeln!(&mut self.output).unwrap();
 
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output
+                // Restore original output and reset closure flag
                 self.output = saved_output;
+                self.inside_closure = false;
 
                 return Ok(function_name);
             }
@@ -629,13 +823,23 @@ impl CodeGen {
         writeln!(&mut self.output, "entry:").unwrap();
 
         let mut stack_var = "stack".to_string();
+        let body_len = body.len();
 
         // Generate code for each statement in the quotation body
-        for statement in body {
-            stack_var = self.codegen_statement(&stack_var, statement)?;
+        // Last statement is in tail position
+        for (i, statement) in body.iter().enumerate() {
+            let position = if i == body_len - 1 {
+                TailPosition::Tail
+            } else {
+                TailPosition::NonTail
+            };
+            stack_var = self.codegen_statement(&stack_var, statement, position)?;
         }
 
-        writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+        // Only emit ret if the last statement wasn't a tail call
+        if body.is_empty() || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail) {
+            writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+        }
         writeln!(&mut self.output, "}}").unwrap();
         writeln!(&mut self.output).unwrap();
 
@@ -648,11 +852,99 @@ impl CodeGen {
         Ok(function_name)
     }
 
+    /// Check if a name refers to a runtime builtin (not a user-defined word).
+    fn is_runtime_builtin(&self, name: &str) -> bool {
+        RUNTIME_BUILTINS.contains(name) || self.external_builtins.contains_key(name)
+    }
+
+    /// Generate code for a single branch of an if statement.
+    ///
+    /// Returns the final stack variable, whether a tail call was emitted,
+    /// and the predecessor block label for the phi node.
+    fn codegen_branch(
+        &mut self,
+        statements: &[Statement],
+        initial_stack: &str,
+        position: TailPosition,
+        merge_block: &str,
+        block_prefix: &str,
+    ) -> Result<BranchResult, String> {
+        let mut stack_var = initial_stack.to_string();
+        let len = statements.len();
+        let mut emitted_tail_call = false;
+
+        for (i, stmt) in statements.iter().enumerate() {
+            let stmt_position = if i == len - 1 {
+                position // Last statement inherits our tail position
+            } else {
+                TailPosition::NonTail
+            };
+            if i == len - 1 {
+                emitted_tail_call = self.will_emit_tail_call(stmt, stmt_position);
+            }
+            stack_var = self.codegen_statement(&stack_var, stmt, stmt_position)?;
+        }
+
+        // Only emit landing block if no tail call was emitted
+        let predecessor = if emitted_tail_call {
+            UNREACHABLE_PREDECESSOR.to_string()
+        } else {
+            let pred = self.fresh_block(&format!("{}_end", block_prefix));
+            writeln!(&mut self.output, "  br label %{}", pred).unwrap();
+            writeln!(&mut self.output, "{}:", pred).unwrap();
+            writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+            pred
+        };
+
+        Ok(BranchResult {
+            stack_var,
+            emitted_tail_call,
+            predecessor,
+        })
+    }
+
+    /// Check if a statement in tail position would emit a terminator (ret).
+    ///
+    /// Returns true for:
+    /// - User-defined word calls (emit `musttail` + `ret`)
+    /// - If statements where BOTH branches emit terminators
+    ///
+    /// Returns false if inside a closure (closures can't use `musttail` due to
+    /// signature mismatch - they have 3 params vs 1 for regular functions).
+    fn will_emit_tail_call(&self, statement: &Statement, position: TailPosition) -> bool {
+        if position != TailPosition::Tail || self.inside_closure {
+            return false;
+        }
+        match statement {
+            Statement::WordCall(name) => !self.is_runtime_builtin(name),
+            Statement::If {
+                then_branch,
+                else_branch,
+            } => {
+                // An if statement emits a terminator (no merge block) if BOTH branches
+                // end with terminators. Empty branches don't terminate.
+                let then_terminates = then_branch
+                    .last()
+                    .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail));
+                let else_terminates = else_branch
+                    .as_ref()
+                    .and_then(|eb| eb.last())
+                    .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail));
+                then_terminates && else_terminates
+            }
+            _ => false,
+        }
+    }
+
     /// Generate code for a single statement
+    ///
+    /// The `position` parameter indicates whether this statement is in tail position.
+    /// For tail calls, we emit `musttail call` followed by `ret` to guarantee TCO.
     fn codegen_statement(
         &mut self,
         stack_var: &str,
         statement: &Statement,
+        position: TailPosition,
     ) -> Result<String, String> {
         match statement {
             Statement::IntLiteral(n) => {
@@ -732,145 +1024,164 @@ impl CodeGen {
                 // - Symbolic operators (=, <, >) map to names (eq, lt, gt)
                 // - 'drop' maps to 'drop_op' (drop is LLVM reserved)
                 // - User words get 'seq_' prefix to avoid C symbol conflicts
-                let function_name = match name.as_str() {
+                let (function_name, is_seq_word) = match name.as_str() {
                     // I/O operations
-                    "write_line" | "read_line" => format!("patch_seq_{}", name),
-                    "read_line+" => "patch_seq_read_line_plus".to_string(),
-                    "int->string" => "patch_seq_int_to_string".to_string(),
+                    "write_line" | "read_line" => (format!("patch_seq_{}", name), false),
+                    "read_line+" => ("patch_seq_read_line_plus".to_string(), false),
+                    "int->string" => ("patch_seq_int_to_string".to_string(), false),
                     // Command-line argument operations
-                    "arg-count" => "patch_seq_arg_count".to_string(),
-                    "arg" => "patch_seq_arg_at".to_string(),
+                    "arg-count" => ("patch_seq_arg_count".to_string(), false),
+                    "arg" => ("patch_seq_arg_at".to_string(), false),
                     // Arithmetic operations
-                    "add" | "subtract" | "multiply" | "divide" => format!("patch_seq_{}", name),
+                    "add" | "subtract" | "multiply" | "divide" => {
+                        (format!("patch_seq_{}", name), false)
+                    }
                     // Comparison operations (symbolic → named)
                     // These return Int (0 or 1) for Forth-style boolean semantics
-                    "=" => "patch_seq_eq".to_string(),
-                    "<" => "patch_seq_lt".to_string(),
-                    ">" => "patch_seq_gt".to_string(),
-                    "<=" => "patch_seq_lte".to_string(),
-                    ">=" => "patch_seq_gte".to_string(),
-                    "<>" => "patch_seq_neq".to_string(),
+                    "=" => ("patch_seq_eq".to_string(), false),
+                    "<" => ("patch_seq_lt".to_string(), false),
+                    ">" => ("patch_seq_gt".to_string(), false),
+                    "<=" => ("patch_seq_lte".to_string(), false),
+                    ">=" => ("patch_seq_gte".to_string(), false),
+                    "<>" => ("patch_seq_neq".to_string(), false),
                     // Boolean operations
-                    "and" | "or" | "not" => format!("patch_seq_{}", name),
+                    "and" | "or" | "not" => (format!("patch_seq_{}", name), false),
                     // Stack operations (simple - no parameters)
                     "dup" | "swap" | "over" | "rot" | "nip" | "tuck" => {
-                        format!("patch_seq_{}", name)
+                        (format!("patch_seq_{}", name), false)
                     }
-                    "drop" => "patch_seq_drop_op".to_string(), // 'drop' is reserved in LLVM IR
-                    "pick" => "patch_seq_pick_op".to_string(), // pick takes Int parameter from stack
-                    "roll" => "patch_seq_roll".to_string(),    // roll takes Int depth from stack
+                    "drop" => ("patch_seq_drop_op".to_string(), false),
+                    "pick" => ("patch_seq_pick_op".to_string(), false),
+                    "roll" => ("patch_seq_roll".to_string(), false),
                     // Concurrency operations (hyphen → underscore for C compatibility)
-                    "make-channel" => "patch_seq_make_channel".to_string(),
-                    "send" => "patch_seq_chan_send".to_string(),
-                    "send-safe" => "patch_seq_chan_send_safe".to_string(),
-                    "receive" => "patch_seq_chan_receive".to_string(),
-                    "receive-safe" => "patch_seq_chan_receive_safe".to_string(),
-                    "close-channel" => "patch_seq_close_channel".to_string(),
-                    "yield" => "patch_seq_yield_strand".to_string(),
+                    "make-channel" => ("patch_seq_make_channel".to_string(), false),
+                    "send" => ("patch_seq_chan_send".to_string(), false),
+                    "send-safe" => ("patch_seq_chan_send_safe".to_string(), false),
+                    "receive" => ("patch_seq_chan_receive".to_string(), false),
+                    "receive-safe" => ("patch_seq_chan_receive_safe".to_string(), false),
+                    "close-channel" => ("patch_seq_close_channel".to_string(), false),
+                    "yield" => ("patch_seq_yield_strand".to_string(), false),
                     // Quotation operations
-                    "call" => "patch_seq_call".to_string(),
-                    "times" => "patch_seq_times".to_string(),
-                    "while" => "patch_seq_while_loop".to_string(),
-                    "until" => "patch_seq_until_loop".to_string(),
-                    "forever" => "patch_seq_forever".to_string(),
-                    "spawn" => "patch_seq_spawn".to_string(),
-                    "cond" => "patch_seq_cond".to_string(),
+                    "call" => ("patch_seq_call".to_string(), false),
+                    "times" => ("patch_seq_times".to_string(), false),
+                    "while" => ("patch_seq_while_loop".to_string(), false),
+                    "until" => ("patch_seq_until_loop".to_string(), false),
+                    "forever" => ("patch_seq_forever".to_string(), false),
+                    "spawn" => ("patch_seq_spawn".to_string(), false),
+                    "cond" => ("patch_seq_cond".to_string(), false),
                     // TCP operations (hyphen → underscore for C compatibility)
-                    "tcp-listen" => "patch_seq_tcp_listen".to_string(),
-                    "tcp-accept" => "patch_seq_tcp_accept".to_string(),
-                    "tcp-read" => "patch_seq_tcp_read".to_string(),
-                    "tcp-write" => "patch_seq_tcp_write".to_string(),
-                    "tcp-close" => "patch_seq_tcp_close".to_string(),
+                    "tcp-listen" => ("patch_seq_tcp_listen".to_string(), false),
+                    "tcp-accept" => ("patch_seq_tcp_accept".to_string(), false),
+                    "tcp-read" => ("patch_seq_tcp_read".to_string(), false),
+                    "tcp-write" => ("patch_seq_tcp_write".to_string(), false),
+                    "tcp-close" => ("patch_seq_tcp_close".to_string(), false),
                     // String operations (hyphen → underscore for C compatibility)
-                    "string-concat" => "patch_seq_string_concat".to_string(),
-                    "string-length" => "patch_seq_string_length".to_string(),
-                    "string-byte-length" => "patch_seq_string_byte_length".to_string(),
-                    "string-char-at" => "patch_seq_string_char_at".to_string(),
-                    "string-substring" => "patch_seq_string_substring".to_string(),
-                    "char->string" => "patch_seq_char_to_string".to_string(),
-                    "string-find" => "patch_seq_string_find".to_string(),
-                    "string-split" => "patch_seq_string_split".to_string(),
-                    "string-contains" => "patch_seq_string_contains".to_string(),
-                    "string-starts-with" => "patch_seq_string_starts_with".to_string(),
-                    "string-empty" => "patch_seq_string_empty".to_string(),
-                    "string-trim" => "patch_seq_string_trim".to_string(),
-                    "string-chomp" => "patch_seq_string_chomp".to_string(),
-                    "string-to-upper" => "patch_seq_string_to_upper".to_string(),
-                    "string-to-lower" => "patch_seq_string_to_lower".to_string(),
-                    "string-equal" => "patch_seq_string_equal".to_string(),
-                    "json-escape" => "patch_seq_json_escape".to_string(),
-                    "string->int" => "patch_seq_string_to_int".to_string(),
+                    "string-concat" => ("patch_seq_string_concat".to_string(), false),
+                    "string-length" => ("patch_seq_string_length".to_string(), false),
+                    "string-byte-length" => ("patch_seq_string_byte_length".to_string(), false),
+                    "string-char-at" => ("patch_seq_string_char_at".to_string(), false),
+                    "string-substring" => ("patch_seq_string_substring".to_string(), false),
+                    "char->string" => ("patch_seq_char_to_string".to_string(), false),
+                    "string-find" => ("patch_seq_string_find".to_string(), false),
+                    "string-split" => ("patch_seq_string_split".to_string(), false),
+                    "string-contains" => ("patch_seq_string_contains".to_string(), false),
+                    "string-starts-with" => ("patch_seq_string_starts_with".to_string(), false),
+                    "string-empty" => ("patch_seq_string_empty".to_string(), false),
+                    "string-trim" => ("patch_seq_string_trim".to_string(), false),
+                    "string-chomp" => ("patch_seq_string_chomp".to_string(), false),
+                    "string-to-upper" => ("patch_seq_string_to_upper".to_string(), false),
+                    "string-to-lower" => ("patch_seq_string_to_lower".to_string(), false),
+                    "string-equal" => ("patch_seq_string_equal".to_string(), false),
+                    "json-escape" => ("patch_seq_json_escape".to_string(), false),
+                    "string->int" => ("patch_seq_string_to_int".to_string(), false),
                     // File operations (hyphen → underscore for C compatibility)
-                    "file-slurp" => "patch_seq_file_slurp".to_string(),
-                    "file-slurp-safe" => "patch_seq_file_slurp_safe".to_string(),
-                    "file-exists?" => "patch_seq_file_exists".to_string(),
+                    "file-slurp" => ("patch_seq_file_slurp".to_string(), false),
+                    "file-slurp-safe" => ("patch_seq_file_slurp_safe".to_string(), false),
+                    "file-exists?" => ("patch_seq_file_exists".to_string(), false),
                     // List operations (hyphen → underscore for C compatibility)
-                    "list-map" => "patch_seq_list_map".to_string(),
-                    "list-filter" => "patch_seq_list_filter".to_string(),
-                    "list-fold" => "patch_seq_list_fold".to_string(),
-                    "list-each" => "patch_seq_list_each".to_string(),
-                    "list-length" => "patch_seq_list_length".to_string(),
-                    "list-empty?" => "patch_seq_list_empty".to_string(),
+                    "list-map" => ("patch_seq_list_map".to_string(), false),
+                    "list-filter" => ("patch_seq_list_filter".to_string(), false),
+                    "list-fold" => ("patch_seq_list_fold".to_string(), false),
+                    "list-each" => ("patch_seq_list_each".to_string(), false),
+                    "list-length" => ("patch_seq_list_length".to_string(), false),
+                    "list-empty?" => ("patch_seq_list_empty".to_string(), false),
                     // Map operations (hyphen → underscore for C compatibility)
-                    "make-map" => "patch_seq_make_map".to_string(),
-                    "map-get" => "patch_seq_map_get".to_string(),
-                    "map-get-safe" => "patch_seq_map_get_safe".to_string(),
-                    "map-set" => "patch_seq_map_set".to_string(),
-                    "map-has?" => "patch_seq_map_has".to_string(),
-                    "map-remove" => "patch_seq_map_remove".to_string(),
-                    "map-keys" => "patch_seq_map_keys".to_string(),
-                    "map-values" => "patch_seq_map_values".to_string(),
-                    "map-size" => "patch_seq_map_size".to_string(),
-                    "map-empty?" => "patch_seq_map_empty".to_string(),
+                    "make-map" => ("patch_seq_make_map".to_string(), false),
+                    "map-get" => ("patch_seq_map_get".to_string(), false),
+                    "map-get-safe" => ("patch_seq_map_get_safe".to_string(), false),
+                    "map-set" => ("patch_seq_map_set".to_string(), false),
+                    "map-has?" => ("patch_seq_map_has".to_string(), false),
+                    "map-remove" => ("patch_seq_map_remove".to_string(), false),
+                    "map-keys" => ("patch_seq_map_keys".to_string(), false),
+                    "map-values" => ("patch_seq_map_values".to_string(), false),
+                    "map-size" => ("patch_seq_map_size".to_string(), false),
+                    "map-empty?" => ("patch_seq_map_empty".to_string(), false),
                     // Variant operations (hyphen → underscore for C compatibility)
-                    "variant-field-count" => "patch_seq_variant_field_count".to_string(),
-                    "variant-tag" => "patch_seq_variant_tag".to_string(),
-                    "variant-field-at" => "patch_seq_variant_field_at".to_string(),
-                    "variant-append" => "patch_seq_variant_append".to_string(),
-                    "variant-last" => "patch_seq_variant_last".to_string(),
-                    "variant-init" => "patch_seq_variant_init".to_string(),
-                    "make-variant" => "patch_seq_make_variant".to_string(),
-                    "make-variant-0" => "patch_seq_make_variant_0".to_string(),
-                    "make-variant-1" => "patch_seq_make_variant_1".to_string(),
-                    "make-variant-2" => "patch_seq_make_variant_2".to_string(),
-                    "make-variant-3" => "patch_seq_make_variant_3".to_string(),
-                    "make-variant-4" => "patch_seq_make_variant_4".to_string(),
+                    "variant-field-count" => ("patch_seq_variant_field_count".to_string(), false),
+                    "variant-tag" => ("patch_seq_variant_tag".to_string(), false),
+                    "variant-field-at" => ("patch_seq_variant_field_at".to_string(), false),
+                    "variant-append" => ("patch_seq_variant_append".to_string(), false),
+                    "variant-last" => ("patch_seq_variant_last".to_string(), false),
+                    "variant-init" => ("patch_seq_variant_init".to_string(), false),
+                    "make-variant" => ("patch_seq_make_variant".to_string(), false),
+                    "make-variant-0" => ("patch_seq_make_variant_0".to_string(), false),
+                    "make-variant-1" => ("patch_seq_make_variant_1".to_string(), false),
+                    "make-variant-2" => ("patch_seq_make_variant_2".to_string(), false),
+                    "make-variant-3" => ("patch_seq_make_variant_3".to_string(), false),
+                    "make-variant-4" => ("patch_seq_make_variant_4".to_string(), false),
                     // Float arithmetic operations (dot notation → underscore)
-                    "f.add" => "patch_seq_f_add".to_string(),
-                    "f.subtract" => "patch_seq_f_subtract".to_string(),
-                    "f.multiply" => "patch_seq_f_multiply".to_string(),
-                    "f.divide" => "patch_seq_f_divide".to_string(),
+                    "f.add" => ("patch_seq_f_add".to_string(), false),
+                    "f.subtract" => ("patch_seq_f_subtract".to_string(), false),
+                    "f.multiply" => ("patch_seq_f_multiply".to_string(), false),
+                    "f.divide" => ("patch_seq_f_divide".to_string(), false),
                     // Float comparison operations (symbolic → named)
-                    "f.=" => "patch_seq_f_eq".to_string(),
-                    "f.<" => "patch_seq_f_lt".to_string(),
-                    "f.>" => "patch_seq_f_gt".to_string(),
-                    "f.<=" => "patch_seq_f_lte".to_string(),
-                    "f.>=" => "patch_seq_f_gte".to_string(),
-                    "f.<>" => "patch_seq_f_neq".to_string(),
+                    "f.=" => ("patch_seq_f_eq".to_string(), false),
+                    "f.<" => ("patch_seq_f_lt".to_string(), false),
+                    "f.>" => ("patch_seq_f_gt".to_string(), false),
+                    "f.<=" => ("patch_seq_f_lte".to_string(), false),
+                    "f.>=" => ("patch_seq_f_gte".to_string(), false),
+                    "f.<>" => ("patch_seq_f_neq".to_string(), false),
                     // Float type conversions
-                    "int->float" => "patch_seq_int_to_float".to_string(),
-                    "float->int" => "patch_seq_float_to_int".to_string(),
-                    "float->string" => "patch_seq_float_to_string".to_string(),
-                    "string->float" => "patch_seq_string_to_float".to_string(),
+                    "int->float" => ("patch_seq_int_to_float".to_string(), false),
+                    "float->int" => ("patch_seq_float_to_int".to_string(), false),
+                    "float->string" => ("patch_seq_float_to_string".to_string(), false),
+                    "string->float" => ("patch_seq_string_to_float".to_string(), false),
                     // Check for external builtins (from config)
                     // Then fall through to user-defined words
                     _ => {
                         if let Some(symbol) = self.external_builtins.get(name) {
                             // External builtin from config
-                            symbol.clone()
+                            (symbol.clone(), false)
                         } else {
                             // User-defined word (prefix to avoid C symbol conflicts)
                             // Also mangle special characters for LLVM IR compatibility
-                            format!("seq_{}", mangle_name(name))
+                            (format!("seq_{}", mangle_name(name)), true)
                         }
                     }
                 };
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @{}(ptr %{})",
-                    result_var, function_name, stack_var
-                )
-                .unwrap();
+
+                // For tail position calls to user-defined words (seq_* functions),
+                // emit musttail call with tailcc convention.
+                // Note: Closures can't use musttail because their signature differs.
+                let can_tail_call =
+                    position == TailPosition::Tail && !self.inside_closure && is_seq_word;
+                if can_tail_call {
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = musttail call tailcc ptr @{}(ptr %{})",
+                        result_var, function_name, stack_var
+                    )
+                    .unwrap();
+                    writeln!(&mut self.output, "  ret ptr %{}", result_var).unwrap();
+                } else {
+                    // Regular call (non-tail, runtime function, or inside closure)
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = call ptr @{}(ptr %{})",
+                        result_var, function_name, stack_var
+                    )
+                    .unwrap();
+                }
                 Ok(result_var)
             }
 
@@ -926,47 +1237,72 @@ impl CodeGen {
 
                 // Then branch (executed when condition is non-zero)
                 writeln!(&mut self.output, "{}:", then_block).unwrap();
-                let mut then_stack = popped_stack.clone();
-                for stmt in then_branch {
-                    then_stack = self.codegen_statement(&then_stack, stmt)?;
-                }
-                // Create landing block for phi node predecessor tracking.
-                // This is CRITICAL for nested conditionals: if then_branch contains
-                // another if statement, the actual control flow predecessor is the
-                // inner if's merge block, not then_block. The landing block ensures
-                // the phi node always references the correct immediate predecessor.
-                let then_predecessor = self.fresh_block("if_then_end");
-                writeln!(&mut self.output, "  br label %{}", then_predecessor).unwrap();
-                writeln!(&mut self.output, "{}:", then_predecessor).unwrap();
-                writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+                let then_result = self.codegen_branch(
+                    then_branch,
+                    &popped_stack,
+                    position,
+                    &merge_block,
+                    "if_then",
+                )?;
 
                 // Else branch (executed when condition is zero)
                 writeln!(&mut self.output, "{}:", else_block).unwrap();
-                let else_stack = if let Some(eb) = else_branch {
-                    let mut es = popped_stack.clone();
-                    for stmt in eb {
-                        es = self.codegen_statement(&es, stmt)?;
-                    }
-                    es
+                let else_result = if let Some(eb) = else_branch {
+                    self.codegen_branch(eb, &popped_stack, position, &merge_block, "if_else")?
                 } else {
-                    // No else clause - stack unchanged
-                    popped_stack.clone()
+                    // No else clause - emit landing block with unchanged stack
+                    let else_pred = self.fresh_block("if_else_end");
+                    writeln!(&mut self.output, "  br label %{}", else_pred).unwrap();
+                    writeln!(&mut self.output, "{}:", else_pred).unwrap();
+                    writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+                    BranchResult {
+                        stack_var: popped_stack.clone(),
+                        emitted_tail_call: false,
+                        predecessor: else_pred,
+                    }
                 };
-                // Landing block for else branch (same reasoning as then_branch)
-                let else_predecessor = self.fresh_block("if_else_end");
-                writeln!(&mut self.output, "  br label %{}", else_predecessor).unwrap();
-                writeln!(&mut self.output, "{}:", else_predecessor).unwrap();
-                writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+
+                // If both branches emitted tail calls, we don't need a merge block
+                // The function has already returned from both paths
+                if then_result.emitted_tail_call && else_result.emitted_tail_call {
+                    // Both branches returned via tail call, no merge needed
+                    return Ok(then_result.stack_var);
+                }
 
                 // Merge block - phi node to merge stack pointers from both paths
                 writeln!(&mut self.output, "{}:", merge_block).unwrap();
                 let result_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
-                    result_var, then_stack, then_predecessor, else_stack, else_predecessor
-                )
-                .unwrap();
+
+                // Build phi node based on which branches reach the merge block
+                if then_result.emitted_tail_call {
+                    // Only else branch reaches merge
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = phi ptr [ %{}, %{} ]",
+                        result_var, else_result.stack_var, else_result.predecessor
+                    )
+                    .unwrap();
+                } else if else_result.emitted_tail_call {
+                    // Only then branch reaches merge
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = phi ptr [ %{}, %{} ]",
+                        result_var, then_result.stack_var, then_result.predecessor
+                    )
+                    .unwrap();
+                } else {
+                    // Both branches reach merge
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
+                        result_var,
+                        then_result.stack_var,
+                        then_result.predecessor,
+                        else_result.stack_var,
+                        else_result.predecessor
+                    )
+                    .unwrap();
+                }
 
                 Ok(result_var)
             }
@@ -1129,7 +1465,7 @@ mod tests {
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
         assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"));
-        assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
+        assert!(ir.contains("define tailcc ptr @seq_main(ptr %stack)"));
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write_line"));
         assert!(ir.contains("\"Hello, World!\\00\""));

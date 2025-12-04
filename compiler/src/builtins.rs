@@ -33,10 +33,11 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // read_line-safe: ( ..a -- ..a String Int )
+    // read_line+: ( ..a -- ..a String Int )
     // Returns line and status (1=success, 0=EOF)
+    // The + suffix indicates result pattern (value + status)
     sigs.insert(
-        "read_line-safe".to_string(),
+        "read_line+".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string()),
             StackType::RowVar("a".to_string())

@@ -159,7 +159,7 @@ impl Program {
             // I/O operations
             "write_line",
             "read_line",
-            "read_line-safe",
+            "read_line+",
             "int->string",
             // Command-line arguments
             "arg-count",

@@ -235,9 +235,104 @@ This requires updating:
 - All function definitions
 - All call sites (including runtime calls)
 
-## Edge Cases and Considerations
+## Feasibility Assessment
 
-### 1. Runtime Function Calls
+This section provides an honest analysis of what's achievable and what requires
+additional work.
+
+### What's Straightforward (Low Risk)
+
+#### 1. Compiler-Level TCO for Word Calls
+
+When the compiler sees a word definition where the last operation is a call:
+```seq
+: foo ( -- ) setup-stuff bar ;  # bar is in tail position
+```
+
+The compiler can emit `musttail call` in LLVM IR. This covers:
+- Direct recursion (`factorial-acc` calling itself)
+- Mutual recursion (`even?` and `odd?` calling each other)
+- SeqLisp's eval loop and similar interpreter patterns
+
+**Risk**: Low. The architecture already supports this.
+
+#### 2. Quotations via `call` Word
+
+In `patch_seq_call` (runtime/src/quotations.rs), the quotation branch is already
+in tail position:
+```rust
+Value::Quotation(fn_ptr) => {
+    let fn_ref: unsafe extern "C" fn(Stack) -> Stack =
+        std::mem::transmute(fn_ptr);
+    fn_ref(stack)  // Already tail position - no cleanup after
+}
+```
+
+No runtime changes needed - just needs the compiler to emit `musttail` when
+calling `patch_seq_call` in tail position.
+
+**Risk**: Low. The code structure already supports this.
+
+#### 3. Mutual Recursion
+
+Both #1 and #2 handle mutual recursion naturally. With `musttail`, each tail
+call reuses the caller's frame regardless of which function is called.
+
+**Risk**: Low. Falls out naturally from the above.
+
+### What Requires Work (Medium Risk)
+
+#### 4. Closures via `call` Word
+
+The closure branch in `patch_seq_call` has a problem:
+```rust
+Value::Closure { fn_ptr, env } => {
+    let env_ptr = Box::into_raw(env);
+    let env_data = env_slice.as_ptr();
+    let env_len = env_slice.len();
+
+    let result_stack = fn_ref(stack, env_data, env_len);
+
+    // THIS BLOCKS MUSTTAIL - cleanup happens after the call
+    let _ = Box::from_raw(env_ptr);
+    result_stack
+}
+```
+
+The closure owns its environment (`Box<[Value]>`). We must free it after the
+call returns, which prevents `musttail`.
+
+**Solutions**:
+
+| Option | Approach | Pros | Cons |
+|--------|----------|------|------|
+| A | Transfer ownership to callee | Zero overhead | Requires LLVM IR changes |
+| B | Use `Arc<[Value]>` | Simple, automatic cleanup | Slight ref-count overhead |
+| C | Don't TCO closures | No runtime changes | Incomplete TCO story |
+
+**Recommendation**: Option B (Arc) provides the best balance. The overhead is
+negligible for the closure use cases (spawn, capture).
+
+**Risk**: Medium. Requires runtime changes but is well-understood.
+
+### Why Phased Delivery Works
+
+The key insight is that most tail-recursive patterns don't need closures:
+
+1. **SeqLisp eval loop** - Uses word recursion, not closure recursion
+2. **Accumulator patterns** (`factorial-acc`) - Pure quotations, no captures
+3. **Mutual recursion** (`even?`/`odd?`) - Word calls, no closures
+
+Closures are primarily for:
+- `spawn` (concurrency, not recursion)
+- Capturing local state in combinators
+
+So Phase 1-2 deliver value for the common cases, while Phase 3 completes the
+story.
+
+## Component Analysis
+
+### Runtime Function Calls
 
 Calls to runtime functions (`patch_seq_add`, etc.) are typically NOT in tail
 position because they're followed by more operations. However, some could be:
@@ -248,22 +343,16 @@ position because they're followed by more operations. However, some could be:
 ;
 ```
 
-**Decision:** Initially, only optimize Seq-to-Seq calls. Runtime calls can be
-added later.
+**Decision**: Initially, only optimize Seq-to-Seq calls. Runtime calls can be
+added later with minimal risk.
 
-### 2. Quotations and Closures
+### Quotations and Closures
 
-Quotation calls via `call` word:
-```seq
-[ something ] call
-```
+See Feasibility Assessment above. Summary:
+- Quotations: Ready for TCO now
+- Closures: Need Arc refactor (Phase 3)
 
-The `call` invokes `patch_seq_call` in the runtime, which dynamically invokes
-the quotation. TCO here requires runtime support.
-
-**Decision:** Phase 1 focuses on direct word calls. Dynamic calls are future work.
-
-### 3. Mutual Recursion
+### Mutual Recursion
 
 ```seq
 : even? ( n -- bool )
@@ -277,12 +366,11 @@ the quotation. TCO here requires runtime support.
 
 With `musttail`, mutual recursion works correctly - each tail call reuses frames.
 
-### 4. The `cond` Combinator
+### The `cond` Combinator
 
-The multi-way `cond` combinator evaluates quotations dynamically. TCO within
-`cond` requires runtime changes.
-
-**Decision:** Defer to future work.
+The multi-way `cond` combinator evaluates quotations dynamically. Since
+quotations can be TCO'd in Phase 2, `cond` will benefit automatically when its
+final branch ends in a quotation call.
 
 ## Testing Strategy
 
@@ -340,37 +428,86 @@ Compare stack depth and performance:
 
 ## Implementation Phases
 
-### Phase 1: Basic TCO (MVP)
-- Detect tail position for word calls
-- Emit `tail call` hint (not `musttail` yet)
-- Handle simple sequential code
+### Phase 1: Compiler-Level TCO for Word Calls
 
-### Phase 2: Control Flow
-- Propagate tail position through `if/then/else`
-- Handle nested conditionals
+**Goal**: Tail-recursive word definitions execute in constant stack space.
 
-### Phase 3: Guaranteed TCO
-- Switch to `musttail call`
-- Add `tailcc` calling convention
-- Verify no regressions
+**Scope**:
+- Add `TailPosition` tracking to codegen
+- Detect tail position in sequential code
+- Propagate tail position through `if/then/else` branches
+- Emit `musttail call` for word calls in tail position
+- Add `tailcc` calling convention to all Seq functions
 
-### Phase 4: Extended TCO
-- Runtime function tail calls
-- Quotation/closure tail calls (requires runtime changes)
-- `cond` combinator support
+**Deliverables**:
+- `count-down 1000000` completes without stack overflow
+- `even? 1000000` (mutual recursion) completes without overflow
+- Unit tests for tail position detection
+- IR verification tests for `musttail` emission
 
-## Open Questions
+**Risk**: Low. Architecture is ready.
 
-1. **Should TCO be opt-in or always-on?**
-   - Recommendation: Always-on. It's always beneficial when applicable.
+**Files to modify**:
+- `crates/compiler/src/codegen.rs` - Emit musttail, add tailcc
+- `crates/compiler/src/parser.rs` - May need AST annotation (optional)
 
-2. **How to handle non-tail-recursive code?**
-   - Could emit warnings for recursive calls not in tail position
-   - Could provide a `@tailrec` annotation that errors if TCO not possible
+### Phase 2: Quotation TCO via `call` Word
 
-3. **Debugging implications?**
-   - TCO removes stack frames, making backtraces shorter
-   - Could add a debug mode that disables TCO
+**Goal**: Dynamic quotation calls in tail position get TCO.
+
+**Scope**:
+- Compiler emits `musttail` when `call` word is in tail position
+- Quotation branch in `patch_seq_call` already supports this
+- No runtime changes needed
+
+**Deliverables**:
+- `[ recurse ] call` patterns get TCO
+- Combinators like `cond` benefit when final branch is a call
+- SeqLisp quotation-heavy code benefits
+
+**Risk**: Low. Runtime already structured correctly.
+
+**Files to modify**:
+- `crates/compiler/src/codegen.rs` - Recognize `call` as TCO-eligible
+
+### Phase 3: Closure TCO via Arc Refactor
+
+**Goal**: Closures (quotations with captured environments) get TCO.
+
+**Scope**:
+- Change `Value::Closure { env: Box<[Value]> }` to `Arc<[Value]>`
+- Remove explicit cleanup in `patch_seq_call` closure branch
+- Update closure creation in compiler
+- Update spawn trampoline for Arc
+
+**Deliverables**:
+- Recursive closures execute in constant stack space
+- All `call` invocations (quotations and closures) are TCO-eligible
+- Complete TCO story
+
+**Risk**: Medium. Requires coordinated runtime + compiler changes.
+
+**Files to modify**:
+- `crates/runtime/src/value.rs` - Change Closure env type
+- `crates/runtime/src/quotations.rs` - Remove Box cleanup, update spawn
+- `crates/compiler/src/codegen.rs` - Update closure creation
+
+## Design Decisions
+
+1. **TCO is always-on**
+   - No opt-in required - compiler applies TCO whenever possible
+   - Rationale: Coroutine stacks are limited (8MB), recursion is idiomatic
+   - Trade-off: Shorter stack traces in errors (acceptable)
+   - Future: May add `--no-tco` debug flag if needed
+
+2. **No `@tailrec` annotation**
+   - Compiler silently optimizes when possible
+   - No warnings for non-tail-recursive code
+   - Rationale: Keep language simple, avoid annotation clutter
+
+3. **Debug features deferred**
+   - Focus on correct, fast execution first
+   - Escape hatches and diagnostics are future work
 
 ## Appendix: LLVM IR Examples
 

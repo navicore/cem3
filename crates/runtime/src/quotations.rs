@@ -169,6 +169,21 @@ pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize 
 /// Stack effect: ( ..a quot -- ..b )
 /// where the quotation has effect ( ..a -- ..b )
 ///
+/// # TCO Considerations
+///
+/// With Arc-based closure environments, this function is tail-position friendly:
+/// no cleanup is needed after the call returns (Arc ref-counting handles it).
+///
+/// However, full `musttail` TCO across quotations and closures is limited by
+/// calling convention mismatches:
+/// - Quotations use `tailcc` with signature: `fn(Stack) -> Stack`
+/// - Closures use C convention with signature: `fn(Stack, *const Value, usize) -> Stack`
+///
+/// LLVM's `musttail` requires matching signatures, so the compiler can only
+/// guarantee TCO within the same category (quotation-to-quotation or closure-to-closure).
+/// Cross-category calls go through this function, which is still efficient but
+/// doesn't use `musttail`.
+///
 /// # Safety
 /// - Stack must not be null
 /// - Top of stack must be a Quotation or Closure value

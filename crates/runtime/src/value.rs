@@ -91,11 +91,15 @@ pub enum Value {
 }
 
 // Safety: Value can be sent between strands (green threads)
-// - Int, Float, Bool, String are all Send
-// - Variant contains only Send types (recursively)
-// - Quotation stores function pointer as usize (Send-safe)
-// - Closure: fn_ptr is usize (Send), env is Arc<[Value]> (Send+Sync because Value is Send)
-// Arc is used instead of Box to enable TCO: the ref-count handles cleanup automatically
+// - Int, Float, Bool are Copy types (trivially Send)
+// - String (SeqString) implements Send (clone to global on transfer)
+// - Variant contains Box<VariantData> which is Send because VariantData contains Send types
+// - Quotation stores function pointer as usize (Send-safe, no owned data)
+// - Closure: fn_ptr is usize (Send), env is Arc<[Value]>
+//   Arc<T> is Send when T: Send + Sync. Since we manually impl Send for Value,
+//   and Value contains no interior mutability, Arc<[Value]> is effectively Send.
+//   Arc is used instead of Box to enable TCO: no cleanup needed after tail calls.
+// - Map contains Box<HashMap> which is Send because keys and values are Send
 // This is required for channel communication between strands
 unsafe impl Send for Value {}
 

@@ -20,8 +20,146 @@
 use crate::ast::{Program, Statement, WordDef};
 use crate::config::CompilerConfig;
 use crate::types::Type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::sync::LazyLock;
+
+/// Sentinel value for unreachable predecessors in phi nodes.
+/// Used when a branch ends with a tail call (which emits ret directly).
+const UNREACHABLE_PREDECESSOR: &str = "unreachable";
+
+/// Runtime builtin functions that map to `patch_seq_*` symbols.
+/// These are NOT user-defined words and cannot use tail call optimization
+/// (they use the C calling convention, not `tailcc`).
+static RUNTIME_BUILTINS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        // I/O operations
+        "write_line",
+        "read_line",
+        "read_line+",
+        "int->string",
+        // Command-line arguments
+        "arg-count",
+        "arg",
+        // Arithmetic
+        "add",
+        "subtract",
+        "multiply",
+        "divide",
+        // Comparison
+        "=",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "<>",
+        // Boolean
+        "and",
+        "or",
+        "not",
+        // Stack operations
+        "dup",
+        "swap",
+        "over",
+        "rot",
+        "nip",
+        "tuck",
+        "drop",
+        "pick",
+        "roll",
+        // Concurrency
+        "make-channel",
+        "send",
+        "send-safe",
+        "receive",
+        "receive-safe",
+        "close-channel",
+        "yield",
+        // Quotation operations
+        "call",
+        "times",
+        "while",
+        "until",
+        "forever",
+        "spawn",
+        "cond",
+        // TCP operations
+        "tcp-listen",
+        "tcp-accept",
+        "tcp-read",
+        "tcp-write",
+        "tcp-close",
+        // String operations
+        "string-concat",
+        "string-length",
+        "string-byte-length",
+        "string-char-at",
+        "string-substring",
+        "char->string",
+        "string-find",
+        "string-split",
+        "string-contains",
+        "string-starts-with",
+        "string-empty",
+        "string-trim",
+        "string-chomp",
+        "string-to-upper",
+        "string-to-lower",
+        "string-equal",
+        "json-escape",
+        "string->int",
+        // File operations
+        "file-slurp",
+        "file-slurp-safe",
+        "file-exists?",
+        // List operations
+        "list-map",
+        "list-filter",
+        "list-fold",
+        "list-each",
+        "list-length",
+        "list-empty?",
+        // Map operations
+        "make-map",
+        "map-get",
+        "map-get-safe",
+        "map-set",
+        "map-has?",
+        "map-remove",
+        "map-keys",
+        "map-values",
+        "map-size",
+        "map-empty?",
+        // Variant operations
+        "variant-field-count",
+        "variant-tag",
+        "variant-field-at",
+        "variant-append",
+        "variant-last",
+        "variant-init",
+        "make-variant",
+        "make-variant-0",
+        "make-variant-1",
+        "make-variant-2",
+        "make-variant-3",
+        "make-variant-4",
+        // Float operations
+        "f.add",
+        "f.subtract",
+        "f.multiply",
+        "f.divide",
+        "f.=",
+        "f.<",
+        "f.>",
+        "f.<=",
+        "f.>=",
+        "f.<>",
+        "int->float",
+        "float->int",
+        "float->string",
+        "string->float",
+    ])
+});
 
 /// Tracks whether a statement is in tail position.
 ///
@@ -34,6 +172,16 @@ enum TailPosition {
     Tail,
     /// More operations follow - use regular call
     NonTail,
+}
+
+/// Result of generating code for an if-statement branch.
+struct BranchResult {
+    /// The stack variable after executing the branch
+    stack_var: String,
+    /// Whether the branch emitted a tail call (and thus a ret)
+    emitted_tail_call: bool,
+    /// The predecessor block label for the phi node (or UNREACHABLE_PREDECESSOR)
+    predecessor: String,
 }
 
 /// Mangle a Seq word name into a valid LLVM IR identifier.
@@ -704,151 +852,84 @@ impl CodeGen {
         Ok(function_name)
     }
 
-    /// Check if a statement in tail position would emit a terminator (ret)
-    /// This is true for:
-    /// - User-defined word calls (emit musttail + ret)
-    /// - If statements where BOTH branches emit terminators
-    ///   Returns false if inside a closure (closures can't use `musttail` due to signature mismatch)
-    fn will_emit_tail_call(&self, statement: &Statement, position: TailPosition) -> bool {
-        if position != TailPosition::Tail {
-            return false;
+    /// Check if a name refers to a runtime builtin (not a user-defined word).
+    fn is_runtime_builtin(&self, name: &str) -> bool {
+        RUNTIME_BUILTINS.contains(name) || self.external_builtins.contains_key(name)
+    }
+
+    /// Generate code for a single branch of an if statement.
+    ///
+    /// Returns the final stack variable, whether a tail call was emitted,
+    /// and the predecessor block label for the phi node.
+    fn codegen_branch(
+        &mut self,
+        statements: &[Statement],
+        initial_stack: &str,
+        position: TailPosition,
+        merge_block: &str,
+        block_prefix: &str,
+    ) -> Result<BranchResult, String> {
+        let mut stack_var = initial_stack.to_string();
+        let len = statements.len();
+        let mut emitted_tail_call = false;
+
+        for (i, stmt) in statements.iter().enumerate() {
+            let stmt_position = if i == len - 1 {
+                position // Last statement inherits our tail position
+            } else {
+                TailPosition::NonTail
+            };
+            if i == len - 1 {
+                emitted_tail_call = self.will_emit_tail_call(stmt, stmt_position);
+            }
+            stack_var = self.codegen_statement(&stack_var, stmt, stmt_position)?;
         }
-        // Closures can't use musttail because their signature differs from regular functions
-        if self.inside_closure {
+
+        // Only emit landing block if no tail call was emitted
+        let predecessor = if emitted_tail_call {
+            UNREACHABLE_PREDECESSOR.to_string()
+        } else {
+            let pred = self.fresh_block(&format!("{}_end", block_prefix));
+            writeln!(&mut self.output, "  br label %{}", pred).unwrap();
+            writeln!(&mut self.output, "{}:", pred).unwrap();
+            writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+            pred
+        };
+
+        Ok(BranchResult {
+            stack_var,
+            emitted_tail_call,
+            predecessor,
+        })
+    }
+
+    /// Check if a statement in tail position would emit a terminator (ret).
+    ///
+    /// Returns true for:
+    /// - User-defined word calls (emit `musttail` + `ret`)
+    /// - If statements where BOTH branches emit terminators
+    ///
+    /// Returns false if inside a closure (closures can't use `musttail` due to
+    /// signature mismatch - they have 3 params vs 1 for regular functions).
+    fn will_emit_tail_call(&self, statement: &Statement, position: TailPosition) -> bool {
+        if position != TailPosition::Tail || self.inside_closure {
             return false;
         }
         match statement {
-            Statement::WordCall(name) => {
-                // Check if it's a user-defined word (not a runtime builtin)
-                !matches!(
-                    name.as_str(),
-                    "write_line"
-                        | "read_line"
-                        | "read_line+"
-                        | "int->string"
-                        | "arg-count"
-                        | "arg"
-                        | "add"
-                        | "subtract"
-                        | "multiply"
-                        | "divide"
-                        | "="
-                        | "<"
-                        | ">"
-                        | "<="
-                        | ">="
-                        | "<>"
-                        | "and"
-                        | "or"
-                        | "not"
-                        | "dup"
-                        | "swap"
-                        | "over"
-                        | "rot"
-                        | "nip"
-                        | "tuck"
-                        | "drop"
-                        | "pick"
-                        | "roll"
-                        | "make-channel"
-                        | "send"
-                        | "send-safe"
-                        | "receive"
-                        | "receive-safe"
-                        | "close-channel"
-                        | "yield"
-                        | "call"
-                        | "times"
-                        | "while"
-                        | "until"
-                        | "forever"
-                        | "spawn"
-                        | "cond"
-                        | "tcp-listen"
-                        | "tcp-accept"
-                        | "tcp-read"
-                        | "tcp-write"
-                        | "tcp-close"
-                        | "string-concat"
-                        | "string-length"
-                        | "string-byte-length"
-                        | "string-char-at"
-                        | "string-substring"
-                        | "char->string"
-                        | "string-find"
-                        | "string-split"
-                        | "string-contains"
-                        | "string-starts-with"
-                        | "string-empty"
-                        | "string-trim"
-                        | "string-chomp"
-                        | "string-to-upper"
-                        | "string-to-lower"
-                        | "string-equal"
-                        | "json-escape"
-                        | "string->int"
-                        | "file-slurp"
-                        | "file-slurp-safe"
-                        | "file-exists?"
-                        | "list-map"
-                        | "list-filter"
-                        | "list-fold"
-                        | "list-each"
-                        | "list-length"
-                        | "list-empty?"
-                        | "make-map"
-                        | "map-get"
-                        | "map-get-safe"
-                        | "map-set"
-                        | "map-has?"
-                        | "map-remove"
-                        | "map-keys"
-                        | "map-values"
-                        | "map-size"
-                        | "map-empty?"
-                        | "variant-field-count"
-                        | "variant-tag"
-                        | "variant-field-at"
-                        | "variant-append"
-                        | "variant-last"
-                        | "variant-init"
-                        | "make-variant"
-                        | "make-variant-0"
-                        | "make-variant-1"
-                        | "make-variant-2"
-                        | "make-variant-3"
-                        | "make-variant-4"
-                        | "f.add"
-                        | "f.subtract"
-                        | "f.multiply"
-                        | "f.divide"
-                        | "f.="
-                        | "f.<"
-                        | "f.>"
-                        | "f.<="
-                        | "f.>="
-                        | "f.<>"
-                        | "int->float"
-                        | "float->int"
-                        | "float->string"
-                        | "string->float"
-                ) && !self.external_builtins.contains_key(name)
-            }
+            Statement::WordCall(name) => !self.is_runtime_builtin(name),
             Statement::If {
                 then_branch,
                 else_branch,
             } => {
                 // An if statement emits a terminator (no merge block) if BOTH branches
-                // end with terminators. We check the last statement of each branch.
+                // end with terminators. Empty branches don't terminate.
                 let then_terminates = then_branch
                     .last()
-                    .map(|s| self.will_emit_tail_call(s, TailPosition::Tail))
-                    .unwrap_or(false);
+                    .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail));
                 let else_terminates = else_branch
                     .as_ref()
                     .and_then(|eb| eb.last())
-                    .map(|s| self.will_emit_tail_call(s, TailPosition::Tail))
-                    .unwrap_or(false);
+                    .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail));
                 then_terminates && else_terminates
             }
             _ => false,
@@ -1080,9 +1161,11 @@ impl CodeGen {
                 };
 
                 // For tail position calls to user-defined words (seq_* functions),
-                // emit musttail call with tailcc convention
-                // Note: Closures can't use musttail because their signature differs
-                if position == TailPosition::Tail && is_seq_word && !self.inside_closure {
+                // emit musttail call with tailcc convention.
+                // Note: Closures can't use musttail because their signature differs.
+                let can_tail_call =
+                    position == TailPosition::Tail && !self.inside_closure && is_seq_word;
+                if can_tail_call {
                     writeln!(
                         &mut self.output,
                         "  %{} = musttail call tailcc ptr @{}(ptr %{})",
@@ -1153,80 +1236,37 @@ impl CodeGen {
                 .unwrap();
 
                 // Then branch (executed when condition is non-zero)
-                // The last statement in the branch inherits our tail position
                 writeln!(&mut self.output, "{}:", then_block).unwrap();
-                let mut then_stack = popped_stack.clone();
-                let then_len = then_branch.len();
-                let mut then_emitted_tail_call = false;
-                for (i, stmt) in then_branch.iter().enumerate() {
-                    let stmt_position = if i == then_len - 1 {
-                        position // Last statement inherits our tail position
-                    } else {
-                        TailPosition::NonTail
-                    };
-                    // Check if this is the last statement and will emit a tail call
-                    if i == then_len - 1 {
-                        then_emitted_tail_call = self.will_emit_tail_call(stmt, stmt_position);
-                    }
-                    then_stack = self.codegen_statement(&then_stack, stmt, stmt_position)?;
-                }
-
-                // Only emit landing block if no tail call was emitted
-                // (tail calls emit their own ret, so we can't branch after)
-                let then_predecessor = if then_emitted_tail_call {
-                    // No landing block needed - the tail call already returned
-                    "unreachable".to_string()
-                } else {
-                    // Create landing block for phi node predecessor tracking.
-                    let then_pred = self.fresh_block("if_then_end");
-                    writeln!(&mut self.output, "  br label %{}", then_pred).unwrap();
-                    writeln!(&mut self.output, "{}:", then_pred).unwrap();
-                    writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
-                    then_pred
-                };
+                let then_result = self.codegen_branch(
+                    then_branch,
+                    &popped_stack,
+                    position,
+                    &merge_block,
+                    "if_then",
+                )?;
 
                 // Else branch (executed when condition is zero)
-                // The last statement in the branch inherits our tail position
                 writeln!(&mut self.output, "{}:", else_block).unwrap();
-                let mut else_emitted_tail_call = false;
-                let else_stack = if let Some(eb) = else_branch {
-                    let mut es = popped_stack.clone();
-                    let else_len = eb.len();
-                    for (i, stmt) in eb.iter().enumerate() {
-                        let stmt_position = if i == else_len - 1 {
-                            position // Last statement inherits our tail position
-                        } else {
-                            TailPosition::NonTail
-                        };
-                        // Check if this is the last statement and will emit a tail call
-                        if i == else_len - 1 {
-                            else_emitted_tail_call = self.will_emit_tail_call(stmt, stmt_position);
-                        }
-                        es = self.codegen_statement(&es, stmt, stmt_position)?;
-                    }
-                    es
+                let else_result = if let Some(eb) = else_branch {
+                    self.codegen_branch(eb, &popped_stack, position, &merge_block, "if_else")?
                 } else {
-                    // No else clause - stack unchanged
-                    popped_stack.clone()
-                };
-
-                // Only emit landing block if no tail call was emitted
-                let else_predecessor = if else_emitted_tail_call {
-                    "unreachable".to_string()
-                } else {
+                    // No else clause - emit landing block with unchanged stack
                     let else_pred = self.fresh_block("if_else_end");
                     writeln!(&mut self.output, "  br label %{}", else_pred).unwrap();
                     writeln!(&mut self.output, "{}:", else_pred).unwrap();
                     writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
-                    else_pred
+                    BranchResult {
+                        stack_var: popped_stack.clone(),
+                        emitted_tail_call: false,
+                        predecessor: else_pred,
+                    }
                 };
 
                 // If both branches emitted tail calls, we don't need a merge block
                 // The function has already returned from both paths
-                if then_emitted_tail_call && else_emitted_tail_call {
+                if then_result.emitted_tail_call && else_result.emitted_tail_call {
                     // Both branches returned via tail call, no merge needed
-                    // Return a dummy value (won't be used)
-                    return Ok(then_stack);
+                    return Ok(then_result.stack_var);
                 }
 
                 // Merge block - phi node to merge stack pointers from both paths
@@ -1234,20 +1274,20 @@ impl CodeGen {
                 let result_var = self.fresh_temp();
 
                 // Build phi node based on which branches reach the merge block
-                if then_emitted_tail_call {
+                if then_result.emitted_tail_call {
                     // Only else branch reaches merge
                     writeln!(
                         &mut self.output,
                         "  %{} = phi ptr [ %{}, %{} ]",
-                        result_var, else_stack, else_predecessor
+                        result_var, else_result.stack_var, else_result.predecessor
                     )
                     .unwrap();
-                } else if else_emitted_tail_call {
+                } else if else_result.emitted_tail_call {
                     // Only then branch reaches merge
                     writeln!(
                         &mut self.output,
                         "  %{} = phi ptr [ %{}, %{} ]",
-                        result_var, then_stack, then_predecessor
+                        result_var, then_result.stack_var, then_result.predecessor
                     )
                     .unwrap();
                 } else {
@@ -1255,7 +1295,11 @@ impl CodeGen {
                     writeln!(
                         &mut self.output,
                         "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]",
-                        result_var, then_stack, then_predecessor, else_stack, else_predecessor
+                        result_var,
+                        then_result.stack_var,
+                        then_result.predecessor,
+                        else_result.stack_var,
+                        else_result.predecessor
                     )
                     .unwrap();
                 }

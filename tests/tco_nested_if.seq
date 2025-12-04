@@ -1,0 +1,22 @@
+# TCO Nested If Test
+#
+# This test verifies that tail call optimization works correctly
+# with nested if statements.
+
+: nested-countdown ( Int -- )
+    dup 0 > if
+        dup 2 > if
+            1 subtract nested-countdown
+        else
+            1 subtract nested-countdown
+        then
+    else
+        drop
+    then
+;
+
+: main ( -- )
+    "Testing TCO with nested if statements (50000 calls)..." write_line
+    50000 nested-countdown
+    "Success! Nested if with TCO works." write_line
+;

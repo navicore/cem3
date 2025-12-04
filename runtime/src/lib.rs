@@ -61,7 +61,8 @@ pub use float_ops::{
 // I/O operations (exported for LLVM linking)
 pub use io::{
     patch_seq_exit_op as exit_op, patch_seq_push_string as push_string,
-    patch_seq_read_line as read_line, patch_seq_write_line as write_line,
+    patch_seq_read_line as read_line, patch_seq_read_line_plus as read_line_plus,
+    patch_seq_write_line as write_line,
 };
 
 // Scheduler operations (exported for LLVM linking)
@@ -82,12 +83,12 @@ pub use channel::{
 // String operations (exported for LLVM linking)
 pub use io::patch_seq_int_to_string as int_to_string;
 pub use string_ops::{
-    patch_seq_json_escape as json_escape, patch_seq_string_concat as string_concat,
-    patch_seq_string_contains as string_contains, patch_seq_string_empty as string_empty,
-    patch_seq_string_length as string_length, patch_seq_string_split as string_split,
-    patch_seq_string_starts_with as string_starts_with, patch_seq_string_to_int as string_to_int,
-    patch_seq_string_to_lower as string_to_lower, patch_seq_string_to_upper as string_to_upper,
-    patch_seq_string_trim as string_trim,
+    patch_seq_json_escape as json_escape, patch_seq_string_chomp as string_chomp,
+    patch_seq_string_concat as string_concat, patch_seq_string_contains as string_contains,
+    patch_seq_string_empty as string_empty, patch_seq_string_length as string_length,
+    patch_seq_string_split as string_split, patch_seq_string_starts_with as string_starts_with,
+    patch_seq_string_to_int as string_to_int, patch_seq_string_to_lower as string_to_lower,
+    patch_seq_string_to_upper as string_to_upper, patch_seq_string_trim as string_trim,
 };
 
 // Quotation operations (exported for LLVM linking)

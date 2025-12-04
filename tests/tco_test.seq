@@ -1,0 +1,18 @@
+# TCO Test - Deep Recursion
+#
+# This test verifies that tail call optimization is working.
+# Without TCO, this would cause a stack overflow.
+
+: count-down ( Int -- )
+    dup 0 > if
+        1 subtract count-down
+    else
+        drop
+    then
+;
+
+: main ( -- )
+    "Testing TCO with 100000 recursive calls..." write_line
+    100000 count-down
+    "Success! TCO is working." write_line
+;

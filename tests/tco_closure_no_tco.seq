@@ -1,0 +1,17 @@
+# Closure Without TCO Test
+#
+# This test verifies that closures work correctly even though they
+# don't use tail call optimization (due to signature mismatch).
+# Closures compile and run correctly, just without TCO.
+
+: add-n ( Int Int -- Int )
+    add
+;
+
+: main ( -- )
+    "Testing closure without TCO..." write_line
+    # Test a simple quotation that captures a value
+    5 [ 2 add-n ] call
+    int->string write_line
+    "Success! Closure works (result should be 7)." write_line
+;

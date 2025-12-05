@@ -229,7 +229,8 @@ pub unsafe extern "C" fn patch_seq_list_fold(stack: Stack) -> Stack {
 
             let temp_stack = match &callable {
                 Value::Quotation { wrapper, .. } => {
-                    let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(*wrapper);
+                    let fn_ref: unsafe extern "C" fn(Stack) -> Stack =
+                        std::mem::transmute(*wrapper);
                     fn_ref(temp_stack)
                 }
                 Value::Closure { fn_ptr, env } => {
@@ -402,7 +403,13 @@ mod tests {
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
             let fn_ptr = double_quot as usize;
-            let stack = push(stack, Value::Quotation { wrapper: fn_ptr, impl_: fn_ptr });
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_map(stack);
 
             let (stack, result) = pop(stack);
@@ -437,7 +444,13 @@ mod tests {
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
             let fn_ptr = is_positive_quot as usize;
-            let stack = push(stack, Value::Quotation { wrapper: fn_ptr, impl_: fn_ptr });
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_filter(stack);
 
             let (stack, result) = pop(stack);
@@ -472,7 +485,13 @@ mod tests {
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(0)); // initial accumulator
             let fn_ptr = add_quot as usize;
-            let stack = push(stack, Value::Quotation { wrapper: fn_ptr, impl_: fn_ptr });
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_fold(stack);
 
             let (stack, result) = pop(stack);
@@ -491,7 +510,13 @@ mod tests {
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(42)); // initial accumulator
             let fn_ptr = add_quot as usize;
-            let stack = push(stack, Value::Quotation { wrapper: fn_ptr, impl_: fn_ptr });
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_fold(stack);
 
             let (stack, result) = pop(stack);
@@ -556,7 +581,13 @@ mod tests {
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
             let fn_ptr = double_quot as usize;
-            let stack = push(stack, Value::Quotation { wrapper: fn_ptr, impl_: fn_ptr });
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_map(stack);
 
             let (stack, result) = pop(stack);
@@ -582,7 +613,13 @@ mod tests {
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
             let fn_ptr = double_quot as usize;
-            let stack = push(stack, Value::Quotation { wrapper: fn_ptr, impl_: fn_ptr });
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_map(stack);
 
             let (stack, result) = pop(stack);

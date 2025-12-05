@@ -123,7 +123,10 @@ pub unsafe extern "C" fn patch_seq_push_quotation(
 ) -> Stack {
     // Debug-only validation - compiler guarantees non-null pointers
     // Using debug_assert to avoid UB from panicking across FFI boundary
-    debug_assert!(wrapper != 0, "push_quotation: wrapper function pointer is null");
+    debug_assert!(
+        wrapper != 0,
+        "push_quotation: wrapper function pointer is null"
+    );
     debug_assert!(impl_ != 0, "push_quotation: impl function pointer is null");
     unsafe { push(stack, Value::Quotation { wrapper, impl_ }) }
 }
@@ -168,14 +171,21 @@ pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize 
         match value {
             Value::Quotation { impl_, .. } => {
                 // Debug-only validation - compiler guarantees non-null pointers
-                debug_assert!(*impl_ != 0, "peek_quotation_fn_ptr: impl function pointer is null");
+                debug_assert!(
+                    *impl_ != 0,
+                    "peek_quotation_fn_ptr: impl function pointer is null"
+                );
                 *impl_
             }
             // This branch indicates a compiler bug - patch_seq_peek_is_quotation should
             // have been called first to verify the value type. In release builds,
             // returning 0 will cause a crash at the call site rather than here.
             _ => {
-                debug_assert!(false, "peek_quotation_fn_ptr: expected Quotation, got {:?}", value);
+                debug_assert!(
+                    false,
+                    "peek_quotation_fn_ptr: expected Quotation, got {:?}",
+                    value
+                );
                 0
             }
         }

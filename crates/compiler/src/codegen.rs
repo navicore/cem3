@@ -395,9 +395,10 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple()).unwrap();
         writeln!(&mut ir).unwrap();
 
-        // Opaque Value type (Rust enum)
-        writeln!(&mut ir, "; Opaque Value type (Rust enum)").unwrap();
-        writeln!(&mut ir, "%Value = type opaque").unwrap();
+        // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
+        // We define concrete size so LLVM can pass by value (required for Alpine/musl)
+        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)").unwrap();
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}").unwrap();
         writeln!(&mut ir).unwrap();
 
         // String constants

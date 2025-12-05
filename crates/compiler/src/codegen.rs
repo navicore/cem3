@@ -250,8 +250,8 @@ pub struct CodeGen {
     quotation_functions: String, // Accumulates generated quotation functions
     type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
     external_builtins: HashMap<String, String>, // seq_name -> symbol (for external builtins)
-    inside_closure: bool,   // Track if we're generating code inside a closure (disables TCO)
-    inside_main: bool,      // Track if we're generating code for main (uses C convention, no musttail)
+    inside_closure: bool, // Track if we're generating code inside a closure (disables TCO)
+    inside_main: bool, // Track if we're generating code for main (uses C convention, no musttail)
     inside_quotation: bool, // Track if we're generating code for a quotation (uses C convention, no musttail)
 }
 
@@ -440,7 +440,11 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_quotation(ptr, i64, i64)").unwrap();
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_push_quotation(ptr, i64, i64)"
+        )
+        .unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_call(ptr)").unwrap();
         // Phase 2 TCO helpers for quotation calls
         writeln!(&mut ir, "declare i64 @patch_seq_peek_is_quotation(ptr)").unwrap();
@@ -739,10 +743,10 @@ impl CodeGen {
                 // Restore original output
                 self.output = saved_output;
 
-                return Ok(QuotationFunctions {
+                Ok(QuotationFunctions {
                     wrapper: wrapper_name,
                     impl_: impl_name,
-                });
+                })
             }
             Type::Closure { captures, .. } => {
                 // Closure: fn(Stack, *const Value, usize) -> Stack
@@ -793,17 +797,15 @@ impl CodeGen {
                 self.inside_closure = false;
 
                 // For closures, both wrapper and impl are the same (no TCO yet)
-                return Ok(QuotationFunctions {
+                Ok(QuotationFunctions {
                     wrapper: base_name.clone(),
                     impl_: base_name,
-                });
+                })
             }
-            _ => {
-                return Err(format!(
-                    "CodeGen: expected Quotation or Closure type, got {:?}",
-                    quot_type
-                ));
-            }
+            _ => Err(format!(
+                "CodeGen: expected Quotation or Closure type, got {:?}",
+                quot_type
+            )),
         }
     }
 

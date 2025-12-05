@@ -74,9 +74,15 @@ pub enum Value {
     /// Keys must be hashable types (Int, String, Bool)
     Map(Box<HashMap<MapKey, Value>>),
 
-    /// Quotation (stateless function pointer stored as usize for Send safety)
-    /// No captured environment - backward compatible
-    Quotation(usize),
+    /// Quotation (stateless function with two entry points for calling convention compatibility)
+    /// - wrapper: C-convention entry point for calls from the runtime
+    /// - impl_: tailcc entry point for tail calls from compiled code (enables TCO)
+    Quotation {
+        /// C-convention wrapper function pointer (for runtime calls via patch_seq_call)
+        wrapper: usize,
+        /// tailcc implementation function pointer (for musttail from compiled code)
+        impl_: usize,
+    },
 
     /// Closure (quotation with captured environment)
     /// Contains function pointer and Arc-shared array of captured values.

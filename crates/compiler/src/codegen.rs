@@ -230,6 +230,15 @@ fn mangle_name(name: &str) -> String {
     result
 }
 
+/// Result of generating a quotation: wrapper and impl function names
+/// For closures, both names are the same (no TCO support yet)
+struct QuotationFunctions {
+    /// C-convention wrapper function (for runtime calls)
+    wrapper: String,
+    /// tailcc implementation function (for TCO via musttail)
+    impl_: String,
+}
+
 pub struct CodeGen {
     output: String,
     string_globals: String,
@@ -242,6 +251,8 @@ pub struct CodeGen {
     type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
     external_builtins: HashMap<String, String>, // seq_name -> symbol (for external builtins)
     inside_closure: bool, // Track if we're generating code inside a closure (disables TCO)
+    inside_main: bool, // Track if we're generating code for main (uses C convention, no musttail)
+    inside_quotation: bool, // Track if we're generating code for a quotation (uses C convention, no musttail)
 }
 
 impl CodeGen {
@@ -253,6 +264,8 @@ impl CodeGen {
             string_counter: 0,
             block_counter: 0,
             inside_closure: false,
+            inside_main: false,
+            inside_quotation: false,
             quot_counter: 0,
             string_constants: HashMap::new(),
             quotation_functions: String::new(),
@@ -427,7 +440,11 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
         writeln!(&mut ir, "; Quotation operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_quotation(ptr, i64)").unwrap();
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_push_quotation(ptr, i64, i64)"
+        )
+        .unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_call(ptr)").unwrap();
         // Phase 2 TCO helpers for quotation calls
         writeln!(&mut ir, "declare i64 @patch_seq_peek_is_quotation(ptr)").unwrap();
@@ -595,13 +612,28 @@ impl CodeGen {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
         // Also mangle special characters that aren't valid in LLVM IR identifiers
         let function_name = format!("seq_{}", mangle_name(&word.name));
-        // Use tailcc calling convention for guaranteed tail call optimization
-        writeln!(
-            &mut self.output,
-            "define tailcc ptr @{}(ptr %stack) {{",
-            function_name
-        )
-        .unwrap();
+
+        // main uses C calling convention since it's called from the runtime via function pointer.
+        // All other words use tailcc for guaranteed tail call optimization.
+        // This is fine because recursive main would be terrible design anyway.
+        let is_main = word.name == "main";
+        self.inside_main = is_main;
+
+        if is_main {
+            writeln!(
+                &mut self.output,
+                "define ptr @{}(ptr %stack) {{",
+                function_name
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                &mut self.output,
+                "define tailcc ptr @{}(ptr %stack) {{",
+                function_name
+            )
+            .unwrap();
+        }
         writeln!(&mut self.output, "entry:").unwrap();
 
         let mut stack_var = "stack".to_string();
@@ -628,34 +660,93 @@ impl CodeGen {
         writeln!(&mut self.output, "}}").unwrap();
         writeln!(&mut self.output).unwrap();
 
+        self.inside_main = false;
         Ok(())
     }
 
     /// Generate a quotation function
-    /// Returns the function name
+    /// Returns wrapper and impl function names for TCO support
     fn codegen_quotation(
         &mut self,
         body: &[Statement],
         quot_type: &Type,
-    ) -> Result<String, String> {
-        // Generate unique function name
-        let function_name = format!("seq_quot_{}", self.quot_counter);
+    ) -> Result<QuotationFunctions, String> {
+        // Generate unique function names
+        let base_name = format!("seq_quot_{}", self.quot_counter);
         self.quot_counter += 1;
 
         // Save current output and switch to quotation_functions
         let saved_output = std::mem::take(&mut self.output);
 
         // Generate function signature based on type
-        // Use tailcc for quotations to enable tail call optimization
         match quot_type {
             Type::Quotation(_) => {
-                // Stateless quotation: fn(Stack) -> Stack
+                // Stateless quotation: generate both wrapper (C) and impl (tailcc)
+                let wrapper_name = base_name.clone();
+                let impl_name = format!("{}_impl", base_name);
+
+                // First, generate the impl function with tailcc convention
+                // This is the actual function body that can be tail-called
                 writeln!(
                     &mut self.output,
                     "define tailcc ptr @{}(ptr %stack) {{",
-                    function_name
+                    impl_name
                 )
                 .unwrap();
+                writeln!(&mut self.output, "entry:").unwrap();
+
+                let mut stack_var = "stack".to_string();
+                let body_len = body.len();
+
+                // Generate code for each statement in the quotation body
+                // Last statement is in tail position (can use musttail)
+                for (i, statement) in body.iter().enumerate() {
+                    let position = if i == body_len - 1 {
+                        TailPosition::Tail
+                    } else {
+                        TailPosition::NonTail
+                    };
+                    stack_var = self.codegen_statement(&stack_var, statement, position)?;
+                }
+
+                // Only emit ret if the last statement wasn't a tail call
+                if body.is_empty()
+                    || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail)
+                {
+                    writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                }
+                writeln!(&mut self.output, "}}").unwrap();
+                writeln!(&mut self.output).unwrap();
+
+                // Now generate the wrapper function with C convention
+                // This is a thin wrapper that just calls the impl
+                writeln!(
+                    &mut self.output,
+                    "define ptr @{}(ptr %stack) {{",
+                    wrapper_name
+                )
+                .unwrap();
+                writeln!(&mut self.output, "entry:").unwrap();
+                writeln!(
+                    &mut self.output,
+                    "  %result = call tailcc ptr @{}(ptr %stack)",
+                    impl_name
+                )
+                .unwrap();
+                writeln!(&mut self.output, "  ret ptr %result").unwrap();
+                writeln!(&mut self.output, "}}").unwrap();
+                writeln!(&mut self.output).unwrap();
+
+                // Move generated functions to quotation_functions
+                self.quotation_functions.push_str(&self.output);
+
+                // Restore original output
+                self.output = saved_output;
+
+                Ok(QuotationFunctions {
+                    wrapper: wrapper_name,
+                    impl_: impl_name,
+                })
             }
             Type::Closure { captures, .. } => {
                 // Closure: fn(Stack, *const Value, usize) -> Stack
@@ -665,7 +756,7 @@ impl CodeGen {
                 writeln!(
                     &mut self.output,
                     "define ptr @{}(ptr %stack, ptr %env_data, i64 %env_len) {{",
-                    function_name
+                    base_name
                 )
                 .unwrap();
                 writeln!(&mut self.output, "entry:").unwrap();
@@ -705,46 +796,17 @@ impl CodeGen {
                 self.output = saved_output;
                 self.inside_closure = false;
 
-                return Ok(function_name);
+                // For closures, both wrapper and impl are the same (no TCO yet)
+                Ok(QuotationFunctions {
+                    wrapper: base_name.clone(),
+                    impl_: base_name,
+                })
             }
-            _ => {
-                return Err(format!(
-                    "CodeGen: expected Quotation or Closure type, got {:?}",
-                    quot_type
-                ));
-            }
+            _ => Err(format!(
+                "CodeGen: expected Quotation or Closure type, got {:?}",
+                quot_type
+            )),
         }
-
-        writeln!(&mut self.output, "entry:").unwrap();
-
-        let mut stack_var = "stack".to_string();
-        let body_len = body.len();
-
-        // Generate code for each statement in the quotation body
-        // Last statement is in tail position
-        for (i, statement) in body.iter().enumerate() {
-            let position = if i == body_len - 1 {
-                TailPosition::Tail
-            } else {
-                TailPosition::NonTail
-            };
-            stack_var = self.codegen_statement(&stack_var, statement, position)?;
-        }
-
-        // Only emit ret if the last statement wasn't a tail call
-        if body.is_empty() || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail) {
-            writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
-        }
-        writeln!(&mut self.output, "}}").unwrap();
-        writeln!(&mut self.output).unwrap();
-
-        // Move generated function to quotation_functions
-        self.quotation_functions.push_str(&self.output);
-
-        // Restore original output
-        self.output = saved_output;
-
-        Ok(function_name)
     }
 
     /// Check if a name refers to a runtime builtin (not a user-defined word).
@@ -879,8 +941,13 @@ impl CodeGen {
     ///
     /// Returns false if inside a closure (closures can't use `musttail` due to
     /// signature mismatch - they have 3 params vs 1 for regular functions).
+    /// Also returns false if inside main or quotation (they use C convention, can't musttail to tailcc).
     fn will_emit_tail_call(&self, statement: &Statement, position: TailPosition) -> bool {
-        if position != TailPosition::Tail || self.inside_closure {
+        if position != TailPosition::Tail
+            || self.inside_closure
+            || self.inside_main
+            || self.inside_quotation
+        {
             return false;
         }
         match statement {
@@ -980,7 +1047,8 @@ impl CodeGen {
         )
         .unwrap();
 
-        // Musttail call the quotation function
+        // Tail call the quotation's impl function using musttail + tailcc
+        // This is guaranteed TCO: caller is tailcc, quotation impl is tailcc
         let quot_result = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -1098,7 +1166,13 @@ impl CodeGen {
         let result_var = self.fresh_temp();
 
         // Phase 2 TCO: Special handling for `call` in tail position
-        if name == "call" && position == TailPosition::Tail && !self.inside_closure {
+        // Not available in main/quotation (C convention can't musttail to tailcc)
+        if name == "call"
+            && position == TailPosition::Tail
+            && !self.inside_closure
+            && !self.inside_main
+            && !self.inside_quotation
+        {
             return self.codegen_tail_call_quotation(stack_var, &result_var);
         }
 
@@ -1112,7 +1186,12 @@ impl CodeGen {
         };
 
         // Emit tail call for user-defined words in tail position
-        let can_tail_call = position == TailPosition::Tail && !self.inside_closure && is_seq_word;
+        // Not available in main/quotation (C convention can't musttail to tailcc)
+        let can_tail_call = position == TailPosition::Tail
+            && !self.inside_closure
+            && !self.inside_main
+            && !self.inside_quotation
+            && is_seq_word;
         if can_tail_call {
             writeln!(
                 &mut self.output,
@@ -1263,29 +1342,46 @@ impl CodeGen {
         body: &[Statement],
     ) -> Result<String, String> {
         let quot_type = self.get_quotation_type(id)?.clone();
-        let fn_name = self.codegen_quotation(body, &quot_type)?;
-
-        // Get function pointer as i64
-        let fn_ptr_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = ptrtoint ptr @{} to i64",
-            fn_ptr_var, fn_name
-        )
-        .unwrap();
+        let fns = self.codegen_quotation(body, &quot_type)?;
 
         match quot_type {
             Type::Quotation(_) => {
+                // Get both wrapper and impl function pointers as i64
+                let wrapper_ptr_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = ptrtoint ptr @{} to i64",
+                    wrapper_ptr_var, fns.wrapper
+                )
+                .unwrap();
+
+                let impl_ptr_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = ptrtoint ptr @{} to i64",
+                    impl_ptr_var, fns.impl_
+                )
+                .unwrap();
+
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{})",
-                    result_var, stack_var, fn_ptr_var
+                    "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{}, i64 %{})",
+                    result_var, stack_var, wrapper_ptr_var, impl_ptr_var
                 )
                 .unwrap();
                 Ok(result_var)
             }
             Type::Closure { captures, .. } => {
+                // For closures, just use the single function pointer (no TCO yet)
+                let fn_ptr_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = ptrtoint ptr @{} to i64",
+                    fn_ptr_var, fns.wrapper
+                )
+                .unwrap();
+
                 let capture_count = i32::try_from(captures.len()).map_err(|_| {
                     format!(
                         "Closure has too many captures ({}) - maximum is {}",
@@ -1442,7 +1538,8 @@ mod tests {
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
         assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"));
-        assert!(ir.contains("define tailcc ptr @seq_main(ptr %stack)"));
+        // main uses C calling convention (no tailcc) since it's called from C runtime
+        assert!(ir.contains("define ptr @seq_main(ptr %stack)"));
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write_line"));
         assert!(ir.contains("\"Hello, World!\\00\""));

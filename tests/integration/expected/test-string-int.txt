@@ -1,0 +1,14 @@
+Testing int->string:
+int->string 42 PASS
+int->string 0 PASS
+int->string -1 PASS
+Testing string->int (success):
+string->int 42 PASS
+string->int -7 PASS
+string->int with whitespace PASS
+string->int leading zeros PASS
+Testing string->int (failure):
+string->int invalid returns 0 PASS
+string->int empty returns 0 PASS
+Testing roundtrip:
+int->string->int roundtrip PASS

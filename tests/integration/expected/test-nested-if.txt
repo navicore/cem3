@@ -1,0 +1,5 @@
+Outer: 5 > 3
+Inner: 10 = 10
+7 >= 5 (correct!)
+3 <= 8 (correct!)
+4 equals 4 (correct!)

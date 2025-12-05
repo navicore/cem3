@@ -1,0 +1,5 @@
+PASS: make-variant-0
+PASS: make-variant-1
+PASS: make-variant-2
+PASS: make-variant-3
+PASS: make-variant-4

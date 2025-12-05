@@ -1,0 +1,8 @@
+# Integration test artifacts
+
+# Compiled test binaries (created in temp dirs, but just in case)
+/bin/
+
+# Don't ignore expected outputs - they're the test fixtures!
+!expected/
+!expected/*.txt

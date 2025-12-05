@@ -327,9 +327,10 @@ pub unsafe extern "C" fn patch_seq_env_get_float(
     }
 }
 
-/// Get a Quotation function pointer from the closure environment
+/// Get a Quotation impl_ function pointer from the closure environment
 ///
-/// Returns i64 (the function pointer as usize) for LLVM IR.
+/// Returns i64 (the impl_ function pointer as usize) for LLVM IR.
+/// Returns the tailcc impl_ pointer for TCO when called from compiled code.
 /// Quotations are stateless, so only the function pointer is needed.
 ///
 /// # Safety
@@ -363,7 +364,7 @@ pub unsafe extern "C" fn patch_seq_env_get_quotation(
     let value = unsafe { &*env_data.add(idx) };
 
     match value {
-        Value::Quotation(fn_ptr) => *fn_ptr as i64,
+        Value::Quotation { impl_, .. } => *impl_ as i64,
         _ => panic!(
             "env_get_quotation: expected Quotation at index {}, got {:?}",
             index, value
@@ -631,16 +632,18 @@ mod tests {
     #[test]
     fn test_env_get_quotation() {
         let env = create_env(1);
-        let fn_ptr: usize = 0xDEADBEEF;
+        let wrapper: usize = 0xDEADBEEF;
+        let impl_: usize = 0xCAFEBABE;
 
         unsafe {
-            env_set(env, 0, Value::Quotation(fn_ptr));
+            env_set(env, 0, Value::Quotation { wrapper, impl_ });
 
             let env_slice = &*env;
             let env_data = env_slice.as_ptr();
             let env_len = env_slice.len();
 
-            assert_eq!(env_get_quotation(env_data, env_len, 0), fn_ptr as i64);
+            // env_get_quotation returns the impl_ pointer for TCO
+            assert_eq!(env_get_quotation(env_data, env_len, 0), impl_ as i64);
 
             let _ = Box::from_raw(env);
         }

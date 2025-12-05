@@ -53,20 +53,20 @@ pub unsafe extern "C" fn patch_seq_cond(mut stack: Stack) -> Stack {
         for _ in 0..count {
             // Pop body quotation
             let (stack_temp, body_val) = pop(stack);
-            let body_ptr = match body_val {
-                Value::Quotation(ptr) => ptr,
+            let body_wrapper = match body_val {
+                Value::Quotation { wrapper, .. } => wrapper,
                 _ => panic!("cond: expected body Quotation, got {:?}", body_val),
             };
 
             // Pop predicate quotation
             let (stack_temp2, pred_val) = pop(stack_temp);
-            let pred_ptr = match pred_val {
-                Value::Quotation(ptr) => ptr,
+            let pred_wrapper = match pred_val {
+                Value::Quotation { wrapper, .. } => wrapper,
                 _ => panic!("cond: expected predicate Quotation, got {:?}", pred_val),
             };
 
             stack = stack_temp2;
-            pairs.push((pred_ptr, body_ptr));
+            pairs.push((pred_wrapper, body_wrapper));
         }
 
         // Now pairs is in reverse order (last pair at index 0)

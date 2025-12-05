@@ -121,6 +121,13 @@ pub unsafe extern "C" fn patch_seq_push_quotation(
     wrapper: usize,
     impl_: usize,
 ) -> Stack {
+    // Validate both function pointers are non-null
+    if wrapper == 0 {
+        panic!("push_quotation: wrapper function pointer is null");
+    }
+    if impl_ == 0 {
+        panic!("push_quotation: impl function pointer is null");
+    }
     unsafe { push(stack, Value::Quotation { wrapper, impl_ }) }
 }
 
@@ -162,7 +169,13 @@ pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize 
     unsafe {
         let value = peek(stack);
         match value {
-            Value::Quotation { impl_, .. } => *impl_,
+            Value::Quotation { impl_, .. } => {
+                // Validate impl_ pointer before returning for tail call
+                if *impl_ == 0 {
+                    panic!("peek_quotation_fn_ptr: impl function pointer is null");
+                }
+                *impl_
+            }
             _ => panic!("peek_quotation_fn_ptr: expected Quotation, got {:?}", value),
         }
     }

@@ -114,20 +114,17 @@ extern "C" fn closure_spawn_trampoline(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// - Stack pointer must be valid (or null for empty stack)
-/// - Both function pointers must be valid
+/// - Both function pointers must be valid (compiler guarantees this)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_push_quotation(
     stack: Stack,
     wrapper: usize,
     impl_: usize,
 ) -> Stack {
-    // Validate both function pointers are non-null
-    if wrapper == 0 {
-        panic!("push_quotation: wrapper function pointer is null");
-    }
-    if impl_ == 0 {
-        panic!("push_quotation: impl function pointer is null");
-    }
+    // Debug-only validation - compiler guarantees non-null pointers
+    // Using debug_assert to avoid UB from panicking across FFI boundary
+    debug_assert!(wrapper != 0, "push_quotation: wrapper function pointer is null");
+    debug_assert!(impl_ != 0, "push_quotation: impl function pointer is null");
     unsafe { push(stack, Value::Quotation { wrapper, impl_ }) }
 }
 
@@ -170,13 +167,17 @@ pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize 
         let value = peek(stack);
         match value {
             Value::Quotation { impl_, .. } => {
-                // Validate impl_ pointer before returning for tail call
-                if *impl_ == 0 {
-                    panic!("peek_quotation_fn_ptr: impl function pointer is null");
-                }
+                // Debug-only validation - compiler guarantees non-null pointers
+                debug_assert!(*impl_ != 0, "peek_quotation_fn_ptr: impl function pointer is null");
                 *impl_
             }
-            _ => panic!("peek_quotation_fn_ptr: expected Quotation, got {:?}", value),
+            // This branch indicates a compiler bug - patch_seq_peek_is_quotation should
+            // have been called first to verify the value type. In release builds,
+            // returning 0 will cause a crash at the call site rather than here.
+            _ => {
+                debug_assert!(false, "peek_quotation_fn_ptr: expected Quotation, got {:?}", value);
+                0
+            }
         }
     }
 }

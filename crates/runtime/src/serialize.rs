@@ -181,7 +181,7 @@ impl TypedValue {
                     fields: typed_fields,
                 })
             }
-            Value::Quotation(_) => Err(SerializeError::QuotationNotSerializable),
+            Value::Quotation { .. } => Err(SerializeError::QuotationNotSerializable),
             Value::Closure { .. } => Err(SerializeError::ClosureNotSerializable),
         }
     }
@@ -372,7 +372,10 @@ mod tests {
 
     #[test]
     fn test_quotation_not_serializable() {
-        let value = Value::Quotation(12345);
+        let value = Value::Quotation {
+            wrapper: 12345,
+            impl_: 12345,
+        };
         let result = TypedValue::from_value(&value);
         assert!(matches!(
             result,

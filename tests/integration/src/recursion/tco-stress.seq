@@ -1,0 +1,38 @@
+# TCO Stress Test
+# Demonstrates: Tail call optimization prevents stack overflow
+#
+# This test uses deep recursion (100,000 calls) that would
+# cause stack overflow without proper TCO implementation.
+
+# Tail-recursive countdown: counts from n to 0
+# Uses tail call optimization - each recursive call is in tail position
+: countdown ( Int -- Int )
+  dup 0 <= if
+    # Base case: return 0
+    drop 0
+  else
+    # Recursive case: decrement and recurse (tail position)
+    1 subtract countdown
+  then
+;
+
+: main ( -- )
+  # Test with 100,000 recursive calls
+  # Without TCO, this would cause stack overflow
+  100000 countdown
+  0 =
+  if
+    "TCO stress test: 100000 recursive calls ✓" write_line
+  else
+    "TCO stress test FAILED!" write_line
+  then
+
+  # Verify it works correctly with smaller values too
+  10 countdown
+  0 =
+  if
+    "countdown(10) = 0 ✓" write_line
+  else
+    "countdown(10) FAILED!" write_line
+  then
+;

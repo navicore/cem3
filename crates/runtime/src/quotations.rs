@@ -104,16 +104,31 @@ extern "C" fn closure_spawn_trampoline(stack: Stack) -> Stack {
     }
 }
 
-/// Push a quotation (function pointer) onto the stack
+/// Push a quotation onto the stack with both wrapper and impl pointers
 ///
 /// Stack effect: ( -- quot )
 ///
+/// # Arguments
+/// - `wrapper`: C-convention function pointer for runtime calls
+/// - `impl_`: tailcc function pointer for TCO tail calls
+///
 /// # Safety
 /// - Stack pointer must be valid (or null for empty stack)
-/// - Function pointer must be valid
+/// - Both function pointers must be valid (compiler guarantees this)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_push_quotation(stack: Stack, fn_ptr: usize) -> Stack {
-    unsafe { push(stack, Value::Quotation(fn_ptr)) }
+pub unsafe extern "C" fn patch_seq_push_quotation(
+    stack: Stack,
+    wrapper: usize,
+    impl_: usize,
+) -> Stack {
+    // Debug-only validation - compiler guarantees non-null pointers
+    // Using debug_assert to avoid UB from panicking across FFI boundary
+    debug_assert!(
+        wrapper != 0,
+        "push_quotation: wrapper function pointer is null"
+    );
+    debug_assert!(impl_ != 0, "push_quotation: impl function pointer is null");
+    unsafe { push(stack, Value::Quotation { wrapper, impl_ }) }
 }
 
 /// Check if the top of stack is a quotation (not a closure)
@@ -131,15 +146,16 @@ pub unsafe extern "C" fn patch_seq_peek_is_quotation(stack: Stack) -> i64 {
     unsafe {
         let value = peek(stack);
         match value {
-            Value::Quotation(_) => 1,
+            Value::Quotation { .. } => 1,
             _ => 0,
         }
     }
 }
 
-/// Get the function pointer from a quotation on top of stack
+/// Get the impl_ function pointer from a quotation on top of stack
 ///
 /// Used by the compiler for tail call optimization of `call`.
+/// Returns the tailcc impl_ pointer for musttail calls from compiled code.
 /// Caller must ensure the top value is a Quotation (use peek_is_quotation first).
 ///
 /// Stack effect: ( quot -- quot ) [non-consuming peek]
@@ -153,8 +169,25 @@ pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize 
     unsafe {
         let value = peek(stack);
         match value {
-            Value::Quotation(fn_ptr) => *fn_ptr,
-            _ => panic!("peek_quotation_fn_ptr: expected Quotation, got {:?}", value),
+            Value::Quotation { impl_, .. } => {
+                // Debug-only validation - compiler guarantees non-null pointers
+                debug_assert!(
+                    *impl_ != 0,
+                    "peek_quotation_fn_ptr: impl function pointer is null"
+                );
+                *impl_
+            }
+            // This branch indicates a compiler bug - patch_seq_peek_is_quotation should
+            // have been called first to verify the value type. In release builds,
+            // returning 0 will cause a crash at the call site rather than here.
+            _ => {
+                debug_assert!(
+                    false,
+                    "peek_quotation_fn_ptr: expected Quotation, got {:?}",
+                    value
+                );
+                0
+            }
         }
     }
 }
@@ -196,17 +229,17 @@ pub unsafe extern "C" fn patch_seq_call(stack: Stack) -> Stack {
         let (stack, value) = pop(stack);
 
         match value {
-            Value::Quotation(fn_ptr) => {
+            Value::Quotation { wrapper, .. } => {
                 // Validate function pointer is not null
-                if fn_ptr == 0 {
-                    panic!("call: quotation function pointer is null");
+                if wrapper == 0 {
+                    panic!("call: quotation wrapper function pointer is null");
                 }
 
-                // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
-                // The compiler guarantees that quotation literals produce valid function pointers
+                // SAFETY: wrapper was created by the compiler's codegen and stored via push_quotation.
+                // The compiler guarantees that quotation wrapper functions use C calling convention
                 // with the signature: unsafe extern "C" fn(Stack) -> Stack.
-                // We've verified fn_ptr is non-null above.
-                let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+                // We've verified wrapper is non-null above.
+                let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
                 fn_ref(stack)
             }
             Value::Closure { fn_ptr, env } => {
@@ -262,20 +295,20 @@ pub unsafe extern "C" fn patch_seq_times(mut stack: Stack) -> Stack {
 
         // Pop quotation
         let (stack_temp2, quot_value) = pop(stack_temp);
-        let fn_ptr = match quot_value {
-            Value::Quotation(ptr) => ptr,
+        let wrapper = match quot_value {
+            Value::Quotation { wrapper, .. } => wrapper,
             _ => panic!("times: expected Quotation, got {:?}", quot_value),
         };
 
         // Validate function pointer is not null
-        if fn_ptr == 0 {
-            panic!("times: quotation function pointer is null");
+        if wrapper == 0 {
+            panic!("times: quotation wrapper function pointer is null");
         }
 
-        // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
-        // The compiler guarantees that quotation literals produce valid function pointers.
-        // We've verified fn_ptr is non-null above.
-        let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+        // SAFETY: wrapper was created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation wrapper functions use C calling convention.
+        // We've verified wrapper is non-null above.
+        let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
 
         // Execute quotation n times
         // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
@@ -310,31 +343,31 @@ pub unsafe extern "C" fn patch_seq_while_loop(mut stack: Stack) -> Stack {
     unsafe {
         // Pop body quotation
         let (stack_temp, body_value) = pop(stack);
-        let body_ptr = match body_value {
-            Value::Quotation(ptr) => ptr,
+        let body_wrapper = match body_value {
+            Value::Quotation { wrapper, .. } => wrapper,
             _ => panic!("while: expected body Quotation, got {:?}", body_value),
         };
 
         // Pop condition quotation
         let (stack_temp2, cond_value) = pop(stack_temp);
-        let cond_ptr = match cond_value {
-            Value::Quotation(ptr) => ptr,
+        let cond_wrapper = match cond_value {
+            Value::Quotation { wrapper, .. } => wrapper,
             _ => panic!("while: expected condition Quotation, got {:?}", cond_value),
         };
 
         // Validate function pointers are not null
-        if cond_ptr == 0 {
-            panic!("while: condition quotation function pointer is null");
+        if cond_wrapper == 0 {
+            panic!("while: condition quotation wrapper function pointer is null");
         }
-        if body_ptr == 0 {
-            panic!("while: body quotation function pointer is null");
+        if body_wrapper == 0 {
+            panic!("while: body quotation wrapper function pointer is null");
         }
 
-        // SAFETY: Both fn_ptrs were created by the compiler's codegen and stored via push_quotation.
-        // The compiler guarantees that quotation literals produce valid function pointers.
-        // We've verified both ptrs are non-null above.
-        let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_ptr);
-        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
+        // SAFETY: Both wrappers were created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation wrapper functions use C calling convention.
+        // We've verified both wrappers are non-null above.
+        let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_wrapper);
+        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_wrapper);
 
         // Loop while condition is true
         // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
@@ -391,20 +424,20 @@ pub unsafe extern "C" fn patch_seq_forever(stack: Stack) -> Stack {
     unsafe {
         // Pop quotation
         let (mut stack, quot_value) = pop(stack);
-        let fn_ptr = match quot_value {
-            Value::Quotation(ptr) => ptr,
+        let wrapper = match quot_value {
+            Value::Quotation { wrapper, .. } => wrapper,
             _ => panic!("forever: expected Quotation, got {:?}", quot_value),
         };
 
         // Validate function pointer is not null
-        if fn_ptr == 0 {
-            panic!("forever: quotation function pointer is null");
+        if wrapper == 0 {
+            panic!("forever: quotation wrapper function pointer is null");
         }
 
-        // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
-        // The compiler guarantees that quotation literals produce valid function pointers.
-        // We've verified fn_ptr is non-null above.
-        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+        // SAFETY: wrapper was created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation wrapper functions use C calling convention.
+        // We've verified wrapper is non-null above.
+        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
 
         // Infinite loop - execute body forever
         // IMPORTANT: Yield after each iteration to maintain cooperative scheduling.
@@ -439,31 +472,31 @@ pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
     unsafe {
         // Pop condition quotation
         let (stack_temp, cond_value) = pop(stack);
-        let cond_ptr = match cond_value {
-            Value::Quotation(ptr) => ptr,
+        let cond_wrapper = match cond_value {
+            Value::Quotation { wrapper, .. } => wrapper,
             _ => panic!("until: expected condition Quotation, got {:?}", cond_value),
         };
 
         // Pop body quotation
         let (stack_temp2, body_value) = pop(stack_temp);
-        let body_ptr = match body_value {
-            Value::Quotation(ptr) => ptr,
+        let body_wrapper = match body_value {
+            Value::Quotation { wrapper, .. } => wrapper,
             _ => panic!("until: expected body Quotation, got {:?}", body_value),
         };
 
         // Validate function pointers are not null
-        if cond_ptr == 0 {
-            panic!("until: condition quotation function pointer is null");
+        if cond_wrapper == 0 {
+            panic!("until: condition quotation wrapper function pointer is null");
         }
-        if body_ptr == 0 {
-            panic!("until: body quotation function pointer is null");
+        if body_wrapper == 0 {
+            panic!("until: body quotation wrapper function pointer is null");
         }
 
-        // SAFETY: Both fn_ptrs were created by the compiler's codegen and stored via push_quotation.
-        // The compiler guarantees that quotation literals produce valid function pointers.
-        // We've verified both ptrs are non-null above.
-        let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_ptr);
-        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_ptr);
+        // SAFETY: Both wrappers were created by the compiler's codegen and stored via push_quotation.
+        // The compiler guarantees that quotation wrapper functions use C calling convention.
+        // We've verified both wrappers are non-null above.
+        let cond_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(cond_wrapper);
+        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(body_wrapper);
 
         // Loop until condition is true (do-while style)
         // IMPORTANT: Yield after each iteration to maintain cooperative scheduling
@@ -521,16 +554,16 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
         let (stack, value) = pop(stack);
 
         match value {
-            Value::Quotation(fn_ptr) => {
+            Value::Quotation { wrapper, .. } => {
                 // Validate function pointer is not null
-                if fn_ptr == 0 {
-                    panic!("spawn: quotation function pointer is null");
+                if wrapper == 0 {
+                    panic!("spawn: quotation wrapper function pointer is null");
                 }
 
-                // SAFETY: fn_ptr was created by the compiler's codegen and stored via push_quotation.
-                // The compiler guarantees that quotation literals produce valid function pointers.
-                // We've verified fn_ptr is non-null above.
-                let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(fn_ptr);
+                // SAFETY: wrapper was created by the compiler's codegen and stored via push_quotation.
+                // The compiler guarantees that quotation wrapper functions use C calling convention.
+                // We've verified wrapper is non-null above.
+                let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
 
                 // Spawn the strand with null initial stack
                 let strand_id = patch_seq_strand_spawn(fn_ref, std::ptr::null_mut());
@@ -685,13 +718,13 @@ mod tests {
         unsafe {
             let stack: Stack = std::ptr::null_mut();
 
-            // Push a quotation
+            // Push a quotation (for tests, wrapper and impl are the same C function)
             let fn_ptr = add_one_quot as usize;
-            let stack = push_quotation(stack, fn_ptr);
+            let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Verify it's on the stack
             let (stack, value) = pop(stack);
-            assert!(matches!(value, Value::Quotation(_)));
+            assert!(matches!(value, Value::Quotation { .. }));
             assert!(stack.is_null());
         }
     }
@@ -704,7 +737,7 @@ mod tests {
             // Push 5, then a quotation that adds 1
             let stack = push_int(stack, 5);
             let fn_ptr = add_one_quot as usize;
-            let stack = push_quotation(stack, fn_ptr);
+            let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Call the quotation
             let stack = call(stack);
@@ -724,7 +757,7 @@ mod tests {
             // Push 0, then execute [ 1 add ] 5 times
             let stack = push_int(stack, 0);
             let fn_ptr = add_one_quot as usize;
-            let stack = push_quotation(stack, fn_ptr);
+            let stack = push_quotation(stack, fn_ptr, fn_ptr);
             let stack = push_int(stack, 5);
 
             // Execute times
@@ -745,7 +778,7 @@ mod tests {
             // Push 10, then execute quotation 0 times
             let stack = push_int(stack, 10);
             let fn_ptr = add_one_quot as usize;
-            let stack = push_quotation(stack, fn_ptr);
+            let stack = push_quotation(stack, fn_ptr, fn_ptr);
             let stack = push_int(stack, 0);
 
             // Execute times
@@ -788,11 +821,11 @@ mod tests {
 
             // Push condition: dup 0 >
             let cond_ptr = dup_gt_zero_quot as usize;
-            let stack = push_quotation(stack, cond_ptr);
+            let stack = push_quotation(stack, cond_ptr, cond_ptr);
 
             // Push body: 1 subtract
             let body_ptr = subtract_one_quot as usize;
-            let stack = push_quotation(stack, body_ptr);
+            let stack = push_quotation(stack, body_ptr, body_ptr);
 
             // Execute while
             let stack = while_loop(stack);
@@ -813,10 +846,10 @@ mod tests {
             let stack = push_int(stack, 0);
 
             let cond_ptr = dup_gt_zero_quot as usize;
-            let stack = push_quotation(stack, cond_ptr);
+            let stack = push_quotation(stack, cond_ptr, cond_ptr);
 
             let body_ptr = subtract_one_quot as usize;
-            let stack = push_quotation(stack, body_ptr);
+            let stack = push_quotation(stack, body_ptr, body_ptr);
 
             // Execute while
             let stack = while_loop(stack);
@@ -849,11 +882,11 @@ mod tests {
 
             // Push body: subtract 1
             let body_ptr = subtract_one_quot as usize;
-            let stack = push_quotation(stack, body_ptr);
+            let stack = push_quotation(stack, body_ptr, body_ptr);
 
             // Push condition: dup 0 <=
             let cond_ptr = dup_lte_zero_quot as usize;
-            let stack = push_quotation(stack, cond_ptr);
+            let stack = push_quotation(stack, cond_ptr, cond_ptr);
 
             // Execute until
             let stack = until_loop(stack);
@@ -875,11 +908,11 @@ mod tests {
 
             // Push body: subtract 1
             let body_ptr = subtract_one_quot as usize;
-            let stack = push_quotation(stack, body_ptr);
+            let stack = push_quotation(stack, body_ptr, body_ptr);
 
             // Push condition: dup 0 <=  (will be true after first iteration)
             let cond_ptr = dup_lte_zero_quot as usize;
-            let stack = push_quotation(stack, cond_ptr);
+            let stack = push_quotation(stack, cond_ptr, cond_ptr);
 
             // Execute until
             let stack = until_loop(stack);
@@ -906,7 +939,7 @@ mod tests {
 
             // Push a quotation
             let fn_ptr = noop_quot as usize;
-            let stack = push_quotation(stack, fn_ptr);
+            let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Spawn it
             let stack = spawn(stack);

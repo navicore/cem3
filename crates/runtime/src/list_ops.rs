@@ -44,8 +44,8 @@ unsafe fn call_with_value(stack: Stack, value: Value, callable: &Value) -> Stack
         let stack = push(stack, value);
 
         match callable {
-            Value::Quotation(fn_ptr) => {
-                let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(*fn_ptr);
+            Value::Quotation { wrapper, .. } => {
+                let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(*wrapper);
                 fn_ref(stack)
             }
             Value::Closure { fn_ptr, env } => {
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn patch_seq_list_map(stack: Stack) -> Stack {
 
         // Validate callable
         match &callable {
-            Value::Quotation(_) | Value::Closure { .. } => {}
+            Value::Quotation { .. } | Value::Closure { .. } => {}
             _ => panic!(
                 "list-map: expected Quotation or Closure, got {:?}",
                 callable
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
 
         // Validate callable
         match &callable {
-            Value::Quotation(_) | Value::Closure { .. } => {}
+            Value::Quotation { .. } | Value::Closure { .. } => {}
             _ => panic!(
                 "list-filter: expected Quotation or Closure, got {:?}",
                 callable
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn patch_seq_list_fold(stack: Stack) -> Stack {
 
         // Validate callable
         match &callable {
-            Value::Quotation(_) | Value::Closure { .. } => {}
+            Value::Quotation { .. } | Value::Closure { .. } => {}
             _ => panic!(
                 "list-fold: expected Quotation or Closure, got {:?}",
                 callable
@@ -228,8 +228,9 @@ pub unsafe extern "C" fn patch_seq_list_fold(stack: Stack) -> Stack {
             let temp_stack = push(temp_stack, field.clone());
 
             let temp_stack = match &callable {
-                Value::Quotation(fn_ptr) => {
-                    let fn_ref: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(*fn_ptr);
+                Value::Quotation { wrapper, .. } => {
+                    let fn_ref: unsafe extern "C" fn(Stack) -> Stack =
+                        std::mem::transmute(*wrapper);
                     fn_ref(temp_stack)
                 }
                 Value::Closure { fn_ptr, env } => {
@@ -274,7 +275,7 @@ pub unsafe extern "C" fn patch_seq_list_each(stack: Stack) -> Stack {
 
         // Validate callable
         match &callable {
-            Value::Quotation(_) | Value::Closure { .. } => {}
+            Value::Quotation { .. } | Value::Closure { .. } => {}
             _ => panic!(
                 "list-each: expected Quotation or Closure, got {:?}",
                 callable
@@ -401,7 +402,14 @@ mod tests {
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
-            let stack = push(stack, Value::Quotation(double_quot as usize));
+            let fn_ptr = double_quot as usize;
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_map(stack);
 
             let (stack, result) = pop(stack);
@@ -435,7 +443,14 @@ mod tests {
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
-            let stack = push(stack, Value::Quotation(is_positive_quot as usize));
+            let fn_ptr = is_positive_quot as usize;
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_filter(stack);
 
             let (stack, result) = pop(stack);
@@ -469,7 +484,14 @@ mod tests {
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(0)); // initial accumulator
-            let stack = push(stack, Value::Quotation(add_quot as usize));
+            let fn_ptr = add_quot as usize;
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_fold(stack);
 
             let (stack, result) = pop(stack);
@@ -487,7 +509,14 @@ mod tests {
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(42)); // initial accumulator
-            let stack = push(stack, Value::Quotation(add_quot as usize));
+            let fn_ptr = add_quot as usize;
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_fold(stack);
 
             let (stack, result) = pop(stack);
@@ -551,7 +580,14 @@ mod tests {
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
-            let stack = push(stack, Value::Quotation(double_quot as usize));
+            let fn_ptr = double_quot as usize;
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_map(stack);
 
             let (stack, result) = pop(stack);
@@ -576,7 +612,14 @@ mod tests {
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
-            let stack = push(stack, Value::Quotation(double_quot as usize));
+            let fn_ptr = double_quot as usize;
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: fn_ptr,
+                    impl_: fn_ptr,
+                },
+            );
             let stack = list_map(stack);
 
             let (stack, result) = pop(stack);

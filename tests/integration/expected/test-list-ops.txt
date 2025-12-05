@@ -1,0 +1,18 @@
+Testing list-map:
+list-map: first element uppercased PASS
+list-map: last element uppercased PASS
+Testing list-filter:
+list-filter: correct length PASS
+list-filter: first kept element is banana PASS
+Testing list-fold:
+list-fold: concatenation works PASS
+Testing list-length:
+list-length: returns 3 PASS
+Testing list-empty?:
+list-empty?: returns 0 for non-empty list PASS
+Testing list-each:
+  Elements:
+    - apple
+    - banana
+    - cherry
+list-each: printed all elements PASS

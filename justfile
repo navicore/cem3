@@ -77,7 +77,7 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test build build-examples
+ci: fmt-check lint test build build-examples test-integration
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
@@ -86,6 +86,7 @@ ci: fmt-check lint test build build-examples
     @echo "   - Compiler built ✓"
     @echo "   - LSP server built ✓"
     @echo "   - Examples built ✓"
+    @echo "   - Integration tests ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
 
@@ -132,4 +133,10 @@ test-critical:
     cargo test test_critical_shuffle_pattern
     cargo test test_multifield_variant_survives_shuffle
     @echo "✅ Core design validated!"
+
+# Run integration tests (compile and run .seq programs)
+test-integration: build
+    @echo "Running integration tests..."
+    ./tests/integration/run_tests.sh
+    @echo "✅ Integration tests passed!"
 

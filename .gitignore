@@ -31,4 +31,7 @@ libseq_runtime.a
 
 # Temporary test artifacts
 /tmp/
-*.txt
+/*.txt
+
+# But keep integration test expected outputs
+!tests/integration/expected/*.txt

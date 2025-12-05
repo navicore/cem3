@@ -24,7 +24,7 @@ PASSED=0
 FAILED=0
 FAILURES=""
 
-# Test cases: source file relative to examples/
+# Test cases: source file relative to src/
 TESTS=(
     "test-if"
     "test-if-else"
@@ -36,10 +36,11 @@ TESTS=(
     "test-list-ops"
     "test-map-ops"
     "test-variant-typed"
-    "test_variant_access"
+    "test-variant-access"
     "test-closure-captures"
     "recursion/factorial"
     "recursion/fibonacci"
+    "recursion/tco-stress"
 )
 
 echo "Running Seq integration tests..."

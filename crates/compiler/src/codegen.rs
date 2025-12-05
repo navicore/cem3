@@ -1121,7 +1121,16 @@ impl CodeGen {
             )
             .unwrap();
             writeln!(&mut self.output, "  ret ptr %{}", result_var).unwrap();
+        } else if is_seq_word {
+            // Non-tail call to user-defined word: must use tailcc calling convention
+            writeln!(
+                &mut self.output,
+                "  %{} = call tailcc ptr @{}(ptr %{})",
+                result_var, function_name, stack_var
+            )
+            .unwrap();
         } else {
+            // Call to builtin (C calling convention)
             writeln!(
                 &mut self.output,
                 "  %{} = call ptr @{}(ptr %{})",

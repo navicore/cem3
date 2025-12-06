@@ -369,8 +369,13 @@ pub unsafe extern "C" fn patch_seq_shl(stack: Stack) -> Stack {
     let (rest, value, count) = unsafe { pop_two(stack, "shl") };
     match (value, count) {
         (Value::Int(v), Value::Int(c)) => {
-            // Handle out-of-range shifts gracefully
-            let result = if !(0..64).contains(&c) { 0 } else { v << c };
+            // Use checked_shl to avoid undefined behavior for out-of-range shifts
+            // Negative counts become large u32 values, which correctly return None
+            let result = if c < 0 {
+                0
+            } else {
+                v.checked_shl(c as u32).unwrap_or(0)
+            };
             unsafe { push(rest, Value::Int(result)) }
         }
         _ => panic!("shl: expected two integers on stack"),
@@ -390,11 +395,12 @@ pub unsafe extern "C" fn patch_seq_shr(stack: Stack) -> Stack {
     let (rest, value, count) = unsafe { pop_two(stack, "shr") };
     match (value, count) {
         (Value::Int(v), Value::Int(c)) => {
-            // Logical shift right: cast to unsigned, shift, cast back
-            let result = if !(0..64).contains(&c) {
+            // Use checked_shr to avoid undefined behavior for out-of-range shifts
+            // Cast to u64 for logical (zero-fill) shift behavior
+            let result = if c < 0 {
                 0
             } else {
-                ((v as u64) >> c) as i64
+                (v as u64).checked_shr(c as u32).unwrap_or(0) as i64
             };
             unsafe { push(rest, Value::Int(result)) }
         }

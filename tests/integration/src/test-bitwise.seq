@@ -99,6 +99,65 @@
   then
 ;
 
+# Edge case tests (from PR review)
+
+: test-shift-edge-cases ( -- )
+  "Testing shift edge cases..." write_line
+  # Shift by 0
+  42 0 shl 42 =
+  if "  PASS: 42 << 0 = 42" write_line
+  else "  FAIL: shift by 0" write_line
+  then
+  # Shift by exactly 63 (last valid shift)
+  1 63 shl -9223372036854775808 =
+  if "  PASS: 1 << 63 = i64::MIN" write_line
+  else "  FAIL: shift by 63" write_line
+  then
+  # Shift by 64 (out of range, returns 0)
+  1 64 shl 0 =
+  if "  PASS: 1 << 64 = 0" write_line
+  else "  FAIL: shift by 64" write_line
+  then
+  # Shift by negative (out of range, returns 0)
+  1 -1 shl 0 =
+  if "  PASS: 1 << -1 = 0" write_line
+  else "  FAIL: shift by -1" write_line
+  then
+  # Logical right shift of negative (fills with 0, not sign-extended)
+  -1 1 shr 9223372036854775807 =
+  if "  PASS: -1 >> 1 = i64::MAX (logical shift)" write_line
+  else "  FAIL: logical right shift of -1" write_line
+  then
+;
+
+: test-clz-ctz-edge-cases ( -- )
+  "Testing clz/ctz edge cases..." write_line
+  # clz(0) should be 64
+  0 clz 64 =
+  if "  PASS: clz(0) = 64" write_line
+  else "  FAIL: clz(0)" write_line
+  then
+  # ctz(0) should be 64
+  0 ctz 64 =
+  if "  PASS: ctz(0) = 64" write_line
+  else "  FAIL: ctz(0)" write_line
+  then
+;
+
+: test-popcount-edge-cases ( -- )
+  "Testing popcount edge cases..." write_line
+  # popcount(-1) = 64 (all bits set)
+  -1 popcount 64 =
+  if "  PASS: popcount(-1) = 64" write_line
+  else "  FAIL: popcount(-1)" write_line
+  then
+  # popcount(0) = 0
+  0 popcount 0 =
+  if "  PASS: popcount(0) = 0" write_line
+  else "  FAIL: popcount(0)" write_line
+  then
+;
+
 : main ( -- )
   "Bitwise Operations Test Suite" write_line
   "==============================" write_line
@@ -114,6 +173,10 @@
   test-int-bits
   test-hex-literals
   test-binary-literals
+  "--- Edge Cases ---" write_line
+  test-shift-edge-cases
+  test-clz-ctz-edge-cases
+  test-popcount-edge-cases
   "==============================" write_line
   "All tests completed!" write_line
 ;

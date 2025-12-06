@@ -1,0 +1,123 @@
+# Hacker's Delight: Counting Bits
+#
+# Various ways to count and manipulate bits.
+# We have `popcount` builtin, but here's how it works!
+
+# Count bits using the classic "parallel" algorithm
+# This shows how popcount works internally
+: count-bits-parallel ( Int -- Int )
+  # Sum pairs of bits
+  dup 1 shr 0x5555555555555555 band subtract
+  # Sum groups of 4
+  dup 0x3333333333333333 band
+  swap 2 shr 0x3333333333333333 band add
+  # Sum groups of 8
+  dup 4 shr add 0x0F0F0F0F0F0F0F0F band
+  # Sum all bytes
+  0x0101010101010101 multiply
+  56 shr
+;
+
+# Count bits by repeatedly clearing rightmost 1
+# Good when few bits are set (Kernighan's algorithm)
+: count-bits-sparse ( Int -- Int )
+  0 swap  # accumulator and value
+  [ dup 0 <> ]
+  [
+    swap 1 add swap           # increment count
+    dup 1 subtract band       # clear rightmost 1
+  ]
+  while
+  drop  # drop the zero value, keep count
+;
+
+# Parity (1 if odd number of bits, 0 if even)
+: parity ( Int -- Int )
+  dup 32 shr bxor
+  dup 16 shr bxor
+  dup  8 shr bxor
+  dup  4 shr bxor
+  dup  2 shr bxor
+  dup  1 shr bxor
+  1 band
+;
+
+# Count leading zeros manually (compare with clz builtin)
+: count-leading-zeros ( Int -- Int )
+  dup 0 =
+  if drop 64
+  else
+    0 swap  # count, value
+    [ dup 0 < not ]   # while high bit not set
+    [
+      1 shl           # shift left
+      swap 1 add swap # increment count
+    ]
+    while
+    drop  # drop the value
+  then
+;
+
+# Count trailing zeros manually (compare with ctz builtin)
+: count-trailing-zeros ( Int -- Int )
+  dup 0 =
+  if drop 64
+  else
+    0 swap  # count, value
+    [ dup 1 band 0 = ]  # while low bit not set
+    [
+      1 shr             # shift right
+      swap 1 add swap   # increment count
+    ]
+    while
+    drop
+  then
+;
+
+: test-popcount-methods ( -- )
+  "Counting bits (multiple methods):" write_line
+  "  Value: 0b10110100 (180)" write_line
+  "" write_line
+  "  popcount (builtin): " write_line
+  0b10110100 popcount int->string write_line
+  "  parallel method:    " write_line
+  0b10110100 count-bits-parallel int->string write_line
+  "  sparse method:      " write_line
+  0b10110100 count-bits-sparse int->string write_line
+  "" write_line
+;
+
+: test-parity ( -- )
+  "Parity (odd=1, even=0):" write_line
+  "  0b111 (3 bits): " write_line 0b111 parity int->string write_line
+  "  0b1111 (4 bits): " write_line 0b1111 parity int->string write_line
+  "  0b10101 (3 bits): " write_line 0b10101 parity int->string write_line
+  "" write_line
+;
+
+: test-leading-zeros ( -- )
+  "Leading zeros:" write_line
+  "  1:   clz=" write_line 1 clz int->string write_line
+  "       manual=" write_line 1 count-leading-zeros int->string write_line
+  "  256: clz=" write_line 256 clz int->string write_line
+  "       manual=" write_line 256 count-leading-zeros int->string write_line
+  "" write_line
+;
+
+: test-trailing-zeros ( -- )
+  "Trailing zeros:" write_line
+  "  8:  ctz=" write_line 8 ctz int->string write_line
+  "      manual=" write_line 8 count-trailing-zeros int->string write_line
+  "  48: ctz=" write_line 48 ctz int->string write_line
+  "      manual=" write_line 48 count-trailing-zeros int->string write_line
+  "" write_line
+;
+
+: main ( -- )
+  "=== Hacker's Delight: Counting Bits ===" write_line
+  "" write_line
+  test-popcount-methods
+  test-parity
+  test-leading-zeros
+  test-trailing-zeros
+;

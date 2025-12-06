@@ -60,6 +60,17 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("and", "patch_seq_and"),
         ("or", "patch_seq_or"),
         ("not", "patch_seq_not"),
+        // Bitwise
+        ("band", "patch_seq_band"),
+        ("bor", "patch_seq_bor"),
+        ("bxor", "patch_seq_bxor"),
+        ("bnot", "patch_seq_bnot"),
+        ("shl", "patch_seq_shl"),
+        ("shr", "patch_seq_shr"),
+        ("popcount", "patch_seq_popcount"),
+        ("clz", "patch_seq_clz"),
+        ("ctz", "patch_seq_ctz"),
+        ("int-bits", "patch_seq_int_bits"),
         // Stack operations
         ("dup", "patch_seq_dup"),
         ("swap", "patch_seq_swap"),
@@ -429,6 +440,17 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_and(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_or(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_not(ptr)").unwrap();
+        writeln!(&mut ir, "; Bitwise operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_band(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_bor(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_bxor(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_bnot(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_shl(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_shr(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_popcount(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_clz(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_ctz(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_int_bits(ptr)").unwrap();
         writeln!(&mut ir, "; Stack operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)").unwrap();

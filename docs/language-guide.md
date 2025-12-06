@@ -66,8 +66,7 @@ Words are the building blocks. A word is a named sequence of operations:
 ```
 
 The `( Int -- Int )` is the *stack effect* - this word consumes one integer and
-produces one integer. Stack effects are documentation and (eventually) type
-checking.
+produces one integer. The compiler verifies stack effects at compile time.
 
 Calling a word is just writing its name:
 

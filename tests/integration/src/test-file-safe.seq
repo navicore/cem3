@@ -18,7 +18,7 @@
 # Test reading a file that exists (this file itself!)
 : test-exists ( -- )
   # We'll use file-exists? first to verify
-  "examples/test-file-safe.seq" file-exists?
+  "tests/integration/src/test-file-safe.seq" file-exists?
   "file-exists? finds this file" print-result
 ;
 

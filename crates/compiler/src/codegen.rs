@@ -481,6 +481,12 @@ impl CodeGen {
             "declare ptr @patch_seq_env_get_string(ptr, i64, i32)"
         )
         .unwrap();
+        // Combined get+push for strings to avoid returning SeqString by value through FFI
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_env_push_string(ptr, ptr, i64, i32)"
+        )
+        .unwrap();
         writeln!(&mut ir, "declare %Value @patch_seq_make_closure(i64, ptr)").unwrap();
         writeln!(
             &mut ir,
@@ -823,6 +829,19 @@ impl CodeGen {
         index: usize,
         stack_var: &str,
     ) -> Result<String, String> {
+        // String captures use a combined get+push function to avoid returning
+        // SeqString by value through FFI (causes crashes on Linux due to calling convention)
+        if matches!(capture_type, Type::String) {
+            let new_stack_var = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_env_push_string(ptr %{}, ptr %env_data, i64 %env_len, i32 {})",
+                new_stack_var, stack_var, index
+            )
+            .unwrap();
+            return Ok(new_stack_var);
+        }
+
         // Each capture type needs: (getter_fn, getter_llvm_type, pusher_fn, pusher_llvm_type)
         let (getter, getter_type, pusher, pusher_type) = match capture_type {
             Type::Int => ("patch_seq_env_get_int", "i64", "patch_seq_push_int", "i64"),
@@ -833,12 +852,7 @@ impl CodeGen {
                 "patch_seq_push_float",
                 "double",
             ),
-            Type::String => (
-                "patch_seq_env_get_string",
-                "ptr",
-                "patch_seq_push_seqstring",
-                "ptr",
-            ),
+            Type::String => unreachable!("String handled above"),
             Type::Quotation(_) => (
                 "patch_seq_env_get_quotation",
                 "i64",

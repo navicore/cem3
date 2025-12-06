@@ -1,10 +1,12 @@
 //! Include resolution for LSP completions
 //!
 //! Parses included files and extracts word definitions for completion.
+//! Uses the embedded stdlib from the compiler - no filesystem search needed.
 
 use seqc::Effect;
 use seqc::ast::Include;
 use seqc::parser::Parser;
+use seqc::stdlib_embed;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
@@ -31,68 +33,6 @@ pub struct LocalWord {
     pub start_line: usize,
     /// Line number where the word ends (0-indexed)
     pub end_line: usize,
-}
-
-/// Find the stdlib path by checking common locations
-pub fn find_stdlib_path() -> Option<PathBuf> {
-    // 1. Environment variable
-    if let Ok(path) = std::env::var("SEQ_STDLIB_PATH") {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-
-    // 2. Relative to current executable
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-    {
-        // Try paths for installed binaries and dev builds
-        let paths = [
-            "../stdlib",
-            "../../stdlib",
-            "../../compiler/stdlib", // for target/debug or target/release
-        ];
-        for path in paths {
-            let stdlib = parent.join(path);
-            if stdlib.exists() {
-                return Some(stdlib);
-            }
-        }
-    }
-
-    // 3. Common install locations
-    if let Ok(home) = std::env::var("HOME") {
-        let paths = [
-            format!("{}/.local/share/seq/stdlib", home),
-            format!("{}/seq/stdlib", home),
-        ];
-        for path in paths {
-            let p = PathBuf::from(path);
-            if p.exists() {
-                return Some(p);
-            }
-        }
-    }
-
-    // 4. Development location - check if we're in the repo
-    // stdlib is now in compiler/stdlib (embedded in compiler crate)
-    let dev_paths = [
-        "./compiler/stdlib",
-        "../compiler/stdlib",
-        "../../compiler/stdlib",
-        "./stdlib",
-        "../stdlib",
-        "../../stdlib",
-    ];
-    for path in dev_paths {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Some(p.canonicalize().unwrap_or(p));
-        }
-    }
-
-    None
 }
 
 /// Extract include statements and local words from source code
@@ -125,17 +65,17 @@ pub fn parse_document(source: &str) -> (Vec<Include>, Vec<LocalWord>) {
     }
 }
 
-/// Resolve includes and extract words from included files
-pub fn resolve_includes(
-    includes: &[Include],
-    doc_path: Option<&Path>,
-    stdlib_path: Option<&Path>,
-) -> Vec<IncludedWord> {
+/// Resolve includes and extract words from included files.
+/// Uses embedded stdlib for std: includes, filesystem for relative includes.
+pub fn resolve_includes(includes: &[Include], doc_path: Option<&Path>) -> Vec<IncludedWord> {
     let mut words = Vec::new();
     let mut visited = HashSet::new();
 
+    // Convert file path to directory for relative include resolution
+    let doc_dir = doc_path.and_then(|p| p.parent());
+
     for include in includes {
-        resolve_include_recursive(include, doc_path, stdlib_path, &mut words, &mut visited, 0);
+        resolve_include_recursive(include, doc_dir, &mut words, &mut visited, 0);
     }
 
     words
@@ -144,10 +84,9 @@ pub fn resolve_includes(
 /// Recursively resolve an include, with cycle detection and depth limit
 fn resolve_include_recursive(
     include: &Include,
-    doc_path: Option<&Path>,
-    stdlib_path: Option<&Path>,
+    doc_dir: Option<&Path>,
     words: &mut Vec<IncludedWord>,
-    visited: &mut HashSet<PathBuf>,
+    visited: &mut HashSet<String>,
     depth: usize,
 ) {
     // Depth limit to prevent runaway recursion
@@ -156,96 +95,107 @@ fn resolve_include_recursive(
         return;
     }
 
-    let (path, source_name) = match resolve_include_path(include, doc_path, stdlib_path) {
-        Some(result) => result,
-        None => {
-            debug!("Could not resolve include: {:?}", include);
-            return;
-        }
-    };
-
-    // Canonicalize for cycle detection
-    let canonical = match path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => {
-            debug!("Could not canonicalize: {:?}", path);
-            return;
-        }
-    };
-
-    // Skip if already visited
-    if visited.contains(&canonical) {
-        return;
-    }
-    visited.insert(canonical.clone());
-
-    // Read and parse the file
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            debug!("Could not read {}: {}", path.display(), e);
-            return;
-        }
-    };
-
-    let mut parser = Parser::new(&content);
-    let program = match parser.parse() {
-        Ok(p) => p,
-        Err(e) => {
-            debug!("Could not parse {}: {}", path.display(), e);
-            return;
-        }
-    };
-
-    // Extract words from this file
-    for word in &program.words {
-        let start_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
-        words.push(IncludedWord {
-            name: word.name.clone(),
-            effect: word.effect.clone(),
-            source: source_name.clone(),
-            file_path: Some(canonical.clone()),
-            start_line,
-        });
-    }
-
-    // Recursively resolve nested includes
-    let include_dir = path.parent();
-    for nested_include in &program.includes {
-        resolve_include_recursive(
-            nested_include,
-            include_dir,
-            stdlib_path,
-            words,
-            visited,
-            depth + 1,
-        );
-    }
-}
-
-/// Resolve an include to a file path and source name
-fn resolve_include_path(
-    include: &Include,
-    doc_dir: Option<&Path>,
-    stdlib_path: Option<&Path>,
-) -> Option<(PathBuf, String)> {
     match include {
         Include::Std(name) => {
-            let stdlib = stdlib_path?;
-            let path = stdlib.join(format!("{}.seq", name));
-            if path.exists() {
-                Some((path, format!("std:{}", name)))
-            } else {
-                None
+            // Use embedded stdlib
+            let key = format!("std:{}", name);
+            if visited.contains(&key) {
+                return;
+            }
+            visited.insert(key.clone());
+
+            let content = match stdlib_embed::get_stdlib(name) {
+                Some(c) => c,
+                None => {
+                    debug!("Stdlib module not found: {}", name);
+                    return;
+                }
+            };
+
+            let mut parser = Parser::new(content);
+            let program = match parser.parse() {
+                Ok(p) => p,
+                Err(e) => {
+                    debug!("Could not parse stdlib {}: {}", name, e);
+                    return;
+                }
+            };
+
+            // Extract words from stdlib module
+            for word in &program.words {
+                let start_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+                words.push(IncludedWord {
+                    name: word.name.clone(),
+                    effect: word.effect.clone(),
+                    source: format!("std:{}", name),
+                    file_path: None, // Embedded, no file path
+                    start_line,
+                });
+            }
+
+            // Recursively resolve nested includes (stdlib can include other stdlib)
+            for nested_include in &program.includes {
+                resolve_include_recursive(nested_include, None, words, visited, depth + 1);
             }
         }
         Include::Relative(name) => {
-            let dir = doc_dir?;
+            // Filesystem-based resolution for relative includes
+            let dir = match doc_dir {
+                Some(d) => d,
+                None => {
+                    debug!("No document directory for relative include: {}", name);
+                    return;
+                }
+            };
+
             let path = dir.join(format!("{}.seq", name));
-            if path.exists() {
-                Some((path, name.clone()))
-            } else {
-                None
+            let canonical = match path.canonicalize() {
+                Ok(p) => p,
+                Err(_) => {
+                    debug!("Could not resolve relative include: {}", name);
+                    return;
+                }
+            };
+
+            let key = canonical.to_string_lossy().to_string();
+            if visited.contains(&key) {
+                return;
+            }
+            visited.insert(key);
+
+            let content = match std::fs::read_to_string(&canonical) {
+                Ok(c) => c,
+                Err(e) => {
+                    debug!("Could not read {}: {}", canonical.display(), e);
+                    return;
+                }
+            };
+
+            let mut parser = Parser::new(&content);
+            let program = match parser.parse() {
+                Ok(p) => p,
+                Err(e) => {
+                    debug!("Could not parse {}: {}", canonical.display(), e);
+                    return;
+                }
+            };
+
+            // Extract words from this file
+            for word in &program.words {
+                let start_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+                words.push(IncludedWord {
+                    name: word.name.clone(),
+                    effect: word.effect.clone(),
+                    source: name.clone(),
+                    file_path: Some(canonical.clone()),
+                    start_line,
+                });
+            }
+
+            // Recursively resolve nested includes
+            let include_dir = canonical.parent();
+            for nested_include in &program.includes {
+                resolve_include_recursive(nested_include, include_dir, words, visited, depth + 1);
             }
         }
     }
@@ -356,18 +306,13 @@ include "utils"
 
     #[test]
     fn test_resolve_stdlib_json() {
-        // Find stdlib path
-        let stdlib_path = find_stdlib_path();
-        assert!(stdlib_path.is_some(), "Could not find stdlib path");
-        let stdlib_path = stdlib_path.unwrap();
-
         // Parse a document that includes std:json
         let source = "include std:json\n";
         let (includes, _) = parse_document(source);
         assert_eq!(includes.len(), 1);
 
-        // Resolve the includes
-        let words = resolve_includes(&includes, None, Some(&stdlib_path));
+        // Resolve the includes using embedded stdlib
+        let words = resolve_includes(&includes, None);
 
         // Check that json-serialize is in the resolved words
         let names: Vec<&str> = words.iter().map(|w| w.name.as_str()).collect();

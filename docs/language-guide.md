@@ -450,6 +450,35 @@ internally, so this distinction rarely matters in practice.
 |------|--------|-------------|
 | `file-slurp` | `( path -- String )` | Read entire file |
 | `file-exists?` | `( path -- Int )` | Check if file exists |
+| `file-for-each-line+` | `( path quot -- String Int )` | Process file line by line |
+
+### Line-by-Line File Processing
+
+For processing files line by line (similar to `read_line+` for stdin), use `file-for-each-line+`:
+
+```seq
+: process-line ( String -- )
+    string-chomp
+    # ... do something with line
+;
+
+: main ( -- )
+    "data.txt" [ process-line ] file-for-each-line+
+    if
+        drop  # drop empty string on success
+        "Done!" write_line
+    else
+        # error message is on stack
+        "Error: " swap string-concat write_line
+    then
+;
+```
+
+The quotation receives each line (including trailing newline) and must consume it.
+Returns `("" 1)` on success, `("error message" 0)` on failure.
+
+This is safer than slurp-and-split for large files - lines are processed one at a time
+rather than loading the entire file into memory.
 
 ## Modules
 

@@ -7,6 +7,7 @@
 //! ```seq
 //! "config.json" file-slurp  # ( String -- String ) read entire file
 //! "config.json" file-exists?  # ( String -- Int ) 1 if exists, 0 otherwise
+//! "data.txt" [ process-line ] file-for-each-line+  # ( String Quotation -- String Int )
 //! ```
 //!
 //! # Example
@@ -24,7 +25,8 @@
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 /// Read entire file contents as a string
@@ -122,8 +124,127 @@ pub unsafe extern "C" fn patch_seq_file_slurp_safe(stack: Stack) -> Stack {
     }
 }
 
+/// Process each line of a file with a quotation
+///
+/// Stack effect: ( String Quotation -- String Int )
+///
+/// Opens the file, calls the quotation with each line (including newline),
+/// then closes the file.
+///
+/// Returns:
+/// - Success: ( "" 1 )
+/// - Error: ( "error message" 0 )
+///
+/// The quotation should have effect ( String -- ), receiving each line
+/// and consuming it.
+///
+/// # Example
+///
+/// ```seq
+/// "data.txt" [ string-chomp process-line ] file-for-each-line+
+/// if
+///     "Done processing" write_line
+/// else
+///     "Error: " swap string-concat write_line
+/// then
+/// ```
+///
+/// # Safety
+/// - `stack` must be a valid, non-null stack pointer
+/// - Top of stack must be a Quotation or Closure
+/// - Second on stack must be a String (file path)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_file_for_each_line_plus(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "file-for-each-line+: stack is empty");
+
+    // Pop quotation
+    let (stack, quot_value) = unsafe { pop(stack) };
+
+    // Pop path
+    let (stack, path_value) = unsafe { pop(stack) };
+    let path = match path_value {
+        Value::String(s) => s,
+        _ => panic!(
+            "file-for-each-line+: expected String path, got {:?}",
+            path_value
+        ),
+    };
+
+    // Open file
+    let file = match File::open(path.as_str()) {
+        Ok(f) => f,
+        Err(e) => {
+            // Return error: ( "error message" 0 )
+            let stack = unsafe { push(stack, Value::String(format!("{}", e).into())) };
+            return unsafe { push(stack, Value::Int(0)) };
+        }
+    };
+
+    // Extract function pointer and optionally closure environment
+    let (wrapper, env_data, env_len): (usize, *const Value, usize) = match quot_value {
+        Value::Quotation { wrapper, .. } => {
+            if wrapper == 0 {
+                panic!("file-for-each-line+: quotation wrapper function pointer is null");
+            }
+            (wrapper, std::ptr::null(), 0)
+        }
+        Value::Closure { fn_ptr, ref env } => {
+            if fn_ptr == 0 {
+                panic!("file-for-each-line+: closure function pointer is null");
+            }
+            (fn_ptr, env.as_ptr(), env.len())
+        }
+        _ => panic!(
+            "file-for-each-line+: expected Quotation or Closure, got {:?}",
+            quot_value
+        ),
+    };
+
+    // Read lines and call quotation/closure for each
+    let reader = BufReader::new(file);
+    let mut current_stack = stack;
+
+    for line_result in reader.lines() {
+        match line_result {
+            Ok(mut line_str) => {
+                // Add back newline to match read_line behavior
+                line_str.push('\n');
+
+                // Push line onto stack
+                current_stack = unsafe { push(current_stack, Value::String(line_str.into())) };
+
+                // Call the quotation or closure
+                if env_data.is_null() {
+                    // Quotation: just stack -> stack
+                    let fn_ref: unsafe extern "C" fn(Stack) -> Stack =
+                        unsafe { std::mem::transmute(wrapper) };
+                    current_stack = unsafe { fn_ref(current_stack) };
+                } else {
+                    // Closure: stack, env_ptr, env_len -> stack
+                    let fn_ref: unsafe extern "C" fn(Stack, *const Value, usize) -> Stack =
+                        unsafe { std::mem::transmute(wrapper) };
+                    current_stack = unsafe { fn_ref(current_stack, env_data, env_len) };
+                }
+
+                // Yield to scheduler for cooperative multitasking
+                may::coroutine::yield_now();
+            }
+            Err(e) => {
+                // I/O error mid-file
+                let stack = unsafe { push(current_stack, Value::String(format!("{}", e).into())) };
+                return unsafe { push(stack, Value::Int(0)) };
+            }
+        }
+    }
+
+    // Success: ( "" 1 )
+    let stack = unsafe { push(current_stack, Value::String("".into())) };
+    unsafe { push(stack, Value::Int(1)) }
+}
+
 // Public re-exports
 pub use patch_seq_file_exists as file_exists;
+pub use patch_seq_file_for_each_line_plus as file_for_each_line_plus;
 pub use patch_seq_file_slurp as file_slurp;
 pub use patch_seq_file_slurp_safe as file_slurp_safe;
 

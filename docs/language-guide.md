@@ -155,13 +155,29 @@ The key insight: in Seq, *juxtaposition is composition*.
 Writing `double double` doesn't "call double twice" in the applicative sense -
 it *composes* two doublings into a single operation.
 
-This is why concatenative code can be refactored so freely:
+Since a word is just a named sequence of operations, any contiguous sequence
+can be extracted into a new word without changing meaning:
 
 ```seq
-# These are equivalent:
-a b c
-a  b c      # Extract "b c" as a word
-a bc        # Same meaning, different factoring
+# Given words a, b, c, d in sequence:
+a b c d
+
+# Define a new word for "b c":
+: bc  b c ;
+
+# This is equivalent:
+a bc d
+```
+
+A concrete example:
+
+```seq
+# Four words in sequence
+read parse transform write
+
+# Extract middle two into a word
+: process  parse transform ;
+read process write          # Same behavior
 ```
 
 ## Comments

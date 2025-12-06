@@ -67,10 +67,7 @@ pub fn parse_document(source: &str) -> (Vec<Include>, Vec<LocalWord>) {
 
 /// Resolve includes and extract words from included files.
 /// Uses embedded stdlib for std: includes, filesystem for relative includes.
-pub fn resolve_includes(
-    includes: &[Include],
-    doc_path: Option<&Path>,
-) -> Vec<IncludedWord> {
+pub fn resolve_includes(includes: &[Include], doc_path: Option<&Path>) -> Vec<IncludedWord> {
     let mut words = Vec::new();
     let mut visited = HashSet::new();
 

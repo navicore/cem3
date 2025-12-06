@@ -182,13 +182,12 @@ read process write          # Same behavior
 
 ## Comments
 
-```seq
-# Line comments start with hash
+Comments start with `#` and continue to end of line:
 
-# Stack effects in word definitions:
-: word-name ( inputs -- outputs )
-  body
-;
+```seq
+# Whole-line comment
+
+5 square  # Inline comment after code
 ```
 
 ## I/O Operations

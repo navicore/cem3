@@ -244,6 +244,17 @@ impl Program {
             "and",
             "or",
             "not",
+            // Bitwise operations
+            "band",
+            "bor",
+            "bxor",
+            "bnot",
+            "shl",
+            "shr",
+            "popcount",
+            "clz",
+            "ctz",
+            "int-bits",
             // Concurrency operations
             "make-channel",
             "send",

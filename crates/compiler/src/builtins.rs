@@ -164,6 +164,108 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Bitwise operations ( ..a Int Int -- ..a Int )
+    // band: bitwise AND
+    sigs.insert(
+        "band".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // bor: bitwise OR
+    sigs.insert(
+        "bor".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // bxor: bitwise XOR
+    sigs.insert(
+        "bxor".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // bnot: bitwise NOT (one's complement)
+    sigs.insert(
+        "bnot".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // shl: shift left ( value count -- result )
+    sigs.insert(
+        "shl".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // shr: logical shift right ( value count -- result )
+    sigs.insert(
+        "shr".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // Bit counting operations
+    // popcount: count number of 1 bits
+    sigs.insert(
+        "popcount".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // clz: count leading zeros
+    sigs.insert(
+        "clz".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // ctz: count trailing zeros
+    sigs.insert(
+        "ctz".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // int-bits: push the bit width of Int (64)
+    sigs.insert(
+        "int-bits".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // Stack operations with row polymorphism
     // dup: ( ..a T -- ..a T T )
     sigs.insert(

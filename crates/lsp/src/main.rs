@@ -30,23 +30,13 @@ struct SeqLanguageServer {
     client: Client,
     /// Document state cache
     documents: RwLock<HashMap<String, DocumentState>>,
-    /// Path to stdlib (cached on startup)
-    stdlib_path: Option<PathBuf>,
 }
 
 impl SeqLanguageServer {
     fn new(client: Client) -> Self {
-        let stdlib_path = includes::find_stdlib_path();
-        if let Some(ref path) = stdlib_path {
-            info!("Found stdlib at: {}", path.display());
-        } else {
-            info!("Stdlib not found - include completions will be limited");
-        }
-
         Self {
             client,
             documents: RwLock::new(HashMap::new()),
-            stdlib_path,
         }
     }
 
@@ -66,19 +56,15 @@ impl SeqLanguageServer {
         let (includes, local_words) = includes::parse_document(&content);
 
         info!(
-            "Parsed document: {} includes, {} local words, stdlib_path={:?}, file_path={:?}",
+            "Parsed document: {} includes, {} local words, file_path={:?}",
             includes.len(),
             local_words.len(),
-            self.stdlib_path,
             file_path
         );
 
         // Resolve includes to get words from included files
-        let included_words = includes::resolve_includes(
-            &includes,
-            file_path.as_deref(),
-            self.stdlib_path.as_deref(),
-        );
+        // Uses embedded stdlib for std: includes, filesystem for relative includes
+        let included_words = includes::resolve_includes(&includes, file_path.as_deref());
 
         info!(
             "Document has {} local words, {} included words from {} includes",

@@ -58,6 +58,8 @@ cargo test --all
 **Core Language:**
 - Stack operations: `dup`, `drop`, `swap`, `over`, `rot`, `nip`, `tuck`, `pick`
 - Arithmetic: `+`, `-`, `*`, `/` with overflow checking
+- Bitwise: `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
+- Numeric literals: decimal, hex (`0xFF`), binary (`0b1010`)
 - Comparisons: `=`, `<`, `>`, `<=`, `>=`, `<>`
 - Conditionals: `if`/`else`/`then`
 - Quotations: First-class functions with `call`, `times`, `while`, `until`, `forever`
@@ -94,6 +96,7 @@ See `examples/` for working programs:
 - `recursion/fibonacci.seq`, `recursion/factorial.seq` - Recursion
 - `json/json_tree.seq` - JSON parsing with the stdlib
 - `http/*.seq` - HTTP routing and TCP servers
+- `hackers-delight/*.seq` - Bit manipulation puzzles (rightmost bits, power of 2, popcount, branchless ops)
 
 ## Editor Support
 

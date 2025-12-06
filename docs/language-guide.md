@@ -118,7 +118,7 @@ Seq has these value types:
 
 | Type | Examples | Notes |
 |------|----------|-------|
-| Int | `42`, `-1`, `0` | 64-bit signed |
+| Int | `42`, `-1`, `0xFF`, `0b1010` | 64-bit signed, hex/binary literals |
 | Float | `3.14`, `-0.5` | 64-bit IEEE 754 |
 | Bool | `true`, `false` | |
 | String | `"hello"` | UTF-8 |
@@ -309,6 +309,44 @@ process-loop
 | `string-trim` | `( s -- s )` | Remove whitespace |
 | `string->int` | `( s -- Int )` | Parse integer |
 | `int->string` | `( Int -- s )` | Format integer |
+
+## Bitwise Operations
+
+For low-level bit manipulation:
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `band` | `( Int Int -- Int )` | Bitwise AND |
+| `bor` | `( Int Int -- Int )` | Bitwise OR |
+| `bxor` | `( Int Int -- Int )` | Bitwise XOR |
+| `bnot` | `( Int -- Int )` | Bitwise NOT (one's complement) |
+| `shl` | `( Int Int -- Int )` | Shift left |
+| `shr` | `( Int Int -- Int )` | Logical shift right (zero-fill) |
+| `popcount` | `( Int -- Int )` | Count 1-bits |
+| `clz` | `( Int -- Int )` | Count leading zeros |
+| `ctz` | `( Int -- Int )` | Count trailing zeros |
+| `int-bits` | `( -- Int )` | Push 64 (bit width of Int) |
+
+### Numeric Literals
+
+```seq
+42          # Decimal
+0xFF        # Hexadecimal (case insensitive: 0xff, 0XFF)
+0b1010      # Binary (case insensitive: 0B1010)
+```
+
+### Shift Behavior
+
+- Shift by 0 returns the original value
+- Shift by 63 is the maximum valid shift
+- Shift by 64 or more returns 0
+- Shift by negative amount returns 0
+- Right shift is *logical* (zero-fill), not arithmetic (sign-extending)
+
+```seq
+1 63 shl    # -9223372036854775808 (i64::MIN, high bit set)
+-1 1 shr    # 9223372036854775807 (i64::MAX, logical shift fills with 0)
+```
 
 ## Recursion
 

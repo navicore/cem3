@@ -348,9 +348,9 @@ For low-level bit manipulation:
 -1 1 shr    # 9223372036854775807 (i64::MAX, logical shift fills with 0)
 ```
 
-## Recursion
+## Recursion and Tail Call Optimization
 
-Seq has no loop keywords. Use recursive words:
+Seq has no loop keywords. Iteration is recursion:
 
 ```seq
 # Count down
@@ -373,7 +373,58 @@ Seq has no loop keywords. Use recursive words:
 ;
 ```
 
-Tail calls are optimized - deeply recursive code won't overflow the stack.
+### Guaranteed Tail Call Optimization
+
+Seq guarantees TCO via LLVM's `musttail` calling convention. Deeply recursive code
+won't overflow the stack - you can recurse millions of times safely.
+
+More importantly, Seq's TCO is **branch-aware**. The compiler recognizes tail
+position *within* each branch of a conditional, not just at word level. This means
+you can write natural recursive code without restructuring for optimization:
+
+```seq
+: process-input ( -- )
+    read_line+ if
+        string-chomp
+        process-line
+        process-input   # Tail call - even inside a branch
+    else
+        drop
+    then
+;
+```
+
+In many languages, you'd have to "game" the compiler - inverting conditions,
+using continuation-passing style, or adding explicit trampolines to get TCO.
+In Seq, the compiler does this analysis for you. Write readable code; get
+optimization automatically.
+
+### When TCO Applies
+
+TCO works for user-defined word calls in tail position. It does *not* apply in:
+
+- **main** - entry point uses C calling convention
+- **Quotations** `[ ... ]` - use C convention for interop
+- **Closures** - signature differs due to captured environment
+
+For hot loops that need guaranteed TCO, use a named word rather than a quotation:
+
+```seq
+# TCO works here
+: loop ( Int -- )
+    dup 0 > if
+        1 - loop
+    else
+        drop
+    then
+;
+
+# TCO does NOT work here (quotation)
+[ dup 0 > ] [ 1 - ] while
+```
+
+The `while`, `until`, and `times` combinators handle their own iteration
+internally, so this distinction rarely matters in practice.
 
 ## Command Line Programs
 

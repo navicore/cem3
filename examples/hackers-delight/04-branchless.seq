@@ -1,0 +1,95 @@
+# Hacker's Delight: Branchless Operations
+#
+# Performing conditional operations without branches.
+#
+# Note: Classic Hacker's Delight uses arithmetic right shift (sign-extending).
+# Seq has logical right shift, so we use alternative formulations based on
+# comparison operators that return 0 or 1.
+
+# Create a mask: -1 if x < 0, else 0
+: negative-mask ( Int -- Int )
+  0 <                  # 1 if negative, 0 if not
+  0 swap subtract      # -1 or 0
+;
+
+# Absolute value without branching
+# mask = -1 if x < 0, else 0
+# result = (x ^ mask) - mask
+: abs-branchless ( Int -- Int )
+  dup negative-mask    # x mask
+  dup rot              # mask mask x
+  bxor                 # mask (x ^ mask)
+  swap subtract        # (x ^ mask) - mask
+;
+
+# Sign of x: returns -1, 0, or 1
+: sign ( Int -- Int )
+  dup 0 >              # x pos?
+  swap 0 <             # pos? neg?
+  0 swap subtract      # pos? -neg?
+  add                  # pos - neg = 1, -1, or 0
+;
+
+# Branchless min using the formula:
+# min(a, b) = b + ((a - b) & mask)  where mask = -1 if a < b, else 0
+: min-branchless ( Int Int -- Int )
+  over over subtract   # a b (a-b)
+  dup 0 <              # a b diff (diff<0)?
+  0 swap subtract      # a b diff mask
+  band                 # a b (diff & mask)
+  add                  # a (b + masked_diff)
+  nip                  # result
+;
+
+# Branchless max using the formula:
+# max(a, b) = a - ((a - b) & mask)  where mask = -1 if a < b, else 0
+: max-branchless ( Int Int -- Int )
+  over over subtract   # a b (a-b)
+  dup 0 <              # a b diff (diff<0)?
+  0 swap subtract      # a b diff mask
+  band                 # a b (diff & mask)
+  rot swap             # b a masked_diff
+  subtract             # b (a - masked_diff)
+  nip                  # result
+;
+
+# Test helpers
+: show ( Int String -- )
+  write_line int->string write_line
+;
+
+: test-abs ( -- )
+  "Absolute value (branchless):" write_line
+  5 abs-branchless "  abs(5) = " show
+  -5 abs-branchless "  abs(-5) = " show
+  0 abs-branchless "  abs(0) = " show
+  -100 abs-branchless "  abs(-100) = " show
+  "" write_line
+;
+
+: test-sign ( -- )
+  "Sign function (-1, 0, or 1):" write_line
+  42 sign "  sign(42) = " show
+  -17 sign "  sign(-17) = " show
+  0 sign "  sign(0) = " show
+  "" write_line
+;
+
+: test-minmax ( -- )
+  "Min/Max (branchless):" write_line
+  3 7 min-branchless "  min(3, 7) = " show
+  7 3 min-branchless "  min(7, 3) = " show
+  3 7 max-branchless "  max(3, 7) = " show
+  7 3 max-branchless "  max(7, 3) = " show
+  -5 5 min-branchless "  min(-5, 5) = " show
+  -5 5 max-branchless "  max(-5, 5) = " show
+  "" write_line
+;
+
+: main ( -- )
+  "=== Hacker's Delight: Branchless Operations ===" write_line
+  "" write_line
+  test-abs
+  test-sign
+  test-minmax
+;

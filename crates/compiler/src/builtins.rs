@@ -96,6 +96,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // file-for-each-line+: ( ..a String Quotation -- ..a String Int )
+    // Opens file, calls quotation with each line, closes file.
+    // Quotation has effect ( ..a String -- ..a ) - receives line, must consume it.
+    // Returns ("" 1) on success, ("error message" 0) on failure.
+    sigs.insert(
+        "file-for-each-line+".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Quotation(Box::new(Effect::new(
+                    StackType::RowVar("a".to_string()).push(Type::String),
+                    StackType::RowVar("a".to_string()),
+                )))),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
     sigs.insert(
         "int->string".to_string(),
         Effect::new(

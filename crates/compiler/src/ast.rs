@@ -168,6 +168,7 @@ impl Program {
             "file-slurp",
             "file-slurp-safe",
             "file-exists?",
+            "file-for-each-line+",
             // String operations
             "string-concat",
             "string-length",

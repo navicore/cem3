@@ -197,7 +197,27 @@ impl Parser {
             return Ok(Statement::FloatLiteral(f));
         }
 
-        // Try to parse as integer literal
+        // Try to parse as hex literal (0x or 0X prefix)
+        if let Some(hex) = token
+            .strip_prefix("0x")
+            .or_else(|| token.strip_prefix("0X"))
+        {
+            return i64::from_str_radix(hex, 16)
+                .map(Statement::IntLiteral)
+                .map_err(|_| format!("Invalid hex literal: {}", token));
+        }
+
+        // Try to parse as binary literal (0b or 0B prefix)
+        if let Some(bin) = token
+            .strip_prefix("0b")
+            .or_else(|| token.strip_prefix("0B"))
+        {
+            return i64::from_str_radix(bin, 2)
+                .map(Statement::IntLiteral)
+                .map_err(|_| format!("Invalid binary literal: {}", token));
+        }
+
+        // Try to parse as decimal integer literal
         if let Ok(n) = token.parse::<i64>() {
             return Ok(Statement::IntLiteral(n));
         }
@@ -812,6 +832,44 @@ mod tests {
             program.words[0].body[2],
             Statement::WordCall("add".to_string())
         );
+    }
+
+    #[test]
+    fn test_parse_hex_literals() {
+        let source = ": test ( -- ) 0xFF 0x10 0X1A ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words[0].body[0], Statement::IntLiteral(255));
+        assert_eq!(program.words[0].body[1], Statement::IntLiteral(16));
+        assert_eq!(program.words[0].body[2], Statement::IntLiteral(26));
+    }
+
+    #[test]
+    fn test_parse_binary_literals() {
+        let source = ": test ( -- ) 0b1010 0B1111 0b0 ;";
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words[0].body[0], Statement::IntLiteral(10));
+        assert_eq!(program.words[0].body[1], Statement::IntLiteral(15));
+        assert_eq!(program.words[0].body[2], Statement::IntLiteral(0));
+    }
+
+    #[test]
+    fn test_parse_invalid_hex_literal() {
+        let source = ": test ( -- ) 0xGG ;";
+        let mut parser = Parser::new(source);
+        let err = parser.parse().unwrap_err();
+        assert!(err.contains("Invalid hex literal"));
+    }
+
+    #[test]
+    fn test_parse_invalid_binary_literal() {
+        let source = ": test ( -- ) 0b123 ;";
+        let mut parser = Parser::new(source);
+        let err = parser.parse().unwrap_err();
+        assert!(err.contains("Invalid binary literal"));
     }
 
     #[test]

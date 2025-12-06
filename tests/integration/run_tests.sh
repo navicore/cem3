@@ -24,31 +24,15 @@ PASSED=0
 FAILED=0
 FAILURES=""
 
-# Test cases: source file relative to src/
-TESTS=(
-    "test-if"
-    "test-if-else"
-    "test-nested-if"
-    "test-comparison"
-    "test-float"
-    "test-pick"
-    "test-string-int"
-    "test-list-ops"
-    "test-map-ops"
-    "test-variant-typed"
-    "test-variant-access"
-    "test-closure-captures"
-    "recursion/factorial"
-    "recursion/fibonacci"
-    "recursion/tco-stress"
-)
-
 echo "Running Seq integration tests..."
 echo ""
 
-for test in "${TESTS[@]}"; do
+# Auto-discover all .seq files in src/
+while IFS= read -r source_file; do
+    # Get relative path from SRC_DIR and strip .seq extension
+    test="${source_file#$SRC_DIR/}"
+    test="${test%.seq}"
     name=$(basename "$test")
-    source_file="${SRC_DIR}/${test}.seq"
     expected_file="${EXPECTED_DIR}/${name}.txt"
     binary="${TMP_DIR}/${name}"
     actual="${TMP_DIR}/${name}.out"
@@ -92,7 +76,7 @@ for test in "${TESTS[@]}"; do
         FAILED=$((FAILED + 1))
         FAILURES="${FAILURES}\n  ${name}: output mismatch\n$(diff "$expected_file" "$actual" | head -20)"
     fi
-done
+done < <(find "$SRC_DIR" -name "*.seq" -type f | sort)
 
 echo ""
 echo "========================================"

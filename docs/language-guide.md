@@ -212,15 +212,197 @@ Example - reading all lines until EOF:
 
 The `+` suffix convention indicates words that return a result pattern (value + status) instead of panicking on failure.
 
-## What's Next
+## Variants (Sum Types)
 
-This guide will grow to cover:
-- List operations (`list-map`, `list-filter`, `list-fold`)
-- Map operations (`make-map`, `map-get`, `map-set`)
-- String operations
-- Concurrency with channels and `spawn`
-- Error handling patterns
-- Idiomatic Seq style
+Variants are tagged unions - the primary way to build data structures:
+
+```seq
+# Create a variant with tag 1 and one field
+42 1 make-variant-1     # (Tag1 42)
+
+# Create with two fields
+"key" 100 2 make-variant-2   # (Tag2 "key" 100)
+
+# Inspect variants
+variant-tag             # Get the tag number
+0 variant-field-at      # Get field 0
+1 variant-field-at      # Get field 1
+```
+
+### Building ADTs
+
+Define constructors and accessors for your types:
+
+```seq
+# Option type: None (tag 0) or Some (tag 1)
+: none ( -- Variant )  0 make-variant-0 ;
+: some ( a -- Variant )  1 make-variant-1 ;
+: none? ( Variant -- Int )  variant-tag 0 = ;
+: some? ( Variant -- Int )  variant-tag 1 = ;
+: unwrap ( Variant -- a )  0 variant-field-at ;
+
+# Usage
+42 some        # Create Some(42)
+dup some? if
+    unwrap    # Get the 42
+then
+```
+
+### Cons Lists
+
+The standard pattern for lists:
+
+```seq
+: nil ( -- Variant )  0 make-variant-0 ;
+: cons ( head tail -- Variant )  1 make-variant-2 ;
+: nil? ( Variant -- Int )  variant-tag 0 = ;
+: car ( Variant -- head )  0 variant-field-at ;
+: cdr ( Variant -- tail )  1 variant-field-at ;
+
+# Build a list: (1 2 3)
+1  2  3 nil cons cons cons
+```
+
+### State as Variant
+
+When you need to thread multiple values through recursion, pack them:
+
+```seq
+# Tokenizer state: (Input Position CurrentToken TokenList)
+: make-state ( String Int String Variant -- Variant )
+    100 make-variant-4 ;
+
+: state-input ( Variant -- String )  0 variant-field-at ;
+: state-pos ( Variant -- Int )  1 variant-field-at ;
+
+# Initialize and loop
+"input" 0 "" nil make-state
+process-loop
+```
+
+## String Operations
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `string-concat` | `( a b -- ab )` | Concatenate |
+| `string-length` | `( s -- Int )` | Character count |
+| `string-empty` | `( s -- Int )` | True if empty |
+| `string-equal` | `( a b -- Int )` | Compare |
+| `string-char-at` | `( s i -- Int )` | Char code at index |
+| `string-substring` | `( s start len -- s )` | Extract substring |
+| `string-split` | `( s delim -- Variant )` | Split into list |
+| `string-chomp` | `( s -- s )` | Remove trailing newline |
+| `string-trim` | `( s -- s )` | Remove whitespace |
+| `string->int` | `( s -- Int )` | Parse integer |
+| `int->string` | `( Int -- s )` | Format integer |
+
+## Recursion
+
+Seq has no loop keywords. Use recursive words:
+
+```seq
+# Count down
+: countdown ( Int -- )
+    dup 0 > if
+        dup int->string write_line
+        1 - countdown
+    else
+        drop
+    then
+;
+
+# Process a list
+: sum-list ( Variant -- Int )
+    dup nil? if
+        drop 0
+    else
+        dup car swap cdr sum-list +
+    then
+;
+```
+
+Tail calls are optimized - deeply recursive code won't overflow the stack.
+
+## Command Line Programs
+
+```seq
+: main ( -- )
+    arg-count 1 > if
+        1 arg              # First argument (0 is program name)
+        process-file
+    else
+        "Usage: prog <file>" write_line
+    then
+;
+```
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `arg-count` | `( -- Int )` | Number of arguments |
+| `arg` | `( Int -- String )` | Get argument by index |
+
+## File Operations
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `file-slurp` | `( path -- String )` | Read entire file |
+| `file-exists?` | `( path -- Int )` | Check if file exists |
+
+## Modules
+
+Split code across files with `include`:
+
+```seq
+# main.seq
+include "parser"
+include "eval"
+
+: main ( -- )
+    # parser.seq and eval.seq words available here
+;
+```
+
+The include path is relative to the including file.
+
+## Naming Conventions
+
+| Suffix | Meaning | Example |
+|--------|---------|---------|
+| `?` | Predicate (returns boolean) | `nil?`, `empty?`, `file-exists?` |
+| `+` | Returns result + status | `read_line+`, `map-get-safe` |
+| `->` | Conversion | `int->string`, `string->int` |
+
+## Maps
+
+Key-value dictionaries with O(1) lookup:
+
+```seq
+make-map                    # ( -- Map )
+"name" "Alice" map-set      # ( Map -- Map )
+"age" 30 map-set
+"name" map-get              # ( Map key -- Map value )
+"name" map-has?             # ( Map key -- Map Int )
+map-keys                    # ( Map -- Variant ) list of keys
+```
+
+## Higher-Order Words
+
+```seq
+# Map over a list
+my-list [ 2 * ] list-map
+
+# Filter a list
+my-list [ 0 > ] list-filter
+
+# Fold (reduce)
+my-list 0 [ + ] list-fold
+
+# Execute N times
+10 [ "hello" write_line ] times
+
+# Loop while condition true
+[ condition ] [ body ] while
+```
 
 ---
 

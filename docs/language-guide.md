@@ -176,6 +176,42 @@ a bc        # Same meaning, different factoring
 ;
 ```
 
+## I/O Operations
+
+Basic console I/O:
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `write_line` | `( String -- )` | Print string to stdout with newline |
+| `read_line` | `( -- String )` | Read line from stdin (includes newline) |
+| `read_line+` | `( -- String Int )` | Read line with EOF detection |
+
+### Handling EOF with read_line+
+
+The `read_line` word panics at EOF, which is fine for simple scripts. For robust input handling, use `read_line+` which returns a status flag:
+
+```seq
+read_line+    # ( -- String Int )
+              # Success: ( "line\n" 1 )
+              # EOF:     ( "" 0 )
+```
+
+Example - reading all lines until EOF:
+
+```seq
+: process-input ( -- )
+    read_line+ if
+        string-chomp    # Remove trailing newline
+        process-line    # Your processing word
+        process-input   # Recurse for next line
+    else
+        drop            # Drop empty string at EOF
+    then
+;
+```
+
+The `+` suffix convention indicates words that return a result pattern (value + status) instead of panicking on failure.
+
 ## What's Next
 
 This guide will grow to cover:

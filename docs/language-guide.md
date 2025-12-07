@@ -30,6 +30,37 @@ once, consumes self." Seq's stack semantics mean "pop consumes the value." Both
 enforce *linear* dataflow - resources used exactly once. Rust tracks this in the
 type system; Seq tracks it through the stack.
 
+## Language Heritage
+
+Seq belongs to the concatenative language family. If you know Forth or Factor,
+you'll feel at home:
+
+| Feature | Forth | Factor | Seq |
+|---------|-------|--------|-----|
+| Word definition | `: name ... ;` | `:: name ( ) ... ;` | `: name ( ) ... ;` |
+| Stack effects | `( a -- b )` comment | `( a -- b )` checked | `( a -- b )` checked |
+| Quotations | `' word execute` | `[ ... ]` | `[ ... ]` |
+| Conditionals | `if else then` | `if else then` | `if else then` |
+
+**Syntactically**, Seq is ~80% Forth, ~15% Factor - a Forth programmer reads
+Seq immediately; a Factor programmer feels at home with the quotations and
+type annotations.
+
+**Semantically**, Seq is novel:
+
+- **Row-polymorphic type system** - Forth is untyped; Factor has optional
+  inference. Seq statically verifies stack effects with full type checking.
+
+- **CSP concurrency** - Neither Forth nor Factor has built-in green threads
+  with channels. Seq's `spawn`, `send`, and `receive` enable actor-style
+  concurrency.
+
+- **LLVM compilation** - Seq compiles to native binaries via LLVM, not
+  threaded code or a VM.
+
+Seq wears familiar Forth clothes while offering modern type safety and
+concurrency. It's a new language built on proven concatenative foundations.
+
 ## The Stack
 
 Everything in Seq operates on an implicit stack. Literals push values; words

@@ -640,10 +640,9 @@ Build network servers with strand-per-connection:
 ;
 
 : accept-loop ( Int -- )
-    [
-        dup tcp-accept                    # ( listener client )
-        [ handle-client ] spawn drop      # spawn handler
-    ] forever
+    dup tcp-accept                    # ( listener client )
+    [ handle-client ] spawn drop      # spawn handler
+    accept-loop                       # tail call - runs forever, no stack growth
 ;
 
 : main ( -- )
@@ -653,9 +652,9 @@ Build network servers with strand-per-connection:
 ;
 ```
 
-Each connection runs in its own strand. The runtime handles scheduling - when
-one strand blocks on I/O, others continue running. No callbacks, no async/await,
-just sequential code that scales.
+Each connection runs in its own strand. The recursive `accept-loop` runs forever
+without growing the stack - TCO converts the tail call into a jump. No callbacks,
+no async/await, just sequential code that scales.
 
 ### Why Strands?
 

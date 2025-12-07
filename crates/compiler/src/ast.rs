@@ -269,7 +269,6 @@ impl Program {
             "times",
             "while",
             "until",
-            "forever",
             "spawn",
             "cond",
             // TCP operations

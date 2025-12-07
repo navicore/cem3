@@ -94,7 +94,6 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("times", "patch_seq_times"),
         ("while", "patch_seq_while_loop"),
         ("until", "patch_seq_until_loop"),
-        ("forever", "patch_seq_forever"),
         ("spawn", "patch_seq_spawn"),
         ("cond", "patch_seq_cond"),
         // TCP operations
@@ -476,7 +475,6 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_times(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_while_loop(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_until_loop(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_forever(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_spawn(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_cond(ptr)").unwrap();
         writeln!(&mut ir, "; Closure operations").unwrap();

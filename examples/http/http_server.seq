@@ -401,47 +401,42 @@
 #
 # This runs forever, accepting connections and spawning workers.
 #
-# QUOTATIONS: The [ ... ] syntax creates a "quotation" - a block of code
-# that can be passed around as a value. Think of it like a lambda/closure.
+# TAIL CALL OPTIMIZATION: The recursive call to accept-loop at the end is
+# in tail position - the compiler converts it to a jump, so the stack never
+# grows. This is how Seq handles infinite loops: recursion + TCO.
 #
-# FOREVER: Takes a quotation and runs it in an infinite loop, preserving
-# whatever's on the stack between iterations.
+# Stack effect: ( listener_socket -- )
+# Note: This never returns - it loops forever via tail recursion.
 #
-# Stack effect: ( listener_socket -- Int )
-# Note: "forever" never actually returns, but we declare Int for type checking.
-#
-: accept-loop ( Int -- Int )
-  [
-    # This quotation runs once per connection.
-    # Stack at start of each iteration: ( listener_socket )
+: accept-loop ( Int -- )
+  # Stack: ( listener_socket )
 
-    dup tcp-accept
-    # dup:        ( listener_socket listener_socket )
-    # tcp-accept: ( listener_socket client_socket )
-    # We keep the listener to accept more connections!
+  dup tcp-accept
+  # dup:        ( listener_socket listener_socket )
+  # tcp-accept: ( listener_socket client_socket )
+  # We keep the listener to accept more connections!
 
-    make-channel
-    # Creates a channel for sending the socket to the worker
-    # Stack: ( listener_socket client_socket channel_id )
+  make-channel
+  # Creates a channel for sending the socket to the worker
+  # Stack: ( listener_socket client_socket channel_id )
 
-    dup [ worker ] spawn
-    # dup:    ( listener_socket client_socket channel_id channel_id )
-    # [ worker ]: Push the worker quotation
-    # spawn:  Start a new strand running "worker" with channel_id
-    # Stack: ( listener_socket client_socket channel_id strand_id )
+  dup [ worker ] spawn
+  # dup:    ( listener_socket client_socket channel_id channel_id )
+  # [ worker ]: Push the worker quotation
+  # spawn:  Start a new strand running "worker" with channel_id
+  # Stack: ( listener_socket client_socket channel_id strand_id )
 
-    drop
-    # We don't need the strand_id
-    # Stack: ( listener_socket client_socket channel_id )
+  drop
+  # We don't need the strand_id
+  # Stack: ( listener_socket client_socket channel_id )
 
-    send
-    # Send client_socket through the channel to the worker
-    # Stack: ( listener_socket )
-    # The worker receives the socket and handles the connection!
+  send
+  # Send client_socket through the channel to the worker
+  # Stack: ( listener_socket )
+  # The worker receives the socket and handles the connection!
 
-    # Loop continues with listener_socket ready for next accept
-  ]
-  forever
+  accept-loop
+  # Tail call - TCO converts this to a jump, no stack growth
 ;
 
 # ============================================================================
@@ -450,10 +445,10 @@
 #
 # Every Seq program needs a "main" word. This starts the server.
 #
-# Stack effect: ( -- Int )
-# The Int is the exit code (0 = success).
+# Stack effect: ( -- )
+# This server runs forever via tail recursion, never returning.
 #
-: main ( -- Int )
+: main ( -- )
   # Print startup messages
   "Starting concurrent HTTP server on port 8080..." write_line
   "Try: curl http://localhost:8080/" write_line
@@ -470,8 +465,7 @@
   "Listening..." write_line
 
   accept-loop
-  # Enters infinite loop accepting connections
-  # Never returns, but type system expects Int
+  # Enters infinite loop via tail recursion - never returns
 ;
 
 # ============================================================================

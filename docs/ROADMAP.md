@@ -72,4 +72,4 @@ Additional types for closure capture (lower priority since error messages now he
 
 - **Pattern matching syntax** - Stack destructuring via existing words is sufficient
 - **Let bindings / VALUE** - Not idiomatic for concatenative languages
-- **Loop syntax** - `while`, `until`, `times`, `forever` quotation combinators cover this
+- **Loop syntax** - `while`, `until`, `times` combinators plus recursion with TCO cover this

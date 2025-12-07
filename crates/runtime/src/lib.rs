@@ -93,8 +93,7 @@ pub use string_ops::{
 
 // Quotation operations (exported for LLVM linking)
 pub use quotations::{
-    patch_seq_call as call, patch_seq_forever as forever,
-    patch_seq_peek_is_quotation as peek_is_quotation,
+    patch_seq_call as call, patch_seq_peek_is_quotation as peek_is_quotation,
     patch_seq_peek_quotation_fn_ptr as peek_quotation_fn_ptr,
     patch_seq_push_quotation as push_quotation, patch_seq_spawn as spawn, patch_seq_times as times,
     patch_seq_until_loop as until_loop, patch_seq_while_loop as while_loop,

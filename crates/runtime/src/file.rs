@@ -181,7 +181,7 @@ pub unsafe extern "C" fn patch_seq_file_for_each_line_plus(stack: Stack) -> Stac
         Ok(f) => f,
         Err(e) => {
             // Return error: ( "error message" 0 )
-            let stack = unsafe { push(stack, Value::String(format!("{}", e).into())) };
+            let stack = unsafe { push(stack, Value::String(e.to_string().into())) };
             return unsafe { push(stack, Value::Int(0)) };
         }
     };
@@ -213,7 +213,8 @@ pub unsafe extern "C" fn patch_seq_file_for_each_line_plus(stack: Stack) -> Stac
     for line_result in reader.lines() {
         match line_result {
             Ok(mut line_str) => {
-                // Add back newline to match read_line behavior
+                // `BufReader::lines()` strips all line endings (\n, \r\n, \r)
+                // We add back \n to match read_line behavior and ensure consistent newlines
                 line_str.push('\n');
 
                 // Push line onto stack
@@ -237,7 +238,7 @@ pub unsafe extern "C" fn patch_seq_file_for_each_line_plus(stack: Stack) -> Stac
             }
             Err(e) => {
                 // I/O error mid-file
-                let stack = unsafe { push(current_stack, Value::String(format!("{}", e).into())) };
+                let stack = unsafe { push(current_stack, Value::String(e.to_string().into())) };
                 return unsafe { push(stack, Value::Int(0)) };
             }
         }

@@ -200,6 +200,12 @@ Basic console I/O:
 | `read_line` | `( -- String )` | Read line from stdin (includes newline) |
 | `read_line+` | `( -- String Int )` | Read line with EOF detection |
 
+### Line Ending Normalization
+
+All line-reading operations (`read_line`, `read_line+`, `file-for-each-line+`)
+normalize line endings to `\n`. Windows-style `\r\n` is converted to `\n`.
+This ensures Seq programs behave consistently across operating systems.
+
 ### Handling EOF with read_line+
 
 The `read_line` word panics at EOF, which is fine for simple scripts. For robust input handling, use `read_line+` which returns a status flag:

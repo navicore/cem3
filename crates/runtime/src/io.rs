@@ -77,11 +77,17 @@ pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
     }
 }
 
-/// Read a line from stdin (preserves newline characters)
+/// Read a line from stdin
 ///
-/// Returns the line including trailing newline (\n or \r\n).
+/// Returns the line including trailing newline.
 /// Returns empty string "" at EOF.
 /// Use `string-chomp` to remove trailing newlines if needed.
+///
+/// # Line Ending Normalization
+///
+/// Line endings are normalized to `\n` regardless of platform. Windows-style
+/// `\r\n` endings are converted to `\n`. This ensures consistent behavior
+/// across different operating systems.
 ///
 /// Stack effect: ( -- str )
 ///
@@ -99,7 +105,13 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
         .read_line(&mut line)
         .expect("read_line: failed to read from stdin (I/O error or EOF)");
 
-    // Preserve newlines - callers can use string-chomp if needed
+    // Normalize line endings: \r\n -> \n
+    if line.ends_with("\r\n") {
+        line.pop(); // remove \n
+        line.pop(); // remove \r
+        line.push('\n'); // add back \n
+    }
+
     unsafe { push(stack, Value::String(line.into())) }
 }
 
@@ -112,6 +124,12 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
 /// Stack effect: ( -- String Int )
 ///
 /// The `+` suffix indicates this returns a result pattern (value + status).
+///
+/// # Line Ending Normalization
+///
+/// Line endings are normalized to `\n` regardless of platform. Windows-style
+/// `\r\n` endings are converted to `\n`. This ensures consistent behavior
+/// across different operating systems.
 ///
 /// # Safety
 /// Always safe to call
@@ -126,6 +144,13 @@ pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
         .lock()
         .read_line(&mut line)
         .expect("read_line_safe: failed to read from stdin");
+
+    // Normalize line endings: \r\n -> \n
+    if line.ends_with("\r\n") {
+        line.pop(); // remove \n
+        line.pop(); // remove \r
+        line.push('\n'); // add back \n
+    }
 
     // bytes_read == 0 means EOF
     let status = if bytes_read > 0 { 1i64 } else { 0i64 };

@@ -136,7 +136,13 @@ pub unsafe extern "C" fn patch_seq_file_slurp_safe(stack: Stack) -> Stack {
 /// - Error: ( "error message" 0 )
 ///
 /// The quotation should have effect ( String -- ), receiving each line
-/// and consuming it.
+/// and consuming it. Empty files return success without calling the quotation.
+///
+/// # Line Ending Normalization
+///
+/// Line endings are normalized to `\n` regardless of platform. Windows-style
+/// `\r\n` endings are converted to `\n`. This ensures consistent behavior
+/// when processing files across different operating systems.
 ///
 /// # Example
 ///

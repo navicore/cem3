@@ -1,0 +1,483 @@
+# Actor Counters - CSP/Actor Model Demo
+#
+# This example demonstrates Communicating Sequential Processes (CSP) and the
+# Actor model in Seq. It creates a hierarchical system of store counters that
+# can be incremented and queried via HTTP.
+#
+# Architecture:
+#   - Each store is an actor (strand) with its own channel and counter state
+#   - A registry maps store paths to channel IDs
+#   - HTTP server dispatches requests to appropriate actors
+#   - Request-response pattern: each request includes a response channel
+#
+# URL scheme: /company/region/district/store[/increment]
+#   GET  /acme/west/seattle/0001           -> returns current count
+#   POST /acme/west/seattle/0001/increment -> increments and returns new count
+#
+# Usage:
+#   seqc --output /tmp/actors examples/csp/actor_counters.seq
+#   /tmp/actors
+#   curl http://localhost:8080/acme/west/seattle/0001
+#   curl -X POST http://localhost:8080/acme/west/seattle/0001/increment
+
+include std:http
+
+# ============================================================================
+#                              MESSAGE PROTOCOL
+# ============================================================================
+#
+# Messages are variants with 2 fields:
+#   - field 0: operation (Int) - 0=get, 1=increment
+#   - field 1: response channel ID (Int)
+#
+# Responses are single Int values (the count)
+
+# Create a "get" request message
+# Stack: ( response-chan -- Message )
+: make-get-msg ( Int -- Variant )
+  0 swap 1 make-variant-2
+;
+
+# Create an "increment" request message
+# Stack: ( response-chan -- Message )
+: make-increment-msg ( Int -- Variant )
+  1 swap 1 make-variant-2
+;
+
+# Extract operation from message
+# Stack: ( Message -- operation )
+: msg-operation ( Variant -- Int )
+  0 variant-field-at
+;
+
+# Extract response channel from message
+# Stack: ( Message -- response-chan )
+: msg-response-chan ( Variant -- Int )
+  1 variant-field-at
+;
+
+# ============================================================================
+#                              STORE ACTOR
+# ============================================================================
+#
+# Each store is an actor that:
+#   1. Receives messages on its channel
+#   2. Maintains a counter through recursion (TCO)
+#   3. Responds on the caller's response channel
+#
+# The actor runs forever via tail-recursive loop.
+
+# Store actor entry point
+# Stack: ( channel-id -- )
+: store-actor ( Int -- )
+  0 store-loop  # Start with count = 0
+;
+
+# Store actor main loop - handles messages forever
+# Stack: ( channel-id count -- ) [never returns]
+: store-loop ( Int Int -- )
+  over receive               # ( chan count msg )
+
+  # Extract operation and response channel
+  dup msg-operation          # ( chan count msg op )
+  swap msg-response-chan     # ( chan count op resp-chan )
+
+  # Dispatch on operation
+  rot                        # ( chan op resp-chan count )
+  rot                        # ( chan resp-chan count op )
+
+  dup 0 = if
+    # GET operation - return current count
+    drop                     # ( chan resp-chan count )
+    dup rot                  # ( chan count count resp-chan )
+    send                     # ( chan count ) - sent count on resp-chan
+  else
+    dup 1 = if
+      # INCREMENT operation - add 1 and return new count
+      drop                   # ( chan resp-chan count )
+      1 add                  # ( chan resp-chan count+1 )
+      dup rot                # ( chan count+1 count+1 resp-chan )
+      send                   # ( chan count+1 )
+    else
+      # Unknown operation - just return current count
+      drop                   # ( chan resp-chan count )
+      dup rot                # ( chan count count resp-chan )
+      send                   # ( chan count )
+    then
+  then
+
+  store-loop                 # Tail call - no stack growth
+;
+
+# ============================================================================
+#                              STORE REGISTRY
+# ============================================================================
+#
+# The registry is a map from store path (String) to channel ID (Int).
+# We use Seq's built-in map operations.
+
+# Create an empty registry
+# Stack: ( -- registry )
+: make-registry ( -- Variant )
+  make-map
+;
+
+# Register a store in the registry
+# Stack: ( registry path channel-id -- registry' )
+: register-store ( Variant String Int -- Variant )
+  rot rot        # ( channel-id registry path )
+  rot            # ( registry path channel-id )
+  map-set        # ( registry' )
+;
+
+# Look up a store in the registry
+# Stack: ( registry path -- channel-id found? )
+: lookup-store ( Variant String -- Int Int )
+  map-get-safe   # ( value found? )
+;
+
+# ============================================================================
+#                          STORE GENERATION
+# ============================================================================
+#
+# Generate a hierarchical set of stores:
+#   companies × regions × districts × stores
+#
+# Each store gets a unique path like "acme/west/seattle/0042"
+
+# Pad a string with leading zeros
+# Stack: ( str count -- padded-str )
+: pad-zeros ( String Int -- String )
+  dup 0 <= if
+    drop
+  else
+    "0" rot string-concat swap
+    1 subtract pad-zeros
+  then
+;
+
+# Pad a string to a minimum width with leading zeros
+# Stack: ( str width -- padded-str )
+: pad-to-width ( String Int -- String )
+  over string-length        # ( str width len )
+  over swap subtract        # ( str width padding )
+  nip                       # ( str padding )
+  pad-zeros                 # ( padded-str )
+;
+
+# Build a store path from components
+# Stack: ( company region district store-num -- path )
+: build-path ( String String String Int -- String )
+  int->string               # ( company region district store-str )
+  # Pad store number to 4 digits (e.g., 1 -> "0001")
+  4 pad-to-width            # ( company region district padded-store )
+
+  # Stack: ( company region district store )
+  # Build: company/region/district/store
+
+  # Join district "/" store -> "district/store"
+  swap "/" string-concat    # ( company region store "district/" )
+  swap string-concat        # ( company region "district/store" )
+
+  # Join region "/" ... -> "region/district/store"
+  swap "/" string-concat    # ( company "district/store" "region/" )
+  swap string-concat        # ( company "region/district/store" )
+
+  # Join company "/" ... -> "company/region/district/store"
+  swap "/" string-concat    # ( "region/district/store" "company/" )
+  swap string-concat        # ( "company/region/district/store" )
+;
+
+# Create a single store: make channel, spawn actor, register
+# Stack: ( registry path -- registry' )
+: create-store ( Variant String -- Variant )
+  make-channel               # ( registry path chan-id )
+
+  # Spawn the store actor with the channel
+  dup [ store-actor ] spawn drop
+
+  # Register in the registry
+  register-store             # ( registry' )
+;
+
+# Number of stores per district
+: stores-per-district ( -- Int )
+  10   # Start with 10 stores per district for testing
+;
+
+# ============================================================================
+#                         STORE GENERATION
+# ============================================================================
+#
+# Generate stores for each district. To avoid complex stack manipulation,
+# we use a simple iterative approach with helper words.
+
+# Generate all stores and return the registry
+# Stack: ( -- registry )
+: init-all-stores ( -- Variant )
+  make-registry
+
+  "Initializing store actors..." write_line
+
+  # Generate stores for each district
+  # Each call takes registry and returns updated registry
+  "acme" "west" "seattle" gen-district
+  "acme" "west" "portland" gen-district
+  "acme" "east" "boston" gen-district
+  "acme" "east" "atlanta" gen-district
+  "acme" "central" "chicago" gen-district
+  "acme" "central" "denver" gen-district
+
+  "globex" "west" "seattle" gen-district
+  "globex" "west" "portland" gen-district
+  "globex" "east" "boston" gen-district
+  "globex" "east" "atlanta" gen-district
+  "globex" "central" "chicago" gen-district
+  "globex" "central" "denver" gen-district
+
+  dup map-size int->string " stores initialized." string-concat write_line
+;
+
+# Generate stores for one district
+# Build prefix string first, then use simple loop
+# Stack: ( registry company region district -- registry' )
+: gen-district ( Variant String String String -- Variant )
+  # Build prefix: "company/region/district/"
+  rot "/" string-concat        # ( registry region district "company/" )
+  rot string-concat            # ( registry district "company/region" )
+  "/" string-concat            # ( registry district "company/region/" )
+  swap string-concat           # ( registry "company/region/district" )
+  "/" string-concat            # ( registry "company/region/district/" )
+
+  stores-per-district          # ( registry prefix n )
+  gen-stores-for-prefix
+;
+
+# Helper: drop 4th item from stack using roll
+# Note: no type annotation - let inference handle it
+: drop-4th
+  3 roll drop
+;
+
+# Generate N stores with a given path prefix
+# Stack: ( registry prefix n -- registry' )
+: gen-stores-for-prefix ( Variant String Int -- Variant )
+  dup 0 <= if
+    drop drop                       # ( registry )
+  else
+    # ( registry prefix n )
+
+    # Build path: prefix + padded(n)
+    over                            # ( registry prefix n prefix )
+    over                            # ( registry prefix n prefix n )
+    int->string 4 pad-to-width      # ( registry prefix n prefix "000n" )
+    string-concat                   # ( registry prefix n path )
+
+    # Get registry for create-store using pick
+    3 pick                          # ( registry prefix n path registry )
+    swap                            # ( registry prefix n registry path )
+    create-store                    # ( registry prefix n registry' )
+
+    # Rearrange: ( old-reg prefix n new-reg ) -> ( new-reg prefix n-1 )
+    swap 1 subtract swap            # ( old-reg prefix n-1 new-reg )
+    drop-4th                        # ( prefix n-1 new-reg )
+    rot rot                         # ( new-reg prefix n-1 )
+
+    gen-stores-for-prefix           # Tail call
+  then
+;
+
+# ============================================================================
+#                            HTTP HANDLING
+# ============================================================================
+#
+# Parse HTTP requests and dispatch to store actors.
+
+# Handle an HTTP request
+# Stack: ( registry socket -- registry )
+: handle-request ( Variant Int -- Variant )
+  # Read the HTTP request
+  dup tcp-read               # ( registry socket request )
+
+  # Extract path from request
+  dup http-request-path      # ( registry socket request path )
+  swap http-request-method   # ( registry socket path method )
+
+  # Dispatch based on path
+  dispatch-request
+;
+
+# Dispatch request to appropriate handler
+# Stack: ( registry socket path method -- registry )
+: dispatch-request ( Variant Int String String -- Variant )
+  # Check if path ends with /increment
+  over "/increment" string-ends-with? if
+    # Increment request - strip suffix and do increment
+    drop                     # ( registry socket path )
+    dup string-length 10 subtract 0 swap string-substring  # remove "/increment"
+    do-increment
+  else
+    # Get request
+    drop                     # ( registry socket path )
+    do-get
+  then
+;
+
+# Check if string ends with suffix
+# Stack: ( str suffix -- bool )
+: string-ends-with? ( String String -- Int )
+  dup string-length         # ( str suffix suffix-len )
+  rot dup string-length     # ( suffix suffix-len str str-len )
+  rot                       # ( suffix str str-len suffix-len )
+  over over < if
+    # suffix longer than string - can't match
+    drop drop drop drop 0
+  else
+    # Get the end of the string
+    subtract                # ( suffix str offset )
+    over string-length      # ( suffix str offset len )
+    string-substring        # ( suffix end-of-str )
+    string-equal
+  then
+;
+
+# Handle GET request - get current count from store
+# Stack: ( registry socket path -- registry )
+: do-get ( Variant Int String -- Variant )
+  # Strip leading / if present
+  dup 0 string-char-at 47 = if  # 47 = '/'
+    1 over string-length 1 subtract string-substring
+  then
+
+  # Look up store in registry
+  # Stack: ( registry socket path )
+  2 pick swap lookup-store  # ( registry socket chan found? )
+  # Note: lookup-store consumes path, no need for rot drop
+
+  0 = if
+    # Store not found
+    drop                    # ( registry socket ) - drop chan
+    "Store not found" http-not-found  # ( registry socket response )
+    over tcp-write          # ( registry socket ) - tcp-write consumes response and socket copy
+    tcp-close               # ( registry )
+  else
+    # Send get request to actor and wait for response
+    query-actor             # ( registry socket count )
+    make-json-response      # ( registry socket response )
+    over tcp-write          # ( registry socket )
+    tcp-close               # ( registry )
+  then
+;
+
+# Handle INCREMENT request - increment counter and return new value
+# Stack: ( registry socket path -- registry )
+: do-increment ( Variant Int String -- Variant )
+  # Strip leading / if present
+  dup 0 string-char-at 47 = if
+    1 over string-length 1 subtract string-substring
+  then
+
+  # Look up store in registry
+  # Stack: ( registry socket path )
+  2 pick swap lookup-store  # ( registry socket chan found? )
+  # Note: lookup-store consumes path
+
+  0 = if
+    drop                    # ( registry socket ) - drop chan
+    "Store not found" http-not-found  # ( registry socket response )
+    over tcp-write          # ( registry socket )
+    tcp-close               # ( registry )
+  else
+    # Send increment request to actor and wait for response
+    query-actor-increment   # ( registry socket count )
+    make-json-response      # ( registry socket response )
+    over tcp-write          # ( registry socket )
+    tcp-close               # ( registry )
+  then
+;
+
+# Query an actor for its current count
+# Stack: ( chan-id -- count )
+: query-actor ( Int -- Int )
+  make-channel              # ( chan-id resp-chan )
+  dup make-get-msg          # ( chan-id resp-chan msg )
+  rot send                  # ( resp-chan ) - sent msg to store
+  receive                   # ( count )
+;
+
+# Query an actor to increment and return new count
+# Stack: ( chan-id -- count )
+: query-actor-increment ( Int -- Int )
+  make-channel
+  dup make-increment-msg
+  rot send
+  receive
+;
+
+# Build JSON response from count
+# Stack: ( count -- response-string )
+: make-json-response ( Int -- String )
+  int->string
+  "{\"count\":" swap string-concat "}" string-concat
+  http-json-ok
+;
+
+# Build HTTP 200 OK response with JSON content type
+# Stack: ( body -- response )
+: http-json-ok ( String -- String )
+  dup string-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " swap string-concat
+  "\r\n\r\n" string-concat
+  swap string-concat
+;
+
+# ============================================================================
+#                            SERVER LOOP
+# ============================================================================
+
+# Accept connections and handle requests
+# Stack: ( registry listener -- ) [never returns]
+: server-loop ( Variant Int -- )
+  dup tcp-accept            # ( registry listener client )
+
+  # Handle the request (keeping registry on stack)
+  rot dup                   # ( listener client registry registry )
+  3 roll                    # ( listener registry registry client )
+  handle-request            # ( listener registry registry' )
+  nip                       # ( listener registry' )
+  swap                      # ( registry' listener )
+
+  server-loop               # Tail call
+;
+
+# ============================================================================
+#                               MAIN
+# ============================================================================
+
+: main ( -- Int )
+  "=== Actor Counters Demo ===" write_line
+  "" write_line
+
+  # Initialize all store actors
+  init-all-stores           # ( registry )
+
+  "" write_line
+  "Starting HTTP server on port 8080..." write_line
+  "Try:" write_line
+  "  curl http://localhost:8080/acme/west/seattle/0001" write_line
+  "  curl -X POST http://localhost:8080/acme/west/seattle/0001/increment" write_line
+  "" write_line
+
+  # Start listening
+  8080 tcp-listen           # ( registry listener )
+
+  dup 0 < if
+    drop drop
+    "Failed to start server" write_line
+    1
+  else
+    "Server listening..." write_line
+    server-loop             # Never returns
+    0
+  then
+;

@@ -1,19 +1,21 @@
-# Actor Counters - CSP/Actor Model Demo (Phase 2: Hierarchical Aggregation)
+# Actor Counters - CSP/Actor Model Demo (4-Tier Hierarchical Aggregation)
 #
 # This example demonstrates Communicating Sequential Processes (CSP) and the
-# Actor model in Seq with hierarchical aggregation:
+# Actor model in Seq with 4-tier hierarchical aggregation:
 #
 # Architecture:
-#   - Store actors: maintain individual counters, report to district every N updates
-#   - District actors: aggregate reports from stores, respond to queries
-#   - Registries map paths to channel IDs for both stores and districts
+#   - Company actor: top-level aggregate, receives reports from regions
+#   - Region actors: aggregate reports from districts, forward to company
+#   - District actors: aggregate reports from stores, forward to region
+#   - Store actors: maintain individual counters, batch reports to district
+#   - Unified registry maps paths to channel IDs for all actor levels
 #   - Request-response pattern for queries
 #   - Fire-and-forget pattern for aggregation reports
 #
 # Aggregation Pattern:
 #   - Stores batch updates: after every 5 increments, report delta to district
-#   - This reduces message volume compared to reporting every change
-#   - Districts maintain running totals across all their stores
+#   - Parent levels (district/region/company) forward immediately on each update
+#   - This balances message volume reduction with aggregate freshness
 #
 # URL scheme (RESTful - path depth determines level):
 #   GET  /acme/west/seattle/0001           -> store count (4 segments)
@@ -27,7 +29,9 @@
 #   /tmp/actors
 #   curl http://localhost:8080/acme/west/seattle/0001
 #   curl -X POST http://localhost:8080/acme/west/seattle/0001/increment
-#   curl http://localhost:8080/district/acme/west/seattle
+#   curl http://localhost:8080/acme/west/seattle
+#   curl http://localhost:8080/acme/west
+#   curl http://localhost:8080/acme
 
 include std:http
 
@@ -507,26 +511,39 @@ include std:http
   make-registry
   "Initializing 4-tier actor hierarchy..." write_line
 
-  # Create company: acme (no parent)
-  # create-company: ( registry name -- registry' chan )
-  "acme" create-company           # ( registry' acme-chan )
+  # === ACME COMPANY ===
+  "acme" create-company           # ( registry acme-chan )
 
-  # Create region: acme/west (parent = acme)
-  # create-region: ( parent-chan registry path -- registry' region-chan )
-  swap                            # ( acme-chan registry )
-  "acme/west" create-region       # ( registry' west-chan )
+  # === ACME/WEST REGION ===
+  swap "acme/west" create-region  # ( registry west-chan )
 
-  # Create district: acme/west/seattle (parent = west)
-  swap                            # ( west-chan registry )
-  "acme/west/seattle" create-district  # ( registry' seattle-chan )
+  # === ACME/WEST/SEATTLE DISTRICT ===
+  swap "acme/west/seattle" create-district  # ( registry seattle-chan )
+  "acme/west/seattle" add-stores  # ( registry )
 
-  # Create stores for seattle district
-  # add-stores: ( registry district-chan district-path -- registry' )
-  "acme/west/seattle" add-stores  # ( registry' )
+  # === ACME/WEST/PORTLAND DISTRICT ===
+  # Need to look up west-chan again
+  dup "acme/west" lookup-store drop  # ( registry west-chan )
+  swap "acme/west/portland" create-district  # ( registry portland-chan )
+  "acme/west/portland" add-stores  # ( registry )
 
+  # === ACME/EAST REGION ===
+  dup "acme" lookup-store drop    # ( registry acme-chan )
+  swap "acme/east" create-region  # ( registry east-chan )
+
+  # === ACME/EAST/BOSTON DISTRICT ===
+  swap "acme/east/boston" create-district  # ( registry boston-chan )
+  "acme/east/boston" add-stores   # ( registry )
+
+  # === ACME/EAST/NEWYORK DISTRICT ===
+  dup "acme/east" lookup-store drop  # ( registry east-chan )
+  swap "acme/east/newyork" create-district  # ( registry newyork-chan )
+  "acme/east/newyork" add-stores  # ( registry )
+
+  # Print summary
   "  Company: acme" write_line
-  "  Region: acme/west" write_line
-  "  District: acme/west/seattle" write_line
+  "  Regions: acme/west, acme/east" write_line
+  "  Districts: seattle, portland, boston, newyork" write_line
   dup map-size int->string " actors in unified registry" string-concat write_line
 ;
 

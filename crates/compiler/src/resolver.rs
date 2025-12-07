@@ -76,6 +76,7 @@ impl Resolver {
 
         Ok(Program {
             includes: Vec::new(), // Includes are resolved, no longer needed
+            unions: Vec::new(),   // TODO: Phase 2 will merge union definitions
             words: all_words,
         })
     }

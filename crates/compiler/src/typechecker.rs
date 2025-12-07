@@ -445,6 +445,14 @@ impl TypeChecker {
                 Ok((current_stack.push(Type::Int), Subst::empty()))
             }
 
+            Statement::Match { .. } => {
+                // TODO: Phase 4 will implement match type checking
+                Err(
+                    "Match expressions are not yet implemented in typechecker (Phase 4)"
+                        .to_string(),
+                )
+            }
+
             Statement::BoolLiteral(_) => {
                 // Push Bool onto stack (currently represented as Int at runtime)
                 // But we track it as Int in the type system
@@ -789,6 +797,7 @@ mod tests {
     fn test_simple_literal() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -809,6 +818,7 @@ mod tests {
         // : test ( Int Int -- Int ) add ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -829,6 +839,7 @@ mod tests {
         // : test ( String -- ) write_line ;  with body: 42
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -854,6 +865,7 @@ mod tests {
         // : my-dup ( Int -- Int Int ) dup ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "my-dup".to_string(),
                 effect: Some(Effect::new(
@@ -875,6 +887,7 @@ mod tests {
         //   > if "greater" else "not greater" then ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -904,6 +917,7 @@ mod tests {
         //   if 42 else "string" then ;  // ERROR: incompatible types
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: None,
@@ -930,6 +944,7 @@ mod tests {
         // : main ( -- ) 42 helper write_line ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
@@ -963,6 +978,7 @@ mod tests {
         //   add multiply ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -989,6 +1005,7 @@ mod tests {
         // : test ( Int -- ) write_line ;  // ERROR: write_line expects String
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1011,6 +1028,7 @@ mod tests {
         // : test ( -- ) drop ;  // ERROR: can't drop from empty stack
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1030,6 +1048,7 @@ mod tests {
         // : test ( Int -- Int ) add ;  // ERROR: add needs 2 values
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1056,6 +1075,7 @@ mod tests {
         // ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1079,6 +1099,7 @@ mod tests {
         //   rot add add ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1106,6 +1127,7 @@ mod tests {
         // Program with no words should be valid
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![],
         };
 
@@ -1118,6 +1140,7 @@ mod tests {
         // : helper 42 ;  // No effect declaration
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "helper".to_string(),
                 effect: None,
@@ -1142,6 +1165,7 @@ mod tests {
         // Else branch must drop unused Ints to match then branch's stack effect
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1191,6 +1215,7 @@ mod tests {
         // Both branches must leave same stack
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1221,6 +1246,7 @@ mod tests {
         // : main ( -- ) 42 helper1 helper2 ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "helper1".to_string(),
@@ -1263,6 +1289,7 @@ mod tests {
         //   over nip tuck ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1301,6 +1328,7 @@ mod tests {
         //   then ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1328,6 +1356,7 @@ mod tests {
         // : test ( -- String ) "hello" ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1349,6 +1378,7 @@ mod tests {
         // Booleans are represented as Int in the type system
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1374,6 +1404,7 @@ mod tests {
         //   then ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: None,
@@ -1407,6 +1438,7 @@ mod tests {
         // : test ( -- String ) read_line ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1430,6 +1462,7 @@ mod tests {
         // Simplified: just test that comparisons work
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1454,6 +1487,7 @@ mod tests {
         // Note: This tests that the checker can handle words that reference each other
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "is-even".to_string(),
@@ -1518,6 +1552,7 @@ mod tests {
         // Should work: both use row polymorphism correctly
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "apply-twice".to_string(),
@@ -1562,6 +1597,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(stack_type, StackType::singleton(Type::Int))),
@@ -1591,6 +1627,7 @@ mod tests {
         // Quotation type should be [ ..input Int -- ..input Int ] (row polymorphic)
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1625,6 +1662,7 @@ mod tests {
         // Empty quotation has effect ( ..input -- ..input ) (preserves stack)
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1689,6 +1727,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(

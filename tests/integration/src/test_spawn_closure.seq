@@ -6,7 +6,10 @@
   "Testing spawn with closure..." write_line
 
   "Hello from closure!" [ worker ] spawn
+  # Stack after spawn: ( "Hello..." strand-id )
+  # spawn clones stack to child, doesn't consume from parent
   "Spawned worker with captured value" write_line
 
-  drop
+  drop   # drop strand-id
+  drop   # drop "Hello from closure!" (stays on parent stack)
 ;

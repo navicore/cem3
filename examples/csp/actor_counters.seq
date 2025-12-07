@@ -15,10 +15,12 @@
 #   - This reduces message volume compared to reporting every change
 #   - Districts maintain running totals across all their stores
 #
-# URL scheme:
-#   GET  /acme/west/seattle/0001           -> store count
+# URL scheme (RESTful - path depth determines level):
+#   GET  /acme/west/seattle/0001           -> store count (4 segments)
 #   POST /acme/west/seattle/0001/increment -> increment store
-#   GET  /district/acme/west/seattle       -> district aggregate
+#   GET  /acme/west/seattle                -> district aggregate (3 segments)
+#   GET  /acme/west                        -> region aggregate (2 segments)
+#   GET  /acme                             -> company aggregate (1 segment)
 #
 # Usage:
 #   seqc --output /tmp/actors examples/csp/actor_counters.seq
@@ -168,45 +170,134 @@ include std:http
 #                            DISTRICT ACTOR
 # ============================================================================
 #
-# District actor aggregates reports from stores.
+# District actor aggregates reports from stores and forwards immediately.
 #   - Receives REPORT messages from stores (op=2)
 #   - Receives GET messages from HTTP clients (op=0)
 #   - Maintains aggregate total across all stores
-#   - Could report upstream to region (future)
-#
-# State maintained via recursion:
-#   - total: aggregate count across all stores in district
+#   - Forwards to region immediately on every update
 
 # District actor entry point
-# Stack: ( my-chan -- )
-: district-actor ( Int -- )
+# Receives ( my-chan parent-chan ) via spawn's stack cloning
+: district-actor ( Int Int -- )
+  swap                       # ( parent-chan my-chan )
   0 district-loop            # Start with total=0
 ;
 
-# District actor main loop
+# District actor main loop - simple: aggregate and forward immediately
+# Stack: ( parent-chan my-chan total -- ) [never returns]
+: district-loop ( Int Int Int -- )
+  over receive               # ( parent my total msg )
+
+  dup msg-operation          # ( parent my total msg op )
+
+  dup 0 = if
+    # GET operation - return aggregate total
+    drop                     # ( parent my total msg )
+    msg-response-chan        # ( parent my total resp-chan )
+    over swap send           # ( parent my total ) - sent total
+    district-loop
+  else
+    dup 2 = if
+      # REPORT from store - add delta, forward to region immediately
+      drop                   # ( parent my total msg )
+      msg-delta              # ( parent my total delta )
+      dup rot add            # ( parent my delta total+delta )
+      swap                   # ( parent my total' delta )
+      over                   # ( parent my total' delta total' )
+      make-report-msg        # ( parent my total' report-msg )
+      3 pick send            # ( parent my total' ) - forwarded to region
+      district-loop
+    else
+      # Unknown operation - ignore
+      drop drop              # ( parent my total )
+      district-loop
+    then
+  then
+;
+
+# ============================================================================
+#                            REGION ACTOR
+# ============================================================================
+#
+# Region actor aggregates reports from districts.
+#   - Receives REPORT messages from districts (op=2)
+#   - Receives GET messages from HTTP clients (op=0)
+#   - Forwards to company immediately on every update
+
+# Region actor entry point
+: region-actor ( Int Int -- )
+  swap                       # ( parent-chan my-chan )
+  0 region-loop              # Start with total=0
+;
+
+# Region actor main loop - simple: aggregate and forward immediately
+# Stack: ( parent-chan my-chan total -- ) [never returns]
+: region-loop ( Int Int Int -- )
+  over receive               # ( parent my total msg )
+
+  dup msg-operation          # ( parent my total msg op )
+
+  dup 0 = if
+    # GET operation
+    drop                     # ( parent my total msg )
+    msg-response-chan        # ( parent my total resp-chan )
+    over swap send           # ( parent my total )
+    region-loop
+  else
+    dup 2 = if
+      # REPORT from district - add delta, forward to company immediately
+      drop                   # ( parent my total msg )
+      msg-delta              # ( parent my total delta )
+      dup rot add            # ( parent my delta total+delta )
+      swap                   # ( parent my total' delta )
+      over                   # ( parent my total' delta total' )
+      make-report-msg        # ( parent my total' report-msg )
+      3 pick send            # ( parent my total' ) - forwarded to company
+      region-loop
+    else
+      drop drop
+      region-loop
+    then
+  then
+;
+
+# ============================================================================
+#                            COMPANY ACTOR
+# ============================================================================
+#
+# Company actor aggregates reports from regions.
+#   - Top of hierarchy - no parent to report to
+#   - Receives REPORT messages from regions (op=2)
+#   - Receives GET messages from HTTP clients (op=0)
+
+# Company actor entry point
+: company-actor ( Int -- )
+  0 company-loop
+;
+
+# Company actor main loop
 # Stack: ( my-chan total -- ) [never returns]
-: district-loop ( Int Int -- )
+: company-loop ( Int Int -- )
   over receive               # ( my-chan total msg )
 
   dup msg-operation          # ( my-chan total msg op )
 
   dup 0 = if
-    # GET operation - return aggregate total
+    # GET operation
     drop                     # ( my-chan total msg )
     msg-response-chan        # ( my-chan total resp-chan )
-    over swap send           # ( my-chan total ) - sent total
-    district-loop
+    over swap send           # ( my-chan total )
+    company-loop
   else
     dup 2 = if
-      # REPORT from store - add delta to our total
+      # REPORT from region
       drop                   # ( my-chan total msg )
       msg-delta              # ( my-chan total delta )
       add                    # ( my-chan total+delta )
-      district-loop
+      company-loop
     else
-      # Unknown operation - ignore
-      drop drop              # ( my-chan total )
-      district-loop
+      drop drop
+      company-loop
     then
   then
 ;
@@ -215,25 +306,16 @@ include std:http
 #                              REGISTRIES
 # ============================================================================
 #
-# Two registries:
-#   - Store registry: store path (String) -> store channel ID (Int)
-#   - District registry: district path (String) -> district channel ID (Int)
-#
-# District paths are like "acme/west/seattle" (no store number)
-# Store paths are like "acme/west/seattle/0001" (with store number)
+# Four registries (one per hierarchy level):
+#   - Company registry: "acme" -> company channel
+#   - Region registry: "acme/west" -> region channel
+#   - District registry: "acme/west/seattle" -> district channel
+#   - Store registry: "acme/west/seattle/0001" -> store channel
 
 # Create an empty registry
 # Stack: ( -- registry )
 : make-registry ( -- Variant )
   make-map
-;
-
-# Register an entry in a registry
-# Stack: ( registry path channel-id -- registry' )
-: register-store ( Variant String Int -- Variant )
-  rot rot        # ( channel-id registry path )
-  rot            # ( registry path channel-id )
-  map-set        # ( registry' )
 ;
 
 # Look up in a registry
@@ -242,24 +324,56 @@ include std:http
   map-get-safe   # ( value found? )
 ;
 
-# Create a district actor and register it
-# Stack: ( district-registry district-path -- district-registry' district-chan )
-: create-district ( Variant String -- Variant Int )
-  make-channel               # ( registry path chan )
-  dup                        # ( registry path chan chan )
-  [ district-actor ] spawn   # ( registry path chan chan strand-id )
-  drop drop                  # ( registry path chan )
+# Create a company actor and register it
+# Stack: ( company-registry company-name -- company-registry' company-chan )
+: create-company ( Variant String -- Variant Int )
+  make-channel               # ( registry name chan )
+  dup                        # ( registry name chan chan )
+  [ company-actor ] spawn    # ( registry name chan chan strand-id )
+  drop drop                  # ( registry name chan )
 
-  # Now: ( registry path chan )
-  # map-set needs ( map key value ), and we need to keep a copy of chan
-  # Use 3 roll to rearrange
-
-  dup                        # ( registry path chan chan )
-  3 roll                     # ( path chan chan registry )
-  3 roll                     # ( chan chan registry path )
-  3 roll                     # ( chan registry path chan )
+  dup                        # ( registry name chan chan )
+  3 roll                     # ( name chan chan registry )
+  3 roll                     # ( chan chan registry name )
+  3 roll                     # ( chan registry name chan )
   map-set                    # ( chan registry' )
   swap                       # ( registry' chan )
+;
+
+# Create a region actor and register it
+# Stack: ( parent-chan region-registry region-path -- region-registry' region-chan )
+: create-region ( Int Variant String -- Variant Int )
+  make-channel               # ( parent registry path chan )
+  dup                        # ( parent registry path chan chan )
+  4 pick                     # ( parent registry path chan chan parent )
+  [ region-actor ] spawn     # ( parent registry path chan chan parent strand-id )
+  drop drop drop             # ( parent registry path chan )
+
+  dup                        # ( parent registry path chan chan )
+  3 roll                     # ( parent path chan chan registry )
+  3 roll                     # ( parent chan chan registry path )
+  3 roll                     # ( parent chan registry path chan )
+  map-set                    # ( parent chan registry' )
+  swap                       # ( parent registry' chan )
+  rot drop                   # ( registry' chan )
+;
+
+# Create a district actor and register it
+# Stack: ( parent-chan district-registry district-path -- district-registry' district-chan )
+: create-district ( Int Variant String -- Variant Int )
+  make-channel               # ( parent registry path chan )
+  dup                        # ( parent registry path chan chan )
+  4 pick                     # ( parent registry path chan chan parent )
+  [ district-actor ] spawn   # ( parent registry path chan chan parent strand-id )
+  drop drop drop             # ( parent registry path chan )
+
+  dup                        # ( parent registry path chan chan )
+  3 roll                     # ( parent path chan chan registry )
+  3 roll                     # ( parent chan chan registry path )
+  3 roll                     # ( parent chan registry path chan )
+  map-set                    # ( parent chan registry' )
+  swap                       # ( parent registry' chan )
+  rot drop                   # ( registry' chan )
 ;
 
 # ============================================================================
@@ -348,174 +462,148 @@ include std:http
 ;
 
 # ============================================================================
-#                         STORE GENERATION
+#                         HIERARCHY GENERATION
 # ============================================================================
 #
-# Generate hierarchical actor structure:
-#   1. Create district actors first
-#   2. Create store actors with parent = district channel
-#   3. Maintain both store and district registries
+# 4-tier actor hierarchy using a SINGLE flat registry:
+#   - "acme" -> company actor channel
+#   - "acme/west" -> region actor channel
+#   - "acme/west/seattle" -> district actor channel
+#   - "acme/west/seattle/0001" -> store actor channel
+#
+# This simplifies stack management - one registry holds all levels.
+# Path segment count determines level (1=company, 2=region, 3=district, 4=store).
 
-# Generate all stores and districts, return both registries
-# Stack: ( -- store-registry district-registry )
-: init-all-stores ( -- Variant Variant )
-  make-registry                # store-registry
-  make-registry                # district-registry
-
-  "Initializing actors..." write_line
-
-  # Generate stores for each district
-  # Each call takes (store-reg dist-reg) and returns updated registries
-  "acme" "west" "seattle" gen-district
-  "acme" "west" "portland" gen-district
-  "acme" "east" "boston" gen-district
-  "acme" "east" "atlanta" gen-district
-  "acme" "central" "chicago" gen-district
-  "acme" "central" "denver" gen-district
-
-  "globex" "west" "seattle" gen-district
-  "globex" "west" "portland" gen-district
-  "globex" "east" "boston" gen-district
-  "globex" "east" "atlanta" gen-district
-  "globex" "central" "chicago" gen-district
-  "globex" "central" "denver" gen-district
-
-  over map-size int->string " stores, " string-concat
-  over map-size int->string string-concat
-  " districts initialized." string-concat write_line
-;
-
-# Build a district path from components
-# Stack: ( company region district -- district-path )
-: build-district-path ( String String String -- String )
-  rot "/" string-concat        # ( region district "company/" )
-  rot string-concat            # ( district "company/region" )
-  "/" string-concat            # ( district "company/region/" )
-  swap string-concat           # ( "company/region/district" )
-;
-
-# Global counter for store iteration (stored in a closure environment)
-# We'll use a simple recursive approach with fewer stack items
-
-# Helper: Generate stores for a district (recursive, simpler)
+# Helper: Generate stores for a district (recursive)
 # Stack: ( parent-chan prefix counter registry -- registry' )
-# counter starts at stores-per-district and counts down
 : gen-stores-loop ( Int String Int Variant -- Variant )
   over 0 <= if
-    # Done - return registry, drop counter, prefix, parent
     nip nip nip
   else
-    # Create one store
-    # Stack: ( parent prefix counter registry )
-    #   pos 3: parent, pos 2: prefix, pos 1: counter, pos 0: registry
-
-    # Build the path: prefix + padded-counter
-    over                             # ( parent prefix counter registry counter )
-    int->string 4 pad-to-width       # ( parent prefix counter registry "000N" )
-    3 pick                           # ( parent prefix counter registry "000N" prefix )
-    swap string-concat               # ( parent prefix counter registry path )
-
-    # create-store needs ( parent path registry )
-    # Stack: ( parent prefix counter registry path )
-    #   pos 4: parent, pos 3: prefix, pos 2: counter, pos 1: registry, pos 0: path
-    over                             # ( parent prefix counter registry path registry )
-    # Stack now: pos 5: parent, pos 4: prefix, pos 3: counter, pos 2: registry, pos 1: path, pos 0: registry
-    5 pick                           # ( parent prefix counter registry path registry parent )
-    rot                              # ( parent prefix counter registry registry parent path )
-    rot                              # ( parent prefix counter registry parent path registry )
-    create-store                     # ( parent prefix counter registry new-registry )
-
-    # Now: ( parent prefix counter old-reg new-reg )
-    # Need: ( parent prefix counter-1 new-reg )
-    nip                              # ( parent prefix counter new-reg )
-    swap 1 subtract                  # ( parent prefix new-reg counter-1 )
-    swap                             # ( parent prefix counter-1 new-reg )
-
+    over int->string 4 pad-to-width
+    3 pick swap string-concat      # ( parent prefix counter registry path )
+    over 5 pick rot rot            # ( parent prefix counter registry parent path registry )
+    create-store                   # ( parent prefix counter registry new-reg )
+    nip swap 1 subtract swap       # ( parent prefix counter-1 new-reg )
     gen-stores-loop
   then
 ;
 
-# Generate stores for one district
-# Stack: ( store-reg dist-reg company region district -- store-reg' dist-reg' )
-: gen-district ( Variant Variant String String String -- Variant Variant )
-  # Build district path and store prefix
-  build-district-path              # ( s-reg d-reg path )
-  dup "/" string-concat            # ( s-reg d-reg path prefix )
-
-  # Prepare for create-district: need ( d-reg path ) on top
-  # Have: ( s-reg d-reg path prefix ) - rearrange to ( s-reg prefix d-reg path )
-  swap                             # ( s-reg d-reg prefix path )
-  rot                              # ( s-reg prefix path d-reg )
-  swap                             # ( s-reg prefix d-reg path )
-
-  create-district                  # ( s-reg prefix d-reg' chan )
-
-  # Prepare for gen-stores-loop: need ( chan prefix n s-reg ) with d-reg' at bottom
-  # Have: ( s-reg prefix d-reg' chan )
-  # Step 1: Move d-reg' to bottom
-  swap                             # ( s-reg prefix chan d-reg' )
-  3 roll                           # ( prefix chan d-reg' s-reg )
-  3 roll                           # ( chan d-reg' s-reg prefix )
-  3 roll                           # ( d-reg' s-reg prefix chan )
-
-  # Now: ( d-reg' s-reg prefix chan )
-  # Need: ( d-reg' chan prefix n s-reg )
-  stores-per-district              # ( d-reg' s-reg prefix chan n )
-
-  # Rearrange ( s-reg prefix chan n ) -> ( chan prefix n s-reg )
-  swap                             # ( d-reg' s-reg prefix n chan )
-  rot                              # ( d-reg' s-reg n chan prefix )
-  rot                              # ( d-reg' s-reg chan prefix n )
-  3 roll                           # ( d-reg' chan prefix n s-reg )
-
-  gen-stores-loop                  # ( d-reg' s-reg' )
-
-  swap                             # ( s-reg' d-reg' )
+# Create stores for a district
+# Stack: ( registry district-chan district-path -- registry' )
+: add-stores ( Variant Int String -- Variant )
+  "/" string-concat                # ( registry district-chan prefix )
+  stores-per-district              # ( registry district-chan prefix count )
+  rot                              # ( registry prefix count district-chan )
+  rot rot                          # ( registry district-chan prefix count )
+  3 roll                           # ( district-chan prefix count registry )
+  gen-stores-loop                  # ( registry' )
 ;
+
+
+# Build 4-tier hierarchy with single unified registry
+# Stack: ( -- registry )
+: init-four-tier ( -- Variant )
+  make-registry
+  "Initializing 4-tier actor hierarchy..." write_line
+
+  # Create company: acme (no parent)
+  # create-company: ( registry name -- registry' chan )
+  "acme" create-company           # ( registry' acme-chan )
+
+  # Create region: acme/west (parent = acme)
+  # create-region: ( parent-chan registry path -- registry' region-chan )
+  swap                            # ( acme-chan registry )
+  "acme/west" create-region       # ( registry' west-chan )
+
+  # Create district: acme/west/seattle (parent = west)
+  swap                            # ( west-chan registry )
+  "acme/west/seattle" create-district  # ( registry' seattle-chan )
+
+  # Create stores for seattle district
+  # add-stores: ( registry district-chan district-path -- registry' )
+  "acme/west/seattle" add-stores  # ( registry' )
+
+  "  Company: acme" write_line
+  "  Region: acme/west" write_line
+  "  District: acme/west/seattle" write_line
+  dup map-size int->string " actors in unified registry" string-concat write_line
+;
+
 
 
 # ============================================================================
 #                            HTTP HANDLING
 # ============================================================================
 #
-# Routes:
-#   GET  /acme/west/seattle/0001           -> store count
+# RESTful routes - path depth determines resource level:
+#   GET  /acme/west/seattle/0001           -> store (4 segments)
 #   POST /acme/west/seattle/0001/increment -> increment store
-#   GET  /district/acme/west/seattle       -> district aggregate
+#   GET  /acme/west/seattle                -> district aggregate (3 segments)
+#   GET  /acme/west                        -> region aggregate (2 segments)
+#   GET  /acme                             -> company aggregate (1 segment)
+
+# Count path segments (splits on "/" and counts non-empty parts)
+# Stack: ( path -- count )
+: count-path-segments ( String -- Int )
+  # Strip leading / if present
+  dup 0 string-char-at 47 = if  # 47 = '/'
+    1 over string-length 1 subtract string-substring
+  then
+  "/" string-split variant-field-count
+;
 
 # Handle an HTTP request
-# Stack: ( store-reg dist-reg socket -- store-reg dist-reg )
-: handle-request ( Variant Variant Int -- Variant Variant )
+# Stack: ( registry socket -- registry )
+: handle-request ( Variant Int -- Variant )
   # Read the HTTP request
-  dup tcp-read               # ( store dist socket request )
+  dup tcp-read               # ( registry socket request )
 
   # Extract path from request
-  dup http-request-path      # ( store dist socket request path )
-  swap http-request-method   # ( store dist socket path method )
+  dup http-request-path      # ( registry socket request path )
+  swap http-request-method   # ( registry socket path method )
 
   # Dispatch based on path
   dispatch-request
 ;
 
 # Dispatch request to appropriate handler
-# Stack: ( store-reg dist-reg socket path method -- store-reg dist-reg )
-: dispatch-request ( Variant Variant Int String String -- Variant Variant )
-  # Check if path starts with /district/
-  over "/district/" string-starts-with if
-    # District aggregate query
-    drop                     # ( store dist socket path )
-    do-get-district
+# Stack: ( registry socket path method -- registry )
+: dispatch-request ( Variant Int String String -- Variant )
+  # Check if path ends with /increment
+  over "/increment" string-ends-with? if
+    # Increment request - strip suffix and do increment
+    drop                     # ( registry socket path )
+    dup string-length 10 subtract 0 swap string-substring  # remove "/increment"
+    do-increment
   else
-    # Check if path ends with /increment
-    over "/increment" string-ends-with? if
-      # Increment request - strip suffix and do increment
-      drop                   # ( store dist socket path )
-      dup string-length 10 subtract 0 swap string-substring  # remove "/increment"
-      do-increment
+    drop                     # ( registry socket path )
+    # Count segments to determine resource level
+    dup count-path-segments  # ( registry socket path segments )
+    dup 4 = if
+      # 4 segments = store query
+      drop do-get-store
     else
-      # Get store request
-      drop                   # ( store dist socket path )
-      do-get
+      dup 3 = if
+        # 3 segments = district aggregate
+        drop do-get-actor
+      else
+        dup 2 = if
+          # 2 segments = region aggregate
+          drop do-get-actor
+        else
+          dup 1 = if
+            # 1 segment = company aggregate
+            drop do-get-actor
+          else
+            # Unknown - return 404
+            drop drop
+            "Not found - use 1-4 segments: company/region/district/store" http-not-found
+            over tcp-write
+            tcp-close
+          then
+        then
+      then
     then
   then
 ;
@@ -538,81 +626,83 @@ include std:http
   then
 ;
 
-# Handle GET request - get current count from store
-# Stack: ( store-reg dist-reg socket path -- store-reg dist-reg )
-: do-get ( Variant Variant Int String -- Variant Variant )
+# Handle GET request for store - get current count
+# Stack: ( registry socket path -- registry )
+: do-get-store ( Variant Int String -- Variant )
   # Strip leading / if present
   dup 0 string-char-at 47 = if  # 47 = '/'
     1 over string-length 1 subtract string-substring
   then
 
-  # Look up store in store-registry (at depth 3)
-  # Stack: ( store dist socket path )
-  3 pick swap lookup-store  # ( store dist socket chan found? )
+  # Look up actor in unified registry
+  # Stack: ( registry socket path )
+  2 pick swap lookup-store  # ( registry socket chan found? )
 
   0 = if
     # Store not found
-    drop                    # ( store dist socket ) - drop chan
-    "Store not found" http-not-found  # ( store dist socket response )
-    over tcp-write          # ( store dist socket )
-    tcp-close               # ( store dist )
+    drop                    # ( registry socket )
+    "Store not found" http-not-found
+    over tcp-write
+    tcp-close               # ( registry )
   else
     # Send get request to actor and wait for response
-    query-actor             # ( store dist socket count )
-    make-json-response      # ( store dist socket response )
-    over tcp-write          # ( store dist socket )
-    tcp-close               # ( store dist )
+    query-actor             # ( registry socket count )
+    make-json-response      # ( registry socket response )
+    over tcp-write
+    tcp-close               # ( registry )
   then
 ;
 
 # Handle INCREMENT request - increment counter and return new value
-# Stack: ( store-reg dist-reg socket path -- store-reg dist-reg )
-: do-increment ( Variant Variant Int String -- Variant Variant )
+# Stack: ( registry socket path -- registry )
+: do-increment ( Variant Int String -- Variant )
   # Strip leading / if present
   dup 0 string-char-at 47 = if
     1 over string-length 1 subtract string-substring
   then
 
-  # Look up store in store-registry (at depth 3)
-  # Stack: ( store dist socket path )
-  3 pick swap lookup-store  # ( store dist socket chan found? )
+  # Look up store in unified registry
+  # Stack: ( registry socket path )
+  2 pick swap lookup-store  # ( registry socket chan found? )
 
   0 = if
-    drop                    # ( store dist socket ) - drop chan
+    drop                    # ( registry socket )
     "Store not found" http-not-found
     over tcp-write
-    tcp-close               # ( store dist )
+    tcp-close               # ( registry )
   else
     # Send increment request to actor and wait for response
-    query-actor-increment   # ( store dist socket count )
-    make-json-response      # ( store dist socket response )
-    over tcp-write          # ( store dist socket )
-    tcp-close               # ( store dist )
+    query-actor-increment   # ( registry socket count )
+    make-json-response      # ( registry socket response )
+    over tcp-write
+    tcp-close               # ( registry )
   then
 ;
 
-# Handle GET request for district aggregate
-# Stack: ( store-reg dist-reg socket path -- store-reg dist-reg )
-: do-get-district ( Variant Variant Int String -- Variant Variant )
-  # Strip "/district/" prefix (10 chars)
-  10 over string-length 10 subtract string-substring
+# Handle GET request for any actor (company, region, district) aggregate
+# Stack: ( registry socket path -- registry )
+: do-get-actor ( Variant Int String -- Variant )
+  # Strip leading / if present
+  dup 0 string-char-at 47 = if  # 47 = '/'
+    1 over string-length 1 subtract string-substring
+  then
 
-  # Look up district in dist-registry (at depth 2)
-  # Stack: ( store dist socket district-path )
-  2 pick swap lookup-store  # ( store dist socket chan found? )
+  # Look up actor in unified registry
+  # Stack: ( registry socket path )
+  2 pick swap lookup-store  # ( registry socket chan found? )
 
   0 = if
-    # District not found
-    drop                    # ( store dist socket )
-    "District not found" http-not-found
+    # Actor not found
+    drop                    # ( registry socket )
+    "Actor not found" http-not-found
     over tcp-write
-    tcp-close               # ( store dist )
+    tcp-close               # ( registry )
   else
-    # Query district actor for aggregate
-    query-actor             # ( store dist socket count )
-    make-json-response      # ( store dist socket response )
-    over tcp-write          # ( store dist socket )
-    tcp-close               # ( store dist )
+    # Query actor for aggregate
+    query-actor             # ( registry socket count )
+    make-json-response      # ( registry socket response )
+    over tcp-write
+    tcp-close               # ( registry )
   then
 ;
 
@@ -655,28 +745,19 @@ include std:http
 #                            SERVER LOOP
 # ============================================================================
 
-# Accept and handle one request, keeping registries
-# Stack: ( store dist listener -- store' dist' listener )
-: accept-and-handle ( Variant Variant Int -- Variant Variant Int )
-  dup tcp-accept            # ( store dist listener client )
-
-  # Save listener, handle request
-  swap                      # ( store dist client listener )
-  3 roll                    # ( dist client listener store )
-  3 roll                    # ( client listener store dist )
-  swap                      # ( client listener dist store )
-  swap                      # ( client listener store dist )
-  3 roll                    # ( listener store dist client )
-
-  handle-request            # ( listener store' dist' )
-
-  # Restore order: ( store' dist' listener )
-  rot                       # ( store' dist' listener )
+# Accept and handle one request, keeping registry
+# Stack: ( registry listener -- registry' listener )
+: accept-and-handle ( Variant Int -- Variant Int )
+  dup tcp-accept            # ( registry listener client )
+  rot                       # ( listener client registry )
+  swap                      # ( listener registry client )
+  handle-request            # ( listener registry' )
+  swap                      # ( registry' listener )
 ;
 
 # Main server loop
-# Stack: ( store-reg dist-reg listener -- ) [never returns]
-: server-loop ( Variant Variant Int -- )
+# Stack: ( registry listener -- ) [never returns]
+: server-loop ( Variant Int -- )
   accept-and-handle
   server-loop
 ;
@@ -686,27 +767,31 @@ include std:http
 # ============================================================================
 
 : main ( -- Int )
-  "=== Actor Counters Demo (Phase 2: Hierarchical Aggregation) ===" write_line
+  "=== Actor Counters Demo (4-Tier Hierarchical Aggregation) ===" write_line
   "" write_line
 
-  # Initialize all store and district actors
-  init-all-stores           # ( store-reg dist-reg )
+  # Initialize the full 4-tier actor hierarchy
+  init-four-tier            # ( registry )
 
   "" write_line
   "Starting HTTP server on port 8080..." write_line
   "Try:" write_line
-  "  curl http://localhost:8080/acme/west/seattle/0001" write_line
+  "  curl http://localhost:8080/acme/west/seattle/0001           (store)" write_line
   "  curl -X POST http://localhost:8080/acme/west/seattle/0001/increment" write_line
-  "  curl http://localhost:8080/district/acme/west/seattle  (aggregate)" write_line
+  "  curl http://localhost:8080/acme/west/seattle                (district)" write_line
+  "  curl http://localhost:8080/acme/west                        (region)" write_line
+  "  curl http://localhost:8080/acme                             (company)" write_line
   "" write_line
-  "Stores report to districts every 5 increments." write_line
+  "Aggregation: stores batch (every 5), parents forward immediately" write_line
+  "  Stores report to district every 5 increments (batching)" write_line
+  "  Districts/regions/company forward on every update" write_line
   "" write_line
 
   # Start listening
-  8080 tcp-listen           # ( store-reg dist-reg listener )
+  8080 tcp-listen           # ( registry listener )
 
   dup 0 < if
-    drop drop drop
+    drop drop
     "Failed to start server" write_line
     1
   else

@@ -210,8 +210,35 @@ impl TypeChecker {
     ) -> Result<(StackType, Subst), String> {
         let mut current_stack = start_stack.clone();
         let mut accumulated_subst = Subst::empty();
+        let mut skip_next = false;
 
         for (i, stmt) in statements.iter().enumerate() {
+            // Skip this statement if we already handled it (e.g., pick/roll after literal)
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+
+            // Special case: IntLiteral followed by pick or roll
+            // Handle them as a fused operation with correct type semantics
+            if let Statement::IntLiteral(n) = stmt
+                && let Some(Statement::WordCall(next_word)) = statements.get(i + 1)
+            {
+                if next_word == "pick" {
+                    let (new_stack, subst) = self.handle_literal_pick(*n, current_stack.clone())?;
+                    current_stack = new_stack;
+                    accumulated_subst = accumulated_subst.compose(&subst);
+                    skip_next = true; // Skip the "pick" word
+                    continue;
+                } else if next_word == "roll" {
+                    let (new_stack, subst) = self.handle_literal_roll(*n, current_stack.clone())?;
+                    current_stack = new_stack;
+                    accumulated_subst = accumulated_subst.compose(&subst);
+                    skip_next = true; // Skip the "roll" word
+                    continue;
+                }
+            }
+
             // Look ahead: if this is a quotation followed by a word that expects specific quotation type,
             // set the expected type before checking the quotation
             let saved_expected_type = if matches!(stmt, Statement::Quotation { .. }) {
@@ -247,6 +274,148 @@ impl TypeChecker {
         }
 
         Ok((current_stack, accumulated_subst))
+    }
+
+    /// Handle `n pick` where n is a literal integer
+    ///
+    /// pick(n) copies the value at position n to the top of the stack.
+    /// Position 0 is the top, 1 is below top, etc.
+    ///
+    /// Example: `2 pick` on stack ( A B C ) produces ( A B C A )
+    /// - Position 0: C (top)
+    /// - Position 1: B
+    /// - Position 2: A
+    /// - Result: copy A to top
+    fn handle_literal_pick(
+        &self,
+        n: i64,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst), String> {
+        if n < 0 {
+            return Err(format!("pick: index must be non-negative, got {}", n));
+        }
+
+        // Get the type at position n
+        let type_at_n = self.get_type_at_position(&current_stack, n as usize, "pick")?;
+
+        // Push a copy of that type onto the stack
+        Ok((current_stack.push(type_at_n), Subst::empty()))
+    }
+
+    /// Handle `n roll` where n is a literal integer
+    ///
+    /// roll(n) moves the value at position n to the top of the stack,
+    /// shifting all items above it down by one position.
+    ///
+    /// Example: `2 roll` on stack ( A B C ) produces ( B C A )
+    /// - Position 0: C (top)
+    /// - Position 1: B
+    /// - Position 2: A
+    /// - Result: move A to top, B and C shift down
+    fn handle_literal_roll(
+        &self,
+        n: i64,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst), String> {
+        if n < 0 {
+            return Err(format!("roll: index must be non-negative, got {}", n));
+        }
+
+        // For roll, we need to:
+        // 1. Extract the type at position n
+        // 2. Remove it from that position
+        // 3. Push it on top
+        self.rotate_type_to_top(current_stack, n as usize)
+    }
+
+    /// Get the type at position n in the stack (0 = top)
+    fn get_type_at_position(&self, stack: &StackType, n: usize, op: &str) -> Result<Type, String> {
+        let mut current = stack;
+        let mut pos = 0;
+
+        loop {
+            match current {
+                StackType::Cons { rest, top } => {
+                    if pos == n {
+                        return Ok(top.clone());
+                    }
+                    pos += 1;
+                    current = rest;
+                }
+                StackType::RowVar(name) => {
+                    // We've hit a row variable before reaching position n
+                    // This means the type at position n is unknown statically.
+                    // Generate a fresh type variable to represent it.
+                    // This allows the code to type-check, with the actual type
+                    // determined by unification with how the value is used.
+                    let fresh_type = Type::Var(self.fresh_var(&format!("{}_{}", op, name)));
+                    return Ok(fresh_type);
+                }
+                StackType::Empty => {
+                    return Err(format!(
+                        "{}: stack underflow - position {} requested but stack has only {} concrete items",
+                        op, n, pos
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Remove the type at position n and push it on top (for roll)
+    fn rotate_type_to_top(&self, stack: StackType, n: usize) -> Result<(StackType, Subst), String> {
+        if n == 0 {
+            // roll(0) is a no-op
+            return Ok((stack, Subst::empty()));
+        }
+
+        // Collect all types from top to the target position
+        let mut types_above: Vec<Type> = Vec::new();
+        let mut current = stack;
+        let mut pos = 0;
+
+        // Pop items until we reach position n
+        loop {
+            match current {
+                StackType::Cons { rest, top } => {
+                    if pos == n {
+                        // Found the target - 'top' is what we want to move to the top
+                        // Rebuild the stack: rest, then types_above (reversed), then top
+                        let mut result = *rest;
+                        // Push types_above back in reverse order (bottom to top)
+                        for ty in types_above.into_iter().rev() {
+                            result = result.push(ty);
+                        }
+                        // Push the rotated type on top
+                        result = result.push(top);
+                        return Ok((result, Subst::empty()));
+                    }
+                    types_above.push(top);
+                    pos += 1;
+                    current = *rest;
+                }
+                StackType::RowVar(name) => {
+                    // Reached a row variable before position n
+                    // The type at position n is in the row variable
+                    // We need to express that we're extracting a value from the row
+                    // For now, generate fresh type variables
+                    let fresh_type = Type::Var(self.fresh_var(&format!("roll_{}", name)));
+
+                    // Reconstruct the stack with the rolled type on top
+                    let mut result = StackType::RowVar(name.clone());
+                    for ty in types_above.into_iter().rev() {
+                        result = result.push(ty);
+                    }
+                    result = result.push(fresh_type);
+                    return Ok((result, Subst::empty()));
+                }
+                StackType::Empty => {
+                    return Err(format!(
+                        "roll: stack underflow - position {} requested but stack has only {} items",
+                        n, pos
+                    ));
+                }
+            }
+        }
     }
 
     /// Infer the stack effect of a sequence of statements

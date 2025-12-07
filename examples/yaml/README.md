@@ -13,7 +13,7 @@ allows building complex parsers without language changes.
 The YAML parser uses these existing primitives:
 - String operations: `string-find`, `string-substring`, `string-trim`, `string-empty`, `string-length`, `string-char-at`, `string-concat`, `string->float`
 - Character conversion: `char->string`
-- Variant operations: `make-variant`, `variant-tag`, `variant-field-at`, `variant-field-count`, `variant-append`
+- Variant operations: `make-variant-0`, `make-variant-1`, `variant-tag`, `variant-field-at`, `variant-field-count`, `variant-append`
 - Standard stack operations: `dup`, `drop`, `swap`, `over`, `rot`
 - Arithmetic and comparison: `add`, `subtract`, `<`, `>`, `=`, `<>`
 - Control flow: `if/else/then`

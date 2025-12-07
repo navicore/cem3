@@ -423,11 +423,11 @@
   dup [ worker ] spawn
   # dup:    ( listener_socket client_socket channel_id channel_id )
   # [ worker ]: Push the worker quotation
-  # spawn:  Start a new strand running "worker" with channel_id
-  # Stack: ( listener_socket client_socket channel_id strand_id )
+  # spawn:  Start a new strand running "worker" with channel_id, passes stack to child
+  # Stack: ( listener_socket client_socket channel_id channel_id strand_id )
 
-  drop
-  # We don't need the strand_id
+  drop drop
+  # We don't need the strand_id, and spawn leaves the extra dup'd channel
   # Stack: ( listener_socket client_socket channel_id )
 
   send

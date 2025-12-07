@@ -492,7 +492,14 @@ pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
 /// Returns the strand ID.
 ///
 /// Stack effect: ( ..a quot -- ..a strand_id )
-/// where the quotation has effect ( -- )
+/// Spawns a quotation or closure as a new strand (green thread).
+///
+/// The child strand receives a COPY of the parent's stack (after popping the quotation).
+/// This enables CSP/Actor patterns where actors receive arguments via the stack.
+///
+/// Stack effect: ( ...args quotation -- ...args strand-id )
+/// - Parent: keeps original stack with quotation removed, plus strand-id
+/// - Child: gets a clone of the stack (without quotation)
 ///
 /// # Safety
 /// - Stack must have at least 1 value
@@ -500,6 +507,8 @@ pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
 /// - Function must be safe to execute on any thread
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
+    use crate::stack::clone_stack;
+
     unsafe {
         // Pop quotation or closure
         let (stack, value) = pop(stack);
@@ -516,10 +525,14 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
                 // We've verified wrapper is non-null above.
                 let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
 
-                // Spawn the strand with null initial stack
-                let strand_id = patch_seq_strand_spawn(fn_ref, std::ptr::null_mut());
+                // Clone the parent's stack for the child
+                // The child gets a copy of the stack (after the quotation was popped)
+                let child_stack = clone_stack(stack);
 
-                // Push strand ID back onto stack
+                // Spawn the strand with the cloned stack
+                let strand_id = patch_seq_strand_spawn(fn_ref, child_stack);
+
+                // Push strand ID back onto the parent's stack
                 push(stack, Value::Int(strand_id))
             }
             Value::Closure { fn_ptr, env } => {

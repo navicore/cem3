@@ -435,6 +435,44 @@ pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
     current_stack
 }
 
+/// Clone a stack - creates a deep copy of all values
+///
+/// This is used by spawn to pass a copy of the parent's stack to the child.
+/// Returns a new stack with cloned values, or null if input is null.
+///
+/// NOTE: This uses Box allocation instead of pool allocation because the
+/// cloned stack will be used by a different strand (different thread context).
+/// Thread-local pools are not shared between strands.
+///
+/// # Safety
+/// Stack pointer must be valid (or null for empty stack)
+pub unsafe fn clone_stack(stack: Stack) -> Stack {
+    if stack.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    // Collect all values (bottom to top for correct push order)
+    let mut values = Vec::new();
+    let mut current = stack;
+    while !current.is_null() {
+        values.push(unsafe { (*current).value.clone() });
+        current = unsafe { (*current).next };
+    }
+
+    // Build new stack using Box allocation (not pool) for cross-strand safety
+    // We can't use the thread-local pool because this stack will be used by another strand
+    let mut new_stack: Stack = std::ptr::null_mut();
+    for value in values.into_iter().rev() {
+        let node = Box::new(StackNode {
+            value,
+            next: new_stack,
+        });
+        new_stack = Box::into_raw(node);
+    }
+
+    new_stack
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_drop_op as drop_op;
 pub use patch_seq_dup as dup;

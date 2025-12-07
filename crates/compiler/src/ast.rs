@@ -213,7 +213,6 @@ impl Program {
             "variant-append",
             "variant-last",
             "variant-init",
-            "make-variant",
             "make-variant-0",
             "make-variant-1",
             "make-variant-2",

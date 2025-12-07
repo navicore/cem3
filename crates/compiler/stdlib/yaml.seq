@@ -54,28 +54,28 @@
 
 # Create a YAML null value
 : yaml-null
-  0 0 make-variant
+  0 make-variant-0
 ;
 
 # Create a YAML boolean (0 or 1)
 : yaml-bool
   0 <> if 1 else 0 then
-  1 1 make-variant
+  1 make-variant-1
 ;
 
 # Create a YAML number from a Float
 : yaml-number
-  1 2 make-variant
+  2 make-variant-1
 ;
 
 # Create a YAML string
 : yaml-string
-  1 3 make-variant
+  3 make-variant-1
 ;
 
 # Create an empty YAML object
 : yaml-empty-object
-  0 5 make-variant
+  5 make-variant-0
 ;
 
 # ============================================================================

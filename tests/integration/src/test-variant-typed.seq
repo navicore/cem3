@@ -1,7 +1,7 @@
 # Test type-safe make-variant-N builtins
 #
 # These builtins properly account for field consumption in the type system,
-# unlike the original make-variant which has incomplete type checking.
+# providing compile-time type safety for variant creation.
 
 # 0 fields: empty variant
 : make-empty ( -- Variant )

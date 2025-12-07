@@ -131,15 +131,16 @@ Types are inferred at compile time. The type checker:
 Variants are tagged unions with N fields:
 
 ```seq
-# Create: field1 field2 ... fieldN count tag make-variant
-42 "hello" 2 1 make-variant    # Tag 1 with fields [42, "hello"]
+# Create using typed constructors (0-4 fields)
+42 "hello" 1 make-variant-2    # Tag 1 with fields [42, "hello"]
+5 make-variant-0               # Tag 5 with no fields
 
 # Access
 variant-tag           # ( Variant -- Int )
 variant-field-count   # ( Variant -- Int )
 0 variant-field-at    # ( Variant Int -- Value )
 
-# Functional append
+# Functional append (for building dynamic collections)
 value variant-append  # ( Variant Value -- Variant' )
 ```
 

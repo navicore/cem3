@@ -475,7 +475,12 @@ For processing files line by line (similar to `read_line+` for stdin), use `file
 ```
 
 The quotation receives each line (including trailing newline) and must consume it.
-Returns `("" 1)` on success, `("error message" 0)` on failure.
+Returns `("" 1)` on success, `("error message" 0)` on failure. Empty files succeed
+without calling the quotation.
+
+Line endings are normalized to `\n` regardless of platform - Windows-style `\r\n`
+becomes `\n`. This ensures consistent behavior when processing files across
+different operating systems.
 
 This is safer than slurp-and-split for large files - lines are processed one at a time
 rather than loading the entire file into memory.

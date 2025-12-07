@@ -62,7 +62,7 @@ cargo test --all
 - Numeric literals: decimal, hex (`0xFF`), binary (`0b1010`)
 - Comparisons: `=`, `<`, `>`, `<=`, `>=`, `<>`
 - Conditionals: `if`/`else`/`then`
-- Quotations: First-class functions with `call`, `times`, `while`, `until`, `forever`
+- Quotations: First-class functions with `call`, `times`, `while`, `until`
 - Closures: Captured environments with type-driven inference
 
 **Tail Call Optimization:**

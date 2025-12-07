@@ -328,7 +328,6 @@ fn get_builtin_completions() -> Vec<CompletionItem> {
             "Loop until condition is true",
         ),
         ("times", "( quot n -- )", "Execute quotation n times"),
-        ("forever", "( quot -- )", "Execute quotation forever"),
         ("call", "( quot -- ... )", "Execute a quotation"),
         (
             "spawn",

@@ -33,23 +33,21 @@ include std:http
   tcp-close
 ;
 
-: accept-loop ( Int -- Int )
-  [
-    dup tcp-accept
-    make-channel
-    dup [ receive handle-connection ] spawn
-    drop
-    send
-  ]
-  forever
+: accept-loop ( Int -- )
+  dup tcp-accept
+  make-channel
+  dup [ receive handle-connection ] spawn
+  drop
+  send
+  accept-loop   # tail call - runs forever, no stack growth
 ;
 
-: main ( -- Int )
+: main ( -- )
   "Simple HTTP server using std:http" write_line
   "Listening on port 8080..." write_line
   "Try: curl http://localhost:8080/" write_line
   "Try: curl http://localhost:8080/health" write_line
   "Try: curl http://localhost:8080/custom" write_line
   8080 tcp-listen
-  accept-loop
+  accept-loop   # never returns
 ;

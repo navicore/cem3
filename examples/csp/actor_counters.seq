@@ -761,22 +761,35 @@ include std:http
 # ============================================================================
 #                            SERVER LOOP
 # ============================================================================
+#
+# CSP-style concurrency: spawn a new strand for each connection.
+# The main loop never blocks on request handling - it immediately
+# returns to accepting the next connection.
 
-# Accept and handle one request, keeping registry
-# Stack: ( registry listener -- registry' listener )
-: accept-and-handle ( Variant Int -- Variant Int )
-  dup tcp-accept            # ( registry listener client )
-  rot                       # ( listener client registry )
-  swap                      # ( listener registry client )
-  handle-request            # ( listener registry' )
-  swap                      # ( registry' listener )
+# Connection handler - runs in its own strand
+# Stack: ( registry socket -- )
+: connection-handler ( Variant Int -- )
+  handle-request            # ( registry' )
+  drop                      # discard registry (immutable after init)
 ;
 
-# Main server loop
+# Accept loop - spawns concurrent handlers
 # Stack: ( registry listener -- ) [never returns]
-: server-loop ( Variant Int -- )
-  accept-and-handle
-  server-loop
+: accept-loop ( Variant Int -- )
+  dup tcp-accept            # ( registry listener client )
+
+  # Prepare stack for spawn: child needs ( registry client )
+  2 pick                    # ( registry listener client registry )
+  swap                      # ( registry listener registry client )
+
+  # Spawn handler - child gets copy of stack, runs connection-handler
+  [ connection-handler ] spawn  # child: ( registry listener registry client )
+  # connection-handler takes top 2: ( registry client ), handles request
+
+  # Parent cleanup: ( registry listener registry client strand-id )
+  drop drop drop            # ( registry listener )
+
+  accept-loop               # immediately accept next connection (TCO)
 ;
 
 # ============================================================================
@@ -812,8 +825,8 @@ include std:http
     "Failed to start server" write_line
     1
   else
-    "Server listening..." write_line
-    server-loop             # Never returns
+    "Server listening... (concurrent request handling)" write_line
+    accept-loop             # Never returns - spawns handler per connection
     0
   then
 ;

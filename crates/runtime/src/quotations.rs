@@ -400,55 +400,6 @@ pub unsafe extern "C" fn patch_seq_while_loop(mut stack: Stack) -> Stack {
     }
 }
 
-/// Execute a quotation forever (infinite loop)
-///
-/// Pops a quotation from the stack and executes it repeatedly in an infinite loop.
-/// This is useful for server accept loops and other continuous operations.
-///
-/// Stack effect: ( ..a quot -- ..a )
-/// where the quotation has effect ( ..a -- ..a )
-///
-/// # Example
-/// ```cem
-/// : server-loop ( listener -- )
-///   [ dup tcp-accept handle-client ] forever ;
-/// ```
-///
-/// # Safety
-/// - Stack must have at least 1 value
-/// - Top must be Quotation
-/// - Quotation must not cause stack underflow
-/// - This never returns! (infinite loop)
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_forever(stack: Stack) -> Stack {
-    unsafe {
-        // Pop quotation
-        let (mut stack, quot_value) = pop(stack);
-        let wrapper = match quot_value {
-            Value::Quotation { wrapper, .. } => wrapper,
-            _ => panic!("forever: expected Quotation, got {:?}", quot_value),
-        };
-
-        // Validate function pointer is not null
-        if wrapper == 0 {
-            panic!("forever: quotation wrapper function pointer is null");
-        }
-
-        // SAFETY: wrapper was created by the compiler's codegen and stored via push_quotation.
-        // The compiler guarantees that quotation wrapper functions use C calling convention.
-        // We've verified wrapper is non-null above.
-        let body_fn: unsafe extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
-
-        // Infinite loop - execute body forever
-        // IMPORTANT: Yield after each iteration to maintain cooperative scheduling.
-        // Without yielding, this coroutine would monopolize the thread and starve other strands.
-        loop {
-            stack = body_fn(stack);
-            may::coroutine::yield_now();
-        }
-    }
-}
-
 /// Loop until a condition is true
 ///
 /// Pops a condition quotation and a body quotation from the stack.
@@ -618,7 +569,6 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
 
 // Public re-exports with short names for internal use
 pub use patch_seq_call as call;
-pub use patch_seq_forever as forever;
 pub use patch_seq_push_quotation as push_quotation;
 pub use patch_seq_spawn as spawn;
 pub use patch_seq_times as times;

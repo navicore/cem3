@@ -126,6 +126,7 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("file-slurp", "patch_seq_file_slurp"),
         ("file-slurp-safe", "patch_seq_file_slurp_safe"),
         ("file-exists?", "patch_seq_file_exists"),
+        ("file-for-each-line+", "patch_seq_file_for_each_line_plus"),
         // List operations
         ("list-map", "patch_seq_list_map"),
         ("list-filter", "patch_seq_list_filter"),
@@ -536,6 +537,11 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_file_slurp_safe(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_file_for_each_line_plus(ptr)"
+        )
+        .unwrap();
         writeln!(&mut ir, "; List operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_list_map(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_list_filter(ptr)").unwrap();

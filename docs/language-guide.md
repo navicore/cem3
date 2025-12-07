@@ -200,6 +200,12 @@ Basic console I/O:
 | `read_line` | `( -- String )` | Read line from stdin (includes newline) |
 | `read_line+` | `( -- String Int )` | Read line with EOF detection |
 
+### Line Ending Normalization
+
+All line-reading operations (`read_line`, `read_line+`, `file-for-each-line+`)
+normalize line endings to `\n`. Windows-style `\r\n` is converted to `\n`.
+This ensures Seq programs behave consistently across operating systems.
+
 ### Handling EOF with read_line+
 
 The `read_line` word panics at EOF, which is fine for simple scripts. For robust input handling, use `read_line+` which returns a status flag:
@@ -450,6 +456,40 @@ internally, so this distinction rarely matters in practice.
 |------|--------|-------------|
 | `file-slurp` | `( path -- String )` | Read entire file |
 | `file-exists?` | `( path -- Int )` | Check if file exists |
+| `file-for-each-line+` | `( path quot -- String Int )` | Process file line by line |
+
+### Line-by-Line File Processing
+
+For processing files line by line (similar to `read_line+` for stdin), use `file-for-each-line+`:
+
+```seq
+: process-line ( String -- )
+    string-chomp
+    # ... do something with line
+;
+
+: main ( -- )
+    "data.txt" [ process-line ] file-for-each-line+
+    if
+        drop  # drop empty string on success
+        "Done!" write_line
+    else
+        # error message is on stack
+        "Error: " swap string-concat write_line
+    then
+;
+```
+
+The quotation receives each line (including trailing newline) and must consume it.
+Returns `("" 1)` on success, `("error message" 0)` on failure. Empty files succeed
+without calling the quotation.
+
+Line endings are normalized to `\n` regardless of platform - Windows-style `\r\n`
+becomes `\n`. This ensures consistent behavior when processing files across
+different operating systems.
+
+This is safer than slurp-and-split for large files - lines are processed one at a time
+rather than loading the entire file into memory.
 
 ## Modules
 

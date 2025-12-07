@@ -183,7 +183,8 @@ Words can call themselves:
 ;
 ```
 
-**Note:** No tail-call optimization yet. Deep recursion will overflow.
+Tail calls are optimized via LLVM's `musttail` - deep recursion won't overflow.
+See `docs/TCO_DESIGN.md` for details.
 
 ## Concurrency (Strands)
 
@@ -223,6 +224,27 @@ async/await ecosystem (Tokio, async-std). Key reasons:
 
 4. **M:N scheduling** - Like Tokio, may multiplexes many fibers across a small
    thread pool. We get lightweight concurrency without one OS thread per fiber.
+
+### M:N Threading: Best of Both Worlds
+
+Early concurrency implementations had to choose between two models:
+
+| Model | Mapping | Pros | Cons |
+|-------|---------|------|------|
+| Green threads (early Java) | M:1 | Cheap, fast switch | Single CPU only |
+| Native OS threads | 1:1 | Multi-CPU | Expensive (~1MB stack), slow switch |
+
+May provides **M:N scheduling** - many lightweight coroutines distributed across
+all CPU cores:
+
+- **Lightweight** - Strands use ~4KB stack (grows as needed), not 1MB
+- **Multi-core** - Work-stealing scheduler spreads load across all CPUs
+- **Fast context switch** - Cooperative yield, no kernel involvement
+- **No blocking** - When one strand waits on I/O, others run on that core
+
+This means Seq programs get the programming simplicity of green threads (spawn
+thousands of concurrent tasks cheaply) with the performance of native threads
+(utilizing all available CPUs). Write sequential code that scales.
 
 ### Tradeoff: libc for stdout
 
@@ -351,11 +373,10 @@ json-empty-object "name" json-string "John" json-string obj-with
 
 ## Current Limitations
 
-1. **No loops** - Use recursion (but no TCO)
-2. **No closures** - Quotations can't capture variables
-3. **Serialization size limits** - Arrays > 3 elements, objects > 2 pairs show as `[...]`/`{...}`
-4. **No string escapes** - `\"` not supported in strings
-5. **roll type checking** - `3 roll` works at runtime but type checker can't fully verify
+1. **No loop keywords** - Use recursion (with TCO) or combinators (`times`, `while`, `forever`)
+2. **Serialization size limits** - Arrays > 3 elements, objects > 2 pairs show as `[...]`/`{...}`
+3. **No string escapes** - `\"` not supported in strings
+4. **roll type checking** - `3 roll` works at runtime but type checker can't fully verify
 
 ## Building
 

@@ -547,6 +547,130 @@ my-list 0 [ + ] list-fold
 [ condition ] [ body ] while
 ```
 
+## Concurrency
+
+Seq supports massive concurrency through **strands** - lightweight green threads
+built on a coroutine runtime. Thousands of strands can run on a single OS thread,
+cooperatively yielding during I/O operations.
+
+### Strands
+
+Spawn a quotation as a new strand:
+
+```seq
+[ "Hello from strand!" write_line ] spawn
+# Returns strand ID (Int)
+```
+
+Strands are cheap - spawn thousands of them. They're ideal for:
+- Handling concurrent connections
+- Parallel processing pipelines
+- Actor-style architectures
+
+### Channels (CSP-Style Communication)
+
+Strands communicate through channels, following the CSP (Communicating Sequential
+Processes) model - similar to Go channels or Erlang message passing.
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `make-channel` | `( -- Int )` | Create channel, return ID |
+| `send` | `( value Int -- )` | Send value to channel |
+| `receive` | `( Int -- value )` | Receive value from channel (blocks) |
+| `close-channel` | `( Int -- )` | Close the channel |
+
+Safe variants return status instead of panicking:
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `send-safe` | `( value Int -- Int )` | Returns 1 on success, 0 if closed |
+| `receive-safe` | `( Int -- value Int )` | Returns (value 1) or (0 0) if closed |
+
+### Producer-Consumer Example
+
+```seq
+: producer ( Int -- )
+    10 [
+        dup             # channel on stack
+        "message" swap  # ( "message" channel )
+        send
+    ] times
+    close-channel
+;
+
+: consumer ( Int -- )
+    [
+        dup receive-safe if
+            write_line
+            1               # continue
+        else
+            drop 0          # channel closed, stop
+        then
+    ] [ ] while
+    drop                    # drop channel
+;
+
+: main ( -- )
+    make-channel
+    dup [ producer ] spawn drop
+    consumer
+;
+```
+
+### TCP Networking
+
+Build network servers with strand-per-connection:
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `tcp-listen` | `( Int -- Int )` | Listen on port, return listener |
+| `tcp-accept` | `( Int -- Int )` | Accept connection, return socket |
+| `tcp-read` | `( Int -- String )` | Read from socket |
+| `tcp-write` | `( String Int -- )` | Write to socket |
+| `tcp-close` | `( Int -- )` | Close socket |
+
+### Concurrent Server Pattern
+
+```seq
+: handle-client ( Int -- )
+    dup tcp-read      # read request
+    process-request   # your logic here
+    over tcp-write    # write response
+    tcp-close
+;
+
+: accept-loop ( Int -- )
+    [
+        dup tcp-accept                    # ( listener client )
+        [ handle-client ] spawn drop      # spawn handler
+    ] forever
+;
+
+: main ( -- )
+    8080 tcp-listen
+    "Listening on :8080" write_line
+    accept-loop
+;
+```
+
+Each connection runs in its own strand. The runtime handles scheduling - when
+one strand blocks on I/O, others continue running. No callbacks, no async/await,
+just sequential code that scales.
+
+### Why Strands?
+
+Traditional threading has problems:
+- OS threads are expensive (~1MB stack each)
+- Context switching is slow
+- Shared memory requires careful locking
+
+Strands solve these:
+- Lightweight (~4KB stack, grows as needed)
+- Cooperative scheduling (fast context switch)
+- Message passing via channels (no shared state)
+
+Write code that reads sequentially, runs concurrently.
+
 ---
 
 *Seq: where composition is not just a pattern, but the foundation.*

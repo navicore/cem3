@@ -1469,6 +1469,10 @@ impl CodeGen {
                 else_branch,
             } => self.codegen_if_statement(stack_var, then_branch, else_branch.as_ref(), position),
             Statement::Quotation { id, body } => self.codegen_quotation_push(stack_var, *id, body),
+            Statement::Match { .. } => {
+                // TODO: Phase 4 will implement match codegen
+                Err("Match expressions are not yet implemented in codegen (Phase 4)".to_string())
+            }
         }
     }
 
@@ -1563,6 +1567,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1590,6 +1595,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1625,6 +1631,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1664,6 +1671,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,

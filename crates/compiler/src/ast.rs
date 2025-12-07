@@ -72,9 +72,68 @@ pub enum Include {
     Relative(String),
 }
 
+// ============================================================================
+//                     ALGEBRAIC DATA TYPES (ADTs)
+// ============================================================================
+
+/// A field in a union variant
+/// Example: `response-chan: Int`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionField {
+    pub name: String,
+    pub type_name: String, // For now, just store the type name as string
+}
+
+/// A variant in a union type
+/// Example: `Get { response-chan: Int }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionVariant {
+    pub name: String,
+    pub fields: Vec<UnionField>,
+    pub source: Option<SourceLocation>,
+}
+
+/// A union type definition
+/// Example:
+/// ```seq
+/// union Message {
+///   Get { response-chan: Int }
+///   Increment { response-chan: Int }
+///   Report { op: Int, delta: Int, total: Int }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionDef {
+    pub name: String,
+    pub variants: Vec<UnionVariant>,
+    pub source: Option<SourceLocation>,
+}
+
+/// A pattern in a match expression
+/// For Phase 1: just the variant name (stack-based matching)
+/// Later phases will add field bindings: `Get { chan }`
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// Match a variant by name, pushing all fields to stack
+    /// Example: `Get ->` pushes response-chan to stack
+    Variant(String),
+
+    /// Match a variant with named field bindings (Phase 5)
+    /// Example: `Get { chan } ->` binds chan to the response-chan field
+    VariantWithBindings { name: String, bindings: Vec<String> },
+}
+
+/// A single arm in a match expression
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Vec<Statement>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub includes: Vec<Include>,
+    pub unions: Vec<UnionDef>,
     pub words: Vec<WordDef>,
 }
 
@@ -126,14 +185,38 @@ pub enum Statement {
     /// The id field is used by the typechecker to track the inferred type
     /// (Quotation vs Closure) for this quotation. The id is assigned during parsing.
     Quotation { id: usize, body: Vec<Statement> },
+
+    /// Match expression: pattern matching on union types
+    ///
+    /// Pops a union value from the stack and dispatches to the
+    /// appropriate arm based on the variant tag.
+    ///
+    /// Example:
+    /// ```seq
+    /// match
+    ///   Get -> send-response
+    ///   Increment -> do-increment send-response
+    ///   Report -> aggregate-add
+    /// end
+    /// ```
+    Match {
+        /// The match arms in order
+        arms: Vec<MatchArm>,
+    },
 }
 
 impl Program {
     pub fn new() -> Self {
         Program {
             includes: Vec::new(),
+            unions: Vec::new(),
             words: Vec::new(),
         }
+    }
+
+    /// Find a union definition by name
+    pub fn find_union(&self, name: &str) -> Option<&UnionDef> {
+        self.unions.iter().find(|u| u.name == name)
     }
 
     pub fn find_word(&self, name: &str) -> Option<&WordDef> {
@@ -346,6 +429,12 @@ impl Program {
                     // Recursively validate quotation body
                     self.validate_statements(body, word_name, builtins, external_words)?;
                 }
+                Statement::Match { arms } => {
+                    // Recursively validate each match arm's body
+                    for arm in arms {
+                        self.validate_statements(&arm.body, word_name, builtins, external_words)?;
+                    }
+                }
                 _ => {} // Literals don't need validation
             }
         }
@@ -367,6 +456,7 @@ mod tests {
     fn test_validate_builtin_words() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -388,6 +478,7 @@ mod tests {
     fn test_validate_user_defined_words() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
@@ -412,6 +503,7 @@ mod tests {
     fn test_validate_undefined_word() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -432,6 +524,7 @@ mod tests {
     fn test_validate_misspelled_builtin() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,

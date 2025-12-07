@@ -8,7 +8,10 @@
 //!   ... ;
 //! ```
 
-use crate::ast::{Include, Program, Statement, WordDef};
+use crate::ast::{
+    Include, MatchArm, Pattern, Program, SourceLocation, Statement, UnionDef, UnionField,
+    UnionVariant, WordDef,
+};
 use crate::types::{Effect, StackType, Type};
 
 /// A token with source position information
@@ -82,6 +85,13 @@ impl Parser {
                 continue;
             }
 
+            // Check for union definition
+            if self.check("union") {
+                let union_def = self.parse_union_def()?;
+                program.unions.push(union_def);
+                continue;
+            }
+
             let word = self.parse_word_def()?;
             program.words.push(word);
         }
@@ -124,6 +134,170 @@ impl Parser {
             "Invalid include syntax '{}'. Use 'include std:name' or 'include \"path\"'",
             token
         ))
+    }
+
+    /// Parse a union type definition:
+    ///   union Message {
+    ///     Get { response-chan: Int }
+    ///     Increment { response-chan: Int }
+    ///     Report { op: Int, delta: Int, total: Int }
+    ///   }
+    fn parse_union_def(&mut self) -> Result<UnionDef, String> {
+        // Capture start line from 'union' token
+        let start_line = self.current_token().map(|t| t.line).unwrap_or(0);
+
+        // Consume 'union' keyword
+        self.consume("union");
+
+        // Get union name (must start with uppercase)
+        let name = self
+            .advance()
+            .ok_or("Expected union name after 'union'")?
+            .clone();
+
+        if !name
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "Union name '{}' must start with an uppercase letter",
+                name
+            ));
+        }
+
+        // Skip comments and newlines
+        self.skip_comments();
+
+        // Expect '{'
+        if !self.consume("{") {
+            return Err(format!(
+                "Expected '{{' after union name '{}', got '{}'",
+                name,
+                self.current()
+            ));
+        }
+
+        // Parse variants until '}'
+        let mut variants = Vec::new();
+        loop {
+            self.skip_comments();
+
+            if self.check("}") {
+                break;
+            }
+
+            if self.is_at_end() {
+                return Err(format!("Unexpected end of file in union '{}'", name));
+            }
+
+            variants.push(self.parse_union_variant()?);
+        }
+
+        // Capture end line from '}' token before consuming
+        let end_line = self.current_token().map(|t| t.line).unwrap_or(start_line);
+
+        // Consume '}'
+        self.consume("}");
+
+        if variants.is_empty() {
+            return Err(format!("Union '{}' must have at least one variant", name));
+        }
+
+        Ok(UnionDef {
+            name,
+            variants,
+            source: Some(SourceLocation::span(
+                std::path::PathBuf::new(),
+                start_line,
+                end_line,
+            )),
+        })
+    }
+
+    /// Parse a single union variant:
+    ///   Get { response-chan: Int }
+    ///   or just: Empty (no fields)
+    fn parse_union_variant(&mut self) -> Result<UnionVariant, String> {
+        let start_line = self.current_token().map(|t| t.line).unwrap_or(0);
+
+        // Get variant name (must start with uppercase)
+        let name = self.advance().ok_or("Expected variant name")?.clone();
+
+        if !name
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "Variant name '{}' must start with an uppercase letter",
+                name
+            ));
+        }
+
+        self.skip_comments();
+
+        // Check for optional fields
+        let fields = if self.check("{") {
+            self.consume("{");
+            let fields = self.parse_union_fields()?;
+            if !self.consume("}") {
+                return Err(format!("Expected '}}' after variant '{}' fields", name));
+            }
+            fields
+        } else {
+            Vec::new()
+        };
+
+        Ok(UnionVariant {
+            name,
+            fields,
+            source: Some(SourceLocation::new(std::path::PathBuf::new(), start_line)),
+        })
+    }
+
+    /// Parse union fields: name: Type, name: Type, ...
+    fn parse_union_fields(&mut self) -> Result<Vec<UnionField>, String> {
+        let mut fields = Vec::new();
+
+        loop {
+            self.skip_comments();
+
+            if self.check("}") {
+                break;
+            }
+
+            // Get field name
+            let field_name = self.advance().ok_or("Expected field name")?.clone();
+
+            // Expect ':'
+            if !self.consume(":") {
+                return Err(format!(
+                    "Expected ':' after field name '{}', got '{}'",
+                    field_name,
+                    self.current()
+                ));
+            }
+
+            // Get type name
+            let type_name = self
+                .advance()
+                .ok_or("Expected type name after ':'")?
+                .clone();
+
+            fields.push(UnionField {
+                name: field_name,
+                type_name,
+            });
+
+            // Optional comma separator
+            self.skip_comments();
+            self.consume(",");
+        }
+
+        Ok(fields)
     }
 
     fn parse_word_def(&mut self) -> Result<WordDef, String> {
@@ -247,6 +421,11 @@ impl Parser {
             return self.parse_quotation();
         }
 
+        // Check for match expression
+        if token == "match" {
+            return self.parse_match();
+        }
+
         // Otherwise it's a word call
         Ok(Statement::WordCall(token))
     }
@@ -324,6 +503,127 @@ impl Parser {
 
             body.push(self.parse_statement()?);
         }
+    }
+
+    /// Parse a match expression:
+    ///   match
+    ///     Get -> send-response
+    ///     Increment -> do-increment send-response
+    ///     Report -> aggregate-add
+    ///   end
+    fn parse_match(&mut self) -> Result<Statement, String> {
+        let mut arms = Vec::new();
+
+        loop {
+            self.skip_comments();
+
+            // Check for 'end' to terminate match
+            if self.check("end") {
+                self.advance();
+                break;
+            }
+
+            if self.is_at_end() {
+                return Err("Unexpected end of file in match expression".to_string());
+            }
+
+            arms.push(self.parse_match_arm()?);
+        }
+
+        if arms.is_empty() {
+            return Err("Match expression must have at least one arm".to_string());
+        }
+
+        Ok(Statement::Match { arms })
+    }
+
+    /// Parse a single match arm:
+    ///   Get -> send-response
+    ///   or with bindings:
+    ///   Get { chan } -> chan send-response
+    fn parse_match_arm(&mut self) -> Result<MatchArm, String> {
+        // Get variant name
+        let variant_name = self
+            .advance()
+            .ok_or("Expected variant name in match arm")?
+            .clone();
+
+        self.skip_comments();
+
+        // Check for optional bindings: { field1 field2 }
+        let pattern = if self.check("{") {
+            self.consume("{");
+            let mut bindings = Vec::new();
+
+            loop {
+                self.skip_comments();
+
+                if self.check("}") {
+                    break;
+                }
+
+                if self.is_at_end() {
+                    return Err(format!(
+                        "Unexpected end of file in match arm bindings for '{}'",
+                        variant_name
+                    ));
+                }
+
+                let binding = self.advance().ok_or("Expected binding name")?.clone();
+                bindings.push(binding);
+            }
+
+            self.consume("}");
+            Pattern::VariantWithBindings {
+                name: variant_name,
+                bindings,
+            }
+        } else {
+            Pattern::Variant(variant_name.clone())
+        };
+
+        self.skip_comments();
+
+        // Expect '->' arrow
+        if !self.consume("->") {
+            return Err(format!(
+                "Expected '->' after pattern '{}', got '{}'",
+                match &pattern {
+                    Pattern::Variant(n) => n.clone(),
+                    Pattern::VariantWithBindings { name, .. } => name.clone(),
+                },
+                self.current()
+            ));
+        }
+
+        // Parse body until next pattern or 'end'
+        let mut body = Vec::new();
+        loop {
+            self.skip_comments();
+
+            // Check for end of arm (next pattern starts with uppercase, or 'end')
+            if self.check("end") {
+                break;
+            }
+
+            // Check if next token looks like a variant name (starts with uppercase)
+            // We need to peek without consuming
+            if let Some(token) = self.current_token()
+                && let Some(first_char) = token.text.chars().next()
+                && first_char.is_uppercase()
+            {
+                // This is the next pattern
+                break;
+            }
+
+            if self.is_at_end() {
+                return Err("Unexpected end of file in match arm body".to_string());
+            }
+
+            body.push(self.parse_statement()?);
+        }
+
+        Ok(MatchArm { pattern, body })
     }
 
     /// Parse a stack effect declaration: ( ..a Int -- ..a Bool )
@@ -752,7 +1052,7 @@ fn tokenize(source: &str) -> Vec<Token> {
             } else {
                 col += 1;
             }
-        } else if "():;[]".contains(ch) {
+        } else if "():;[]{}".contains(ch) {
             if !current.is_empty() {
                 tokens.push(Token::new(
                     current.clone(),
@@ -1815,5 +2115,229 @@ mod tests {
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].line, 0);
         assert_eq!(tokens[0].column, 0);
+    }
+
+    // ============================================================================
+    //                         ADT PARSING TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_parse_simple_union() {
+        let source = r#"
+union Message {
+  Get { response-chan: Int }
+  Set { value: Int }
+}
+
+: main ( -- ) ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.unions.len(), 1);
+        let union_def = &program.unions[0];
+        assert_eq!(union_def.name, "Message");
+        assert_eq!(union_def.variants.len(), 2);
+
+        // Check first variant
+        assert_eq!(union_def.variants[0].name, "Get");
+        assert_eq!(union_def.variants[0].fields.len(), 1);
+        assert_eq!(union_def.variants[0].fields[0].name, "response-chan");
+        assert_eq!(union_def.variants[0].fields[0].type_name, "Int");
+
+        // Check second variant
+        assert_eq!(union_def.variants[1].name, "Set");
+        assert_eq!(union_def.variants[1].fields.len(), 1);
+        assert_eq!(union_def.variants[1].fields[0].name, "value");
+        assert_eq!(union_def.variants[1].fields[0].type_name, "Int");
+    }
+
+    #[test]
+    fn test_parse_union_with_multiple_fields() {
+        let source = r#"
+union Report {
+  Data { op: Int, delta: Int, total: Int }
+  Empty
+}
+
+: main ( -- ) ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.unions.len(), 1);
+        let union_def = &program.unions[0];
+        assert_eq!(union_def.name, "Report");
+        assert_eq!(union_def.variants.len(), 2);
+
+        // Check Data variant with 3 fields
+        let data_variant = &union_def.variants[0];
+        assert_eq!(data_variant.name, "Data");
+        assert_eq!(data_variant.fields.len(), 3);
+        assert_eq!(data_variant.fields[0].name, "op");
+        assert_eq!(data_variant.fields[1].name, "delta");
+        assert_eq!(data_variant.fields[2].name, "total");
+
+        // Check Empty variant with no fields
+        let empty_variant = &union_def.variants[1];
+        assert_eq!(empty_variant.name, "Empty");
+        assert_eq!(empty_variant.fields.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_union_lowercase_name_error() {
+        let source = r#"
+union message {
+  Get { }
+}
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("uppercase"));
+    }
+
+    #[test]
+    fn test_parse_union_empty_error() {
+        let source = r#"
+union Message {
+}
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least one variant"));
+    }
+
+    #[test]
+    fn test_parse_simple_match() {
+        let source = r#"
+: handle ( -- )
+  match
+    Get -> send-response
+    Set -> process-set
+  end
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].body.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Match { arms } => {
+                assert_eq!(arms.len(), 2);
+
+                // First arm: Get ->
+                match &arms[0].pattern {
+                    Pattern::Variant(name) => assert_eq!(name, "Get"),
+                    _ => panic!("Expected Variant pattern"),
+                }
+                assert_eq!(arms[0].body.len(), 1);
+
+                // Second arm: Set ->
+                match &arms[1].pattern {
+                    Pattern::Variant(name) => assert_eq!(name, "Set"),
+                    _ => panic!("Expected Variant pattern"),
+                }
+                assert_eq!(arms[1].body.len(), 1);
+            }
+            _ => panic!("Expected Match statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_bindings() {
+        let source = r#"
+: handle ( -- )
+  match
+    Get { chan } -> chan send-response
+    Report { delta total } -> delta total process
+  end
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+
+        match &program.words[0].body[0] {
+            Statement::Match { arms } => {
+                assert_eq!(arms.len(), 2);
+
+                // First arm: Get { chan } ->
+                match &arms[0].pattern {
+                    Pattern::VariantWithBindings { name, bindings } => {
+                        assert_eq!(name, "Get");
+                        assert_eq!(bindings.len(), 1);
+                        assert_eq!(bindings[0], "chan");
+                    }
+                    _ => panic!("Expected VariantWithBindings pattern"),
+                }
+
+                // Second arm: Report { delta total } ->
+                match &arms[1].pattern {
+                    Pattern::VariantWithBindings { name, bindings } => {
+                        assert_eq!(name, "Report");
+                        assert_eq!(bindings.len(), 2);
+                        assert_eq!(bindings[0], "delta");
+                        assert_eq!(bindings[1], "total");
+                    }
+                    _ => panic!("Expected VariantWithBindings pattern"),
+                }
+            }
+            _ => panic!("Expected Match statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_body_statements() {
+        let source = r#"
+: handle ( -- )
+  match
+    Get -> 1 2 add send-response
+    Set -> process-value store
+  end
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::Match { arms } => {
+                // Get arm has 4 statements: 1, 2, add, send-response
+                assert_eq!(arms[0].body.len(), 4);
+                assert_eq!(arms[0].body[0], Statement::IntLiteral(1));
+                assert_eq!(arms[0].body[1], Statement::IntLiteral(2));
+                assert_eq!(arms[0].body[2], Statement::WordCall("add".to_string()));
+
+                // Set arm has 2 statements: process-value, store
+                assert_eq!(arms[1].body.len(), 2);
+            }
+            _ => panic!("Expected Match statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_match_empty_error() {
+        let source = r#"
+: handle ( -- )
+  match
+  end
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least one arm"));
     }
 }

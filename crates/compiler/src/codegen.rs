@@ -151,7 +151,6 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("variant-append", "patch_seq_variant_append"),
         ("variant-last", "patch_seq_variant_last"),
         ("variant-init", "patch_seq_variant_init"),
-        ("make-variant", "patch_seq_make_variant"),
         ("make-variant-0", "patch_seq_make_variant_0"),
         ("make-variant-1", "patch_seq_make_variant_1"),
         ("make-variant-2", "patch_seq_make_variant_2"),
@@ -590,7 +589,6 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_variant_append(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_last(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_variant_init(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_variant(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_0(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_1(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();

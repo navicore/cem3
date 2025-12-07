@@ -485,16 +485,21 @@ Higher-order combinators like `map` are not yet in the standard library.
 
 ### Variants (Runtime Algebraic Types)
 
-Seq supports variants (tagged unions) at runtime via `make-variant`:
+Seq supports variants (tagged unions) at runtime via typed constructors:
 
 ```seq
 # Create a variant with tag 1 and 2 fields
-42 "hello" 2 1 make-variant  # Tag 1, 2 fields
+42 "hello" 1 make-variant-2  # Tag 1, 2 fields
+
+# Empty variant (0 fields)
+5 make-variant-0             # Tag 5, no fields
 
 # Access variant data
-variant-tag       # Get the tag (Int)
+variant-tag         # Get the tag (Int)
 0 variant-field-at  # Get field at index 0
 ```
+
+Available constructors: `make-variant-0` through `make-variant-4` for 0-4 fields.
 
 Variants are dynamically typed at runtime. Full compile-time algebraic data type syntax is planned for a future phase:
 

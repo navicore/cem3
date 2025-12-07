@@ -1,8 +1,8 @@
 # Known Issues
 
-## make-variant Type Annotation Bug (FIXED)
+## make-variant Type Annotation Bug (RESOLVED)
 
-**Status**: Fixed in this commit
+**Status**: Resolved - old `make-variant` removed, typed constructors available
 **Discovered**: During SeqLisp implementation exercise
 
 ### Problem
@@ -11,7 +11,7 @@ The original `make-variant` builtin had an incomplete type signature that didn't
 
 ### Solution
 
-Added type-safe variant constructors with fixed arity:
+Replaced with type-safe variant constructors with fixed arity:
 
 - `make-variant-0`: `( tag -- Variant )` - 0 fields
 - `make-variant-1`: `( field1 tag -- Variant )` - 1 field
@@ -22,29 +22,22 @@ Added type-safe variant constructors with fixed arity:
 ### Usage
 
 ```seq
-# Old way (incomplete type checking):
 : snum ( Int -- Variant )
-  1 1 make-variant ;   # ERROR: type mismatch
+  1 make-variant-1 ;   # Type-safe!
 
-# New way (proper type safety):
-: snum ( Int -- Variant )
-  1 make-variant-1 ;   # Works correctly!
+: empty-array ( -- Variant )
+  4 make-variant-0 ;   # Tag 4, no fields
 ```
 
-### Note
+### Migration Completed
 
-The original `make-variant` is still available for backward compatibility and for cases where the field count is dynamic, but it provides incomplete type checking. Prefer the typed `make-variant-N` variants for type safety.
+- ✅ `make-variant-N` variants implemented (0-4 fields)
+- ✅ `json.seq` migrated to use typed variants
+- ✅ `yaml.seq` migrated to use typed variants
+- ✅ Original `make-variant` removed
 
 ### Future Work
 
-We plan to revisit the type inference system to:
-
-1. **Remove `make-variant`**: Once all code is migrated to use the typed `make-variant-N` variants, deprecate and remove the original `make-variant` to prevent accidentally bypassing type safety.
-
-2. **Evaluate more robust solutions**: The fixed-arity approach works but has limitations (max 4 fields, verbose for common cases). Potential improvements to discuss:
-   - **Literal tracking in type system**: Infer field count from compile-time literal values
-   - **Dependent types**: Full dependent type support (significant complexity)
-   - **Macro-based generation**: Generate `make-variant-N` at compile time based on usage
-   - **Builder pattern**: Functional variant construction with `variant-new` / `variant-with-field`
-
-3. **Update stdlib**: Migrate `json.seq`, `yaml.seq`, and other stdlib code to use typed variants.
+The fixed-arity approach works but has limitations (max 4 fields). If needed, potential improvements:
+- Add `make-variant-5` through `make-variant-N` as needed
+- Use `variant-append` for building dynamic collections (already supported)

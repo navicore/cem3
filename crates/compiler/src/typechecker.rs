@@ -6,13 +6,16 @@
 use crate::ast::{Program, Statement, WordDef};
 use crate::builtins::builtin_signature;
 use crate::capture_analysis::calculate_captures;
-use crate::types::{Effect, StackType, Type};
+use crate::types::{Effect, StackType, Type, UnionTypeInfo, VariantFieldInfo, VariantInfo};
 use crate::unification::{Subst, unify_stacks};
 use std::collections::HashMap;
 
 pub struct TypeChecker {
     /// Environment mapping word names to their effects
     env: HashMap<String, Effect>,
+    /// Union type registry - maps union names to their type information
+    /// Contains variant names and field types for each union
+    unions: HashMap<String, UnionTypeInfo>,
     /// Counter for generating fresh type variables
     fresh_counter: std::cell::Cell<usize>,
     /// Quotation types tracked during type checking
@@ -28,10 +31,21 @@ impl TypeChecker {
     pub fn new() -> Self {
         TypeChecker {
             env: HashMap::new(),
+            unions: HashMap::new(),
             fresh_counter: std::cell::Cell::new(0),
             quotation_types: std::cell::RefCell::new(HashMap::new()),
             expected_quotation_type: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Look up a union type by name
+    pub fn get_union(&self, name: &str) -> Option<&UnionTypeInfo> {
+        self.unions.get(name)
+    }
+
+    /// Get all registered union types
+    pub fn get_unions(&self) -> &HashMap<String, UnionTypeInfo> {
+        &self.unions
     }
 
     /// Register external word effects (e.g., from included modules).
@@ -136,12 +150,55 @@ impl TypeChecker {
                     captures: fresh_captures,
                 }
             }
+            // Union types are concrete named types - no freshening needed
+            Type::Union(name) => Type::Union(name.clone()),
+        }
+    }
+
+    /// Parse a type name string into a Type
+    ///
+    /// Supports: Int, Float, Bool, String, and union types
+    fn parse_type_name(&self, name: &str) -> Type {
+        match name {
+            "Int" => Type::Int,
+            "Float" => Type::Float,
+            "Bool" => Type::Bool,
+            "String" => Type::String,
+            // Any other name is assumed to be a union type reference
+            other => Type::Union(other.to_string()),
         }
     }
 
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
-        // First pass: collect all word signatures
+        // First pass: register all union definitions
+        for union_def in &program.unions {
+            let variants = union_def
+                .variants
+                .iter()
+                .map(|v| VariantInfo {
+                    name: v.name.clone(),
+                    fields: v
+                        .fields
+                        .iter()
+                        .map(|f| VariantFieldInfo {
+                            name: f.name.clone(),
+                            field_type: self.parse_type_name(&f.type_name),
+                        })
+                        .collect(),
+                })
+                .collect();
+
+            self.unions.insert(
+                union_def.name.clone(),
+                UnionTypeInfo {
+                    name: union_def.name.clone(),
+                    variants,
+                },
+            );
+        }
+
+        // Second pass: collect all word signatures
         // For words without explicit effects, use a maximally polymorphic placeholder
         // This allows calls to work, and actual type safety comes from checking the body
         for word in &program.words {
@@ -158,7 +215,7 @@ impl TypeChecker {
             }
         }
 
-        // Second pass: type check each word body
+        // Third pass: type check each word body
         for word in &program.words {
             self.check_word(word)?;
         }

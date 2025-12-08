@@ -17,7 +17,7 @@
 //! - `define ptr @push_int(ptr %stack, i64 %value) { ... }` for literals
 //! - Stack type is represented as `ptr` (opaque pointer in modern LLVM)
 
-use crate::ast::{Program, Statement, WordDef};
+use crate::ast::{MatchArm, Pattern, Program, Statement, UnionDef, WordDef};
 use crate::config::CompilerConfig;
 use crate::types::Type;
 use std::collections::HashMap;
@@ -263,6 +263,7 @@ pub struct CodeGen {
     inside_closure: bool, // Track if we're generating code inside a closure (disables TCO)
     inside_main: bool, // Track if we're generating code for main (uses C convention, no musttail)
     inside_quotation: bool, // Track if we're generating code for a quotation (uses C convention, no musttail)
+    unions: Vec<UnionDef>,  // Union type definitions for pattern matching
 }
 
 impl CodeGen {
@@ -281,6 +282,7 @@ impl CodeGen {
             quotation_functions: String::new(),
             type_map: HashMap::new(),
             external_builtins: HashMap::new(),
+            unions: Vec::new(),
         }
     }
 
@@ -307,6 +309,84 @@ impl CodeGen {
                 id
             )
         })
+    }
+
+    /// Find variant info by name across all unions
+    ///
+    /// Returns (tag_index, field_count) for the variant
+    /// Returns (tag_index, field_count, field_names)
+    fn find_variant_info(&self, variant_name: &str) -> Result<(usize, usize, Vec<String>), String> {
+        for union_def in &self.unions {
+            for (tag_idx, variant) in union_def.variants.iter().enumerate() {
+                if variant.name == variant_name {
+                    let field_names: Vec<String> =
+                        variant.fields.iter().map(|f| f.name.clone()).collect();
+                    return Ok((tag_idx, variant.fields.len(), field_names));
+                }
+            }
+        }
+        Err(format!(
+            "Unknown variant '{}' in match pattern. No union defines this variant.",
+            variant_name
+        ))
+    }
+
+    /// Find the union that contains a given variant
+    ///
+    /// Returns the UnionDef reference if found
+    fn find_union_for_variant(&self, variant_name: &str) -> Option<&UnionDef> {
+        for union_def in &self.unions {
+            for variant in &union_def.variants {
+                if variant.name == variant_name {
+                    return Some(union_def);
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a match expression is exhaustive for its union type
+    ///
+    /// Returns Ok(()) if exhaustive, Err with missing variants if not
+    fn check_match_exhaustiveness(&self, arms: &[MatchArm]) -> Result<(), (String, Vec<String>)> {
+        if arms.is_empty() {
+            return Ok(()); // Empty match is degenerate, skip check
+        }
+
+        // Get the first variant name to find the union
+        let first_variant = match &arms[0].pattern {
+            Pattern::Variant(name) => name.as_str(),
+            Pattern::VariantWithBindings { name, .. } => name.as_str(),
+        };
+
+        // Find the union this variant belongs to
+        let union_def = match self.find_union_for_variant(first_variant) {
+            Some(u) => u,
+            None => return Ok(()), // Unknown variant, let find_variant_info handle error
+        };
+
+        // Collect all variant names in the match arms
+        let matched_variants: std::collections::HashSet<&str> = arms
+            .iter()
+            .map(|arm| match &arm.pattern {
+                Pattern::Variant(name) => name.as_str(),
+                Pattern::VariantWithBindings { name, .. } => name.as_str(),
+            })
+            .collect();
+
+        // Check if all union variants are covered
+        let missing: Vec<String> = union_def
+            .variants
+            .iter()
+            .filter(|v| !matched_variants.contains(v.name.as_str()))
+            .map(|v| v.name.clone())
+            .collect();
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err((union_def.name.clone(), missing))
+        }
     }
 
     /// Escape a string for LLVM IR string literals
@@ -376,6 +456,9 @@ impl CodeGen {
     ) -> Result<String, String> {
         // Store type map for use during code generation
         self.type_map = type_map;
+
+        // Store union definitions for pattern matching
+        self.unions = program.unions.clone();
 
         // Build external builtins map from config
         self.external_builtins = config
@@ -594,6 +677,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_3(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_4(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)").unwrap();
         writeln!(&mut ir, "; Float operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
@@ -1373,6 +1457,255 @@ impl CodeGen {
         Ok(result_var)
     }
 
+    /// Generate code for a match expression (pattern matching on union types)
+    ///
+    /// Match expressions:
+    /// 1. Get the variant's tag to determine which arm to execute
+    /// 2. Jump to the appropriate arm based on tag
+    /// 3. In each arm, unpack the variant's fields onto the stack
+    /// 4. Execute the arm's body
+    /// 5. Merge control flow at the end
+    fn codegen_match_statement(
+        &mut self,
+        stack_var: &str,
+        arms: &[MatchArm],
+        position: TailPosition,
+    ) -> Result<String, String> {
+        // Step 0: Check exhaustiveness
+        if let Err((union_name, missing)) = self.check_match_exhaustiveness(arms) {
+            return Err(format!(
+                "Non-exhaustive match on union '{}'. Missing variants: {}",
+                union_name,
+                missing.join(", ")
+            ));
+        }
+
+        // Step 1: Duplicate the variant so we can get the tag without consuming it
+        let dup_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_dup(ptr %{})",
+            dup_stack, stack_var
+        )
+        .unwrap();
+
+        // Step 2: Call variant-tag on the duplicate to get the tag as Int
+        let tagged_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_variant_tag(ptr %{})",
+            tagged_stack, dup_stack
+        )
+        .unwrap();
+
+        // Step 3: Peek the tag value and pop it from stack
+        let tag_value = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
+            tag_value, tagged_stack
+        )
+        .unwrap();
+
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+            popped_stack, tagged_stack
+        )
+        .unwrap();
+
+        // Now popped_stack has just the original variant (dup'd copy tag was consumed)
+
+        // Step 4: Generate switch statement
+        let default_block = self.fresh_block("match_unreachable");
+        let merge_block = self.fresh_block("match_merge");
+
+        // Build the switch instruction
+        write!(
+            &mut self.output,
+            "  switch i64 %{}, label %{} [",
+            tag_value, default_block
+        )
+        .unwrap();
+
+        // Collect arm info: (block_name, tag, field_count, field_names)
+        let mut arm_info: Vec<(String, usize, usize, Vec<String>)> = Vec::new();
+        for (i, arm) in arms.iter().enumerate() {
+            let block = self.fresh_block(&format!("match_arm_{}", i));
+            let variant_name = match &arm.pattern {
+                Pattern::Variant(name) => name.as_str(),
+                Pattern::VariantWithBindings { name, .. } => name.as_str(),
+            };
+            let (tag, field_count, field_names) = self.find_variant_info(variant_name)?;
+            arm_info.push((block.clone(), tag, field_count, field_names));
+            write!(&mut self.output, " i64 {}, label %{}", tag, block).unwrap();
+        }
+        writeln!(&mut self.output, " ]").unwrap();
+
+        // Step 5: Generate unreachable default block (should never reach)
+        writeln!(&mut self.output, "{}:", default_block).unwrap();
+        writeln!(&mut self.output, "  unreachable").unwrap();
+
+        // Step 6: Generate each match arm
+        let mut arm_results: Vec<BranchResult> = Vec::new();
+        for (i, (arm, (block, _tag, field_count, field_names))) in
+            arms.iter().zip(arm_info.iter()).enumerate()
+        {
+            writeln!(&mut self.output, "{}:", block).unwrap();
+
+            // Extract fields based on pattern type
+            let unpacked_stack = match &arm.pattern {
+                Pattern::Variant(_) => {
+                    // Stack-based: unpack all fields in declaration order
+                    let result = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
+                        result, popped_stack, field_count
+                    )
+                    .unwrap();
+                    result
+                }
+                Pattern::VariantWithBindings { bindings, .. } => {
+                    // Named bindings: extract only bound fields using variant_field_at
+                    // variant_field_at expects: ( variant index -- field_value )
+                    //
+                    // Algorithm for bindings [a, b, c]:
+                    // - For each binding except last: dup, push idx, field_at, swap
+                    // - For last binding: push idx, field_at
+                    // This leaves fields in binding order: ( a b c )
+
+                    if bindings.is_empty() {
+                        // No bindings: just drop the variant
+                        let drop_stack = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                            drop_stack, popped_stack
+                        )
+                        .unwrap();
+                        drop_stack
+                    } else {
+                        let mut current_stack = popped_stack.to_string();
+                        let is_last = |idx: usize| idx == bindings.len() - 1;
+
+                        for (bind_idx, binding) in bindings.iter().enumerate() {
+                            // Find the field index for this binding
+                            let field_idx = field_names
+                                .iter()
+                                .position(|f| f == binding)
+                                .expect("binding validation should have caught unknown field");
+
+                            if !is_last(bind_idx) {
+                                // Not the last binding: dup, push idx, field_at, swap
+                                let dup_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
+                                    dup_stack, current_stack
+                                )
+                                .unwrap();
+
+                                let idx_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+                                    idx_stack, dup_stack, field_idx
+                                )
+                                .unwrap();
+
+                                let field_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+                                    field_stack, idx_stack
+                                )
+                                .unwrap();
+
+                                // Swap to get variant back on top: ( field variant )
+                                let swap_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_swap(ptr %{})",
+                                    swap_stack, field_stack
+                                )
+                                .unwrap();
+
+                                current_stack = swap_stack;
+                            } else {
+                                // Last binding: push idx, field_at
+                                let idx_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+                                    idx_stack, current_stack, field_idx
+                                )
+                                .unwrap();
+
+                                let field_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+                                    field_stack, idx_stack
+                                )
+                                .unwrap();
+
+                                current_stack = field_stack;
+                            }
+                        }
+
+                        current_stack
+                    }
+                }
+            };
+
+            // Generate the arm body
+            let result = self.codegen_branch(
+                &arm.body,
+                &unpacked_stack,
+                position,
+                &merge_block,
+                &format!("match_arm_{}", i),
+            )?;
+            arm_results.push(result);
+        }
+
+        // Step 7: Generate merge block with phi node
+        // Check if all arms emitted tail calls
+        let all_tail_calls = arm_results.iter().all(|r| r.emitted_tail_call);
+        if all_tail_calls {
+            // All branches tail-called, no merge needed
+            // Return any stack var (won't be used)
+            return Ok(arm_results[0].stack_var.clone());
+        }
+
+        writeln!(&mut self.output, "{}:", merge_block).unwrap();
+        let result_var = self.fresh_temp();
+
+        // Build phi node from non-tail-call branches
+        let phi_entries: Vec<_> = arm_results
+            .iter()
+            .filter(|r| !r.emitted_tail_call)
+            .map(|r| format!("[ %{}, %{} ]", r.stack_var, r.predecessor))
+            .collect();
+
+        if phi_entries.is_empty() {
+            // Shouldn't happen if not all_tail_calls
+            return Err("Match codegen: unexpected empty phi".to_string());
+        }
+
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr {}",
+            result_var,
+            phi_entries.join(", ")
+        )
+        .unwrap();
+
+        Ok(result_var)
+    }
+
     /// Generate code for pushing a quotation or closure onto the stack
     fn codegen_quotation_push(
         &mut self,
@@ -1469,6 +1802,7 @@ impl CodeGen {
                 else_branch,
             } => self.codegen_if_statement(stack_var, then_branch, else_branch.as_ref(), position),
             Statement::Quotation { id, body } => self.codegen_quotation_push(stack_var, *id, body),
+            Statement::Match { arms } => self.codegen_match_statement(stack_var, arms, position),
         }
     }
 
@@ -1563,6 +1897,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1590,6 +1925,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1625,6 +1961,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1664,6 +2001,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -1757,5 +2095,55 @@ mod tests {
         let result = compile_to_ir(source);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unknown-builtin"));
+    }
+
+    #[test]
+    fn test_match_exhaustiveness_error() {
+        use crate::compile_to_ir;
+
+        let source = r#"
+            union Result { Ok { value: Int } Err { msg: String } }
+
+            : handle ( Variant -- Int )
+              match
+                Ok -> drop 1
+                # Missing Err arm!
+              end
+            ;
+
+            : main ( -- ) 42 Make-Ok handle drop ;
+        "#;
+
+        let result = compile_to_ir(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Non-exhaustive match"));
+        assert!(err.contains("Result"));
+        assert!(err.contains("Err"));
+    }
+
+    #[test]
+    fn test_match_exhaustive_compiles() {
+        use crate::compile_to_ir;
+
+        let source = r#"
+            union Result { Ok { value: Int } Err { msg: String } }
+
+            : handle ( Variant -- Int )
+              match
+                Ok -> drop 1
+                Err -> drop 0
+              end
+            ;
+
+            : main ( -- ) 42 Make-Ok handle drop ;
+        "#;
+
+        let result = compile_to_ir(source);
+        assert!(
+            result.is_ok(),
+            "Exhaustive match should compile: {:?}",
+            result
+        );
     }
 }

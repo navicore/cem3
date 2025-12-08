@@ -3,7 +3,7 @@
 //! Minimal AST sufficient for hello-world and basic programs.
 //! Will be extended as we add more language features.
 
-use crate::types::Effect;
+use crate::types::{Effect, StackType, Type};
 use std::path::PathBuf;
 
 /// Source location for error reporting and tooling
@@ -72,9 +72,68 @@ pub enum Include {
     Relative(String),
 }
 
+// ============================================================================
+//                     ALGEBRAIC DATA TYPES (ADTs)
+// ============================================================================
+
+/// A field in a union variant
+/// Example: `response-chan: Int`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionField {
+    pub name: String,
+    pub type_name: String, // For now, just store the type name as string
+}
+
+/// A variant in a union type
+/// Example: `Get { response-chan: Int }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionVariant {
+    pub name: String,
+    pub fields: Vec<UnionField>,
+    pub source: Option<SourceLocation>,
+}
+
+/// A union type definition
+/// Example:
+/// ```seq
+/// union Message {
+///   Get { response-chan: Int }
+///   Increment { response-chan: Int }
+///   Report { op: Int, delta: Int, total: Int }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionDef {
+    pub name: String,
+    pub variants: Vec<UnionVariant>,
+    pub source: Option<SourceLocation>,
+}
+
+/// A pattern in a match expression
+/// For Phase 1: just the variant name (stack-based matching)
+/// Later phases will add field bindings: `Get { chan }`
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// Match a variant by name, pushing all fields to stack
+    /// Example: `Get ->` pushes response-chan to stack
+    Variant(String),
+
+    /// Match a variant with named field bindings (Phase 5)
+    /// Example: `Get { chan } ->` binds chan to the response-chan field
+    VariantWithBindings { name: String, bindings: Vec<String> },
+}
+
+/// A single arm in a match expression
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Vec<Statement>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub includes: Vec<Include>,
+    pub unions: Vec<UnionDef>,
     pub words: Vec<WordDef>,
 }
 
@@ -126,14 +185,38 @@ pub enum Statement {
     /// The id field is used by the typechecker to track the inferred type
     /// (Quotation vs Closure) for this quotation. The id is assigned during parsing.
     Quotation { id: usize, body: Vec<Statement> },
+
+    /// Match expression: pattern matching on union types
+    ///
+    /// Pops a union value from the stack and dispatches to the
+    /// appropriate arm based on the variant tag.
+    ///
+    /// Example:
+    /// ```seq
+    /// match
+    ///   Get -> send-response
+    ///   Increment -> do-increment send-response
+    ///   Report -> aggregate-add
+    /// end
+    /// ```
+    Match {
+        /// The match arms in order
+        arms: Vec<MatchArm>,
+    },
 }
 
 impl Program {
     pub fn new() -> Self {
         Program {
             includes: Vec::new(),
+            unions: Vec::new(),
             words: Vec::new(),
         }
+    }
+
+    /// Find a union definition by name
+    pub fn find_union(&self, name: &str) -> Option<&UnionDef> {
+        self.unions.iter().find(|u| u.name == name)
     }
 
     pub fn find_word(&self, name: &str) -> Option<&WordDef> {
@@ -346,10 +429,97 @@ impl Program {
                     // Recursively validate quotation body
                     self.validate_statements(body, word_name, builtins, external_words)?;
                 }
+                Statement::Match { arms } => {
+                    // Recursively validate each match arm's body
+                    for arm in arms {
+                        self.validate_statements(&arm.body, word_name, builtins, external_words)?;
+                    }
+                }
                 _ => {} // Literals don't need validation
             }
         }
         Ok(())
+    }
+
+    /// Generate constructor words for all union definitions
+    ///
+    /// Maximum number of fields a variant can have (limited by runtime support)
+    pub const MAX_VARIANT_FIELDS: usize = 4;
+
+    /// For each union variant, generates a `Make-VariantName` word that:
+    /// 1. Takes the variant's field values from the stack
+    /// 2. Pushes the variant tag (index)
+    /// 3. Calls the appropriate `make-variant-N` builtin
+    ///
+    /// Example: For `union Message { Get { chan: Int } }`
+    /// Generates: `: Make-Get ( Int -- Message ) 0 make-variant-1 ;`
+    ///
+    /// Returns an error if any variant exceeds the maximum field count.
+    pub fn generate_constructors(&mut self) -> Result<(), String> {
+        let mut new_words = Vec::new();
+
+        for union_def in &self.unions {
+            for (variant_idx, variant) in union_def.variants.iter().enumerate() {
+                let constructor_name = format!("Make-{}", variant.name);
+                let field_count = variant.fields.len();
+
+                // Check field count limit before generating constructor
+                if field_count > Self::MAX_VARIANT_FIELDS {
+                    return Err(format!(
+                        "Variant '{}' in union '{}' has {} fields, but the maximum is {}. \
+                         Consider grouping fields into nested union types.",
+                        variant.name,
+                        union_def.name,
+                        field_count,
+                        Self::MAX_VARIANT_FIELDS
+                    ));
+                }
+
+                // Build the stack effect: ( field_types... -- UnionType )
+                // Input stack has fields in declaration order
+                let mut input_stack = StackType::RowVar("a".to_string());
+                for field in &variant.fields {
+                    let field_type = parse_type_name(&field.type_name);
+                    input_stack = input_stack.push(field_type);
+                }
+
+                // Output stack has the union type
+                let output_stack =
+                    StackType::RowVar("a".to_string()).push(Type::Union(union_def.name.clone()));
+
+                let effect = Effect::new(input_stack, output_stack);
+
+                // Build the body:
+                // 1. Push the variant tag
+                // 2. Call make-variant-N
+                let body = vec![
+                    Statement::IntLiteral(variant_idx as i64),
+                    Statement::WordCall(format!("make-variant-{}", field_count)),
+                ];
+
+                new_words.push(WordDef {
+                    name: constructor_name,
+                    effect: Some(effect),
+                    body,
+                    source: variant.source.clone(),
+                });
+            }
+        }
+
+        self.words.extend(new_words);
+        Ok(())
+    }
+}
+
+/// Parse a type name string into a Type
+/// Used by constructor generation to build stack effects
+fn parse_type_name(name: &str) -> Type {
+    match name {
+        "Int" => Type::Int,
+        "Float" => Type::Float,
+        "Bool" => Type::Bool,
+        "String" => Type::String,
+        other => Type::Union(other.to_string()),
     }
 }
 
@@ -367,6 +537,7 @@ mod tests {
     fn test_validate_builtin_words() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -388,6 +559,7 @@ mod tests {
     fn test_validate_user_defined_words() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
@@ -412,6 +584,7 @@ mod tests {
     fn test_validate_undefined_word() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -432,6 +605,7 @@ mod tests {
     fn test_validate_misspelled_builtin() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
@@ -446,5 +620,91 @@ mod tests {
         let error = result.unwrap_err();
         assert!(error.contains("wrte_line"));
         assert!(error.contains("misspell"));
+    }
+
+    #[test]
+    fn test_generate_constructors() {
+        let mut program = Program {
+            includes: vec![],
+            unions: vec![UnionDef {
+                name: "Message".to_string(),
+                variants: vec![
+                    UnionVariant {
+                        name: "Get".to_string(),
+                        fields: vec![UnionField {
+                            name: "response-chan".to_string(),
+                            type_name: "Int".to_string(),
+                        }],
+                        source: None,
+                    },
+                    UnionVariant {
+                        name: "Put".to_string(),
+                        fields: vec![
+                            UnionField {
+                                name: "value".to_string(),
+                                type_name: "String".to_string(),
+                            },
+                            UnionField {
+                                name: "response-chan".to_string(),
+                                type_name: "Int".to_string(),
+                            },
+                        ],
+                        source: None,
+                    },
+                ],
+                source: None,
+            }],
+            words: vec![],
+        };
+
+        // Generate constructors
+        program.generate_constructors().unwrap();
+
+        // Should have 2 constructor words
+        assert_eq!(program.words.len(), 2);
+
+        // Check Make-Get constructor
+        let make_get = program
+            .find_word("Make-Get")
+            .expect("Make-Get should exist");
+        assert_eq!(make_get.name, "Make-Get");
+        assert!(make_get.effect.is_some());
+        let effect = make_get.effect.as_ref().unwrap();
+        // Input: ( ..a Int -- )
+        // Output: ( ..a Message -- )
+        assert_eq!(
+            format!("{:?}", effect.outputs),
+            "Cons { rest: RowVar(\"a\"), top: Union(\"Message\") }"
+        );
+
+        // Check Make-Put constructor
+        let make_put = program
+            .find_word("Make-Put")
+            .expect("Make-Put should exist");
+        assert_eq!(make_put.name, "Make-Put");
+        assert!(make_put.effect.is_some());
+
+        // Check the body generates correct code
+        // Make-Get should be: 0 make-variant-1
+        assert_eq!(make_get.body.len(), 2);
+        match &make_get.body[0] {
+            Statement::IntLiteral(0) => {}
+            _ => panic!("Expected IntLiteral(0) for variant tag"),
+        }
+        match &make_get.body[1] {
+            Statement::WordCall(name) if name == "make-variant-1" => {}
+            _ => panic!("Expected WordCall(make-variant-1)"),
+        }
+
+        // Make-Put should be: 1 make-variant-2
+        assert_eq!(make_put.body.len(), 2);
+        match &make_put.body[0] {
+            Statement::IntLiteral(1) => {}
+            _ => panic!("Expected IntLiteral(1) for variant tag"),
+        }
+        match &make_put.body[1] {
+            Statement::WordCall(name) if name == "make-variant-2" => {}
+            _ => panic!("Expected WordCall(make-variant-2)"),
+        }
     }
 }

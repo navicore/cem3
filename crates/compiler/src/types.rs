@@ -28,9 +28,34 @@ pub enum Type {
         /// Ordered top-down: captures[0] is top of stack at creation
         captures: Vec<Type>,
     },
+    /// Union type - references a union definition by name
+    /// Example: Message in `union Message { Get { ... } Increment { ... } }`
+    /// The full definition is looked up in the type environment
+    Union(String),
     /// Type variable (for polymorphism)
     /// Example: T in ( ..a T -- ..a T T )
     Var(String),
+}
+
+/// Information about a variant field
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantFieldInfo {
+    pub name: String,
+    pub field_type: Type,
+}
+
+/// Information about a union variant (used by type checker)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantInfo {
+    pub name: String,
+    pub fields: Vec<VariantFieldInfo>,
+}
+
+/// Type information for a union definition (used by type checker)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnionTypeInfo {
+    pub name: String,
+    pub variants: Vec<VariantInfo>,
 }
 
 /// Stack types with row polymorphism
@@ -122,6 +147,7 @@ impl std::fmt::Display for Type {
                 let cap_str: Vec<_> = captures.iter().map(|t| format!("{}", t)).collect();
                 write!(f, "Closure[{}, captures=({})]", effect, cap_str.join(", "))
             }
+            Type::Union(name) => write!(f, "{}", name),
             Type::Var(name) => write!(f, "{}", name),
         }
     }

@@ -1071,7 +1071,7 @@ fn tokenize(source: &str) -> Vec<Token> {
             } else {
                 col += 1;
             }
-        } else if "():;[]{}".contains(ch) {
+        } else if "():;[]{},".contains(ch) {
             if !current.is_empty() {
                 tokens.push(Token::new(
                     current.clone(),

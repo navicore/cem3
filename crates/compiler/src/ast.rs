@@ -3,7 +3,7 @@
 //! Minimal AST sufficient for hello-world and basic programs.
 //! Will be extended as we add more language features.
 
-use crate::types::Effect;
+use crate::types::{Effect, StackType, Type};
 use std::path::PathBuf;
 
 /// Source location for error reporting and tooling
@@ -440,6 +440,69 @@ impl Program {
         }
         Ok(())
     }
+
+    /// Generate constructor words for all union definitions
+    ///
+    /// For each union variant, generates a `Make-VariantName` word that:
+    /// 1. Takes the variant's field values from the stack
+    /// 2. Pushes the variant tag (index)
+    /// 3. Calls the appropriate `make-variant-N` builtin
+    ///
+    /// Example: For `union Message { Get { chan: Int } }`
+    /// Generates: `: Make-Get ( Int -- Message ) 0 make-variant-1 ;`
+    pub fn generate_constructors(&mut self) {
+        let mut new_words = Vec::new();
+
+        for union_def in &self.unions {
+            for (variant_idx, variant) in union_def.variants.iter().enumerate() {
+                let constructor_name = format!("Make-{}", variant.name);
+                let field_count = variant.fields.len();
+
+                // Build the stack effect: ( field_types... -- UnionType )
+                // Input stack has fields in declaration order
+                let mut input_stack = StackType::RowVar("a".to_string());
+                for field in &variant.fields {
+                    let field_type = parse_type_name(&field.type_name);
+                    input_stack = input_stack.push(field_type);
+                }
+
+                // Output stack has the union type
+                let output_stack =
+                    StackType::RowVar("a".to_string()).push(Type::Union(union_def.name.clone()));
+
+                let effect = Effect::new(input_stack, output_stack);
+
+                // Build the body:
+                // 1. Push the variant tag
+                // 2. Call make-variant-N
+                let body = vec![
+                    Statement::IntLiteral(variant_idx as i64),
+                    Statement::WordCall(format!("make-variant-{}", field_count)),
+                ];
+
+                new_words.push(WordDef {
+                    name: constructor_name,
+                    effect: Some(effect),
+                    body,
+                    source: variant.source.clone(),
+                });
+            }
+        }
+
+        self.words.extend(new_words);
+    }
+}
+
+/// Parse a type name string into a Type
+/// Used by constructor generation to build stack effects
+fn parse_type_name(name: &str) -> Type {
+    match name {
+        "Int" => Type::Int,
+        "Float" => Type::Float,
+        "Bool" => Type::Bool,
+        "String" => Type::String,
+        other => Type::Union(other.to_string()),
+    }
 }
 
 impl Default for Program {
@@ -539,5 +602,91 @@ mod tests {
         let error = result.unwrap_err();
         assert!(error.contains("wrte_line"));
         assert!(error.contains("misspell"));
+    }
+
+    #[test]
+    fn test_generate_constructors() {
+        let mut program = Program {
+            includes: vec![],
+            unions: vec![UnionDef {
+                name: "Message".to_string(),
+                variants: vec![
+                    UnionVariant {
+                        name: "Get".to_string(),
+                        fields: vec![UnionField {
+                            name: "response-chan".to_string(),
+                            type_name: "Int".to_string(),
+                        }],
+                        source: None,
+                    },
+                    UnionVariant {
+                        name: "Put".to_string(),
+                        fields: vec![
+                            UnionField {
+                                name: "value".to_string(),
+                                type_name: "String".to_string(),
+                            },
+                            UnionField {
+                                name: "response-chan".to_string(),
+                                type_name: "Int".to_string(),
+                            },
+                        ],
+                        source: None,
+                    },
+                ],
+                source: None,
+            }],
+            words: vec![],
+        };
+
+        // Generate constructors
+        program.generate_constructors();
+
+        // Should have 2 constructor words
+        assert_eq!(program.words.len(), 2);
+
+        // Check Make-Get constructor
+        let make_get = program
+            .find_word("Make-Get")
+            .expect("Make-Get should exist");
+        assert_eq!(make_get.name, "Make-Get");
+        assert!(make_get.effect.is_some());
+        let effect = make_get.effect.as_ref().unwrap();
+        // Input: ( ..a Int -- )
+        // Output: ( ..a Message -- )
+        assert_eq!(
+            format!("{:?}", effect.outputs),
+            "Cons { rest: RowVar(\"a\"), top: Union(\"Message\") }"
+        );
+
+        // Check Make-Put constructor
+        let make_put = program
+            .find_word("Make-Put")
+            .expect("Make-Put should exist");
+        assert_eq!(make_put.name, "Make-Put");
+        assert!(make_put.effect.is_some());
+
+        // Check the body generates correct code
+        // Make-Get should be: 0 make-variant-1
+        assert_eq!(make_get.body.len(), 2);
+        match &make_get.body[0] {
+            Statement::IntLiteral(0) => {}
+            _ => panic!("Expected IntLiteral(0) for variant tag"),
+        }
+        match &make_get.body[1] {
+            Statement::WordCall(name) if name == "make-variant-1" => {}
+            _ => panic!("Expected WordCall(make-variant-1)"),
+        }
+
+        // Make-Put should be: 1 make-variant-2
+        assert_eq!(make_put.body.len(), 2);
+        match &make_put.body[0] {
+            Statement::IntLiteral(1) => {}
+            _ => panic!("Expected IntLiteral(1) for variant tag"),
+        }
+        match &make_put.body[1] {
+            Statement::WordCall(name) if name == "make-variant-2" => {}
+            _ => panic!("Expected WordCall(make-variant-2)"),
+        }
     }
 }

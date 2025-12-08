@@ -1,21 +1,30 @@
-# Parser for SeqLisp
+# Parser for SeqLisp - Using ADTs
 #
 # Converts token list to s-expressions
-# Uses a state variant to track remaining tokens
 
 include "sexpr"
 include "tokenizer"
 
 # ============================================
-# Parser State: (Tokens)
-# Stored as a 1-field variant
+# Type Definitions
 # ============================================
 
-: make-pstate ( Variant -- Variant )
-  200 make-variant-1 ;
+union ParseResult {
+  PResult { expr: Sexpr, remaining: TokenList }
+}
 
-: pstate-tokens ( Variant -- Variant )
+# ============================================
+# Parse Result Constructors and Accessors
+# ============================================
+
+: make-parse-result ( Sexpr TokenList -- ParseResult )
+  Make-PResult ;
+
+: result-expr ( ParseResult -- Sexpr )
   0 variant-field-at ;
+
+: result-tokens ( ParseResult -- TokenList )
+  1 variant-field-at ;
 
 # ============================================
 # Token Predicates
@@ -50,29 +59,14 @@ include "tokenizer"
 ;
 
 # ============================================
-# Parse a single expression
-# Returns (Sexpr, RemainingTokens)
-# Stored as a 2-field variant
-# ============================================
-
-: make-parse-result ( Variant Variant -- Variant )
-  201 make-variant-2 ;
-
-: result-expr ( Variant -- Variant )
-  0 variant-field-at ;
-
-: result-tokens ( Variant -- Variant )
-  1 variant-field-at ;
-
-# ============================================
 # Main Parser
 # ============================================
 
-: parse ( String -- Variant )
+: parse ( String -- Sexpr )
   tokenize parse-tokens result-expr ;
 
-: parse-tokens ( Variant -- Variant )
-  # Variant is a token list, returns parse result
+: parse-tokens ( TokenList -- ParseResult )
+  # TokenList is a token list, returns parse result
   dup tnil? if
     # Empty token list - return nil expression
     snil slist swap make-parse-result
@@ -98,13 +92,13 @@ include "tokenizer"
 ;
 
 # Parse list contents until )
-: parse-list ( Variant -- Variant )
+: parse-list ( TokenList -- ParseResult )
   # Input: token list after opening paren
   # Returns: (SList of elements, tokens after closing paren)
   snil swap parse-list-items
 ;
 
-: parse-list-items ( Variant Variant -- Variant )
+: parse-list-items ( SexprList TokenList -- ParseResult )
   # Stack: Acc Tokens (Tokens on top)
   dup tnil? if
     # Ran out of tokens - return accumulated list with empty token list
@@ -135,10 +129,10 @@ include "tokenizer"
 ;
 
 # Reverse a cons list
-: list-reverse ( Variant -- Variant )
+: list-reverse ( SexprList -- SexprList )
   snil list-reverse-loop ;
 
-: list-reverse-loop ( Variant Variant -- Variant )
+: list-reverse-loop ( SexprList SexprList -- SexprList )
   swap dup snil? if drop else
     dup scar rot scons swap scdr swap list-reverse-loop
   then

@@ -1,66 +1,78 @@
-# Tokenizer for SeqLisp - Simple Version
+# Tokenizer for SeqLisp - Using ADTs
 #
 # Uses explicit state variant to avoid complex stack manipulation
 
 # ============================================
-# Token List
+# Type Definitions
 # ============================================
 
-: tnil ( -- Variant )
-  0 make-variant-0 ;
+union TokenList {
+  TNil
+  TCons { token: String, rest: TokenList }
+}
 
-: tcons ( String Variant -- Variant )
-  1 make-variant-2 ;
+union TokState {
+  TState { input: String, pos: Int, current_token: String, tokens: TokenList }
+}
 
-: tnil? ( Variant -- Int )
+# ============================================
+# Token List Constructors and Accessors
+# ============================================
+
+: tnil ( -- TokenList )
+  Make-TNil ;
+
+: tcons ( String TokenList -- TokenList )
+  Make-TCons ;
+
+: tnil? ( TokenList -- Int )
   variant-tag 0 = ;
 
-: tcar ( Variant -- String )
+: tcar ( TokenList -- String )
   0 variant-field-at ;
 
-: tcdr ( Variant -- Variant )
+: tcdr ( TokenList -- TokenList )
   1 variant-field-at ;
 
-: trev ( Variant -- Variant )
+: trev ( TokenList -- TokenList )
   tnil trev-loop ;
 
-: trev-loop ( Variant Variant -- Variant )
+: trev-loop ( TokenList TokenList -- TokenList )
   swap dup tnil? if drop else
     dup tcar rot tcons swap tcdr swap trev-loop
   then
 ;
 
 # ============================================
-# Tokenizer State: (Input Pos CurTok TokList)
-# Stored as a 4-field variant
+# Tokenizer State Constructors and Accessors
 # ============================================
 
-: make-state ( String Int String Variant -- Variant )
-  100 make-variant-4 ;
+: make-state ( String Int String TokenList -- TokState )
+  Make-TState ;
 
-: state-input ( Variant -- String )
+: state-input ( TokState -- String )
   0 variant-field-at ;
 
-: state-pos ( Variant -- Int )
+: state-pos ( TokState -- Int )
   1 variant-field-at ;
 
-: state-tok ( Variant -- String )
+: state-tok ( TokState -- String )
   2 variant-field-at ;
 
-: state-list ( Variant -- Variant )
+: state-list ( TokState -- TokenList )
   3 variant-field-at ;
 
 # ============================================
 # Simple tokenizer
 # ============================================
 
-: tokenize ( String -- Variant )
+: tokenize ( String -- TokenList )
   0 "" tnil make-state
   tokenize-loop
   state-list trev
 ;
 
-: tokenize-loop ( Variant -- Variant )
+: tokenize-loop ( TokState -- TokState )
   dup state-input string-length
   over state-pos <= if
     # Done - flush any remaining token
@@ -102,7 +114,7 @@
 ;
 
 # Flush current token (if any) and reset
-: handle-space ( Variant -- Variant )
+: handle-space ( TokState -- TokState )
   dup state-tok string-empty if
     advance-pos
   else
@@ -118,7 +130,7 @@
 ;
 
 # Flush token, add "(", advance
-: handle-lparen ( Variant -- Variant )
+: handle-lparen ( TokState -- TokState )
   dup state-tok string-empty if
     # Just add "(" to list and advance
     dup state-input
@@ -141,7 +153,7 @@
 ;
 
 # Flush token, add ")", advance
-: handle-rparen ( Variant -- Variant )
+: handle-rparen ( TokState -- TokState )
   dup state-tok string-empty if
     # Just add ")" to list and advance
     dup state-input
@@ -164,7 +176,7 @@
 ;
 
 # Add char to current token, advance
-: handle-char ( Variant -- Variant )
+: handle-char ( TokState -- TokState )
   # Build (Input, Pos+1, Tok++Char, List)
   dup state-input
   over state-pos 1 add
@@ -179,7 +191,7 @@
 ;
 
 # Just advance position
-: advance-pos ( Variant -- Variant )
+: advance-pos ( TokState -- TokState )
   dup state-input
   over state-pos 1 add
   2 pick state-tok
@@ -191,7 +203,7 @@
 # Debug
 # ============================================
 
-: print-tokens ( Variant -- )
+: print-tokens ( TokenList -- )
   dup tnil? if drop else
     dup tcar write_line tcdr print-tokens
   then

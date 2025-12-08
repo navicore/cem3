@@ -39,67 +39,22 @@ include std:http
 #                              MESSAGE PROTOCOL
 # ============================================================================
 #
-# Client messages (to stores/districts) - 2 fields:
-#   - field 0: operation (Int) - 0=get, 1=increment
-#   - field 1: response channel ID (Int)
-#
-# Report messages (store→district, district→region) - 3 fields:
-#   - field 0: operation (Int) - 2=report
-#   - field 1: delta (Int) - changes since last report
-#   - field 2: current total (Int)
+# Type-safe message protocol using ADTs:
+#   - Get: request current count, includes response channel
+#   - Increment: increment counter, includes response channel
+#   - Report: fire-and-forget aggregation report (delta + total)
 #
 # Responses are single Int values (the count)
+
+union Message {
+  Get { response_chan: Int }
+  Increment { response_chan: Int }
+  Report { delta: Int, total: Int }
+}
 
 # Report threshold - send to parent every N increments
 : report-threshold ( -- Int )
   5
-;
-
-# Create a "get" request message
-# Stack: ( response-chan -- Message )
-: make-get-msg ( Int -- Variant )
-  0 swap 1 make-variant-2
-;
-
-# Create an "increment" request message
-# Stack: ( response-chan -- Message )
-: make-increment-msg ( Int -- Variant )
-  1 swap 1 make-variant-2
-;
-
-# Create a "report" message (fire-and-forget to parent)
-# Stack: ( delta total -- Message )
-# Protocol: field0=operation(2), field1=delta, field2=total
-: make-report-msg ( Int Int -- Variant )
-  2                    # ( delta total 2 )
-  rot                  # ( total 2 delta )
-  rot                  # ( 2 delta total )
-  2                    # ( 2 delta total 2 ) -> ( field0 field1 field2 tag )
-  make-variant-3       # variant{tag=2, f0=2, f1=delta, f2=total}
-;
-
-# Extract operation from message
-# Stack: ( Message -- operation )
-: msg-operation ( Variant -- Int )
-  0 variant-field-at
-;
-
-# Extract response channel from message
-# Stack: ( Message -- response-chan )
-: msg-response-chan ( Variant -- Int )
-  1 variant-field-at
-;
-
-# Extract delta from report message
-# Stack: ( Message -- delta )
-: msg-delta ( Variant -- Int )
-  1 variant-field-at   # field 1 = delta
-;
-
-# Extract total from report message
-# Stack: ( Message -- total )
-: msg-total ( Variant -- Int )
-  2 variant-field-at   # field 2 = total
 ;
 
 # ============================================================================
@@ -131,22 +86,17 @@ include std:http
   # Receive on my-chan (which is at depth 2)
   2 pick receive             # ( parent my count pending msg )
 
-  # Extract operation
-  dup msg-operation          # ( parent my count pending msg op )
+  match
+    Get { response_chan } ->
+      # Return current count on response channel
+      # Stack: ( parent my count pending response_chan )
+      2 pick swap send       # ( parent my count pending )
+      store-loop
 
-  dup 0 = if
-    # GET operation - return current count
-    drop                     # ( parent my count pending msg )
-    msg-response-chan        # ( parent my count pending resp-chan )
-    2 pick swap              # ( parent my count pending count resp-chan )
-    send                     # ( parent my count pending )
-    store-loop
-  else
-    dup 1 = if
-      # INCREMENT operation - add 1 and return new count
-      drop                   # ( parent my count pending msg )
-      msg-response-chan      # ( parent my count pending resp-chan )
-      rot 1 add              # ( parent my pending resp-chan count+1 )
+    Increment { response_chan } ->
+      # Increment counter and return new count
+      # Stack: ( parent my count pending response_chan )
+      rot 1 add              # ( parent my pending response_chan count+1 )
       dup rot send           # ( parent my pending count+1 ) - sent response
       swap 1 add             # ( parent my count+1 pending+1 )
 
@@ -155,19 +105,18 @@ include std:http
         # Time to report! Send delta to parent
         dup                  # ( parent my count pending pending )
         2 pick               # ( parent my count pending pending count )
-        make-report-msg      # ( parent my count pending report-msg )
+        Make-Report          # ( parent my count pending report-msg )
         4 pick send          # ( parent my count pending ) - sent to parent
         drop 0               # ( parent my count 0 ) - reset pending
       then
       store-loop
-    else
-      # Unknown operation - just return current count
-      drop                   # ( parent my count pending msg )
-      msg-response-chan      # ( parent my count pending resp-chan )
-      2 pick swap send       # ( parent my count pending )
+
+    Report ->
+      # Stores don't receive Report messages - ignore
+      # Stack: ( parent my count pending delta total )
+      drop drop              # ( parent my count pending )
       store-loop
-    then
-  then
+  end
 ;
 
 # ============================================================================
@@ -192,31 +141,29 @@ include std:http
 : district-loop ( Int Int Int -- )
   over receive               # ( parent my total msg )
 
-  dup msg-operation          # ( parent my total msg op )
+  match
+    Get { response_chan } ->
+      # Return aggregate total on response channel
+      # Stack: ( parent my total response_chan )
+      over swap send         # ( parent my total ) - sent total
+      district-loop
 
-  dup 0 = if
-    # GET operation - return aggregate total
-    drop                     # ( parent my total msg )
-    msg-response-chan        # ( parent my total resp-chan )
-    over swap send           # ( parent my total ) - sent total
-    district-loop
-  else
-    dup 2 = if
-      # REPORT from store - add delta, forward to region immediately
-      drop                   # ( parent my total msg )
-      msg-delta              # ( parent my total delta )
+    Report { delta } ->
+      # Add delta, forward to region immediately
+      # Stack: ( parent my total delta )
       dup rot add            # ( parent my delta total+delta )
       swap                   # ( parent my total' delta )
       over                   # ( parent my total' delta total' )
-      make-report-msg        # ( parent my total' report-msg )
+      Make-Report            # ( parent my total' report-msg )
       3 pick send            # ( parent my total' ) - forwarded to region
       district-loop
-    else
-      # Unknown operation - ignore
-      drop drop              # ( parent my total )
+
+    Increment ->
+      # Districts don't handle Increment - ignore
+      # Stack: ( parent my total response_chan )
+      drop                   # ( parent my total )
       district-loop
-    then
-  then
+  end
 ;
 
 # ============================================================================
@@ -239,30 +186,29 @@ include std:http
 : region-loop ( Int Int Int -- )
   over receive               # ( parent my total msg )
 
-  dup msg-operation          # ( parent my total msg op )
+  match
+    Get { response_chan } ->
+      # Return aggregate total on response channel
+      # Stack: ( parent my total response_chan )
+      over swap send         # ( parent my total )
+      region-loop
 
-  dup 0 = if
-    # GET operation
-    drop                     # ( parent my total msg )
-    msg-response-chan        # ( parent my total resp-chan )
-    over swap send           # ( parent my total )
-    region-loop
-  else
-    dup 2 = if
-      # REPORT from district - add delta, forward to company immediately
-      drop                   # ( parent my total msg )
-      msg-delta              # ( parent my total delta )
+    Report { delta } ->
+      # Add delta, forward to company immediately
+      # Stack: ( parent my total delta )
       dup rot add            # ( parent my delta total+delta )
       swap                   # ( parent my total' delta )
       over                   # ( parent my total' delta total' )
-      make-report-msg        # ( parent my total' report-msg )
+      Make-Report            # ( parent my total' report-msg )
       3 pick send            # ( parent my total' ) - forwarded to company
       region-loop
-    else
-      drop drop
+
+    Increment ->
+      # Regions don't handle Increment - ignore
+      # Stack: ( parent my total response_chan )
+      drop                   # ( parent my total )
       region-loop
-    then
-  then
+  end
 ;
 
 # ============================================================================
@@ -284,26 +230,25 @@ include std:http
 : company-loop ( Int Int -- )
   over receive               # ( my-chan total msg )
 
-  dup msg-operation          # ( my-chan total msg op )
+  match
+    Get { response_chan } ->
+      # Return aggregate total on response channel
+      # Stack: ( my-chan total response_chan )
+      over swap send         # ( my-chan total )
+      company-loop
 
-  dup 0 = if
-    # GET operation
-    drop                     # ( my-chan total msg )
-    msg-response-chan        # ( my-chan total resp-chan )
-    over swap send           # ( my-chan total )
-    company-loop
-  else
-    dup 2 = if
-      # REPORT from region
-      drop                   # ( my-chan total msg )
-      msg-delta              # ( my-chan total delta )
+    Report { delta } ->
+      # Add delta (no forwarding - company is top of hierarchy)
+      # Stack: ( my-chan total delta )
       add                    # ( my-chan total+delta )
       company-loop
-    else
-      drop drop
+
+    Increment ->
+      # Company doesn't handle Increment - ignore
+      # Stack: ( my-chan total response_chan )
+      drop                   # ( my-chan total )
       company-loop
-    then
-  then
+  end
 ;
 
 # ============================================================================
@@ -727,18 +672,18 @@ include std:http
 # Stack: ( chan-id -- count )
 : query-actor ( Int -- Int )
   make-channel              # ( chan-id resp-chan )
-  dup make-get-msg          # ( chan-id resp-chan msg )
-  rot send                  # ( resp-chan ) - sent msg to store
+  dup Make-Get              # ( chan-id resp-chan msg )
+  rot send                  # ( resp-chan ) - sent msg to actor
   receive                   # ( count )
 ;
 
 # Query an actor to increment and return new count
 # Stack: ( chan-id -- count )
 : query-actor-increment ( Int -- Int )
-  make-channel
-  dup make-increment-msg
-  rot send
-  receive
+  make-channel              # ( chan-id resp-chan )
+  dup Make-Increment        # ( chan-id resp-chan msg )
+  rot send                  # ( resp-chan ) - sent msg to actor
+  receive                   # ( count )
 ;
 
 # Build JSON response from count

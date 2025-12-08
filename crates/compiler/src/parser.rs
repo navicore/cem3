@@ -205,6 +205,17 @@ impl Parser {
             return Err(format!("Union '{}' must have at least one variant", name));
         }
 
+        // Check for duplicate variant names
+        let mut seen_variants = std::collections::HashSet::new();
+        for variant in &variants {
+            if !seen_variants.insert(&variant.name) {
+                return Err(format!(
+                    "Duplicate variant name '{}' in union '{}'",
+                    variant.name, name
+                ));
+            }
+        }
+
         Ok(UnionDef {
             name,
             variants,
@@ -295,6 +306,14 @@ impl Parser {
             // Optional comma separator
             self.skip_comments();
             self.consume(",");
+        }
+
+        // Check for duplicate field names
+        let mut seen_fields = std::collections::HashSet::new();
+        for field in &fields {
+            if !seen_fields.insert(&field.name) {
+                return Err(format!("Duplicate field name '{}' in variant", field.name));
+            }
         }
 
         Ok(fields)
@@ -2211,6 +2230,39 @@ union Message {
         let result = parser.parse();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("at least one variant"));
+    }
+
+    #[test]
+    fn test_parse_union_duplicate_variant_error() {
+        let source = r#"
+union Message {
+  Get { x: Int }
+  Get { y: String }
+}
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Duplicate variant name"));
+        assert!(err.contains("Get"));
+    }
+
+    #[test]
+    fn test_parse_union_duplicate_field_error() {
+        let source = r#"
+union Data {
+  Record { x: Int, x: String }
+}
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Duplicate field name"));
+        assert!(err.contains("x"));
     }
 
     #[test]

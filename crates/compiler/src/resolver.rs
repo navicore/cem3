@@ -7,11 +7,17 @@
 //! - `include std:name` - loads from embedded stdlib (or filesystem fallback)
 //! - `include "path"` - loads relative to current file
 
-use crate::ast::{Include, Program, SourceLocation, WordDef};
+use crate::ast::{Include, Program, SourceLocation, UnionDef, WordDef};
 use crate::parser::Parser;
 use crate::stdlib_embed;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+/// Words and unions collected from a resolved include
+struct ResolvedContent {
+    words: Vec<WordDef>,
+    unions: Vec<UnionDef>,
+}
 
 /// Result of resolving an include - either embedded content or a file path
 #[derive(Debug)]
@@ -45,7 +51,7 @@ impl Resolver {
     /// Resolve all includes in a program and return a merged program
     ///
     /// Takes the source file path and its already-parsed program.
-    /// Recursively resolves includes and merges all word definitions.
+    /// Recursively resolves includes and merges all word and union definitions.
     pub fn resolve(&mut self, source_path: &Path, program: Program) -> Result<Program, String> {
         let source_path = source_path
             .canonicalize()
@@ -54,9 +60,10 @@ impl Resolver {
         // Mark this file as included
         self.included_files.insert(source_path.clone());
 
-        // Add source location to all words in main program
+        // Add source location to all words and unions in main program
         let source_dir = source_path.parent().unwrap_or(Path::new("."));
         let mut all_words = Vec::new();
+        let mut all_unions = Vec::new();
 
         for mut word in program.words {
             // Update source location with file path
@@ -68,25 +75,36 @@ impl Resolver {
             all_words.push(word);
         }
 
+        for mut union_def in program.unions {
+            // Update source location with file path
+            if let Some(ref mut source) = union_def.source {
+                source.file = source_path.clone();
+            } else {
+                union_def.source = Some(SourceLocation::new(source_path.clone(), 0));
+            }
+            all_unions.push(union_def);
+        }
+
         // Process includes
         for include in &program.includes {
-            let words = self.process_include(include, source_dir)?;
-            all_words.extend(words);
+            let content = self.process_include(include, source_dir)?;
+            all_words.extend(content.words);
+            all_unions.extend(content.unions);
         }
 
         Ok(Program {
             includes: Vec::new(), // Includes are resolved, no longer needed
-            unions: Vec::new(),   // TODO: Phase 2 will merge union definitions
+            unions: all_unions,
             words: all_words,
         })
     }
 
-    /// Process a single include and return the resolved words
+    /// Process a single include and return the resolved words and unions
     fn process_include(
         &mut self,
         include: &Include,
         source_dir: &Path,
-    ) -> Result<Vec<WordDef>, String> {
+    ) -> Result<ResolvedContent, String> {
         let resolved = self.resolve_include(include, source_dir)?;
 
         match resolved {
@@ -103,10 +121,13 @@ impl Resolver {
         name: &str,
         content: &str,
         source_dir: &Path,
-    ) -> Result<Vec<WordDef>, String> {
+    ) -> Result<ResolvedContent, String> {
         // Skip if already included
         if self.included_embedded.contains(name) {
-            return Ok(Vec::new());
+            return Ok(ResolvedContent {
+                words: Vec::new(),
+                unions: Vec::new(),
+            });
         }
         self.included_embedded.insert(name.to_string());
 
@@ -130,24 +151,42 @@ impl Resolver {
             all_words.push(word);
         }
 
-        // Recursively process includes from embedded module
-        for include in &included_program.includes {
-            let words = self.process_include(include, source_dir)?;
-            all_words.extend(words);
+        // Collect unions with updated source locations
+        let mut all_unions = Vec::new();
+        for mut union_def in included_program.unions {
+            if let Some(ref mut source) = union_def.source {
+                source.file = pseudo_path.clone();
+            } else {
+                union_def.source = Some(SourceLocation::new(pseudo_path.clone(), 0));
+            }
+            all_unions.push(union_def);
         }
 
-        Ok(all_words)
+        // Recursively process includes from embedded module
+        for include in &included_program.includes {
+            let content = self.process_include(include, source_dir)?;
+            all_words.extend(content.words);
+            all_unions.extend(content.unions);
+        }
+
+        Ok(ResolvedContent {
+            words: all_words,
+            unions: all_unions,
+        })
     }
 
     /// Process a filesystem include
-    fn process_file_include(&mut self, path: &Path) -> Result<Vec<WordDef>, String> {
+    fn process_file_include(&mut self, path: &Path) -> Result<ResolvedContent, String> {
         // Skip if already included (prevents diamond dependency issues)
         let canonical = path
             .canonicalize()
             .map_err(|e| format!("Failed to canonicalize {}: {}", path.display(), e))?;
 
         if self.included_files.contains(&canonical) {
-            return Ok(Vec::new());
+            return Ok(ResolvedContent {
+                words: Vec::new(),
+                unions: Vec::new(),
+            });
         }
 
         // Read and parse the included file
@@ -160,7 +199,10 @@ impl Resolver {
         // Recursively resolve includes in the included file
         let resolved = self.resolve(path, included_program)?;
 
-        Ok(resolved.words)
+        Ok(ResolvedContent {
+            words: resolved.words,
+            unions: resolved.unions,
+        })
     }
 
     /// Resolve an include to either embedded content or a file path
@@ -266,6 +308,38 @@ pub fn check_collisions(words: &[WordDef]) -> Result<(), String> {
     for (name, locations) in definitions {
         if locations.len() > 1 {
             let mut msg = format!("Word '{}' is defined multiple times:\n", name);
+            for loc in &locations {
+                msg.push_str(&format!("  - {}\n", loc));
+            }
+            msg.push_str("\nHint: Rename one of the definitions to avoid collision.");
+            errors.push(msg);
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n\n"))
+    }
+}
+
+/// Check for union name collisions across all definitions
+///
+/// Returns an error with helpful message if any union is defined multiple times.
+pub fn check_union_collisions(unions: &[UnionDef]) -> Result<(), String> {
+    let mut definitions: HashMap<&str, Vec<&SourceLocation>> = HashMap::new();
+
+    for union_def in unions {
+        if let Some(ref source) = union_def.source {
+            definitions.entry(&union_def.name).or_default().push(source);
+        }
+    }
+
+    // Find collisions (unions defined in multiple places)
+    let mut errors = Vec::new();
+    for (name, locations) in definitions {
+        if locations.len() > 1 {
+            let mut msg = format!("Union '{}' is defined multiple times:\n", name);
             for loc in &locations {
                 msg.push_str(&format!("  - {}\n", loc));
             }
@@ -453,8 +527,8 @@ mod tests {
             Path::new("."),
         );
         assert!(result1.is_ok());
-        let words1 = result1.unwrap();
-        assert!(!words1.is_empty());
+        let content1 = result1.unwrap();
+        assert!(!content1.words.is_empty());
 
         // Second include of same module should return empty (already included)
         let result2 = resolver.process_embedded_include(
@@ -463,7 +537,8 @@ mod tests {
             Path::new("."),
         );
         assert!(result2.is_ok());
-        let words2 = result2.unwrap();
-        assert!(words2.is_empty());
+        let content2 = result2.unwrap();
+        assert!(content2.words.is_empty());
+        assert!(content2.unions.is_empty());
     }
 }

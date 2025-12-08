@@ -1,108 +1,112 @@
 # S-Expression Data Types for SeqLisp
 #
-# An s-expression is either:
-#   (SNum Int)        - a number (tag 1)
-#   (SSym String)     - a symbol (tag 2)
-#   (SList List)      - a list of s-expressions (tag 3)
+# Algebraic Data Types for S-expressions:
 #
-# Lists use the standard Cons/Nil pattern:
-#   (Nil)             - empty list (tag 0)
-#   (Cons Sexpr List) - cons cell (tag 1)
+#   Sexpr = SNum Int | SSym String | SList SexprList
+#   SexprList = SNil | SCons Sexpr SexprList
 
 # ============================================
-# Constructors - using type-safe make-variant-N
+# Type Definitions
 # ============================================
 
-# Wrap an integer as an s-expression number
-: snum ( Int -- Variant )
-  1 make-variant-1 ;
+union Sexpr {
+  SNum { value: Int }
+  SSym { name: String }
+  SList { items: SexprList }
+}
 
-# Wrap a string as an s-expression symbol
-: ssym ( String -- Variant )
-  2 make-variant-1 ;
+union SexprList {
+  SNil
+  SCons { head: Sexpr, tail: SexprList }
+}
 
-# Wrap a list as an s-expression list
-: slist ( Variant -- Variant )
-  3 make-variant-1 ;
+# ============================================
+# Convenience Constructors (lowercase aliases)
+# ============================================
 
-# Create an empty list (Nil)
-: snil ( -- Variant )
-  0 make-variant-0 ;
+: snum ( Int -- Sexpr )
+  Make-SNum ;
 
-# Create a cons cell (head, tail)
-: scons ( Variant Variant -- Variant )
-  1 make-variant-2 ;
+: ssym ( String -- Sexpr )
+  Make-SSym ;
+
+: slist ( SexprList -- Sexpr )
+  Make-SList ;
+
+: snil ( -- SexprList )
+  Make-SNil ;
+
+: scons ( Sexpr SexprList -- SexprList )
+  Make-SCons ;
 
 # ============================================
 # Predicates
 # ============================================
 
-: snum? ( Variant -- Int )
+: snum? ( Sexpr -- Int )
+  variant-tag 0 = ;
+
+: ssym? ( Sexpr -- Int )
   variant-tag 1 = ;
 
-: ssym? ( Variant -- Int )
+: slist? ( Sexpr -- Int )
   variant-tag 2 = ;
 
-: slist? ( Variant -- Int )
-  variant-tag 3 = ;
-
-: snil? ( Variant -- Int )
+: snil? ( SexprList -- Int )
   variant-tag 0 = ;
 
 # ============================================
 # Accessors
 # ============================================
 
-: snum-val ( Variant -- Int )
+: snum-val ( Sexpr -- Int )
   0 variant-field-at ;
 
-: ssym-val ( Variant -- String )
+: ssym-val ( Sexpr -- String )
   0 variant-field-at ;
 
-: slist-val ( Variant -- Variant )
+: slist-val ( Sexpr -- SexprList )
   0 variant-field-at ;
 
-: scar ( Variant -- Variant )
+: scar ( SexprList -- Sexpr )
   0 variant-field-at ;
 
-: scdr ( Variant -- Variant )
+: scdr ( SexprList -- SexprList )
   1 variant-field-at ;
 
 # ============================================
 # Pretty Printing
 # ============================================
 
-: sexpr-to-string ( Variant -- String )
-  dup variant-tag
-  dup 1 = if
-    drop snum-val int->string
-  else
-    dup 2 = if
-      drop ssym-val
-    else
-      3 = if
-        slist-val list-to-string
-      else
-        drop "???"
-      then
-    then
-  then
+: sexpr-to-string ( Sexpr -- String )
+  match
+    SNum { value } ->
+      # Stack: ( value )
+      int->string
+    SSym { name } ->
+      # Stack: ( name ) - already a string
+    SList { items } ->
+      # Stack: ( items )
+      list-to-string
+  end
 ;
 
-: list-to-string ( Variant -- String )
+: list-to-string ( SexprList -- String )
   "(" swap list-items-to-string ")" string-concat string-concat
 ;
 
-: list-items-to-string ( Variant -- String )
-  dup snil? if
-    drop ""
-  else
-    dup scar sexpr-to-string
-    swap scdr
-    dup snil? if
-      drop
-    else
-      " " swap list-items-to-string string-concat string-concat
-    then
-  then
+: list-items-to-string ( SexprList -- String )
+  match
+    SNil ->
+      ""
+    SCons { head tail } ->
+      # Stack: ( head tail )
+      swap sexpr-to-string  # ( tail head_str )
+      swap                  # ( head_str tail )
+      dup snil? if
+        drop  # Last item, just return head_str
+      else
+        " " swap list-items-to-string string-concat string-concat
+      then
+  end
 ;

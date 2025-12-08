@@ -44,6 +44,81 @@ use std::process::Command;
 /// Embedded runtime library (built by build.rs)
 static RUNTIME_LIB: &[u8] = include_bytes!(env!("SEQ_RUNTIME_LIB_PATH"));
 
+/// Minimum clang/LLVM version required.
+/// Our generated IR uses opaque pointers (`ptr`), which requires LLVM 15+.
+const MIN_CLANG_VERSION: u32 = 15;
+
+/// Check that clang is available and meets minimum version requirements.
+/// Returns Ok(version) on success, Err with helpful message on failure.
+fn check_clang_version() -> Result<u32, String> {
+    let output = Command::new("clang")
+        .arg("--version")
+        .output()
+        .map_err(|e| {
+            format!(
+                "Failed to run clang: {}. \
+                 Please install clang {} or later.",
+                e, MIN_CLANG_VERSION
+            )
+        })?;
+
+    if !output.status.success() {
+        return Err("Failed to get clang version.".to_string());
+    }
+
+    let version_str = String::from_utf8_lossy(&output.stdout);
+
+    // Parse version from output like:
+    // "clang version 15.0.0 (...)"
+    // "Apple clang version 14.0.3 (...)"  (Apple's versioning differs)
+    // "Homebrew clang version 17.0.6"
+    let version = parse_clang_version(&version_str).ok_or_else(|| {
+        format!(
+            "Could not parse clang version from: {}\n\
+             seqc requires clang {} or later (for opaque pointer support).",
+            version_str.lines().next().unwrap_or(&version_str),
+            MIN_CLANG_VERSION
+        )
+    })?;
+
+    // Apple clang uses different version numbers - Apple clang 14 is based on LLVM 15
+    // For simplicity, we check if it's Apple clang and adjust expectations
+    let is_apple = version_str.contains("Apple clang");
+    let effective_min = if is_apple { 14 } else { MIN_CLANG_VERSION };
+
+    if version < effective_min {
+        return Err(format!(
+            "clang version {} detected, but seqc requires {} {} or later.\n\
+             The generated LLVM IR uses opaque pointers (requires LLVM 15+).\n\
+             Please upgrade your clang installation.",
+            version,
+            if is_apple { "Apple clang" } else { "clang" },
+            effective_min
+        ));
+    }
+
+    Ok(version)
+}
+
+/// Parse major version number from clang --version output
+fn parse_clang_version(output: &str) -> Option<u32> {
+    // Look for "version X.Y.Z" pattern
+    for line in output.lines() {
+        if let Some(idx) = line.find("version ") {
+            let after_version = &line[idx + 8..];
+            // Extract the major version number
+            let major: String = after_version
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !major.is_empty() {
+                return major.parse().ok();
+            }
+        }
+    }
+    None
+}
+
 /// Compile a .seq source file to an executable
 pub fn compile_file(source_path: &Path, output_path: &Path, keep_ir: bool) -> Result<(), String> {
     compile_file_with_config(
@@ -126,6 +201,9 @@ pub fn compile_file_with_config(
     // Write IR to file
     let ir_path = output_path.with_extension("ll");
     fs::write(&ir_path, ir).map_err(|e| format!("Failed to write IR file: {}", e))?;
+
+    // Check clang version before attempting to compile
+    check_clang_version()?;
 
     // Extract embedded runtime library to a temp file
     let runtime_path = std::env::temp_dir().join("libseq_runtime.a");
@@ -212,4 +290,40 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
 
     let mut codegen = CodeGen::new();
     codegen.codegen_program_with_config(&program, quotation_types, config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_clang_version_standard() {
+        let output = "clang version 15.0.0 (https://github.com/llvm/llvm-project)\nTarget: x86_64";
+        assert_eq!(parse_clang_version(output), Some(15));
+    }
+
+    #[test]
+    fn test_parse_clang_version_apple() {
+        let output =
+            "Apple clang version 14.0.3 (clang-1403.0.22.14.1)\nTarget: arm64-apple-darwin";
+        assert_eq!(parse_clang_version(output), Some(14));
+    }
+
+    #[test]
+    fn test_parse_clang_version_homebrew() {
+        let output = "Homebrew clang version 17.0.6\nTarget: arm64-apple-darwin23.0.0";
+        assert_eq!(parse_clang_version(output), Some(17));
+    }
+
+    #[test]
+    fn test_parse_clang_version_ubuntu() {
+        let output = "Ubuntu clang version 15.0.7\nTarget: x86_64-pc-linux-gnu";
+        assert_eq!(parse_clang_version(output), Some(15));
+    }
+
+    #[test]
+    fn test_parse_clang_version_invalid() {
+        assert_eq!(parse_clang_version("no version here"), None);
+        assert_eq!(parse_clang_version("version "), None);
+    }
 }

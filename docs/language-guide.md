@@ -263,9 +263,128 @@ Example - reading all lines until EOF:
 
 The `+` suffix convention indicates words that return a result pattern (value + status) instead of panicking on failure.
 
-## Variants (Sum Types)
+## Algebraic Data Types (ADTs)
 
-Variants are tagged unions - the primary way to build data structures:
+Seq provides compile-time safe algebraic data types with `union` definitions and `match` expressions.
+
+### Union Definitions
+
+Define sum types with typed fields:
+
+```seq
+union Option { Some { value: Int }, None }
+
+union Message {
+  Get { response-chan: Int }
+  Increment { amount: Int }
+  Report { op: Int, delta: Int, total: Int }
+}
+```
+
+The compiler automatically generates typed constructors:
+- `Make-Some: ( Int -- Option )`
+- `Make-None: ( -- Option )`
+- `Make-Get: ( Int -- Message )`
+- `Make-Report: ( Int Int Int -- Message )`
+
+### Compile-Time Safety
+
+The compiler catches common errors:
+
+**Field type validation** - Only valid types allowed:
+```seq
+union Bad { Foo { x: Unknown } }  # Error: Unknown type 'Unknown'
+```
+Valid field types: `Int`, `Float`, `Bool`, `String`, or another defined union.
+
+**Variant arity limit** - Maximum 4 fields per variant:
+```seq
+union TooBig { V { a: Int, b: Int, c: Int, d: Int, e: Int } }
+# Error: Variant 'V' has 5 fields, maximum is 4.
+# Consider grouping fields into nested union types.
+```
+
+### Pattern Matching
+
+Use `match` to destructure variants. The compiler requires **exhaustive** matching:
+
+```seq
+: describe ( Option -- String )
+  match
+    Some -> "has value"
+    None -> "empty"
+  end
+;
+```
+
+Non-exhaustive matches are compile errors:
+```seq
+: bad ( Option -- String )
+  match
+    Some -> "has value"
+    # Error: Non-exhaustive match on 'Option'. Missing variants: None
+  end
+;
+```
+
+### Stack-Based Matching
+
+All fields are pushed to stack in declaration order:
+
+```seq
+: handle ( Message -- )
+  match
+    Get ->              # ( response-chan )
+      send-response
+    Increment ->        # ( amount )
+      do-increment
+    Report ->           # ( op delta total )
+      drop swap drop    # extract delta
+      process
+  end
+;
+```
+
+### Named Bindings
+
+Request specific fields by name:
+
+```seq
+: handle ( Message -- )
+  match
+    Get { response-chan } ->
+      response-chan send-response
+    Increment { amount } ->
+      amount do-increment
+    Report { delta } ->     # only 'delta' pushed to stack
+      delta process
+  end
+;
+```
+
+Both styles compile to identical code. Mix them freely.
+
+### ADTs with Row Polymorphism
+
+ADTs and row polymorphism are orthogonal:
+
+```seq
+union Option { Some { value: Int }, None }
+
+# Row polymorphic - extra stack values pass through
+: unwrap-or ( ..a Option Int -- ..a Int )
+  match
+    Some { value } -> drop value
+    None ->          # use default already on stack
+  end
+;
+
+"hello" 42 Make-Some 0 unwrap-or   # ( "hello" 42 )
+```
+
+## Low-Level Variants
+
+For dynamic use cases, low-level primitives are still available:
 
 ```seq
 # Create a variant with tag 1 and one field
@@ -280,28 +399,9 @@ variant-tag             # Get the tag number
 1 variant-field-at      # Get field 1
 ```
 
-### Building ADTs
-
-Define constructors and accessors for your types:
-
-```seq
-# Option type: None (tag 0) or Some (tag 1)
-: none ( -- Variant )  0 make-variant-0 ;
-: some ( a -- Variant )  1 make-variant-1 ;
-: none? ( Variant -- Int )  variant-tag 0 = ;
-: some? ( Variant -- Int )  variant-tag 1 = ;
-: unwrap ( Variant -- a )  0 variant-field-at ;
-
-# Usage
-42 some        # Create Some(42)
-dup some? if
-    unwrap    # Get the 42
-then
-```
-
 ### Cons Lists
 
-The standard pattern for lists:
+The standard pattern for lists using low-level variants:
 
 ```seq
 : nil ( -- Variant )  0 make-variant-0 ;
@@ -312,23 +412,6 @@ The standard pattern for lists:
 
 # Build a list: (1 2 3)
 1  2  3 nil cons cons cons
-```
-
-### State as Variant
-
-When you need to thread multiple values through recursion, pack them:
-
-```seq
-# Tokenizer state: (Input Position CurrentToken TokenList)
-: make-state ( String Int String Variant -- Variant )
-    100 make-variant-4 ;
-
-: state-input ( Variant -- String )  0 variant-field-at ;
-: state-pos ( Variant -- Int )  1 variant-field-at ;
-
-# Initialize and loop
-"input" 0 "" nil make-state
-process-loop
 ```
 
 ## String Operations

@@ -331,6 +331,64 @@ impl CodeGen {
         ))
     }
 
+    /// Find the union that contains a given variant
+    ///
+    /// Returns the UnionDef reference if found
+    fn find_union_for_variant(&self, variant_name: &str) -> Option<&UnionDef> {
+        for union_def in &self.unions {
+            for variant in &union_def.variants {
+                if variant.name == variant_name {
+                    return Some(union_def);
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a match expression is exhaustive for its union type
+    ///
+    /// Returns Ok(()) if exhaustive, Err with missing variants if not
+    fn check_match_exhaustiveness(&self, arms: &[MatchArm]) -> Result<(), (String, Vec<String>)> {
+        if arms.is_empty() {
+            return Ok(()); // Empty match is degenerate, skip check
+        }
+
+        // Get the first variant name to find the union
+        let first_variant = match &arms[0].pattern {
+            Pattern::Variant(name) => name.as_str(),
+            Pattern::VariantWithBindings { name, .. } => name.as_str(),
+        };
+
+        // Find the union this variant belongs to
+        let union_def = match self.find_union_for_variant(first_variant) {
+            Some(u) => u,
+            None => return Ok(()), // Unknown variant, let find_variant_info handle error
+        };
+
+        // Collect all variant names in the match arms
+        let matched_variants: std::collections::HashSet<&str> = arms
+            .iter()
+            .map(|arm| match &arm.pattern {
+                Pattern::Variant(name) => name.as_str(),
+                Pattern::VariantWithBindings { name, .. } => name.as_str(),
+            })
+            .collect();
+
+        // Check if all union variants are covered
+        let missing: Vec<String> = union_def
+            .variants
+            .iter()
+            .filter(|v| !matched_variants.contains(v.name.as_str()))
+            .map(|v| v.name.clone())
+            .collect();
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err((union_def.name.clone(), missing))
+        }
+    }
+
     /// Escape a string for LLVM IR string literals
     fn escape_llvm_string(s: &str) -> String {
         let mut result = String::new();
@@ -1413,6 +1471,15 @@ impl CodeGen {
         arms: &[MatchArm],
         position: TailPosition,
     ) -> Result<String, String> {
+        // Step 0: Check exhaustiveness
+        if let Err((union_name, missing)) = self.check_match_exhaustiveness(arms) {
+            return Err(format!(
+                "Non-exhaustive match on union '{}'. Missing variants: {}",
+                union_name,
+                missing.join(", ")
+            ));
+        }
+
         // Step 1: Duplicate the variant so we can get the tag without consuming it
         let dup_stack = self.fresh_temp();
         writeln!(
@@ -2028,5 +2095,55 @@ mod tests {
         let result = compile_to_ir(source);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unknown-builtin"));
+    }
+
+    #[test]
+    fn test_match_exhaustiveness_error() {
+        use crate::compile_to_ir;
+
+        let source = r#"
+            union Result { Ok { value: Int } Err { msg: String } }
+
+            : handle ( Variant -- Int )
+              match
+                Ok -> drop 1
+                # Missing Err arm!
+              end
+            ;
+
+            : main ( -- ) 42 Make-Ok handle drop ;
+        "#;
+
+        let result = compile_to_ir(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Non-exhaustive match"));
+        assert!(err.contains("Result"));
+        assert!(err.contains("Err"));
+    }
+
+    #[test]
+    fn test_match_exhaustive_compiles() {
+        use crate::compile_to_ir;
+
+        let source = r#"
+            union Result { Ok { value: Int } Err { msg: String } }
+
+            : handle ( Variant -- Int )
+              match
+                Ok -> drop 1
+                Err -> drop 0
+              end
+            ;
+
+            : main ( -- ) 42 Make-Ok handle drop ;
+        "#;
+
+        let result = compile_to_ir(source);
+        assert!(
+            result.is_ok(),
+            "Exhaustive match should compile: {:?}",
+            result
+        );
     }
 }

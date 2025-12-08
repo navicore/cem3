@@ -83,7 +83,7 @@ pub fn compile_file_with_config(
 
     // Generate constructor words for all union types (Make-VariantName)
     // Always done here to consolidate constructor generation in one place
-    program.generate_constructors();
+    program.generate_constructors()?;
 
     // Check for word name collisions
     check_collisions(&program.words)?;
@@ -188,7 +188,7 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
 
     // Generate constructors for unions
     if !program.unions.is_empty() {
-        program.generate_constructors();
+        program.generate_constructors()?;
     }
 
     let external_names = config.external_names();

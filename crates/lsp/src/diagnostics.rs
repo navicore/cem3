@@ -24,7 +24,7 @@ pub fn check_document_with_includes(
 
     // Phase 1: Parse
     let mut parser = Parser::new(source);
-    let program = match parser.parse() {
+    let mut program = match parser.parse() {
         Ok(prog) => prog,
         Err(err) => {
             debug!("Parse error: {}", err);
@@ -32,6 +32,13 @@ pub fn check_document_with_includes(
             return diagnostics;
         }
     };
+
+    // Phase 1.5: Generate ADT constructors (Make-VariantName words)
+    if let Err(err) = program.generate_constructors() {
+        debug!("Constructor generation error: {}", err);
+        diagnostics.push(error_to_diagnostic(&err, source));
+        return diagnostics;
+    }
 
     // Extract names for word call validation
     let included_word_names: Vec<&str> = included_words.iter().map(|w| w.name.as_str()).collect();
@@ -253,5 +260,33 @@ mod tests {
                 d.message
             );
         }
+    }
+
+    #[test]
+    fn test_adt_constructor_recognized() {
+        // Make-Circle should be generated from the union definition
+        let source = r#"
+union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
+
+: main ( -- Int )
+  5 Make-Circle
+  drop
+  0
+;
+"#;
+        let diagnostics = check_document(source);
+        // Should have no errors - Make-Circle is a valid constructor
+        for d in &diagnostics {
+            assert!(
+                !d.message.contains("Make-Circle"),
+                "Make-Circle should be recognized as ADT constructor, got: {}",
+                d.message
+            );
+        }
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no diagnostics, got: {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
     }
 }

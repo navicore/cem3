@@ -32,7 +32,7 @@ pub use ast::Program;
 pub use codegen::CodeGen;
 pub use config::{CompilerConfig, ExternalBuiltin};
 pub use parser::Parser;
-pub use resolver::{Resolver, check_collisions, find_stdlib};
+pub use resolver::{Resolver, check_collisions, check_union_collisions, find_stdlib};
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 
@@ -87,6 +87,9 @@ pub fn compile_file_with_config(
 
     // Check for word name collisions
     check_collisions(&program.words)?;
+
+    // Check for union name collisions across modules
+    check_union_collisions(&program.unions)?;
 
     // Verify we have a main word
     if program.find_word("main").is_none() {

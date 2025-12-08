@@ -72,7 +72,7 @@ pub fn compile_file_with_config(
     let mut parser = Parser::new(&source);
     let program = parser.parse()?;
 
-    // Resolve includes (if any) and generate union constructors
+    // Resolve includes (if any)
     let mut program = if !program.includes.is_empty() {
         let stdlib_path = find_stdlib();
         let mut resolver = Resolver::new(stdlib_path);
@@ -81,11 +81,9 @@ pub fn compile_file_with_config(
         program
     };
 
-    // Generate constructors for unions even when no includes
-    // (resolver does this during resolution, but we need it when skipping resolution)
-    if !program.unions.is_empty() && program.includes.is_empty() {
-        program.generate_constructors();
-    }
+    // Generate constructor words for all union types (Make-VariantName)
+    // Always done here to consolidate constructor generation in one place
+    program.generate_constructors();
 
     // Check for word name collisions
     check_collisions(&program.words)?;

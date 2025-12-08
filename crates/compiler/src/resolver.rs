@@ -92,11 +92,16 @@ impl Resolver {
             all_unions.extend(content.unions);
         }
 
-        Ok(Program {
+        let mut resolved_program = Program {
             includes: Vec::new(), // Includes are resolved, no longer needed
             unions: all_unions,
             words: all_words,
-        })
+        };
+
+        // Generate constructor words for all union types (Make-VariantName)
+        resolved_program.generate_constructors();
+
+        Ok(resolved_program)
     }
 
     /// Process a single include and return the resolved words and unions

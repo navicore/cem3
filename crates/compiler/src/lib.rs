@@ -72,14 +72,20 @@ pub fn compile_file_with_config(
     let mut parser = Parser::new(&source);
     let program = parser.parse()?;
 
-    // Resolve includes (if any)
-    let program = if !program.includes.is_empty() {
+    // Resolve includes (if any) and generate union constructors
+    let mut program = if !program.includes.is_empty() {
         let stdlib_path = find_stdlib();
         let mut resolver = Resolver::new(stdlib_path);
         resolver.resolve(source_path, program)?
     } else {
         program
     };
+
+    // Generate constructors for unions even when no includes
+    // (resolver does this during resolution, but we need it when skipping resolution)
+    if !program.unions.is_empty() && program.includes.is_empty() {
+        program.generate_constructors();
+    }
 
     // Check for word name collisions
     check_collisions(&program.words)?;
@@ -177,7 +183,12 @@ pub fn compile_to_ir(source: &str) -> Result<String, String> {
 /// Compile source string to LLVM IR string with custom configuration
 pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Result<String, String> {
     let mut parser = Parser::new(source);
-    let program = parser.parse()?;
+    let mut program = parser.parse()?;
+
+    // Generate constructors for unions
+    if !program.unions.is_empty() {
+        program.generate_constructors();
+    }
 
     let external_names = config.external_names();
     program.validate_word_calls_with_externals(&external_names)?;

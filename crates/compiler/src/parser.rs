@@ -625,14 +625,21 @@ impl Parser {
                 break;
             }
 
-            // Check if next token looks like a variant name (starts with uppercase)
-            // We need to peek without consuming
+            // Check if next token looks like a match pattern (not just any uppercase word).
+            // A pattern is: UppercaseName followed by '->' or '{'
+            // This prevents confusing 'Make-Get' (constructor call) with a pattern.
             if let Some(token) = self.current_token()
                 && let Some(first_char) = token.text.chars().next()
                 && first_char.is_uppercase()
             {
-                // This is the next pattern
-                break;
+                // Peek at next token to see if this is a pattern (followed by -> or {)
+                if let Some(next) = self.peek_at(1)
+                    && (next == "->" || next == "{")
+                {
+                    // This is the next pattern
+                    break;
+                }
+                // Otherwise it's just an uppercase word call (like Make-Get), continue parsing body
             }
 
             if self.is_at_end() {
@@ -918,6 +925,16 @@ impl Parser {
             None
         } else {
             Some(&self.tokens[self.pos])
+        }
+    }
+
+    /// Peek at a token N positions ahead without consuming
+    fn peek_at(&self, n: usize) -> Option<&str> {
+        let idx = self.pos + n;
+        if idx < self.tokens.len() {
+            Some(&self.tokens[idx].text)
+        } else {
+            None
         }
     }
 

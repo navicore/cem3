@@ -92,14 +92,14 @@ impl Resolver {
             all_unions.extend(content.unions);
         }
 
-        let mut resolved_program = Program {
+        let resolved_program = Program {
             includes: Vec::new(), // Includes are resolved, no longer needed
             unions: all_unions,
             words: all_words,
         };
 
-        // Generate constructor words for all union types (Make-VariantName)
-        resolved_program.generate_constructors();
+        // Note: Constructor generation is done in lib.rs after resolution
+        // to keep all constructor generation in one place
 
         Ok(resolved_program)
     }

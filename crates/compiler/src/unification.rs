@@ -102,7 +102,8 @@ impl Subst {
 fn occurs_in_type(var: &str, ty: &Type) -> bool {
     match ty {
         Type::Var(name) => name == var,
-        Type::Int | Type::Float | Type::Bool | Type::String => false,
+        // Concrete types contain no type variables
+        Type::Int | Type::Float | Type::Bool | Type::String | Type::Union(_) => false,
         Type::Quotation(effect) => {
             // Check if var occurs in quotation's input or output stack types
             occurs_in_stack(var, &effect.inputs) || occurs_in_stack(var, &effect.outputs)

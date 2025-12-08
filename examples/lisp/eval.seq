@@ -1,4 +1,4 @@
-# Evaluator for SeqLisp
+# Evaluator for SeqLisp - Using ADTs
 #
 # Currently supports:
 # - Numbers: return as-is
@@ -13,9 +13,8 @@ include "parser"
 # ============================================
 # Environment (Association List)
 #
-# Env is a list of (Symbol . Value) pairs
-# Using scons/snil for the list structure
-# Each binding is a 2-field variant (tag 50)
+# Env is a list of (String, Value) bindings
+# Bindings use tag 50, closures use tag 60
 # ============================================
 
 : make-binding ( String Variant -- Variant )
@@ -60,10 +59,10 @@ include "parser"
 
 : env-lookup ( String Variant -- Variant )
   # Stack: Name Env
-  # Returns the value or snil if not found
+  # Returns the value or snil wrapped as empty SList if not found
   dup snil? if
-    # Not found - return snil
-    nip
+    # Not found - return empty list as error marker
+    drop drop snil slist
   else
     dup scar binding-name
     2 pick string-equal if
@@ -86,24 +85,22 @@ include "parser"
 # Eval with explicit environment
 : eval-with-env ( Variant Variant -- Variant )
   # Stack: Expr Env
-  over variant-tag
-  dup 1 = if
-    # SNum - return as-is
-    drop drop
-  else
-    dup 2 = if
+  over
+  match
+    SNum ->
+      # Stack after match: ( Expr Env value )
+      # SNum - return original Expr as-is
+      drop drop  # ( Expr )
+    SSym { name } ->
+      # Stack after match: ( Expr Env name )
       # SSym - lookup in environment
-      drop swap ssym-val swap env-lookup
-    else
-      3 = if
-        # SList - function application
-        eval-list-with-env
-      else
-        # Unknown - return as-is
-        drop drop
-      then
-    then
-  then
+      rot drop  # ( Env name )
+      swap env-lookup  # ( value )
+    SList ->
+      # Stack after match: ( Expr Env items )
+      # SList - function application, drop items and use original Expr
+      drop eval-list-with-env
+  end
 ;
 
 # ============================================

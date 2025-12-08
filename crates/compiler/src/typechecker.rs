@@ -6,13 +6,16 @@
 use crate::ast::{Program, Statement, WordDef};
 use crate::builtins::builtin_signature;
 use crate::capture_analysis::calculate_captures;
-use crate::types::{Effect, StackType, Type};
+use crate::types::{Effect, StackType, Type, UnionTypeInfo, VariantFieldInfo, VariantInfo};
 use crate::unification::{Subst, unify_stacks};
 use std::collections::HashMap;
 
 pub struct TypeChecker {
     /// Environment mapping word names to their effects
     env: HashMap<String, Effect>,
+    /// Union type registry - maps union names to their type information
+    /// Contains variant names and field types for each union
+    unions: HashMap<String, UnionTypeInfo>,
     /// Counter for generating fresh type variables
     fresh_counter: std::cell::Cell<usize>,
     /// Quotation types tracked during type checking
@@ -28,10 +31,35 @@ impl TypeChecker {
     pub fn new() -> Self {
         TypeChecker {
             env: HashMap::new(),
+            unions: HashMap::new(),
             fresh_counter: std::cell::Cell::new(0),
             quotation_types: std::cell::RefCell::new(HashMap::new()),
             expected_quotation_type: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Look up a union type by name
+    pub fn get_union(&self, name: &str) -> Option<&UnionTypeInfo> {
+        self.unions.get(name)
+    }
+
+    /// Get all registered union types
+    pub fn get_unions(&self) -> &HashMap<String, UnionTypeInfo> {
+        &self.unions
+    }
+
+    /// Find variant info by name across all unions
+    ///
+    /// Returns (union_name, variant_info) for the variant
+    fn find_variant(&self, variant_name: &str) -> Option<(&str, &VariantInfo)> {
+        for (union_name, union_info) in &self.unions {
+            for variant in &union_info.variants {
+                if variant.name == variant_name {
+                    return Some((union_name.as_str(), variant));
+                }
+            }
+        }
+        None
     }
 
     /// Register external word effects (e.g., from included modules).
@@ -136,12 +164,86 @@ impl TypeChecker {
                     captures: fresh_captures,
                 }
             }
+            // Union types are concrete named types - no freshening needed
+            Type::Union(name) => Type::Union(name.clone()),
         }
+    }
+
+    /// Parse a type name string into a Type
+    ///
+    /// Supports: Int, Float, Bool, String, and union types
+    fn parse_type_name(&self, name: &str) -> Type {
+        match name {
+            "Int" => Type::Int,
+            "Float" => Type::Float,
+            "Bool" => Type::Bool,
+            "String" => Type::String,
+            // Any other name is assumed to be a union type reference
+            other => Type::Union(other.to_string()),
+        }
+    }
+
+    /// Check if a type name is a known valid type
+    ///
+    /// Returns true for built-in types (Int, Float, Bool, String) and
+    /// registered union type names
+    fn is_valid_type_name(&self, name: &str) -> bool {
+        matches!(name, "Int" | "Float" | "Bool" | "String") || self.unions.contains_key(name)
+    }
+
+    /// Validate that all field types in union definitions reference known types
+    ///
+    /// Note: Field count validation happens earlier in generate_constructors()
+    fn validate_union_field_types(&self, program: &Program) -> Result<(), String> {
+        for union_def in &program.unions {
+            for variant in &union_def.variants {
+                for field in &variant.fields {
+                    if !self.is_valid_type_name(&field.type_name) {
+                        return Err(format!(
+                            "Unknown type '{}' in field '{}' of variant '{}' in union '{}'. \
+                             Valid types are: Int, Float, Bool, String, or a defined union name.",
+                            field.type_name, field.name, variant.name, union_def.name
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
-        // First pass: collect all word signatures
+        // First pass: register all union definitions
+        for union_def in &program.unions {
+            let variants = union_def
+                .variants
+                .iter()
+                .map(|v| VariantInfo {
+                    name: v.name.clone(),
+                    fields: v
+                        .fields
+                        .iter()
+                        .map(|f| VariantFieldInfo {
+                            name: f.name.clone(),
+                            field_type: self.parse_type_name(&f.type_name),
+                        })
+                        .collect(),
+                })
+                .collect();
+
+            self.unions.insert(
+                union_def.name.clone(),
+                UnionTypeInfo {
+                    name: union_def.name.clone(),
+                    variants,
+                },
+            );
+        }
+
+        // Validate field types in unions reference known types
+        self.validate_union_field_types(program)?;
+
+        // Second pass: collect all word signatures
         // For words without explicit effects, use a maximally polymorphic placeholder
         // This allows calls to work, and actual type safety comes from checking the body
         for word in &program.words {
@@ -158,7 +260,7 @@ impl TypeChecker {
             }
         }
 
-        // Second pass: type check each word body
+        // Third pass: type check each word body
         for word in &program.words {
             self.check_word(word)?;
         }
@@ -443,6 +545,106 @@ impl TypeChecker {
             Statement::IntLiteral(_) => {
                 // Push Int onto stack
                 Ok((current_stack.push(Type::Int), Subst::empty()))
+            }
+
+            Statement::Match { arms } => {
+                // Type checking for match expressions on union types
+                //
+                // 1. Pop the matched value (must be a union type or type variable)
+                // 2. For each arm, push the variant's fields onto the stack
+                // 3. Type check each arm's body
+                // 4. Unify all arm results
+
+                if arms.is_empty() {
+                    return Err("match expression must have at least one arm".to_string());
+                }
+
+                // Pop the matched value from the stack
+                let (stack_after_match, _matched_type) =
+                    self.pop_type(&current_stack, "match expression")?;
+
+                // Track all arm results for unification
+                let mut arm_results: Vec<StackType> = Vec::new();
+                let mut combined_subst = Subst::empty();
+
+                for arm in arms {
+                    // Get variant name from pattern
+                    let variant_name = match &arm.pattern {
+                        crate::ast::Pattern::Variant(name) => name.as_str(),
+                        crate::ast::Pattern::VariantWithBindings { name, .. } => name.as_str(),
+                    };
+
+                    // Look up variant info
+                    let (_union_name, variant_info) =
+                        self.find_variant(variant_name).ok_or_else(|| {
+                            format!("Unknown variant '{}' in match pattern", variant_name)
+                        })?;
+
+                    // Push fields onto the stack based on pattern type
+                    let mut arm_stack = stack_after_match.clone();
+                    match &arm.pattern {
+                        crate::ast::Pattern::Variant(_) => {
+                            // Stack-based: push all fields in declaration order
+                            for field in &variant_info.fields {
+                                arm_stack = arm_stack.push(field.field_type.clone());
+                            }
+                        }
+                        crate::ast::Pattern::VariantWithBindings { bindings, .. } => {
+                            // Named bindings: validate and push only bound fields
+                            for binding in bindings {
+                                let field = variant_info
+                                    .fields
+                                    .iter()
+                                    .find(|f| &f.name == binding)
+                                    .ok_or_else(|| {
+                                        let available: Vec<_> = variant_info
+                                            .fields
+                                            .iter()
+                                            .map(|f| f.name.as_str())
+                                            .collect();
+                                        format!(
+                                            "Unknown field '{}' in pattern for variant '{}'.\n\
+                                             Available fields: {}",
+                                            binding,
+                                            variant_name,
+                                            available.join(", ")
+                                        )
+                                    })?;
+                                arm_stack = arm_stack.push(field.field_type.clone());
+                            }
+                        }
+                    }
+
+                    // Type check the arm body
+                    let arm_effect = self.infer_statements(&arm.body)?;
+                    let (arm_result, arm_subst) = self.apply_effect(
+                        &arm_effect,
+                        arm_stack,
+                        &format!("match arm {}", variant_name),
+                    )?;
+
+                    combined_subst = combined_subst.compose(&arm_subst);
+                    arm_results.push(arm_result);
+                }
+
+                // Unify all arm results to ensure they're compatible
+                let mut final_result = arm_results[0].clone();
+                for (i, arm_result) in arm_results.iter().enumerate().skip(1) {
+                    let arm_subst = unify_stacks(&final_result, arm_result).map_err(|e| {
+                        format!(
+                            "match arms have incompatible stack effects:\n\
+                             \x20 arm 0 produces: {}\n\
+                             \x20 arm {} produces: {}\n\
+                             \x20 All match arms must produce the same stack shape.\n\
+                             \x20 Error: {}",
+                            final_result, i, arm_result, e
+                        )
+                    })?;
+                    combined_subst = combined_subst.compose(&arm_subst);
+                    final_result = arm_subst.apply_stack(&final_result);
+                }
+
+                Ok((final_result, combined_subst))
             }
 
             Statement::BoolLiteral(_) => {
@@ -789,6 +991,7 @@ mod tests {
     fn test_simple_literal() {
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -809,6 +1012,7 @@ mod tests {
         // : test ( Int Int -- Int ) add ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -829,6 +1033,7 @@ mod tests {
         // : test ( String -- ) write_line ;  with body: 42
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -854,6 +1059,7 @@ mod tests {
         // : my-dup ( Int -- Int Int ) dup ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "my-dup".to_string(),
                 effect: Some(Effect::new(
@@ -875,6 +1081,7 @@ mod tests {
         //   > if "greater" else "not greater" then ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -904,6 +1111,7 @@ mod tests {
         //   if 42 else "string" then ;  // ERROR: incompatible types
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: None,
@@ -930,6 +1138,7 @@ mod tests {
         // : main ( -- ) 42 helper write_line ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "helper".to_string(),
@@ -963,6 +1172,7 @@ mod tests {
         //   add multiply ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -989,6 +1199,7 @@ mod tests {
         // : test ( Int -- ) write_line ;  // ERROR: write_line expects String
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1011,6 +1222,7 @@ mod tests {
         // : test ( -- ) drop ;  // ERROR: can't drop from empty stack
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1030,6 +1242,7 @@ mod tests {
         // : test ( Int -- Int ) add ;  // ERROR: add needs 2 values
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1056,6 +1269,7 @@ mod tests {
         // ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1079,6 +1293,7 @@ mod tests {
         //   rot add add ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1106,6 +1321,7 @@ mod tests {
         // Program with no words should be valid
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![],
         };
 
@@ -1118,6 +1334,7 @@ mod tests {
         // : helper 42 ;  // No effect declaration
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "helper".to_string(),
                 effect: None,
@@ -1142,6 +1359,7 @@ mod tests {
         // Else branch must drop unused Ints to match then branch's stack effect
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1191,6 +1409,7 @@ mod tests {
         // Both branches must leave same stack
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1221,6 +1440,7 @@ mod tests {
         // : main ( -- ) 42 helper1 helper2 ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "helper1".to_string(),
@@ -1263,6 +1483,7 @@ mod tests {
         //   over nip tuck ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1301,6 +1522,7 @@ mod tests {
         //   then ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
@@ -1328,6 +1550,7 @@ mod tests {
         // : test ( -- String ) "hello" ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1349,6 +1572,7 @@ mod tests {
         // Booleans are represented as Int in the type system
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1374,6 +1598,7 @@ mod tests {
         //   then ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: None,
@@ -1407,6 +1632,7 @@ mod tests {
         // : test ( -- String ) read_line ;
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1430,6 +1656,7 @@ mod tests {
         // Simplified: just test that comparisons work
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1454,6 +1681,7 @@ mod tests {
         // Note: This tests that the checker can handle words that reference each other
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "is-even".to_string(),
@@ -1518,6 +1746,7 @@ mod tests {
         // Should work: both use row polymorphism correctly
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![
                 WordDef {
                     name: "apply-twice".to_string(),
@@ -1562,6 +1791,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(stack_type, StackType::singleton(Type::Int))),
@@ -1591,6 +1821,7 @@ mod tests {
         // Quotation type should be [ ..input Int -- ..input Int ] (row polymorphic)
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1625,6 +1856,7 @@ mod tests {
         // Empty quotation has effect ( ..input -- ..input ) (preserves stack)
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1689,6 +1921,7 @@ mod tests {
 
         let program = Program {
             includes: vec![],
+            unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
@@ -1711,5 +1944,78 @@ mod tests {
 
         let mut checker = TypeChecker::new();
         assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_field_type_error() {
+        use crate::ast::{UnionDef, UnionField, UnionVariant};
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![UnionDef {
+                name: "Message".to_string(),
+                variants: vec![UnionVariant {
+                    name: "Get".to_string(),
+                    fields: vec![UnionField {
+                        name: "chan".to_string(),
+                        type_name: "InvalidType".to_string(),
+                    }],
+                    source: None,
+                }],
+                source: None,
+            }],
+            words: vec![],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown type 'InvalidType'"));
+        assert!(err.contains("chan"));
+        assert!(err.contains("Get"));
+        assert!(err.contains("Message"));
+    }
+
+    #[test]
+    fn test_valid_union_reference_in_field() {
+        use crate::ast::{UnionDef, UnionField, UnionVariant};
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![
+                UnionDef {
+                    name: "Inner".to_string(),
+                    variants: vec![UnionVariant {
+                        name: "Val".to_string(),
+                        fields: vec![UnionField {
+                            name: "x".to_string(),
+                            type_name: "Int".to_string(),
+                        }],
+                        source: None,
+                    }],
+                    source: None,
+                },
+                UnionDef {
+                    name: "Outer".to_string(),
+                    variants: vec![UnionVariant {
+                        name: "Wrap".to_string(),
+                        fields: vec![UnionField {
+                            name: "inner".to_string(),
+                            type_name: "Inner".to_string(), // Reference to other union
+                        }],
+                        source: None,
+                    }],
+                    source: None,
+                },
+            ],
+            words: vec![],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(
+            checker.check_program(&program).is_ok(),
+            "Union reference in field should be valid"
+        );
     }
 }

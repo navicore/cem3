@@ -32,7 +32,7 @@ pub use ast::Program;
 pub use codegen::CodeGen;
 pub use config::{CompilerConfig, ExternalBuiltin};
 pub use parser::Parser;
-pub use resolver::{Resolver, check_collisions, find_stdlib};
+pub use resolver::{Resolver, check_collisions, check_union_collisions, find_stdlib};
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 
@@ -73,7 +73,7 @@ pub fn compile_file_with_config(
     let program = parser.parse()?;
 
     // Resolve includes (if any)
-    let program = if !program.includes.is_empty() {
+    let mut program = if !program.includes.is_empty() {
         let stdlib_path = find_stdlib();
         let mut resolver = Resolver::new(stdlib_path);
         resolver.resolve(source_path, program)?
@@ -81,8 +81,15 @@ pub fn compile_file_with_config(
         program
     };
 
+    // Generate constructor words for all union types (Make-VariantName)
+    // Always done here to consolidate constructor generation in one place
+    program.generate_constructors()?;
+
     // Check for word name collisions
     check_collisions(&program.words)?;
+
+    // Check for union name collisions across modules
+    check_union_collisions(&program.unions)?;
 
     // Verify we have a main word
     if program.find_word("main").is_none() {
@@ -177,7 +184,12 @@ pub fn compile_to_ir(source: &str) -> Result<String, String> {
 /// Compile source string to LLVM IR string with custom configuration
 pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Result<String, String> {
     let mut parser = Parser::new(source);
-    let program = parser.parse()?;
+    let mut program = parser.parse()?;
+
+    // Generate constructors for unions
+    if !program.unions.is_empty() {
+        program.generate_constructors()?;
+    }
 
     let external_names = config.external_names();
     program.validate_word_calls_with_externals(&external_names)?;

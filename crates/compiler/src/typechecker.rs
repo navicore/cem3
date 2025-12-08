@@ -183,6 +183,34 @@ impl TypeChecker {
         }
     }
 
+    /// Check if a type name is a known valid type
+    ///
+    /// Returns true for built-in types (Int, Float, Bool, String) and
+    /// registered union type names
+    fn is_valid_type_name(&self, name: &str) -> bool {
+        matches!(name, "Int" | "Float" | "Bool" | "String") || self.unions.contains_key(name)
+    }
+
+    /// Validate that all field types in union definitions reference known types
+    ///
+    /// Note: Field count validation happens earlier in generate_constructors()
+    fn validate_union_field_types(&self, program: &Program) -> Result<(), String> {
+        for union_def in &program.unions {
+            for variant in &union_def.variants {
+                for field in &variant.fields {
+                    if !self.is_valid_type_name(&field.type_name) {
+                        return Err(format!(
+                            "Unknown type '{}' in field '{}' of variant '{}' in union '{}'. \
+                             Valid types are: Int, Float, Bool, String, or a defined union name.",
+                            field.type_name, field.name, variant.name, union_def.name
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // First pass: register all union definitions
@@ -211,6 +239,9 @@ impl TypeChecker {
                 },
             );
         }
+
+        // Validate field types in unions reference known types
+        self.validate_union_field_types(program)?;
 
         // Second pass: collect all word signatures
         // For words without explicit effects, use a maximally polymorphic placeholder
@@ -1913,5 +1944,78 @@ mod tests {
 
         let mut checker = TypeChecker::new();
         assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_field_type_error() {
+        use crate::ast::{UnionDef, UnionField, UnionVariant};
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![UnionDef {
+                name: "Message".to_string(),
+                variants: vec![UnionVariant {
+                    name: "Get".to_string(),
+                    fields: vec![UnionField {
+                        name: "chan".to_string(),
+                        type_name: "InvalidType".to_string(),
+                    }],
+                    source: None,
+                }],
+                source: None,
+            }],
+            words: vec![],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown type 'InvalidType'"));
+        assert!(err.contains("chan"));
+        assert!(err.contains("Get"));
+        assert!(err.contains("Message"));
+    }
+
+    #[test]
+    fn test_valid_union_reference_in_field() {
+        use crate::ast::{UnionDef, UnionField, UnionVariant};
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![
+                UnionDef {
+                    name: "Inner".to_string(),
+                    variants: vec![UnionVariant {
+                        name: "Val".to_string(),
+                        fields: vec![UnionField {
+                            name: "x".to_string(),
+                            type_name: "Int".to_string(),
+                        }],
+                        source: None,
+                    }],
+                    source: None,
+                },
+                UnionDef {
+                    name: "Outer".to_string(),
+                    variants: vec![UnionVariant {
+                        name: "Wrap".to_string(),
+                        fields: vec![UnionField {
+                            name: "inner".to_string(),
+                            type_name: "Inner".to_string(), // Reference to other union
+                        }],
+                        source: None,
+                    }],
+                    source: None,
+                },
+            ],
+            words: vec![],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(
+            checker.check_program(&program).is_ok(),
+            "Union reference in field should be valid"
+        );
     }
 }

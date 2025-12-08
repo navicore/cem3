@@ -443,6 +443,9 @@ impl Program {
 
     /// Generate constructor words for all union definitions
     ///
+    /// Maximum number of fields a variant can have (limited by runtime support)
+    pub const MAX_VARIANT_FIELDS: usize = 4;
+
     /// For each union variant, generates a `Make-VariantName` word that:
     /// 1. Takes the variant's field values from the stack
     /// 2. Pushes the variant tag (index)
@@ -450,13 +453,27 @@ impl Program {
     ///
     /// Example: For `union Message { Get { chan: Int } }`
     /// Generates: `: Make-Get ( Int -- Message ) 0 make-variant-1 ;`
-    pub fn generate_constructors(&mut self) {
+    ///
+    /// Returns an error if any variant exceeds the maximum field count.
+    pub fn generate_constructors(&mut self) -> Result<(), String> {
         let mut new_words = Vec::new();
 
         for union_def in &self.unions {
             for (variant_idx, variant) in union_def.variants.iter().enumerate() {
                 let constructor_name = format!("Make-{}", variant.name);
                 let field_count = variant.fields.len();
+
+                // Check field count limit before generating constructor
+                if field_count > Self::MAX_VARIANT_FIELDS {
+                    return Err(format!(
+                        "Variant '{}' in union '{}' has {} fields, but the maximum is {}. \
+                         Consider grouping fields into nested union types.",
+                        variant.name,
+                        union_def.name,
+                        field_count,
+                        Self::MAX_VARIANT_FIELDS
+                    ));
+                }
 
                 // Build the stack effect: ( field_types... -- UnionType )
                 // Input stack has fields in declaration order
@@ -490,6 +507,7 @@ impl Program {
         }
 
         self.words.extend(new_words);
+        Ok(())
     }
 }
 
@@ -640,7 +658,7 @@ mod tests {
         };
 
         // Generate constructors
-        program.generate_constructors();
+        program.generate_constructors().unwrap();
 
         // Should have 2 constructor words
         assert_eq!(program.words.len(), 2);

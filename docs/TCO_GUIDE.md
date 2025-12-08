@@ -1,11 +1,10 @@
-# Tail Call Optimization (TCO) Design
+# Tail Call Optimization (TCO) Guide
 
 ## Overview
 
-This document describes the design for implementing tail call optimization in
-seqc, the Seq compiler. TCO is a critical optimization for functional and
-recursive programming styles, allowing recursive functions to execute in
-constant stack space.
+This guide describes tail call optimization in seqc, the Seq compiler. TCO is
+a critical optimization for functional and recursive programming styles,
+allowing recursive functions to execute in constant stack space.
 
 ## Motivation
 
@@ -161,6 +160,46 @@ This common pattern is NOT tail-recursive. To enable TCO, use accumulator style:
     1 factorial-acc
 ;
 ```
+
+### Match Expressions
+
+Match expressions work the same as conditionals - each arm body is independently
+checked for tail position. If a match arm's **last statement** is a recursive
+call, it gets TCO:
+
+```seq
+: process-list ( SexprList -- Int )
+  match
+    SNil ->
+      0                    # Base case, no recursion
+    SCons { head tail } ->
+      head do-something    # Not tail position
+      tail process-list    # Last statement - gets TCO ✓
+  end
+;
+```
+
+Each arm is evaluated independently, so different arms can have different
+tail call behavior:
+
+```seq
+: eval-expr ( Expr -- Value )
+  match
+    Literal { value } ->
+      value                # No recursion needed
+    BinOp { left op right } ->
+      left eval-expr       # NOT tail - result used below
+      right eval-expr
+      op apply-op
+    Call { func args } ->
+      args eval-args
+      func eval-expr       # Last statement - gets TCO ✓
+  end
+;
+```
+
+The key insight: TCO applies to the **last statement in each arm body**,
+regardless of how many statements precede it.
 
 ## Implementation Design
 

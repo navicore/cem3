@@ -17,7 +17,7 @@
 //! - `define ptr @push_int(ptr %stack, i64 %value) { ... }` for literals
 //! - Stack type is represented as `ptr` (opaque pointer in modern LLVM)
 
-use crate::ast::{Program, Statement, WordDef};
+use crate::ast::{MatchArm, Pattern, Program, Statement, UnionDef, WordDef};
 use crate::config::CompilerConfig;
 use crate::types::Type;
 use std::collections::HashMap;
@@ -263,6 +263,7 @@ pub struct CodeGen {
     inside_closure: bool, // Track if we're generating code inside a closure (disables TCO)
     inside_main: bool, // Track if we're generating code for main (uses C convention, no musttail)
     inside_quotation: bool, // Track if we're generating code for a quotation (uses C convention, no musttail)
+    unions: Vec<UnionDef>,  // Union type definitions for pattern matching
 }
 
 impl CodeGen {
@@ -281,6 +282,7 @@ impl CodeGen {
             quotation_functions: String::new(),
             type_map: HashMap::new(),
             external_builtins: HashMap::new(),
+            unions: Vec::new(),
         }
     }
 
@@ -307,6 +309,23 @@ impl CodeGen {
                 id
             )
         })
+    }
+
+    /// Find variant info by name across all unions
+    ///
+    /// Returns (tag_index, field_count) for the variant
+    fn find_variant_info(&self, variant_name: &str) -> Result<(usize, usize), String> {
+        for union_def in &self.unions {
+            for (tag_idx, variant) in union_def.variants.iter().enumerate() {
+                if variant.name == variant_name {
+                    return Ok((tag_idx, variant.fields.len()));
+                }
+            }
+        }
+        Err(format!(
+            "Unknown variant '{}' in match pattern. No union defines this variant.",
+            variant_name
+        ))
     }
 
     /// Escape a string for LLVM IR string literals
@@ -376,6 +395,9 @@ impl CodeGen {
     ) -> Result<String, String> {
         // Store type map for use during code generation
         self.type_map = type_map;
+
+        // Store union definitions for pattern matching
+        self.unions = program.unions.clone();
 
         // Build external builtins map from config
         self.external_builtins = config
@@ -594,6 +616,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_3(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_4(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)").unwrap();
         writeln!(&mut ir, "; Float operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
@@ -1373,6 +1396,147 @@ impl CodeGen {
         Ok(result_var)
     }
 
+    /// Generate code for a match expression (pattern matching on union types)
+    ///
+    /// Match expressions:
+    /// 1. Get the variant's tag to determine which arm to execute
+    /// 2. Jump to the appropriate arm based on tag
+    /// 3. In each arm, unpack the variant's fields onto the stack
+    /// 4. Execute the arm's body
+    /// 5. Merge control flow at the end
+    fn codegen_match_statement(
+        &mut self,
+        stack_var: &str,
+        arms: &[MatchArm],
+        position: TailPosition,
+    ) -> Result<String, String> {
+        // Step 1: Duplicate the variant so we can get the tag without consuming it
+        let dup_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_dup(ptr %{})",
+            dup_stack, stack_var
+        )
+        .unwrap();
+
+        // Step 2: Call variant-tag on the duplicate to get the tag as Int
+        let tagged_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_variant_tag(ptr %{})",
+            tagged_stack, dup_stack
+        )
+        .unwrap();
+
+        // Step 3: Peek the tag value and pop it from stack
+        let tag_value = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
+            tag_value, tagged_stack
+        )
+        .unwrap();
+
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+            popped_stack, tagged_stack
+        )
+        .unwrap();
+
+        // Now popped_stack has just the original variant (dup'd copy tag was consumed)
+
+        // Step 4: Generate switch statement
+        let default_block = self.fresh_block("match_unreachable");
+        let merge_block = self.fresh_block("match_merge");
+
+        // Build the switch instruction
+        write!(
+            &mut self.output,
+            "  switch i64 %{}, label %{} [",
+            tag_value, default_block
+        )
+        .unwrap();
+
+        // Collect arm info: (block_name, tag, field_count)
+        let mut arm_info: Vec<(String, usize, usize)> = Vec::new();
+        for (i, arm) in arms.iter().enumerate() {
+            let block = self.fresh_block(&format!("match_arm_{}", i));
+            let variant_name = match &arm.pattern {
+                Pattern::Variant(name) => name.as_str(),
+                Pattern::VariantWithBindings { name, .. } => name.as_str(),
+            };
+            let (tag, field_count) = self.find_variant_info(variant_name)?;
+            arm_info.push((block.clone(), tag, field_count));
+            write!(&mut self.output, " i64 {}, label %{}", tag, block).unwrap();
+        }
+        writeln!(&mut self.output, " ]").unwrap();
+
+        // Step 5: Generate unreachable default block (should never reach)
+        writeln!(&mut self.output, "{}:", default_block).unwrap();
+        writeln!(&mut self.output, "  unreachable").unwrap();
+
+        // Step 6: Generate each match arm
+        let mut arm_results: Vec<BranchResult> = Vec::new();
+        for (i, (arm, (block, _tag, field_count))) in arms.iter().zip(arm_info.iter()).enumerate() {
+            writeln!(&mut self.output, "{}:", block).unwrap();
+
+            // Unpack variant fields onto the stack
+            let unpacked_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
+                unpacked_stack, popped_stack, field_count
+            )
+            .unwrap();
+
+            // Generate the arm body
+            let result = self.codegen_branch(
+                &arm.body,
+                &unpacked_stack,
+                position,
+                &merge_block,
+                &format!("match_arm_{}", i),
+            )?;
+            arm_results.push(result);
+        }
+
+        // Step 7: Generate merge block with phi node
+        // Check if all arms emitted tail calls
+        let all_tail_calls = arm_results.iter().all(|r| r.emitted_tail_call);
+        if all_tail_calls {
+            // All branches tail-called, no merge needed
+            // Return any stack var (won't be used)
+            return Ok(arm_results[0].stack_var.clone());
+        }
+
+        writeln!(&mut self.output, "{}:", merge_block).unwrap();
+        let result_var = self.fresh_temp();
+
+        // Build phi node from non-tail-call branches
+        let phi_entries: Vec<_> = arm_results
+            .iter()
+            .filter(|r| !r.emitted_tail_call)
+            .map(|r| format!("[ %{}, %{} ]", r.stack_var, r.predecessor))
+            .collect();
+
+        if phi_entries.is_empty() {
+            // Shouldn't happen if not all_tail_calls
+            return Err("Match codegen: unexpected empty phi".to_string());
+        }
+
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr {}",
+            result_var,
+            phi_entries.join(", ")
+        )
+        .unwrap();
+
+        Ok(result_var)
+    }
+
     /// Generate code for pushing a quotation or closure onto the stack
     fn codegen_quotation_push(
         &mut self,
@@ -1469,10 +1633,7 @@ impl CodeGen {
                 else_branch,
             } => self.codegen_if_statement(stack_var, then_branch, else_branch.as_ref(), position),
             Statement::Quotation { id, body } => self.codegen_quotation_push(stack_var, *id, body),
-            Statement::Match { .. } => {
-                // TODO: Phase 4 will implement match codegen
-                Err("Match expressions are not yet implemented in codegen (Phase 4)".to_string())
-            }
+            Statement::Match { arms } => self.codegen_match_statement(stack_var, arms, position),
         }
     }
 

@@ -48,6 +48,20 @@ impl TypeChecker {
         &self.unions
     }
 
+    /// Find variant info by name across all unions
+    ///
+    /// Returns (union_name, variant_info) for the variant
+    fn find_variant(&self, variant_name: &str) -> Option<(&str, &VariantInfo)> {
+        for (union_name, union_info) in &self.unions {
+            for variant in &union_info.variants {
+                if variant.name == variant_name {
+                    return Some((union_name.as_str(), variant));
+                }
+            }
+        }
+        None
+    }
+
     /// Register external word effects (e.g., from included modules).
     ///
     /// Words with `Some(effect)` get their actual signature.
@@ -502,12 +516,75 @@ impl TypeChecker {
                 Ok((current_stack.push(Type::Int), Subst::empty()))
             }
 
-            Statement::Match { .. } => {
-                // TODO: Phase 4 will implement match type checking
-                Err(
-                    "Match expressions are not yet implemented in typechecker (Phase 4)"
-                        .to_string(),
-                )
+            Statement::Match { arms } => {
+                // Type checking for match expressions on union types
+                //
+                // 1. Pop the matched value (must be a union type or type variable)
+                // 2. For each arm, push the variant's fields onto the stack
+                // 3. Type check each arm's body
+                // 4. Unify all arm results
+
+                if arms.is_empty() {
+                    return Err("match expression must have at least one arm".to_string());
+                }
+
+                // Pop the matched value from the stack
+                let (stack_after_match, _matched_type) =
+                    self.pop_type(&current_stack, "match expression")?;
+
+                // Track all arm results for unification
+                let mut arm_results: Vec<StackType> = Vec::new();
+                let mut combined_subst = Subst::empty();
+
+                for arm in arms {
+                    // Get variant name from pattern
+                    let variant_name = match &arm.pattern {
+                        crate::ast::Pattern::Variant(name) => name.as_str(),
+                        crate::ast::Pattern::VariantWithBindings { name, .. } => name.as_str(),
+                    };
+
+                    // Look up variant info
+                    let (_union_name, variant_info) =
+                        self.find_variant(variant_name).ok_or_else(|| {
+                            format!("Unknown variant '{}' in match pattern", variant_name)
+                        })?;
+
+                    // Push variant fields onto the stack (in order)
+                    let mut arm_stack = stack_after_match.clone();
+                    for field in &variant_info.fields {
+                        arm_stack = arm_stack.push(field.field_type.clone());
+                    }
+
+                    // Type check the arm body
+                    let arm_effect = self.infer_statements(&arm.body)?;
+                    let (arm_result, arm_subst) = self.apply_effect(
+                        &arm_effect,
+                        arm_stack,
+                        &format!("match arm {}", variant_name),
+                    )?;
+
+                    combined_subst = combined_subst.compose(&arm_subst);
+                    arm_results.push(arm_result);
+                }
+
+                // Unify all arm results to ensure they're compatible
+                let mut final_result = arm_results[0].clone();
+                for (i, arm_result) in arm_results.iter().enumerate().skip(1) {
+                    let arm_subst = unify_stacks(&final_result, arm_result).map_err(|e| {
+                        format!(
+                            "match arms have incompatible stack effects:\n\
+                             \x20 arm 0 produces: {}\n\
+                             \x20 arm {} produces: {}\n\
+                             \x20 All match arms must produce the same stack shape.\n\
+                             \x20 Error: {}",
+                            final_result, i, arm_result, e
+                        )
+                    })?;
+                    combined_subst = combined_subst.compose(&arm_subst);
+                    final_result = arm_subst.apply_stack(&final_result);
+                }
+
+                Ok((final_result, combined_subst))
             }
 
             Statement::BoolLiteral(_) => {

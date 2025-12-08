@@ -363,7 +363,48 @@ pub unsafe extern "C" fn patch_seq_variant_init(stack: Stack) -> Stack {
     }
 }
 
+/// Unpack a variant's fields onto the stack
+///
+/// Takes a field count as parameter and:
+/// - Pops the variant from the stack
+/// - Pushes each field (0..field_count) in order
+///
+/// Stack effect: ( Variant -- field0 field1 ... fieldN-1 )
+///
+/// Used by match expression codegen to extract variant fields.
+///
+/// # Safety
+/// Stack must have a Variant on top with at least `field_count` fields
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_unpack_variant(stack: Stack, field_count: i64) -> Stack {
+    unsafe {
+        let (mut stack, variant_val) = pop(stack);
+
+        match variant_val {
+            Value::Variant(variant_data) => {
+                let count = field_count as usize;
+                if count > variant_data.fields.len() {
+                    panic!(
+                        "unpack-variant: requested {} fields but variant only has {}",
+                        count,
+                        variant_data.fields.len()
+                    );
+                }
+
+                // Push each field in order (field0 first, then field1, etc.)
+                for i in 0..count {
+                    stack = push(stack, variant_data.fields[i].clone());
+                }
+
+                stack
+            }
+            _ => panic!("unpack-variant: expected Variant, got {:?}", variant_val),
+        }
+    }
+}
+
 // Public re-exports with short names for internal use
+pub use patch_seq_unpack_variant as unpack_variant;
 pub use patch_seq_variant_append as variant_append;
 pub use patch_seq_variant_field_at as variant_field_at;
 pub use patch_seq_variant_field_count as variant_field_count;

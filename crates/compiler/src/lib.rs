@@ -120,17 +120,17 @@ fn parse_clang_version(output: &str) -> Option<u32> {
     // Look for "clang version X.Y.Z" pattern to avoid false positives
     // This handles: "clang version", "Apple clang version", "Homebrew clang version", etc.
     for line in output.lines() {
-        if line.contains("clang version") {
-            if let Some(idx) = line.find("version ") {
-                let after_version = &line[idx + 8..];
-                // Extract the major version number
-                let major: String = after_version
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit())
-                    .collect();
-                if !major.is_empty() {
-                    return major.parse().ok();
-                }
+        if line.contains("clang version")
+            && let Some(idx) = line.find("version ")
+        {
+            let after_version = &line[idx + 8..];
+            // Extract the major version number
+            let major: String = after_version
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !major.is_empty() {
+                return major.parse().ok();
             }
         }
     }

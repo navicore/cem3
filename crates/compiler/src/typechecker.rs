@@ -549,10 +549,39 @@ impl TypeChecker {
                             format!("Unknown variant '{}' in match pattern", variant_name)
                         })?;
 
-                    // Push variant fields onto the stack (in order)
+                    // Push fields onto the stack based on pattern type
                     let mut arm_stack = stack_after_match.clone();
-                    for field in &variant_info.fields {
-                        arm_stack = arm_stack.push(field.field_type.clone());
+                    match &arm.pattern {
+                        crate::ast::Pattern::Variant(_) => {
+                            // Stack-based: push all fields in declaration order
+                            for field in &variant_info.fields {
+                                arm_stack = arm_stack.push(field.field_type.clone());
+                            }
+                        }
+                        crate::ast::Pattern::VariantWithBindings { bindings, .. } => {
+                            // Named bindings: validate and push only bound fields
+                            for binding in bindings {
+                                let field = variant_info
+                                    .fields
+                                    .iter()
+                                    .find(|f| &f.name == binding)
+                                    .ok_or_else(|| {
+                                        let available: Vec<_> = variant_info
+                                            .fields
+                                            .iter()
+                                            .map(|f| f.name.as_str())
+                                            .collect();
+                                        format!(
+                                            "Unknown field '{}' in pattern for variant '{}'.\n\
+                                             Available fields: {}",
+                                            binding,
+                                            variant_name,
+                                            available.join(", ")
+                                        )
+                                    })?;
+                                arm_stack = arm_stack.push(field.field_type.clone());
+                            }
+                        }
                     }
 
                     // Type check the arm body

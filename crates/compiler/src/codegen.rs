@@ -314,11 +314,14 @@ impl CodeGen {
     /// Find variant info by name across all unions
     ///
     /// Returns (tag_index, field_count) for the variant
-    fn find_variant_info(&self, variant_name: &str) -> Result<(usize, usize), String> {
+    /// Returns (tag_index, field_count, field_names)
+    fn find_variant_info(&self, variant_name: &str) -> Result<(usize, usize, Vec<String>), String> {
         for union_def in &self.unions {
             for (tag_idx, variant) in union_def.variants.iter().enumerate() {
                 if variant.name == variant_name {
-                    return Ok((tag_idx, variant.fields.len()));
+                    let field_names: Vec<String> =
+                        variant.fields.iter().map(|f| f.name.clone()).collect();
+                    return Ok((tag_idx, variant.fields.len(), field_names));
                 }
             }
         }
@@ -1459,16 +1462,16 @@ impl CodeGen {
         )
         .unwrap();
 
-        // Collect arm info: (block_name, tag, field_count)
-        let mut arm_info: Vec<(String, usize, usize)> = Vec::new();
+        // Collect arm info: (block_name, tag, field_count, field_names)
+        let mut arm_info: Vec<(String, usize, usize, Vec<String>)> = Vec::new();
         for (i, arm) in arms.iter().enumerate() {
             let block = self.fresh_block(&format!("match_arm_{}", i));
             let variant_name = match &arm.pattern {
                 Pattern::Variant(name) => name.as_str(),
                 Pattern::VariantWithBindings { name, .. } => name.as_str(),
             };
-            let (tag, field_count) = self.find_variant_info(variant_name)?;
-            arm_info.push((block.clone(), tag, field_count));
+            let (tag, field_count, field_names) = self.find_variant_info(variant_name)?;
+            arm_info.push((block.clone(), tag, field_count, field_names));
             write!(&mut self.output, " i64 {}, label %{}", tag, block).unwrap();
         }
         writeln!(&mut self.output, " ]").unwrap();
@@ -1479,17 +1482,116 @@ impl CodeGen {
 
         // Step 6: Generate each match arm
         let mut arm_results: Vec<BranchResult> = Vec::new();
-        for (i, (arm, (block, _tag, field_count))) in arms.iter().zip(arm_info.iter()).enumerate() {
+        for (i, (arm, (block, _tag, field_count, field_names))) in
+            arms.iter().zip(arm_info.iter()).enumerate()
+        {
             writeln!(&mut self.output, "{}:", block).unwrap();
 
-            // Unpack variant fields onto the stack
-            let unpacked_stack = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
-                unpacked_stack, popped_stack, field_count
-            )
-            .unwrap();
+            // Extract fields based on pattern type
+            let unpacked_stack = match &arm.pattern {
+                Pattern::Variant(_) => {
+                    // Stack-based: unpack all fields in declaration order
+                    let result = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
+                        result, popped_stack, field_count
+                    )
+                    .unwrap();
+                    result
+                }
+                Pattern::VariantWithBindings { bindings, .. } => {
+                    // Named bindings: extract only bound fields using variant_field_at
+                    // variant_field_at expects: ( variant index -- field_value )
+                    //
+                    // Algorithm for bindings [a, b, c]:
+                    // - For each binding except last: dup, push idx, field_at, swap
+                    // - For last binding: push idx, field_at
+                    // This leaves fields in binding order: ( a b c )
+
+                    if bindings.is_empty() {
+                        // No bindings: just drop the variant
+                        let drop_stack = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                            drop_stack, popped_stack
+                        )
+                        .unwrap();
+                        drop_stack
+                    } else {
+                        let mut current_stack = popped_stack.to_string();
+                        let is_last = |idx: usize| idx == bindings.len() - 1;
+
+                        for (bind_idx, binding) in bindings.iter().enumerate() {
+                            // Find the field index for this binding
+                            let field_idx = field_names
+                                .iter()
+                                .position(|f| f == binding)
+                                .expect("binding validation should have caught unknown field");
+
+                            if !is_last(bind_idx) {
+                                // Not the last binding: dup, push idx, field_at, swap
+                                let dup_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
+                                    dup_stack, current_stack
+                                )
+                                .unwrap();
+
+                                let idx_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+                                    idx_stack, dup_stack, field_idx
+                                )
+                                .unwrap();
+
+                                let field_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+                                    field_stack, idx_stack
+                                )
+                                .unwrap();
+
+                                // Swap to get variant back on top: ( field variant )
+                                let swap_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_swap(ptr %{})",
+                                    swap_stack, field_stack
+                                )
+                                .unwrap();
+
+                                current_stack = swap_stack;
+                            } else {
+                                // Last binding: push idx, field_at
+                                let idx_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+                                    idx_stack, current_stack, field_idx
+                                )
+                                .unwrap();
+
+                                let field_stack = self.fresh_temp();
+                                writeln!(
+                                    &mut self.output,
+                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+                                    field_stack, idx_stack
+                                )
+                                .unwrap();
+
+                                current_stack = field_stack;
+                            }
+                        }
+
+                        current_stack
+                    }
+                }
+            };
 
             // Generate the arm body
             let result = self.codegen_branch(

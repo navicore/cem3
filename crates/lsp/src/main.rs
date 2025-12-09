@@ -113,6 +113,8 @@ impl LanguageServer for SeqLanguageServer {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
+                // Declare UTF-8 position encoding since we use byte offsets
+                position_encoding: Some(PositionEncodingKind::UTF8),
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),

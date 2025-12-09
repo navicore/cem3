@@ -26,5 +26,9 @@ libc.workspace = true
 serde.workspace = true
 bincode.workspace = true
 
+# Signal handling for SIGQUIT diagnostics (Unix only)
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
 [dev-dependencies]
 tempfile = "3"

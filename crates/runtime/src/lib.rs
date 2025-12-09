@@ -11,6 +11,7 @@ pub mod arithmetic;
 pub mod channel;
 pub mod closures;
 pub mod cond;
+pub mod diagnostics;
 pub mod file;
 pub mod float_ops;
 pub mod io;

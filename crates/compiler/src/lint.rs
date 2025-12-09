@@ -163,8 +163,10 @@ pub struct LintDiagnostic {
     pub replacement: String,
     /// File where the match was found
     pub file: PathBuf,
-    /// Line number (0-indexed)
+    /// Start line number (0-indexed)
     pub line: usize,
+    /// End line number (0-indexed), for multi-line matches
+    pub end_line: Option<usize>,
     /// Start column (0-indexed), if available from source spans
     pub start_column: Option<usize>,
     /// End column (0-indexed, exclusive), if available from source spans
@@ -271,18 +273,22 @@ impl Linter {
                 // Use span line if available, otherwise fall back to word definition line
                 let line = first_span.map(|s| s.line).unwrap_or(fallback_line);
 
-                // Calculate column range if all spans are on the same line
-                let (start_column, end_column) =
+                // Calculate end line and column range
+                let (end_line, start_column, end_column) =
                     if let (Some(first), Some(last)) = (first_span, last_span) {
                         if first.line == last.line {
                             // Same line: column range spans from first word's start to last word's end
-                            (Some(first.column), Some(last.column + last.length))
+                            (None, Some(first.column), Some(last.column + last.length))
                         } else {
-                            // Multi-line match: just highlight from the first word's start
-                            (Some(first.column), None)
+                            // Multi-line match: track end line and end column
+                            (
+                                Some(last.line),
+                                Some(first.column),
+                                Some(last.column + last.length),
+                            )
                         }
                     } else {
-                        (None, None)
+                        (None, None, None)
                     };
 
                 diagnostics.push(LintDiagnostic {
@@ -292,6 +298,7 @@ impl Linter {
                     replacement: pattern.rule.replacement.clone(),
                     file: file.to_path_buf(),
                     line,
+                    end_line,
                     start_column,
                     end_column,
                     word_name: word.name.clone(),

@@ -139,6 +139,18 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
         | (Type::Bool, Type::Bool)
         | (Type::String, Type::String) => Ok(Subst::empty()),
 
+        // Union types unify if they have the same name
+        (Type::Union(name1), Type::Union(name2)) => {
+            if name1 == name2 {
+                Ok(Subst::empty())
+            } else {
+                Err(format!(
+                    "Type mismatch: cannot unify Union({}) with Union({})",
+                    name1, name2
+                ))
+            }
+        }
+
         // Type variable unifies with anything (with occurs check)
         (Type::Var(name), ty) | (ty, Type::Var(name)) => {
             // If unifying a variable with itself, no substitution needed

@@ -87,13 +87,13 @@ union Message {
   2 pick receive             # ( parent my count pending msg )
 
   match
-    Get { response_chan } ->
+    Get { >response_chan } ->
       # Return current count on response channel
       # Stack: ( parent my count pending response_chan )
       2 pick swap send       # ( parent my count pending )
       store-loop
 
-    Increment { response_chan } ->
+    Increment { >response_chan } ->
       # Increment counter and return new count
       # Stack: ( parent my count pending response_chan )
       rot 1 add              # ( parent my pending response_chan count+1 )
@@ -142,13 +142,13 @@ union Message {
   over receive               # ( parent my total msg )
 
   match
-    Get { response_chan } ->
+    Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( parent my total response_chan )
       over swap send         # ( parent my total ) - sent total
       district-loop
 
-    Report { delta } ->
+    Report { >delta } ->
       # Add delta, forward to region immediately
       # Stack: ( parent my total delta )
       dup rot add            # ( parent my delta total+delta )
@@ -187,13 +187,13 @@ union Message {
   over receive               # ( parent my total msg )
 
   match
-    Get { response_chan } ->
+    Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( parent my total response_chan )
       over swap send         # ( parent my total )
       region-loop
 
-    Report { delta } ->
+    Report { >delta } ->
       # Add delta, forward to company immediately
       # Stack: ( parent my total delta )
       dup rot add            # ( parent my delta total+delta )
@@ -231,13 +231,13 @@ union Message {
   over receive               # ( my-chan total msg )
 
   match
-    Get { response_chan } ->
+    Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( my-chan total response_chan )
       over swap send         # ( my-chan total )
       company-loop
 
-    Report { delta } ->
+    Report { >delta } ->
       # Add delta (no forwarding - company is top of hierarchy)
       # Stack: ( my-chan total delta )
       add                    # ( my-chan total+delta )

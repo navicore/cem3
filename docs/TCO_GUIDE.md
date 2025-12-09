@@ -172,9 +172,9 @@ call, it gets TCO:
   match
     SNil ->
       0                    # Base case, no recursion
-    SCons { head tail } ->
-      head do-something    # Not tail position
-      tail process-list    # Last statement - gets TCO ✓
+    SCons { >head >tail } ->
+      swap do-something    # Not tail position (head on stack)
+      process-list         # Last statement - gets TCO ✓
   end
 ;
 ```
@@ -185,15 +185,18 @@ tail call behavior:
 ```seq
 : eval-expr ( Expr -- Value )
   match
-    Literal { value } ->
-      value                # No recursion needed
-    BinOp { left op right } ->
-      left eval-expr       # NOT tail - result used below
-      right eval-expr
-      op apply-op
-    Call { func args } ->
-      args eval-args
-      func eval-expr       # Last statement - gets TCO ✓
+    Literal { >value } ->
+      # value on stack
+                           # No recursion needed
+    BinOp { >left >op >right } ->
+      # Stack: ( left op right )
+      rot eval-expr        # NOT tail - result used below
+      swap eval-expr
+      apply-op
+    Call { >func >args } ->
+      # Stack: ( func args )
+      eval-args
+      eval-expr            # Last statement - gets TCO ✓
   end
 ;
 ```

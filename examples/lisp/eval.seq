@@ -91,7 +91,7 @@ include "parser"
       # Stack after match: ( Expr Env value )
       # SNum - return original Expr as-is
       drop drop  # ( Expr )
-    SSym { name } ->
+    SSym { >name } ->
       # Stack after match: ( Expr Env name )
       # SSym - lookup in environment
       rot drop  # ( Env name )

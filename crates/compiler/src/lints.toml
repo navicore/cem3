@@ -78,9 +78,6 @@ replacement = ""
 message = "dropping three values - consider refactoring"
 severity = "hint"
 
-[[lint]]
-id = "immediate-drop"
-pattern = "[ drop"
-replacement = ""
-message = "quotation immediately drops its argument"
-severity = "hint"
+# NOTE: "immediate-drop" pattern ([ drop) removed - it incorrectly matches
+# across statement boundaries. Will be re-added when quotation-specific
+# linting is implemented in Phase 2.

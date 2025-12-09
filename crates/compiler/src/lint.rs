@@ -9,6 +9,18 @@
 //! - `Pattern` - Compiled pattern for matching
 //! - `Linter` - Walks AST and finds matches
 //! - `LintDiagnostic` - Output format compatible with LSP
+//!
+//! # Known Limitations (Phase 1)
+//!
+//! - **Line number precision**: Diagnostics for patterns found in nested structures
+//!   (quotations, if/else branches, match arms) report the line number of the parent
+//!   word definition, not the exact line where the pattern occurs. This is because
+//!   the AST doesn't track per-statement line numbers in Phase 1.
+//!
+//! - **No quotation boundary awareness**: Patterns match across statement boundaries
+//!   within a word body. Patterns like `[ drop` would incorrectly match `[` followed
+//!   by `drop` anywhere, not just at quotation start. Such patterns should be avoided
+//!   until Phase 2 adds quotation-aware matching.
 
 use crate::ast::{Program, Statement, WordDef};
 use serde::Deserialize;
@@ -113,9 +125,11 @@ impl CompiledPattern {
     /// Compile a pattern string into elements
     pub fn compile(rule: LintRule) -> Result<Self, String> {
         let mut elements = Vec::new();
+        let mut multi_wildcard_count = 0;
 
         for token in rule.pattern.split_whitespace() {
             if token == "$..." {
+                multi_wildcard_count += 1;
                 elements.push(PatternElement::MultiWildcard);
             } else if token.starts_with('$') {
                 elements.push(PatternElement::SingleWildcard(token.to_string()));
@@ -126,6 +140,15 @@ impl CompiledPattern {
 
         if elements.is_empty() {
             return Err(format!("Empty pattern in lint rule '{}'", rule.id));
+        }
+
+        // Validate: at most one multi-wildcard per pattern to avoid
+        // exponential backtracking complexity
+        if multi_wildcard_count > 1 {
+            return Err(format!(
+                "Pattern in lint rule '{}' has {} multi-wildcards ($...), but at most 1 is allowed",
+                rule.id, multi_wildcard_count
+            ));
         }
 
         Ok(CompiledPattern { rule, elements })
@@ -532,5 +555,34 @@ severity = "warning"
 
         let diagnostics = linter.lint_program(&program, &PathBuf::from("test.seq"));
         assert_eq!(diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn test_multi_wildcard_validation() {
+        // Pattern with two multi-wildcards should be rejected
+        let rule = LintRule {
+            id: "bad-pattern".to_string(),
+            pattern: "$... foo $...".to_string(),
+            replacement: "".to_string(),
+            message: "test".to_string(),
+            severity: Severity::Warning,
+        };
+        let result = CompiledPattern::compile(rule);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("multi-wildcards"));
+    }
+
+    #[test]
+    fn test_single_multi_wildcard_allowed() {
+        // Pattern with one multi-wildcard should be accepted
+        let rule = LintRule {
+            id: "ok-pattern".to_string(),
+            pattern: "$... foo".to_string(),
+            replacement: "".to_string(),
+            message: "test".to_string(),
+            severity: Severity::Warning,
+        };
+        let result = CompiledPattern::compile(rule);
+        assert!(result.is_ok());
     }
 }

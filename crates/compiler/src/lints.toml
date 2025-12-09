@@ -11,35 +11,35 @@
 id = "redundant-dup-drop"
 pattern = "dup drop"
 replacement = ""
-message = "`dup drop` has no effect"
+message = "`dup drop` has no effect - remove both words"
 severity = "warning"
 
 [[lint]]
 id = "redundant-swap-swap"
 pattern = "swap swap"
 replacement = ""
-message = "consecutive swaps cancel out"
+message = "consecutive `swap swap` cancel out - remove both"
 severity = "warning"
 
 [[lint]]
 id = "redundant-over-drop"
 pattern = "over drop"
 replacement = ""
-message = "`over drop` has no effect"
+message = "`over drop` has no effect - remove both words"
 severity = "warning"
 
 [[lint]]
 id = "redundant-dup-nip"
 pattern = "dup nip"
 replacement = ""
-message = "`dup nip` has no effect"
+message = "`dup nip` has no effect - remove both words"
 severity = "warning"
 
 [[lint]]
 id = "redundant-rot-rot-rot"
 pattern = "rot rot rot"
 replacement = ""
-message = "three rotations cancel out"
+message = "three `rot` calls cancel out - remove all three"
 severity = "warning"
 
 # =============================================================================
@@ -75,7 +75,7 @@ severity = "hint"
 id = "drop-drop-drop"
 pattern = "drop drop drop"
 replacement = ""
-message = "dropping three values - consider refactoring"
+message = "dropping three values in a row - consider using `3drop` or refactoring to avoid excess stack values"
 severity = "hint"
 
 # NOTE: "immediate-drop" pattern ([ drop) removed - it incorrectly matches

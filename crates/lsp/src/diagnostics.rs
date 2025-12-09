@@ -393,7 +393,7 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
         assert!(
             lint_diags
                 .iter()
-                .any(|d| d.message.contains("swaps cancel")),
+                .any(|d| d.message.contains("cancel out")),
             "Expected swap swap warning, got: {:?}",
             lint_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );

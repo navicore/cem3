@@ -13,7 +13,7 @@ mod tests {
     fn test_may_tcp_basic() {
         unsafe {
             // Initialize May (same as scheduler_init)
-            may::config().set_stack_size(0x20000); // 1MB stack
+            may::config().set_stack_size(0x100000); // 1MB stack
 
             // Spawn server coroutine
             let server = coroutine::spawn(|| {

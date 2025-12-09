@@ -118,6 +118,19 @@ cargo install seq-lsp
 - Context-aware completions (stack effects, include statements)
 - Syntax highlighting
 
+## Configuration
+
+**Environment Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEQ_STACK_SIZE` | 1048576 (1MB) | Coroutine stack size in bytes. Increase if you hit stack overflow in deeply nested (non-tail) calls. |
+
+Example:
+```bash
+SEQ_STACK_SIZE=2097152 ./my-program  # 2MB stacks
+```
+
 ## Documentation
 
 - `docs/ARCHITECTURE.md` - System architecture and design decisions

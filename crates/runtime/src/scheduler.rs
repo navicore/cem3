@@ -47,6 +47,10 @@ static SHUTDOWN_MUTEX: Mutex<()> = Mutex::new(());
 // Unique strand ID generation
 static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Default coroutine stack size: 1MB (0x100000 bytes)
+/// Can be overridden via SEQ_STACK_SIZE environment variable
+const DEFAULT_STACK_SIZE: usize = 0x100000;
+
 /// Initialize the scheduler
 ///
 /// # Safety
@@ -56,10 +60,17 @@ static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 pub unsafe extern "C" fn patch_seq_scheduler_init() {
     SCHEDULER_INIT.call_once(|| {
         // Configure stack size for coroutines
-        // Default is 0x1000 words (32KB on 64-bit), which is too small for LLVM-generated code
-        // Using 8MB (0x100000 words) - balanced between safety and May's maximum limit
+        // Default is 1MB, which is balanced between safety and May's maximum limit
         // May has internal maximum (attempting 64MB causes ExceedsMaximumSize panic)
-        may::config().set_stack_size(0x100000);
+        //
+        // Can be overridden via SEQ_STACK_SIZE environment variable (in bytes)
+        // Example: SEQ_STACK_SIZE=2097152 for 2MB
+        let stack_size = std::env::var("SEQ_STACK_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(DEFAULT_STACK_SIZE);
+
+        may::config().set_stack_size(stack_size);
     });
 }
 

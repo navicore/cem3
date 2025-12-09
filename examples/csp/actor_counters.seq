@@ -674,7 +674,8 @@ union Message {
   make-channel              # ( chan-id resp-chan )
   dup Make-Get              # ( chan-id resp-chan msg )
   rot send                  # ( resp-chan ) - sent msg to actor
-  receive                   # ( count )
+  dup receive               # ( resp-chan count )
+  swap close-channel        # ( count ) - close response channel to avoid leak
 ;
 
 # Query an actor to increment and return new count
@@ -683,7 +684,8 @@ union Message {
   make-channel              # ( chan-id resp-chan )
   dup Make-Increment        # ( chan-id resp-chan msg )
   rot send                  # ( resp-chan ) - sent msg to actor
-  receive                   # ( count )
+  dup receive               # ( resp-chan count )
+  swap close-channel        # ( count ) - close response channel to avoid leak
 ;
 
 # Build JSON response from count

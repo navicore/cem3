@@ -1,3 +1,7 @@
+[![CI - macOS](https://github.com/navicore/patch-seq/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/ci-macos.yml)
+[![CI - Linux](https://github.com/navicore/patch-seq/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/ci-linux.yml)
+[![Release with Auto Version](https://github.com/navicore/patch-seq/actions/workflows/release.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/release.yml)
+
 # Seq - Concatenative Language
 
 A concatenative, stack-based programming language with static typing, tail call optimization, and CSP-style concurrency.

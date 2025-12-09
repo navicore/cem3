@@ -896,6 +896,7 @@ version = "0.7.0"
 dependencies = [
  "clap",
  "seq-runtime",
+ "serde",
  "toml",
 ]
 

@@ -140,3 +140,215 @@ jobs:
         run: cargo publish -p seq-lsp --token ${{ secrets.CRATES_IO_TOKEN }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+  # Linux: Build static binaries using musl in Alpine container
+  build-linux:
+    name: Build Linux (musl static)
+    runs-on: ubuntu-latest
+    needs: publish
+    container:
+      image: alpine:latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          apk add --no-cache \
+            rust cargo \
+            clang lld \
+            musl-dev \
+            git \
+            bash
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build seqc (static)
+        run: |
+          export RUSTFLAGS="-C target-feature=+crt-static"
+          cargo build --release -p seq-compiler
+          strip target/release/seqc
+
+      - name: Build seq-lsp (static)
+        run: |
+          export RUSTFLAGS="-C target-feature=+crt-static"
+          cargo build --release -p seq-lsp
+          strip target/release/seq-lsp
+
+      - name: Verify static linking
+        run: |
+          # Fail if binaries have dynamic dependencies
+          for bin in target/release/seqc target/release/seq-lsp; do
+            if readelf -d "$bin" 2>/dev/null | grep -q "NEEDED"; then
+              echo "ERROR: $bin has dynamic dependencies!"
+              readelf -d "$bin" | grep NEEDED
+              exit 1
+            fi
+            echo "✓ $bin is statically linked"
+          done
+
+      - name: Rename binaries
+        run: |
+          mv target/release/seqc target/release/seqc-linux-x86_64
+          mv target/release/seq-lsp target/release/seq-lsp-linux-x86_64
+
+      - name: Upload seqc artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqc-linux-x86_64
+          path: target/release/seqc-linux-x86_64
+
+      - name: Upload seq-lsp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seq-lsp-linux-x86_64
+          path: target/release/seq-lsp-linux-x86_64
+
+  # macOS ARM64 (Apple Silicon)
+  build-macos-arm64:
+    name: Build macOS (ARM64)
+    runs-on: macos-latest
+    needs: publish
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: macos-arm64-cargo-release
+
+      - name: Build seqc
+        run: cargo build --release -p seq-compiler
+
+      - name: Build seq-lsp
+        run: cargo build --release -p seq-lsp
+
+      - name: Rename binaries
+        run: |
+          mv target/release/seqc target/release/seqc-macos-arm64
+          mv target/release/seq-lsp target/release/seq-lsp-macos-arm64
+
+      - name: Upload seqc artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqc-macos-arm64
+          path: target/release/seqc-macos-arm64
+
+      - name: Upload seq-lsp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seq-lsp-macos-arm64
+          path: target/release/seq-lsp-macos-arm64
+
+  # macOS x86_64 (Intel) - best effort
+  build-macos-x86_64:
+    name: Build macOS (x86_64)
+    runs-on: macos-13
+    needs: publish
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: macos-x86_64-cargo-release
+
+      - name: Build seqc
+        run: cargo build --release -p seq-compiler
+
+      - name: Build seq-lsp
+        run: cargo build --release -p seq-lsp
+
+      - name: Rename binaries
+        run: |
+          mv target/release/seqc target/release/seqc-macos-x86_64
+          mv target/release/seq-lsp target/release/seq-lsp-macos-x86_64
+
+      - name: Upload seqc artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqc-macos-x86_64
+          path: target/release/seqc-macos-x86_64
+
+      - name: Upload seq-lsp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seq-lsp-macos-x86_64
+          path: target/release/seq-lsp-macos-x86_64
+
+  # Create release with all binaries
+  create-release:
+    name: Upload Release Binaries
+    needs: [build-linux, build-macos-arm64, build-macos-x86_64]
+    if: always() && needs.build-linux.result == 'success' && needs.build-macos-arm64.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          append_body: true
+          body: |
+
+            ## Binary Downloads
+
+            Pre-built binaries are available for:
+            - **Linux x86_64** (statically linked, works on any Linux)
+            - **macOS ARM64** (Apple Silicon)
+            - **macOS x86_64** (Intel, if available)
+
+            ### Installation
+
+            ```bash
+            chmod +x seqc-* seq-lsp-*
+            ```
+
+            ### macOS Quarantine
+
+            macOS quarantines unsigned binaries. After downloading, remove the quarantine:
+
+            ```bash
+            xattr -d com.apple.quarantine ./seqc-macos-*
+            xattr -d com.apple.quarantine ./seq-lsp-macos-*
+            ```
+
+            ### Linux
+
+            The Linux binaries are statically linked and should run on any x86_64 Linux system without additional dependencies.
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

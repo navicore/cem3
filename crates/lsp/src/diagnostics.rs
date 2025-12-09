@@ -1,6 +1,6 @@
 use crate::includes::IncludedWord;
 use seqc::{Parser, TypeChecker, lint};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use tracing::{debug, warn};
 
@@ -10,16 +10,19 @@ use tracing::{debug, warn};
 /// for include-aware diagnostics.
 #[cfg(test)]
 pub fn check_document(source: &str) -> Vec<Diagnostic> {
-    check_document_with_includes(source, &[])
+    check_document_with_includes(source, &[], None)
 }
 
 /// Check a document for parse and type errors, with knowledge of included words.
 ///
 /// The `included_words` parameter should contain all words available from
 /// included modules, with their effects if known.
+///
+/// The `file_path` parameter is used for lint diagnostics to identify the source file.
 pub fn check_document_with_includes(
     source: &str,
     included_words: &[IncludedWord],
+    file_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -77,10 +80,18 @@ pub fn check_document_with_includes(
 
     // Phase 4: Lint checks
     // Run lint checks and add any warnings/hints
-    if let Ok(linter) = lint::Linter::with_defaults() {
-        let lint_diagnostics = linter.lint_program(&program, &PathBuf::from("source.seq"));
-        for lint_diag in lint_diagnostics {
-            diagnostics.push(lint_to_diagnostic(&lint_diag, source));
+    let lint_file_path = file_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("source.seq"));
+    match lint::Linter::with_defaults() {
+        Ok(linter) => {
+            let lint_diagnostics = linter.lint_program(&program, &lint_file_path);
+            for lint_diag in lint_diagnostics {
+                diagnostics.push(lint_to_diagnostic(&lint_diag, source));
+            }
+        }
+        Err(e) => {
+            warn!("Failed to create linter: {}", e);
         }
     }
 

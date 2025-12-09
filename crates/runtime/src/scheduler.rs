@@ -51,6 +51,32 @@ static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 /// Can be overridden via SEQ_STACK_SIZE environment variable
 const DEFAULT_STACK_SIZE: usize = 0x100000;
 
+/// Parse stack size from an optional string value.
+/// Returns the parsed size, or DEFAULT_STACK_SIZE if the value is missing, zero, or invalid.
+/// Prints a warning to stderr for invalid values.
+fn parse_stack_size(env_value: Option<String>) -> usize {
+    match env_value {
+        Some(val) => match val.parse::<usize>() {
+            Ok(0) => {
+                eprintln!(
+                    "Warning: SEQ_STACK_SIZE=0 is invalid, using default {}",
+                    DEFAULT_STACK_SIZE
+                );
+                DEFAULT_STACK_SIZE
+            }
+            Ok(size) => size,
+            Err(_) => {
+                eprintln!(
+                    "Warning: SEQ_STACK_SIZE='{}' is not a valid number, using default {}",
+                    val, DEFAULT_STACK_SIZE
+                );
+                DEFAULT_STACK_SIZE
+            }
+        },
+        None => DEFAULT_STACK_SIZE,
+    }
+}
+
 /// Initialize the scheduler
 ///
 /// # Safety
@@ -65,11 +91,8 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
         //
         // Can be overridden via SEQ_STACK_SIZE environment variable (in bytes)
         // Example: SEQ_STACK_SIZE=2097152 for 2MB
-        let stack_size = std::env::var("SEQ_STACK_SIZE")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(DEFAULT_STACK_SIZE);
-
+        // Invalid values (non-numeric, zero) are warned and ignored.
+        let stack_size = parse_stack_size(std::env::var("SEQ_STACK_SIZE").ok());
         may::config().set_stack_size(stack_size);
     });
 }
@@ -602,5 +625,47 @@ mod tests {
                 iterations
             );
         }
+    }
+
+    #[test]
+    fn test_parse_stack_size_valid() {
+        assert_eq!(parse_stack_size(Some("2097152".to_string())), 2097152);
+        assert_eq!(parse_stack_size(Some("1".to_string())), 1);
+        assert_eq!(
+            parse_stack_size(Some("999999999".to_string())),
+            999999999
+        );
+    }
+
+    #[test]
+    fn test_parse_stack_size_none() {
+        assert_eq!(parse_stack_size(None), DEFAULT_STACK_SIZE);
+    }
+
+    #[test]
+    fn test_parse_stack_size_zero() {
+        // Zero should fall back to default (with warning printed to stderr)
+        assert_eq!(parse_stack_size(Some("0".to_string())), DEFAULT_STACK_SIZE);
+    }
+
+    #[test]
+    fn test_parse_stack_size_invalid() {
+        // Non-numeric should fall back to default (with warning printed to stderr)
+        assert_eq!(
+            parse_stack_size(Some("invalid".to_string())),
+            DEFAULT_STACK_SIZE
+        );
+        assert_eq!(
+            parse_stack_size(Some("-100".to_string())),
+            DEFAULT_STACK_SIZE
+        );
+        assert_eq!(
+            parse_stack_size(Some("".to_string())),
+            DEFAULT_STACK_SIZE
+        );
+        assert_eq!(
+            parse_stack_size(Some("1.5".to_string())),
+            DEFAULT_STACK_SIZE
+        );
     }
 }

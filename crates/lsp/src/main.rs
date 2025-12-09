@@ -113,6 +113,8 @@ impl LanguageServer for SeqLanguageServer {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
+                // Declare UTF-8 position encoding since we use byte offsets
+                position_encoding: Some(PositionEncodingKind::UTF8),
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
@@ -160,7 +162,7 @@ impl LanguageServer for SeqLanguageServer {
         info!("File path: {:?}", file_path);
 
         // Update document state (parses includes)
-        self.update_document(uri.as_str(), text.clone(), file_path);
+        self.update_document(uri.as_str(), text.clone(), file_path.clone());
 
         // Get included words for diagnostics
         let included_words = self.get_included_words(uri.as_str());
@@ -169,7 +171,8 @@ impl LanguageServer for SeqLanguageServer {
             included_words.len()
         );
 
-        let diagnostics = diagnostics::check_document_with_includes(&text, &included_words);
+        let diagnostics =
+            diagnostics::check_document_with_includes(&text, &included_words, file_path.as_deref());
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -192,12 +195,16 @@ impl LanguageServer for SeqLanguageServer {
             };
 
             // Update document state (re-parses includes)
-            self.update_document(uri.as_str(), text.clone(), file_path);
+            self.update_document(uri.as_str(), text.clone(), file_path.clone());
 
             // Get included words for diagnostics
             let included_words = self.get_included_words(uri.as_str());
 
-            let diagnostics = diagnostics::check_document_with_includes(&text, &included_words);
+            let diagnostics = diagnostics::check_document_with_includes(
+                &text,
+                &included_words,
+                file_path.as_deref(),
+            );
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;

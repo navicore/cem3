@@ -1,5 +1,6 @@
 use crate::includes::IncludedWord;
-use seqc::{Parser, TypeChecker};
+use seqc::{Parser, TypeChecker, lint};
+use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use tracing::{debug, warn};
 
@@ -9,16 +10,19 @@ use tracing::{debug, warn};
 /// for include-aware diagnostics.
 #[cfg(test)]
 pub fn check_document(source: &str) -> Vec<Diagnostic> {
-    check_document_with_includes(source, &[])
+    check_document_with_includes(source, &[], None)
 }
 
 /// Check a document for parse and type errors, with knowledge of included words.
 ///
 /// The `included_words` parameter should contain all words available from
 /// included modules, with their effects if known.
+///
+/// The `file_path` parameter is used for lint diagnostics to identify the source file.
 pub fn check_document_with_includes(
     source: &str,
     included_words: &[IncludedWord],
+    file_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -74,7 +78,99 @@ pub fn check_document_with_includes(
         diagnostics.push(error_to_diagnostic(&err, source));
     }
 
+    // Phase 4: Lint checks
+    // Run lint checks and add any warnings/hints
+    let lint_file_path = file_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("source.seq"));
+    match lint::Linter::with_defaults() {
+        Ok(linter) => {
+            let lint_diagnostics = linter.lint_program(&program, &lint_file_path);
+            for lint_diag in lint_diagnostics {
+                diagnostics.push(lint_to_diagnostic(&lint_diag, source));
+            }
+        }
+        Err(e) => {
+            warn!("Failed to create linter: {}", e);
+        }
+    }
+
     diagnostics
+}
+
+/// Convert a lint diagnostic to an LSP diagnostic.
+fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnostic {
+    let line = lint_diag.line as u32;
+
+    // Debug: log what we're receiving from the linter
+    tracing::debug!(
+        "lint_to_diagnostic: id={} line={} start_col={:?} end_col={:?}",
+        lint_diag.id,
+        lint_diag.line,
+        lint_diag.start_column,
+        lint_diag.end_column
+    );
+
+    let severity = match lint_diag.severity {
+        lint::Severity::Error => DiagnosticSeverity::ERROR,
+        lint::Severity::Warning => DiagnosticSeverity::WARNING,
+        lint::Severity::Hint => DiagnosticSeverity::HINT,
+    };
+
+    let message = if lint_diag.replacement.is_empty() {
+        lint_diag.message.clone()
+    } else {
+        format!(
+            "{} (use `{}` instead)",
+            lint_diag.message, lint_diag.replacement
+        )
+    };
+
+    // Use precise column info if available, otherwise fall back to whole line
+    let (start_char, end_char) = match (lint_diag.start_column, lint_diag.end_column) {
+        (Some(start), Some(end)) => (start as u32, end as u32),
+        (Some(start), None) => {
+            // Have start but no end - highlight to end of line
+            let line_length = source
+                .lines()
+                .nth(lint_diag.line)
+                .map(|l| l.len() as u32)
+                .unwrap_or(0);
+            (start as u32, line_length)
+        }
+        _ => {
+            // No column info - highlight whole line
+            let line_length = source
+                .lines()
+                .nth(lint_diag.line)
+                .map(|l| l.len() as u32)
+                .unwrap_or(0);
+            (0, line_length)
+        }
+    };
+
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line,
+                character: start_char,
+            },
+            end: Position {
+                line,
+                character: end_char,
+            },
+        },
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            lint_diag.id.clone(),
+        )),
+        code_description: None,
+        source: Some("seq-lint".to_string()),
+        message,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
 }
 
 /// Convert a compiler error string to an LSP diagnostic.
@@ -287,6 +383,45 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             diagnostics.is_empty(),
             "Expected no diagnostics, got: {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_lint_swap_drop() {
+        // swap drop should trigger a lint hint suggesting nip
+        let source = ": main ( -- Int ) 1 2 swap drop ;";
+        let diagnostics = check_document(source);
+        // Should have a lint hint for prefer-nip
+        let lint_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.source.as_deref() == Some("seq-lint"))
+            .collect();
+        assert!(
+            !lint_diags.is_empty(),
+            "Expected lint diagnostic for swap drop"
+        );
+        assert!(
+            lint_diags[0].message.contains("nip"),
+            "Expected nip suggestion, got: {}",
+            lint_diags[0].message
+        );
+        assert_eq!(lint_diags[0].severity, Some(DiagnosticSeverity::HINT));
+    }
+
+    #[test]
+    fn test_lint_redundant_swap_swap() {
+        // swap swap should trigger a lint warning
+        let source = ": main ( -- Int ) 1 2 swap swap drop ;";
+        let diagnostics = check_document(source);
+        // Should have a lint warning for redundant-swap-swap
+        let lint_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.source.as_deref() == Some("seq-lint"))
+            .collect();
+        assert!(
+            lint_diags.iter().any(|d| d.message.contains("cancel out")),
+            "Expected swap swap warning, got: {:?}",
+            lint_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 }

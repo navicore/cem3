@@ -252,7 +252,7 @@ jobs:
   # macOS x86_64 (Intel) - best effort
   build-macos-x86_64:
     name: Build macOS (x86_64)
-    runs-on: macos-13
+    runs-on: macos-15-large
     needs: publish
     continue-on-error: true
 

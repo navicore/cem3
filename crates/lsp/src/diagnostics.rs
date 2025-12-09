@@ -1,5 +1,6 @@
 use crate::includes::IncludedWord;
-use seqc::{Parser, TypeChecker};
+use seqc::{Parser, TypeChecker, lint};
+use std::path::PathBuf;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 use tracing::{debug, warn};
 
@@ -74,7 +75,63 @@ pub fn check_document_with_includes(
         diagnostics.push(error_to_diagnostic(&err, source));
     }
 
+    // Phase 4: Lint checks
+    // Run lint checks and add any warnings/hints
+    if let Ok(linter) = lint::Linter::with_defaults() {
+        let lint_diagnostics = linter.lint_program(&program, &PathBuf::from("source.seq"));
+        for lint_diag in lint_diagnostics {
+            diagnostics.push(lint_to_diagnostic(&lint_diag, source));
+        }
+    }
+
     diagnostics
+}
+
+/// Convert a lint diagnostic to an LSP diagnostic.
+fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnostic {
+    let line = lint_diag.line as u32;
+
+    // Calculate line length for highlighting
+    let line_length = source
+        .lines()
+        .nth(lint_diag.line)
+        .map(|l| l.len() as u32)
+        .unwrap_or(0);
+
+    let severity = match lint_diag.severity {
+        lint::Severity::Error => DiagnosticSeverity::ERROR,
+        lint::Severity::Warning => DiagnosticSeverity::WARNING,
+        lint::Severity::Hint => DiagnosticSeverity::HINT,
+    };
+
+    let message = if lint_diag.replacement.is_empty() {
+        lint_diag.message.clone()
+    } else {
+        format!(
+            "{} (use `{}` instead)",
+            lint_diag.message, lint_diag.replacement
+        )
+    };
+
+    Diagnostic {
+        range: Range {
+            start: Position { line, character: 0 },
+            end: Position {
+                line,
+                character: line_length,
+            },
+        },
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            lint_diag.id.clone(),
+        )),
+        code_description: None,
+        source: Some("seq-lint".to_string()),
+        message,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
 }
 
 /// Convert a compiler error string to an LSP diagnostic.
@@ -287,6 +344,47 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             diagnostics.is_empty(),
             "Expected no diagnostics, got: {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_lint_swap_drop() {
+        // swap drop should trigger a lint hint suggesting nip
+        let source = ": main ( -- Int ) 1 2 swap drop ;";
+        let diagnostics = check_document(source);
+        // Should have a lint hint for prefer-nip
+        let lint_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.source.as_deref() == Some("seq-lint"))
+            .collect();
+        assert!(
+            !lint_diags.is_empty(),
+            "Expected lint diagnostic for swap drop"
+        );
+        assert!(
+            lint_diags[0].message.contains("nip"),
+            "Expected nip suggestion, got: {}",
+            lint_diags[0].message
+        );
+        assert_eq!(lint_diags[0].severity, Some(DiagnosticSeverity::HINT));
+    }
+
+    #[test]
+    fn test_lint_redundant_swap_swap() {
+        // swap swap should trigger a lint warning
+        let source = ": main ( -- Int ) 1 2 swap swap drop ;";
+        let diagnostics = check_document(source);
+        // Should have a lint warning for redundant-swap-swap
+        let lint_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.source.as_deref() == Some("seq-lint"))
+            .collect();
+        assert!(
+            lint_diags
+                .iter()
+                .any(|d| d.message.contains("swaps cancel")),
+            "Expected swap swap warning, got: {:?}",
+            lint_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 }

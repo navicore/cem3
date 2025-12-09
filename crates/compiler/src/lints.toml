@@ -1,0 +1,86 @@
+# Default Seq Lint Rules
+#
+# These patterns detect common inefficiencies and suggest improvements.
+# Phase 1: Syntactic patterns (word sequence matching)
+
+# =============================================================================
+# Redundant Operations (no-ops)
+# =============================================================================
+
+[[lint]]
+id = "redundant-dup-drop"
+pattern = "dup drop"
+replacement = ""
+message = "`dup drop` has no effect"
+severity = "warning"
+
+[[lint]]
+id = "redundant-swap-swap"
+pattern = "swap swap"
+replacement = ""
+message = "consecutive swaps cancel out"
+severity = "warning"
+
+[[lint]]
+id = "redundant-over-drop"
+pattern = "over drop"
+replacement = ""
+message = "`over drop` has no effect"
+severity = "warning"
+
+[[lint]]
+id = "redundant-dup-nip"
+pattern = "dup nip"
+replacement = ""
+message = "`dup nip` has no effect"
+severity = "warning"
+
+[[lint]]
+id = "redundant-rot-rot-rot"
+pattern = "rot rot rot"
+replacement = ""
+message = "three rotations cancel out"
+severity = "warning"
+
+# =============================================================================
+# Prefer Idiomatic Words
+# =============================================================================
+
+[[lint]]
+id = "prefer-nip"
+pattern = "swap drop"
+replacement = "nip"
+message = "prefer `nip` over `swap drop`"
+severity = "hint"
+
+[[lint]]
+id = "prefer-tuck"
+pattern = "swap over"
+replacement = "tuck"
+message = "prefer `tuck` over `swap over`"
+severity = "hint"
+
+[[lint]]
+id = "prefer-2dup"
+pattern = "over over"
+replacement = "2dup"
+message = "prefer `2dup` over `over over`"
+severity = "hint"
+
+# =============================================================================
+# Potentially Suspicious Patterns
+# =============================================================================
+
+[[lint]]
+id = "drop-drop-drop"
+pattern = "drop drop drop"
+replacement = ""
+message = "dropping three values - consider refactoring"
+severity = "hint"
+
+[[lint]]
+id = "immediate-drop"
+pattern = "[ drop"
+replacement = ""
+message = "quotation immediately drops its argument"
+severity = "hint"

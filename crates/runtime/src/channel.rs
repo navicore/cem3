@@ -57,6 +57,18 @@ fn init_registry() {
     });
 }
 
+/// Get the number of open channels (for diagnostics)
+///
+/// Returns None if the registry lock is held (to avoid blocking in signal handler).
+/// This is a best-effort diagnostic - the count may be slightly stale.
+pub fn channel_count() -> Option<usize> {
+    // Use try_lock to avoid blocking in signal handler context
+    match CHANNEL_REGISTRY.try_lock() {
+        Ok(guard) => guard.as_ref().map(|registry| registry.len()),
+        Err(_) => None, // Lock held, return None rather than block
+    }
+}
+
 /// Create a new channel
 ///
 /// Stack effect: ( -- channel_id )

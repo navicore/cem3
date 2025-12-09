@@ -40,7 +40,7 @@ static SCHEDULER_INIT: Once = Once::new();
 // entities with independent lifecycles. Storing handles would require global mutable
 // state with synchronization overhead on the hot path. The counter + condvar approach
 // keeps the hot path lock-free while providing proper shutdown synchronization.
-static ACTIVE_STRANDS: AtomicUsize = AtomicUsize::new(0);
+pub static ACTIVE_STRANDS: AtomicUsize = AtomicUsize::new(0);
 static SHUTDOWN_CONDVAR: Condvar = Condvar::new();
 static SHUTDOWN_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -94,6 +94,9 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
         // Invalid values (non-numeric, zero) are warned and ignored.
         let stack_size = parse_stack_size(std::env::var("SEQ_STACK_SIZE").ok());
         may::config().set_stack_size(stack_size);
+
+        // Install SIGQUIT handler for runtime diagnostics (kill -3)
+        crate::diagnostics::install_signal_handler();
     });
 }
 

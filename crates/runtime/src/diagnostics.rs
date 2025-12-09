@@ -1,0 +1,130 @@
+//! Runtime diagnostics for production debugging
+//!
+//! Provides a SIGQUIT (kill -3) handler that dumps runtime statistics to stderr,
+//! similar to JVM thread dumps. This is useful for debugging production issues
+//! without stopping the process.
+//!
+//! ## Usage
+//!
+//! Send SIGQUIT to a running Seq process:
+//! ```bash
+//! kill -3 <pid>
+//! ```
+//!
+//! The process will dump diagnostics to stderr and continue running.
+//!
+//! ## Signal Safety
+//!
+//! Signal handlers can only safely call async-signal-safe functions. Our
+//! dump_diagnostics() does I/O and acquires locks, which is NOT safe to call
+//! directly from a signal handler. Instead, we spawn a dedicated thread that
+//! waits for signals using signal-hook's iterator API, making all the I/O
+//! operations safe.
+
+use crate::scheduler::ACTIVE_STRANDS;
+use std::sync::Once;
+use std::sync::atomic::Ordering;
+
+static SIGNAL_HANDLER_INIT: Once = Once::new();
+
+/// Install the SIGQUIT signal handler for diagnostics
+///
+/// This is called automatically by scheduler_init, but can be called
+/// explicitly if needed. Safe to call multiple times (idempotent).
+///
+/// # Implementation
+///
+/// Uses a dedicated thread to handle signals safely. The signal-hook iterator
+/// API ensures we're not calling non-async-signal-safe functions from within
+/// a signal handler context.
+pub fn install_signal_handler() {
+    SIGNAL_HANDLER_INIT.call_once(|| {
+        #[cfg(unix)]
+        {
+            use signal_hook::consts::SIGQUIT;
+            use signal_hook::iterator::Signals;
+
+            // Create signal iterator - this is safe and doesn't block
+            let mut signals = match Signals::new([SIGQUIT]) {
+                Ok(s) => s,
+                Err(_) => return, // Silently fail if we can't register
+            };
+
+            // Spawn a dedicated thread to handle signals
+            // This thread blocks waiting for signals, then safely calls dump_diagnostics()
+            std::thread::Builder::new()
+                .name("seq-diagnostics".to_string())
+                .spawn(move || {
+                    for sig in signals.forever() {
+                        if sig == SIGQUIT {
+                            dump_diagnostics();
+                        }
+                    }
+                })
+                .ok(); // Silently fail if thread spawn fails
+        }
+
+        #[cfg(not(unix))]
+        {
+            // Signal handling not supported on non-Unix platforms
+            // Diagnostics can still be called directly via dump_diagnostics()
+        }
+    });
+}
+
+/// Dump runtime diagnostics to stderr
+///
+/// This can be called directly from code or triggered via SIGQUIT.
+/// Output goes to stderr to avoid mixing with program output.
+pub fn dump_diagnostics() {
+    use std::io::Write;
+
+    let mut out = std::io::stderr().lock();
+
+    let _ = writeln!(out, "\n=== Seq Runtime Diagnostics ===");
+    let _ = writeln!(out, "Timestamp: {:?}", std::time::SystemTime::now());
+
+    // Strand count (global atomic - accurate)
+    let active = ACTIVE_STRANDS.load(Ordering::Relaxed);
+    let _ = writeln!(out, "\n[Strands]");
+    let _ = writeln!(out, "  Active: {}", active);
+
+    // Channel stats (global registry - accurate if lock available)
+    let _ = writeln!(out, "\n[Channels]");
+    match get_channel_count() {
+        Some(count) => {
+            let _ = writeln!(out, "  Open channels: {}", count);
+        }
+        None => {
+            let _ = writeln!(out, "  Open channels: (unavailable - registry locked)");
+        }
+    }
+
+    let _ = writeln!(out, "\n=== End Diagnostics ===\n");
+}
+
+/// Try to get channel count without blocking
+/// Returns None if the registry lock is held
+fn get_channel_count() -> Option<usize> {
+    use crate::channel::channel_count;
+    channel_count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dump_diagnostics_runs() {
+        // Just verify it doesn't panic
+        dump_diagnostics();
+    }
+
+    #[test]
+    fn test_install_signal_handler_idempotent() {
+        // Should be safe to call multiple times
+        install_signal_handler();
+        install_signal_handler();
+        install_signal_handler();
+    }
+}

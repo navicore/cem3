@@ -102,12 +102,14 @@ pub fn check_document_with_includes(
 fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnostic {
     let line = lint_diag.line as u32;
 
-    // Calculate line length for highlighting
-    let line_length = source
-        .lines()
-        .nth(lint_diag.line)
-        .map(|l| l.len() as u32)
-        .unwrap_or(0);
+    // Debug: log what we're receiving from the linter
+    tracing::debug!(
+        "lint_to_diagnostic: id={} line={} start_col={:?} end_col={:?}",
+        lint_diag.id,
+        lint_diag.line,
+        lint_diag.start_column,
+        lint_diag.end_column
+    );
 
     let severity = match lint_diag.severity {
         lint::Severity::Error => DiagnosticSeverity::ERROR,
@@ -124,12 +126,38 @@ fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnos
         )
     };
 
+    // Use precise column info if available, otherwise fall back to whole line
+    let (start_char, end_char) = match (lint_diag.start_column, lint_diag.end_column) {
+        (Some(start), Some(end)) => (start as u32, end as u32),
+        (Some(start), None) => {
+            // Have start but no end - highlight to end of line
+            let line_length = source
+                .lines()
+                .nth(lint_diag.line)
+                .map(|l| l.len() as u32)
+                .unwrap_or(0);
+            (start as u32, line_length)
+        }
+        _ => {
+            // No column info - highlight whole line
+            let line_length = source
+                .lines()
+                .nth(lint_diag.line)
+                .map(|l| l.len() as u32)
+                .unwrap_or(0);
+            (0, line_length)
+        }
+    };
+
     Diagnostic {
         range: Range {
-            start: Position { line, character: 0 },
+            start: Position {
+                line,
+                character: start_char,
+            },
             end: Position {
                 line,
-                character: line_length,
+                character: end_char,
             },
         },
         severity: Some(severity),
@@ -391,9 +419,7 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             .filter(|d| d.source.as_deref() == Some("seq-lint"))
             .collect();
         assert!(
-            lint_diags
-                .iter()
-                .any(|d| d.message.contains("cancel out")),
+            lint_diags.iter().any(|d| d.message.contains("cancel out")),
             "Expected swap swap warning, got: {:?}",
             lint_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
         );

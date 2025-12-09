@@ -148,6 +148,27 @@ pub struct WordDef {
     pub source: Option<SourceLocation>,
 }
 
+/// Source span for a single token or expression
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Span {
+    /// Line number (0-indexed)
+    pub line: usize,
+    /// Start column (0-indexed)
+    pub column: usize,
+    /// Length of the span in characters
+    pub length: usize,
+}
+
+impl Span {
+    pub fn new(line: usize, column: usize, length: usize) -> Self {
+        Span {
+            line,
+            column,
+            length,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     /// Integer literal: pushes value onto stack
@@ -163,7 +184,8 @@ pub enum Statement {
     StringLiteral(String),
 
     /// Word call: calls another word or built-in
-    WordCall(String),
+    /// Contains the word name and optional source span for precise diagnostics
+    WordCall { name: String, span: Option<Span> },
 
     /// Conditional: if/else/then
     ///
@@ -395,7 +417,7 @@ impl Program {
     ) -> Result<(), String> {
         for statement in statements {
             match statement {
-                Statement::WordCall(name) => {
+                Statement::WordCall { name, .. } => {
                     // Check if it's a built-in
                     if builtins.contains(&name.as_str()) {
                         continue;
@@ -494,7 +516,10 @@ impl Program {
                 // 2. Call make-variant-N
                 let body = vec![
                     Statement::IntLiteral(variant_idx as i64),
-                    Statement::WordCall(format!("make-variant-{}", field_count)),
+                    Statement::WordCall {
+                        name: format!("make-variant-{}", field_count),
+                        span: None, // Generated code, no source span
+                    },
                 ];
 
                 new_words.push(WordDef {
@@ -544,8 +569,14 @@ mod tests {
                 body: vec![
                     Statement::IntLiteral(2),
                     Statement::IntLiteral(3),
-                    Statement::WordCall("add".to_string()),
-                    Statement::WordCall("write_line".to_string()),
+                    Statement::WordCall {
+                        name: "add".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "write_line".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],
@@ -570,7 +601,10 @@ mod tests {
                 WordDef {
                     name: "main".to_string(),
                     effect: None,
-                    body: vec![Statement::WordCall("helper".to_string())],
+                    body: vec![Statement::WordCall {
+                        name: "helper".to_string(),
+                        span: None,
+                    }],
                     source: None,
                 },
             ],
@@ -588,7 +622,10 @@ mod tests {
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
-                body: vec![Statement::WordCall("undefined_word".to_string())],
+                body: vec![Statement::WordCall {
+                    name: "undefined_word".to_string(),
+                    span: None,
+                }],
                 source: None,
             }],
         };
@@ -609,7 +646,10 @@ mod tests {
             words: vec![WordDef {
                 name: "main".to_string(),
                 effect: None,
-                body: vec![Statement::WordCall("wrte_line".to_string())], // typo
+                body: vec![Statement::WordCall {
+                    name: "wrte_line".to_string(),
+                    span: None,
+                }], // typo
                 source: None,
             }],
         };
@@ -692,7 +732,7 @@ mod tests {
             _ => panic!("Expected IntLiteral(0) for variant tag"),
         }
         match &make_get.body[1] {
-            Statement::WordCall(name) if name == "make-variant-1" => {}
+            Statement::WordCall { name, span: None } if name == "make-variant-1" => {}
             _ => panic!("Expected WordCall(make-variant-1)"),
         }
 
@@ -703,7 +743,7 @@ mod tests {
             _ => panic!("Expected IntLiteral(1) for variant tag"),
         }
         match &make_put.body[1] {
-            Statement::WordCall(name) if name == "make-variant-2" => {}
+            Statement::WordCall { name, span: None } if name == "make-variant-2" => {}
             _ => panic!("Expected WordCall(make-variant-2)"),
         }
     }

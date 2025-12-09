@@ -12,17 +12,12 @@
 //!
 //! # Known Limitations (Phase 1)
 //!
-//! - **Line number precision**: Diagnostics for patterns found in nested structures
-//!   (quotations, if/else branches, match arms) report the line number of the parent
-//!   word definition, not the exact line where the pattern occurs. This is because
-//!   the AST doesn't track per-statement line numbers in Phase 1.
-//!
 //! - **No quotation boundary awareness**: Patterns match across statement boundaries
 //!   within a word body. Patterns like `[ drop` would incorrectly match `[` followed
 //!   by `drop` anywhere, not just at quotation start. Such patterns should be avoided
 //!   until Phase 2 adds quotation-aware matching.
 
-use crate::ast::{Program, Statement, WordDef};
+use crate::ast::{Program, Span, Statement, WordDef};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -170,12 +165,23 @@ pub struct LintDiagnostic {
     pub file: PathBuf,
     /// Line number (0-indexed)
     pub line: usize,
+    /// Start column (0-indexed), if available from source spans
+    pub start_column: Option<usize>,
+    /// End column (0-indexed, exclusive), if available from source spans
+    pub end_column: Option<usize>,
     /// Word name where the match was found
     pub word_name: String,
     /// Start index in the word body
     pub start_index: usize,
     /// End index in the word body (exclusive)
     pub end_index: usize,
+}
+
+/// Word call info extracted from a statement, including optional span
+#[derive(Debug, Clone)]
+struct WordInfo<'a> {
+    name: &'a str,
+    span: Option<&'a Span>,
 }
 
 /// The linter engine
@@ -212,26 +218,29 @@ impl Linter {
 
     /// Lint a single word definition
     fn lint_word(&self, word: &WordDef, file: &Path, diagnostics: &mut Vec<LintDiagnostic>) {
-        let line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+        let fallback_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
 
-        // Extract word sequence from the body
-        let words: Vec<&str> = self.extract_word_sequence(&word.body);
+        // Extract word sequence from the body (with span info)
+        let word_infos = self.extract_word_sequence(&word.body);
 
         // Try each pattern
         for pattern in &self.patterns {
-            self.find_matches(&words, pattern, word, file, line, diagnostics);
+            self.find_matches(&word_infos, pattern, word, file, fallback_line, diagnostics);
         }
 
         // Recursively lint nested structures (quotations, if branches)
         self.lint_nested(&word.body, word, file, diagnostics);
     }
 
-    /// Extract a flat sequence of word names from statements
-    fn extract_word_sequence<'a>(&self, statements: &'a [Statement]) -> Vec<&'a str> {
+    /// Extract a flat sequence of word names with spans from statements
+    fn extract_word_sequence<'a>(&self, statements: &'a [Statement]) -> Vec<WordInfo<'a>> {
         let mut words = Vec::new();
         for stmt in statements {
-            if let Statement::WordCall(name) = stmt {
-                words.push(name.as_str());
+            if let Statement::WordCall { name, span } = stmt {
+                words.push(WordInfo {
+                    name: name.as_str(),
+                    span: span.as_ref(),
+                });
             }
         }
         words
@@ -240,21 +249,42 @@ impl Linter {
     /// Find all matches of a pattern in a word sequence
     fn find_matches(
         &self,
-        words: &[&str],
+        word_infos: &[WordInfo],
         pattern: &CompiledPattern,
         word: &WordDef,
         file: &Path,
-        line: usize,
+        fallback_line: usize,
         diagnostics: &mut Vec<LintDiagnostic>,
     ) {
-        if words.is_empty() || pattern.elements.is_empty() {
+        if word_infos.is_empty() || pattern.elements.is_empty() {
             return;
         }
 
         // Sliding window match
         let mut i = 0;
-        while i < words.len() {
-            if let Some(match_len) = Self::try_match_at(words, i, &pattern.elements) {
+        while i < word_infos.len() {
+            if let Some(match_len) = Self::try_match_at(word_infos, i, &pattern.elements) {
+                // Extract position info from spans if available
+                let first_span = word_infos[i].span;
+                let last_span = word_infos[i + match_len - 1].span;
+
+                // Use span line if available, otherwise fall back to word definition line
+                let line = first_span.map(|s| s.line).unwrap_or(fallback_line);
+
+                // Calculate column range if all spans are on the same line
+                let (start_column, end_column) =
+                    if let (Some(first), Some(last)) = (first_span, last_span) {
+                        if first.line == last.line {
+                            // Same line: column range spans from first word's start to last word's end
+                            (Some(first.column), Some(last.column + last.length))
+                        } else {
+                            // Multi-line match: just highlight from the first word's start
+                            (Some(first.column), None)
+                        }
+                    } else {
+                        (None, None)
+                    };
+
                 diagnostics.push(LintDiagnostic {
                     id: pattern.rule.id.clone(),
                     message: pattern.rule.message.clone(),
@@ -262,6 +292,8 @@ impl Linter {
                     replacement: pattern.rule.replacement.clone(),
                     file: file.to_path_buf(),
                     line,
+                    start_column,
+                    end_column,
                     word_name: word.name.clone(),
                     start_index: i,
                     end_index: i + match_len,
@@ -275,21 +307,25 @@ impl Linter {
     }
 
     /// Try to match pattern at position, returning match length if successful
-    fn try_match_at(words: &[&str], start: usize, elements: &[PatternElement]) -> Option<usize> {
+    fn try_match_at(
+        word_infos: &[WordInfo],
+        start: usize,
+        elements: &[PatternElement],
+    ) -> Option<usize> {
         let mut word_idx = start;
         let mut elem_idx = 0;
 
         while elem_idx < elements.len() {
             match &elements[elem_idx] {
                 PatternElement::Word(expected) => {
-                    if word_idx >= words.len() || words[word_idx] != expected {
+                    if word_idx >= word_infos.len() || word_infos[word_idx].name != expected {
                         return None;
                     }
                     word_idx += 1;
                     elem_idx += 1;
                 }
                 PatternElement::SingleWildcard(_) => {
-                    if word_idx >= words.len() {
+                    if word_idx >= word_infos.len() {
                         return None;
                     }
                     word_idx += 1;
@@ -300,12 +336,12 @@ impl Linter {
                     elem_idx += 1;
                     if elem_idx >= elements.len() {
                         // Wildcard at end matches rest
-                        return Some(words.len() - start);
+                        return Some(word_infos.len() - start);
                     }
                     // Try matching remaining pattern at each position
-                    for try_idx in word_idx..=words.len() {
+                    for try_idx in word_idx..=word_infos.len() {
                         if let Some(rest_len) =
-                            Self::try_match_at(words, try_idx, &elements[elem_idx..])
+                            Self::try_match_at(word_infos, try_idx, &elements[elem_idx..])
                         {
                             return Some(try_idx - start + rest_len);
                         }
@@ -326,14 +362,22 @@ impl Linter {
         file: &Path,
         diagnostics: &mut Vec<LintDiagnostic>,
     ) {
+        let fallback_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+
         for stmt in statements {
             match stmt {
                 Statement::Quotation { body, .. } => {
                     // Lint the quotation body
-                    let words: Vec<&str> = self.extract_word_sequence(body);
-                    let line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+                    let word_infos = self.extract_word_sequence(body);
                     for pattern in &self.patterns {
-                        self.find_matches(&words, pattern, word, file, line, diagnostics);
+                        self.find_matches(
+                            &word_infos,
+                            pattern,
+                            word,
+                            file,
+                            fallback_line,
+                            diagnostics,
+                        );
                     }
                     // Recurse into nested quotations
                     self.lint_nested(body, word, file, diagnostics);
@@ -343,27 +387,46 @@ impl Linter {
                     else_branch,
                 } => {
                     // Lint both branches
-                    let words: Vec<&str> = self.extract_word_sequence(then_branch);
-                    let line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+                    let word_infos = self.extract_word_sequence(then_branch);
                     for pattern in &self.patterns {
-                        self.find_matches(&words, pattern, word, file, line, diagnostics);
+                        self.find_matches(
+                            &word_infos,
+                            pattern,
+                            word,
+                            file,
+                            fallback_line,
+                            diagnostics,
+                        );
                     }
                     self.lint_nested(then_branch, word, file, diagnostics);
 
                     if let Some(else_stmts) = else_branch {
-                        let words: Vec<&str> = self.extract_word_sequence(else_stmts);
+                        let word_infos = self.extract_word_sequence(else_stmts);
                         for pattern in &self.patterns {
-                            self.find_matches(&words, pattern, word, file, line, diagnostics);
+                            self.find_matches(
+                                &word_infos,
+                                pattern,
+                                word,
+                                file,
+                                fallback_line,
+                                diagnostics,
+                            );
                         }
                         self.lint_nested(else_stmts, word, file, diagnostics);
                     }
                 }
                 Statement::Match { arms } => {
-                    let line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
                     for arm in arms {
-                        let words: Vec<&str> = self.extract_word_sequence(&arm.body);
+                        let word_infos = self.extract_word_sequence(&arm.body);
                         for pattern in &self.patterns {
-                            self.find_matches(&words, pattern, word, file, line, diagnostics);
+                            self.find_matches(
+                                &word_infos,
+                                pattern,
+                                word,
+                                file,
+                                fallback_line,
+                                diagnostics,
+                            );
                         }
                         self.lint_nested(&arm.body, word, file, diagnostics);
                     }
@@ -383,13 +446,14 @@ pub fn format_diagnostics(diagnostics: &[LintDiagnostic]) -> String {
             Severity::Warning => "warning",
             Severity::Hint => "hint",
         };
+        // Include column info in output if available
+        let location = match d.start_column {
+            Some(col) => format!("{}:{}:{}", d.file.display(), d.line + 1, col + 1),
+            None => format!("{}:{}", d.file.display(), d.line + 1),
+        };
         output.push_str(&format!(
-            "{}:{}: {} [{}]: {}\n",
-            d.file.display(),
-            d.line + 1,
-            severity_str,
-            d.id,
-            d.message
+            "{}: {} [{}]: {}\n",
+            location, severity_str, d.id, d.message
         ));
         if !d.replacement.is_empty() {
             output.push_str(&format!("  suggestion: replace with `{}`\n", d.replacement));
@@ -493,8 +557,14 @@ severity = "warning"
                 body: vec![
                     Statement::IntLiteral(1),
                     Statement::IntLiteral(2),
-                    Statement::WordCall("swap".to_string()),
-                    Statement::WordCall("drop".to_string()),
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],
@@ -519,8 +589,14 @@ severity = "warning"
                 name: "test".to_string(),
                 effect: None,
                 body: vec![
-                    Statement::WordCall("swap".to_string()),
-                    Statement::WordCall("dup".to_string()),
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],
@@ -543,11 +619,26 @@ severity = "warning"
                 name: "test".to_string(),
                 effect: None,
                 body: vec![
-                    Statement::WordCall("swap".to_string()),
-                    Statement::WordCall("drop".to_string()),
-                    Statement::WordCall("dup".to_string()),
-                    Statement::WordCall("swap".to_string()),
-                    Statement::WordCall("drop".to_string()),
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],

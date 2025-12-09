@@ -379,11 +379,16 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
-        let token = self.advance().ok_or("Unexpected end of file")?.clone();
+        use crate::ast::Span;
+        let tok = self.advance_token().ok_or("Unexpected end of file")?;
+        let token = &tok.text;
+        let tok_line = tok.line;
+        let tok_column = tok.column;
+        let tok_len = tok.text.len();
 
         // Check if it looks like a float literal (contains . or scientific notation)
         // Must check this BEFORE integer parsing
-        if let Some(f) = is_float_literal(&token)
+        if let Some(f) = is_float_literal(token)
             .then(|| token.parse::<f64>().ok())
             .flatten()
         {
@@ -445,8 +450,11 @@ impl Parser {
             return self.parse_match();
         }
 
-        // Otherwise it's a word call
-        Ok(Statement::WordCall(token))
+        // Otherwise it's a word call - preserve source span for precise diagnostics
+        Ok(Statement::WordCall {
+            name: token.to_string(),
+            span: Some(Span::new(tok_line, tok_column, tok_len)),
+        })
     }
 
     fn parse_if(&mut self) -> Result<Statement, String> {
@@ -949,6 +957,17 @@ impl Parser {
         }
     }
 
+    /// Advance and return the full token with position info
+    fn advance_token(&mut self) -> Option<&Token> {
+        if self.is_at_end() {
+            None
+        } else {
+            let token = &self.tokens[self.pos];
+            self.pos += 1;
+            Some(token)
+        }
+    }
+
     fn is_at_end(&self) -> bool {
         self.pos >= self.tokens.len()
     }
@@ -1149,7 +1168,7 @@ mod tests {
         }
 
         match &program.words[0].body[1] {
-            Statement::WordCall(name) => assert_eq!(name, "write_line"),
+            Statement::WordCall { name, .. } => assert_eq!(name, "write_line"),
             _ => panic!("Expected WordCall"),
         }
     }
@@ -1164,10 +1183,10 @@ mod tests {
         assert_eq!(program.words[0].body.len(), 3);
         assert_eq!(program.words[0].body[0], Statement::IntLiteral(2));
         assert_eq!(program.words[0].body[1], Statement::IntLiteral(3));
-        assert_eq!(
-            program.words[0].body[2],
-            Statement::WordCall("add".to_string())
-        );
+        assert!(matches!(
+            &program.words[0].body[2],
+            Statement::WordCall { name, .. } if name == "add"
+        ));
     }
 
     #[test]
@@ -1311,7 +1330,7 @@ mod tests {
 
         // Check main calls helper
         match &program.words[1].body[0] {
-            Statement::WordCall(name) => assert_eq!(name, "helper"),
+            Statement::WordCall { name, .. } => assert_eq!(name, "helper"),
             _ => panic!("Expected WordCall to helper"),
         }
     }
@@ -1832,7 +1851,7 @@ mod tests {
             Statement::Quotation { body, .. } => {
                 assert_eq!(body.len(), 2);
                 assert_eq!(body[0], Statement::IntLiteral(1));
-                assert_eq!(body[1], Statement::WordCall("add".to_string()));
+                assert!(matches!(&body[1], Statement::WordCall { name, .. } if name == "add"));
             }
             _ => panic!("Expected Quotation statement"),
         }
@@ -1877,10 +1896,10 @@ mod tests {
             _ => panic!("Expected Quotation"),
         }
 
-        assert_eq!(
-            program.words[0].body[2],
-            Statement::WordCall("call".to_string())
-        );
+        assert!(matches!(
+            &program.words[0].body[2],
+            Statement::WordCall { name, .. } if name == "call"
+        ));
     }
 
     #[test]
@@ -1904,12 +1923,16 @@ mod tests {
                     } => {
                         assert_eq!(inner_body.len(), 2);
                         assert_eq!(inner_body[0], Statement::IntLiteral(1));
-                        assert_eq!(inner_body[1], Statement::WordCall("add".to_string()));
+                        assert!(
+                            matches!(&inner_body[1], Statement::WordCall { name, .. } if name == "add")
+                        );
                     }
                     _ => panic!("Expected nested Quotation"),
                 }
 
-                assert_eq!(outer_body[1], Statement::WordCall("call".to_string()));
+                assert!(
+                    matches!(&outer_body[1], Statement::WordCall { name, .. } if name == "call")
+                );
             }
             _ => panic!("Expected Quotation"),
         }
@@ -1932,9 +1955,9 @@ mod tests {
         match &program.words[0].body[0] {
             Statement::Quotation { body: pred, .. } => {
                 assert_eq!(pred.len(), 3);
-                assert_eq!(pred[0], Statement::WordCall("dup".to_string()));
+                assert!(matches!(&pred[0], Statement::WordCall { name, .. } if name == "dup"));
                 assert_eq!(pred[1], Statement::IntLiteral(0));
-                assert_eq!(pred[2], Statement::WordCall(">".to_string()));
+                assert!(matches!(&pred[2], Statement::WordCall { name, .. } if name == ">"));
             }
             _ => panic!("Expected predicate quotation"),
         }
@@ -1944,22 +1967,22 @@ mod tests {
             Statement::Quotation { body, .. } => {
                 assert_eq!(body.len(), 2);
                 assert_eq!(body[0], Statement::IntLiteral(1));
-                assert_eq!(body[1], Statement::WordCall("subtract".to_string()));
+                assert!(matches!(&body[1], Statement::WordCall { name, .. } if name == "subtract"));
             }
             _ => panic!("Expected body quotation"),
         }
 
         // while call
-        assert_eq!(
-            program.words[0].body[2],
-            Statement::WordCall("while".to_string())
-        );
+        assert!(matches!(
+            &program.words[0].body[2],
+            Statement::WordCall { name, .. } if name == "while"
+        ));
 
         // drop
-        assert_eq!(
-            program.words[0].body[3],
-            Statement::WordCall("drop".to_string())
-        );
+        assert!(matches!(
+            &program.words[0].body[3],
+            Statement::WordCall { name, .. } if name == "drop"
+        ));
     }
 
     #[test]
@@ -2386,7 +2409,9 @@ union Data {
                 assert_eq!(arms[0].body.len(), 4);
                 assert_eq!(arms[0].body[0], Statement::IntLiteral(1));
                 assert_eq!(arms[0].body[1], Statement::IntLiteral(2));
-                assert_eq!(arms[0].body[2], Statement::WordCall("add".to_string()));
+                assert!(
+                    matches!(&arms[0].body[2], Statement::WordCall { name, .. } if name == "add")
+                );
 
                 // Set arm has 2 statements: process-value, store
                 assert_eq!(arms[1].body.len(), 2);

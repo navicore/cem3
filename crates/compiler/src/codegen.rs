@@ -1074,7 +1074,7 @@ impl CodeGen {
             return false;
         }
         match statement {
-            Statement::WordCall(name) => {
+            Statement::WordCall { name, .. } => {
                 // Phase 2 TCO: `call` is now TCO-eligible (it emits its own ret)
                 if name == "call" {
                     return true;
@@ -1796,7 +1796,7 @@ impl CodeGen {
             Statement::FloatLiteral(f) => self.codegen_float_literal(stack_var, *f),
             Statement::BoolLiteral(b) => self.codegen_bool_literal(stack_var, *b),
             Statement::StringLiteral(s) => self.codegen_string_literal(stack_var, s),
-            Statement::WordCall(name) => self.codegen_word_call(stack_var, name, position),
+            Statement::WordCall { name, .. } => self.codegen_word_call(stack_var, name, position),
             Statement::If {
                 then_branch,
                 else_branch,
@@ -1903,7 +1903,10 @@ mod tests {
                 effect: None,
                 body: vec![
                     Statement::StringLiteral("Hello, World!".to_string()),
-                    Statement::WordCall("write_line".to_string()),
+                    Statement::WordCall {
+                        name: "write_line".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],
@@ -1932,7 +1935,10 @@ mod tests {
                 body: vec![
                     Statement::IntLiteral(2),
                     Statement::IntLiteral(3),
-                    Statement::WordCall("add".to_string()),
+                    Statement::WordCall {
+                        name: "add".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],
@@ -1967,7 +1973,10 @@ mod tests {
                 effect: None,
                 body: vec![
                     Statement::IntLiteral(42),
-                    Statement::WordCall("my-external-op".to_string()),
+                    Statement::WordCall {
+                        name: "my-external-op".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],
@@ -2006,8 +2015,14 @@ mod tests {
                 name: "main".to_string(),
                 effect: None,
                 body: vec![
-                    Statement::WordCall("actor-self".to_string()),
-                    Statement::WordCall("journal-append".to_string()),
+                    Statement::WordCall {
+                        name: "actor-self".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "journal-append".to_string(),
+                        span: None,
+                    },
                 ],
                 source: None,
             }],

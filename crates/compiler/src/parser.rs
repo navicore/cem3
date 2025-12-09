@@ -596,8 +596,24 @@ impl Parser {
                     ));
                 }
 
-                let binding = self.advance().ok_or("Expected binding name")?.clone();
-                bindings.push(binding);
+                let token = self.advance().ok_or("Expected binding name")?.clone();
+
+                // Require > prefix to make clear these are stack extractions, not variables
+                if let Some(field_name) = token.strip_prefix('>') {
+                    if field_name.is_empty() {
+                        return Err(format!(
+                            "Expected field name after '>' in match bindings for '{}'",
+                            variant_name
+                        ));
+                    }
+                    bindings.push(field_name.to_string());
+                } else {
+                    return Err(format!(
+                        "Match bindings must use '>' prefix to indicate stack extraction. \
+                         Use '>{}' instead of '{}' in pattern for '{}'",
+                        token, token, variant_name
+                    ));
+                }
             }
 
             self.consume("}");
@@ -2349,8 +2365,8 @@ union Data {
         let source = r#"
 : handle ( -- )
   match
-    Get { chan } -> chan send-response
-    Report { delta total } -> delta total process
+    Get { >chan } -> chan send-response
+    Report { >delta >total } -> delta total process
   end
 ;
 "#;
@@ -2387,6 +2403,25 @@ union Data {
             }
             _ => panic!("Expected Match statement"),
         }
+    }
+
+    #[test]
+    fn test_parse_match_bindings_require_prefix() {
+        // Old syntax without > prefix should error
+        let source = r#"
+: handle ( -- )
+  match
+    Get { chan } -> chan send-response
+  end
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains(">chan"));
+        assert!(err.contains("stack extraction"));
     }
 
     #[test]

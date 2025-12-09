@@ -57,17 +57,17 @@ All fields pushed to stack in declaration order:
 
 #### Named Bindings (Pragmatic)
 
-Only requested fields, in specified order:
+Only requested fields, in specified order. The `>` prefix indicates stack extraction (not variable binding):
 
 ```seq
 : handle ( Message -- )
   match
-    Get { chan } ->         # ( chan )
-      chan send-response
-    Increment { chan } ->   # ( chan )
-      do-increment chan send-response
-    Report { delta } ->     # ( delta )
-      delta aggregate-add
+    Get { >chan } ->         # ( chan )
+      send-response
+    Increment { >chan } ->   # ( chan )
+      do-increment swap send-response
+    Report { >delta } ->     # ( delta )
+      aggregate-add
   end
 ;
 ```
@@ -96,7 +96,7 @@ Both styles can be used in the same codebase, even different arms of the same ma
 
 : complex-handler ( Message -- )
   match
-    Report { delta total } -> delta total process
+    Report { >delta >total } -> process
   end
 ;
 ```
@@ -111,7 +111,7 @@ union Option { Some { value: Int }, None }
 # Row polymorphic in ..a, works with ADT
 : unwrap-or ( ..a Option Int -- ..a Int )
   match
-    Some { value } -> drop value
+    Some { >value } -> drop value
     None ->          # use default already on stack
   end
 ;

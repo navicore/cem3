@@ -347,22 +347,24 @@ All fields are pushed to stack in declaration order:
 
 ### Named Bindings
 
-Request specific fields by name:
+Request specific fields by name using `>` prefix (indicating stack extraction, not variable binding):
 
 ```seq
 : handle ( Message -- )
   match
-    Get { response-chan } ->
-      response-chan send-response
-    Increment { amount } ->
-      amount do-increment
-    Report { delta } ->     # only 'delta' pushed to stack
-      delta process
+    Get { >response-chan } ->
+      # response-chan is now on stack
+      send-response
+    Increment { >amount } ->
+      # amount is now on stack
+      do-increment
+    Report { >delta } ->     # only 'delta' pushed to stack
+      process
   end
 ;
 ```
 
-Both styles compile to identical code. Mix them freely.
+The `>` prefix makes clear these are stack extractions, not local variables. Both styles compile to identical code. Mix them freely.
 
 ### ADTs with Row Polymorphism
 
@@ -374,7 +376,7 @@ union Option { Some { value: Int }, None }
 # Row polymorphic - extra stack values pass through
 : unwrap-or ( ..a Option Int -- ..a Int )
   match
-    Some { value } -> drop value
+    Some { >value } -> drop value
     None ->          # use default already on stack
   end
 ;

@@ -631,10 +631,7 @@ mod tests {
     fn test_parse_stack_size_valid() {
         assert_eq!(parse_stack_size(Some("2097152".to_string())), 2097152);
         assert_eq!(parse_stack_size(Some("1".to_string())), 1);
-        assert_eq!(
-            parse_stack_size(Some("999999999".to_string())),
-            999999999
-        );
+        assert_eq!(parse_stack_size(Some("999999999".to_string())), 999999999);
     }
 
     #[test]
@@ -659,10 +656,7 @@ mod tests {
             parse_stack_size(Some("-100".to_string())),
             DEFAULT_STACK_SIZE
         );
-        assert_eq!(
-            parse_stack_size(Some("".to_string())),
-            DEFAULT_STACK_SIZE
-        );
+        assert_eq!(parse_stack_size(Some("".to_string())), DEFAULT_STACK_SIZE);
         assert_eq!(
             parse_stack_size(Some("1.5".to_string())),
             DEFAULT_STACK_SIZE

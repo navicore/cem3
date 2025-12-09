@@ -129,6 +129,7 @@ impl LanguageServer for SeqLanguageServer {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 inlay_hint_provider,
                 ..Default::default()
             },
@@ -311,6 +312,35 @@ impl LanguageServer for SeqLanguageServer {
 
         // Builtins don't have a definition location
         Ok(None)
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+
+        // Get document content and file path
+        let (content, file_path) = if let Ok(docs) = self.documents.read() {
+            if let Some(state) = docs.get(uri.as_str()) {
+                (state.content.clone(), state.file_path.clone())
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let actions = diagnostics::get_code_actions(&content, range, &uri, file_path.as_deref());
+
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                actions
+                    .into_iter()
+                    .map(CodeActionOrCommand::CodeAction)
+                    .collect(),
+            ))
+        }
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {

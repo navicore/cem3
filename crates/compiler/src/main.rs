@@ -129,7 +129,13 @@ fn run_lint(paths: &[PathBuf], config_path: Option<&std::path::Path>, errors_onl
             match lint::LintConfig::from_toml(&content) {
                 Ok(user_config) => {
                     // Merge with defaults
-                    let mut default = lint::LintConfig::default_config().unwrap();
+                    let mut default = match lint::LintConfig::default_config() {
+                        Ok(d) => d,
+                        Err(e) => {
+                            eprintln!("Error loading default lint config: {}", e);
+                            process::exit(1);
+                        }
+                    };
                     default.merge(user_config);
                     default
                 }
@@ -226,19 +232,35 @@ fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::
     diagnostics.extend(file_diagnostics);
 }
 
-/// Simple recursive directory walker
-fn walkdir(dir: &PathBuf) -> Vec<PathBuf> {
+/// Simple recursive directory walker with error logging
+fn walkdir(dir: &Path) -> Vec<PathBuf> {
     use std::fs;
 
     let mut files = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                files.extend(walkdir(&path));
-            } else {
-                files.push(path);
+    match fs::read_dir(dir) {
+        Ok(entries) => {
+            for entry in entries {
+                match entry {
+                    Ok(entry) => {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            files.extend(walkdir(&path));
+                        } else {
+                            files.push(path);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Could not read directory entry in {}: {}",
+                            dir.display(),
+                            e
+                        );
+                    }
+                }
             }
+        }
+        Err(e) => {
+            eprintln!("Warning: Could not read directory {}: {}", dir.display(), e);
         }
     }
     files

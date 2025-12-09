@@ -80,12 +80,12 @@ union SexprList {
 
 : sexpr-to-string ( Sexpr -- String )
   match
-    SNum { value } ->
+    SNum { >value } ->
       # Stack: ( value )
       int->string
-    SSym { name } ->
+    SSym { >name } ->
       # Stack: ( name ) - already a string
-    SList { items } ->
+    SList { >items } ->
       # Stack: ( items )
       list-to-string
   end
@@ -99,7 +99,7 @@ union SexprList {
   match
     SNil ->
       ""
-    SCons { head tail } ->
+    SCons { >head >tail } ->
       # Stack: ( head tail )
       swap sexpr-to-string  # ( tail head_str )
       swap                  # ( head_str tail )

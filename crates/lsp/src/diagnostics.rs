@@ -180,35 +180,31 @@ fn ranges_overlap(a: &Range, b: &Range) -> bool {
 
 /// Create an LSP Range from a lint diagnostic
 fn make_lint_range(lint_diag: &lint::LintDiagnostic, source: &str) -> Range {
-    let line = lint_diag.line as u32;
+    let start_line = lint_diag.line as u32;
+    let end_line = lint_diag.end_line.map(|l| l as u32).unwrap_or(start_line);
 
-    let (start_char, end_char) = match (lint_diag.start_column, lint_diag.end_column) {
-        (Some(start), Some(end)) => (start as u32, end as u32),
-        (Some(start), None) => {
-            let line_length = source
+    let start_char = lint_diag.start_column.map(|c| c as u32).unwrap_or(0);
+
+    let end_char = match lint_diag.end_column {
+        Some(end) => end as u32,
+        None => {
+            // Fall back to end of the end line
+            let target_line = lint_diag.end_line.unwrap_or(lint_diag.line);
+            source
                 .lines()
-                .nth(lint_diag.line)
+                .nth(target_line)
                 .map(|l| l.len() as u32)
-                .unwrap_or(0);
-            (start as u32, line_length)
-        }
-        _ => {
-            let line_length = source
-                .lines()
-                .nth(lint_diag.line)
-                .map(|l| l.len() as u32)
-                .unwrap_or(0);
-            (0, line_length)
+                .unwrap_or(0)
         }
     };
 
     Range {
         start: Position {
-            line,
+            line: start_line,
             character: start_char,
         },
         end: Position {
-            line,
+            line: end_line,
             character: end_char,
         },
     }
@@ -260,17 +256,6 @@ fn lint_to_code_action(
 
 /// Convert a lint diagnostic to an LSP diagnostic.
 fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnostic {
-    let line = lint_diag.line as u32;
-
-    // Debug: log what we're receiving from the linter
-    tracing::debug!(
-        "lint_to_diagnostic: id={} line={} start_col={:?} end_col={:?}",
-        lint_diag.id,
-        lint_diag.line,
-        lint_diag.start_column,
-        lint_diag.end_column
-    );
-
     let severity = match lint_diag.severity {
         lint::Severity::Error => DiagnosticSeverity::ERROR,
         lint::Severity::Warning => DiagnosticSeverity::WARNING,
@@ -286,40 +271,11 @@ fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnos
         )
     };
 
-    // Use precise column info if available, otherwise fall back to whole line
-    let (start_char, end_char) = match (lint_diag.start_column, lint_diag.end_column) {
-        (Some(start), Some(end)) => (start as u32, end as u32),
-        (Some(start), None) => {
-            // Have start but no end - highlight to end of line
-            let line_length = source
-                .lines()
-                .nth(lint_diag.line)
-                .map(|l| l.len() as u32)
-                .unwrap_or(0);
-            (start as u32, line_length)
-        }
-        _ => {
-            // No column info - highlight whole line
-            let line_length = source
-                .lines()
-                .nth(lint_diag.line)
-                .map(|l| l.len() as u32)
-                .unwrap_or(0);
-            (0, line_length)
-        }
-    };
+    // Use make_lint_range to handle both single-line and multi-line diagnostics
+    let range = make_lint_range(lint_diag, source);
 
     Diagnostic {
-        range: Range {
-            start: Position {
-                line,
-                character: start_char,
-            },
-            end: Position {
-                line,
-                character: end_char,
-            },
-        },
+        range,
         severity: Some(severity),
         code: Some(tower_lsp::lsp_types::NumberOrString::String(
             lint_diag.id.clone(),

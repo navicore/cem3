@@ -12,6 +12,14 @@
 //! ```
 //!
 //! The process will dump diagnostics to stderr and continue running.
+//!
+//! ## Signal Safety
+//!
+//! Signal handlers can only safely call async-signal-safe functions. Our
+//! dump_diagnostics() does I/O and acquires locks, which is NOT safe to call
+//! directly from a signal handler. Instead, we spawn a dedicated thread that
+//! waits for signals using signal-hook's iterator API, making all the I/O
+//! operations safe.
 
 use crate::scheduler::ACTIVE_STRANDS;
 use std::sync::Once;
@@ -23,16 +31,37 @@ static SIGNAL_HANDLER_INIT: Once = Once::new();
 ///
 /// This is called automatically by scheduler_init, but can be called
 /// explicitly if needed. Safe to call multiple times (idempotent).
+///
+/// # Implementation
+///
+/// Uses a dedicated thread to handle signals safely. The signal-hook iterator
+/// API ensures we're not calling non-async-signal-safe functions from within
+/// a signal handler context.
 pub fn install_signal_handler() {
     SIGNAL_HANDLER_INIT.call_once(|| {
         #[cfg(unix)]
         {
-            unsafe {
-                // SIGQUIT = 3 (same as JVM's kill -3 for thread dumps)
-                let _ = signal_hook::low_level::register(signal_hook::consts::SIGQUIT, || {
-                    dump_diagnostics();
-                });
-            }
+            use signal_hook::consts::SIGQUIT;
+            use signal_hook::iterator::Signals;
+
+            // Create signal iterator - this is safe and doesn't block
+            let mut signals = match Signals::new([SIGQUIT]) {
+                Ok(s) => s,
+                Err(_) => return, // Silently fail if we can't register
+            };
+
+            // Spawn a dedicated thread to handle signals
+            // This thread blocks waiting for signals, then safely calls dump_diagnostics()
+            std::thread::Builder::new()
+                .name("seq-diagnostics".to_string())
+                .spawn(move || {
+                    for sig in signals.forever() {
+                        if sig == SIGQUIT {
+                            dump_diagnostics();
+                        }
+                    }
+                })
+                .ok(); // Silently fail if thread spawn fails
         }
 
         #[cfg(not(unix))]

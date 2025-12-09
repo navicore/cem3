@@ -1,7 +1,11 @@
 use crate::includes::IncludedWord;
 use seqc::{Parser, TypeChecker, lint};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
+use tower_lsp::lsp_types::{
+    CodeAction, CodeActionKind, Diagnostic, DiagnosticSeverity, Position, Range, TextEdit, Url,
+    WorkspaceEdit,
+};
 use tracing::{debug, warn};
 
 /// Check a document for parse and type errors, returning LSP diagnostics.
@@ -98,19 +102,160 @@ pub fn check_document_with_includes(
     diagnostics
 }
 
+/// Get code actions for lint diagnostics that overlap with the given range.
+///
+/// This re-runs the linter to find applicable fixes for the requested range.
+pub fn get_code_actions(
+    source: &str,
+    range: Range,
+    uri: &Url,
+    file_path: Option<&Path>,
+) -> Vec<CodeAction> {
+    let mut actions = Vec::new();
+
+    // Parse the source
+    let mut parser = Parser::new(source);
+    let program = match parser.parse() {
+        Ok(prog) => prog,
+        Err(_) => return actions, // No actions if parse fails
+    };
+
+    // Run linter
+    let lint_file_path = file_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("source.seq"));
+
+    let linter = match lint::Linter::with_defaults() {
+        Ok(l) => l,
+        Err(_) => return actions,
+    };
+
+    let lint_diagnostics = linter.lint_program(&program, &lint_file_path);
+
+    // Find lint diagnostics that overlap with the requested range
+    for lint_diag in &lint_diagnostics {
+        let diag_range = make_lint_range(lint_diag, source);
+
+        // Check if ranges overlap
+        if ranges_overlap(&diag_range, &range) {
+            // Only create actions for diagnostics that have a fix
+            if let Some(action) = lint_to_code_action(lint_diag, source, uri, &diag_range) {
+                actions.push(action);
+            }
+        }
+    }
+
+    actions
+}
+
+/// Check if two ranges overlap (or if a point is inside a range)
+fn ranges_overlap(a: &Range, b: &Range) -> bool {
+    // Special case: if b is a zero-width cursor position, check if it's inside a
+    if b.start == b.end {
+        let cursor_line = b.start.line;
+        let cursor_char = b.start.character;
+
+        // Cursor is inside range a if:
+        // - cursor line is within a's line range
+        // - if on start line, cursor char >= start char
+        // - if on end line, cursor char <= end char
+        if cursor_line < a.start.line || cursor_line > a.end.line {
+            return false;
+        }
+        if cursor_line == a.start.line && cursor_char < a.start.character {
+            return false;
+        }
+        if cursor_line == a.end.line && cursor_char > a.end.character {
+            return false;
+        }
+        return true;
+    }
+
+    // General case: ranges overlap if neither is entirely before the other
+    !(a.end.line < b.start.line
+        || (a.end.line == b.start.line && a.end.character <= b.start.character)
+        || b.end.line < a.start.line
+        || (b.end.line == a.start.line && b.end.character <= a.start.character))
+}
+
+/// Create an LSP Range from a lint diagnostic
+fn make_lint_range(lint_diag: &lint::LintDiagnostic, source: &str) -> Range {
+    let start_line = lint_diag.line as u32;
+    let end_line = lint_diag.end_line.map(|l| l as u32).unwrap_or(start_line);
+
+    let start_char = lint_diag.start_column.map(|c| c as u32).unwrap_or(0);
+
+    let end_char = match lint_diag.end_column {
+        Some(end) => end as u32,
+        None => {
+            // Fall back to end of the end line
+            let target_line = lint_diag.end_line.unwrap_or(lint_diag.line);
+            source
+                .lines()
+                .nth(target_line)
+                .map(|l| l.len() as u32)
+                .unwrap_or(0)
+        }
+    };
+
+    Range {
+        start: Position {
+            line: start_line,
+            character: start_char,
+        },
+        end: Position {
+            line: end_line,
+            character: end_char,
+        },
+    }
+}
+
+/// Convert a lint diagnostic to a CodeAction if it has a fix
+fn lint_to_code_action(
+    lint_diag: &lint::LintDiagnostic,
+    _source: &str,
+    uri: &Url,
+    range: &Range,
+) -> Option<CodeAction> {
+    // Create the title based on whether there's a replacement or removal
+    let title = if lint_diag.replacement.is_empty() {
+        format!("Remove redundant code ({})", lint_diag.id)
+    } else {
+        format!("Replace with `{}`", lint_diag.replacement)
+    };
+
+    // Create the text edit
+    let new_text = lint_diag.replacement.clone();
+
+    let edit = TextEdit {
+        range: *range,
+        new_text,
+    };
+
+    // Create workspace edit
+    let mut changes = HashMap::new();
+    changes.insert(uri.clone(), vec![edit]);
+
+    let workspace_edit = WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    };
+
+    Some(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(workspace_edit),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
 /// Convert a lint diagnostic to an LSP diagnostic.
 fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnostic {
-    let line = lint_diag.line as u32;
-
-    // Debug: log what we're receiving from the linter
-    tracing::debug!(
-        "lint_to_diagnostic: id={} line={} start_col={:?} end_col={:?}",
-        lint_diag.id,
-        lint_diag.line,
-        lint_diag.start_column,
-        lint_diag.end_column
-    );
-
     let severity = match lint_diag.severity {
         lint::Severity::Error => DiagnosticSeverity::ERROR,
         lint::Severity::Warning => DiagnosticSeverity::WARNING,
@@ -126,40 +271,11 @@ fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnos
         )
     };
 
-    // Use precise column info if available, otherwise fall back to whole line
-    let (start_char, end_char) = match (lint_diag.start_column, lint_diag.end_column) {
-        (Some(start), Some(end)) => (start as u32, end as u32),
-        (Some(start), None) => {
-            // Have start but no end - highlight to end of line
-            let line_length = source
-                .lines()
-                .nth(lint_diag.line)
-                .map(|l| l.len() as u32)
-                .unwrap_or(0);
-            (start as u32, line_length)
-        }
-        _ => {
-            // No column info - highlight whole line
-            let line_length = source
-                .lines()
-                .nth(lint_diag.line)
-                .map(|l| l.len() as u32)
-                .unwrap_or(0);
-            (0, line_length)
-        }
-    };
+    // Use make_lint_range to handle both single-line and multi-line diagnostics
+    let range = make_lint_range(lint_diag, source);
 
     Diagnostic {
-        range: Range {
-            start: Position {
-                line,
-                character: start_char,
-            },
-            end: Position {
-                line,
-                character: end_char,
-            },
-        },
+        range,
         severity: Some(severity),
         code: Some(tower_lsp::lsp_types::NumberOrString::String(
             lint_diag.id.clone(),

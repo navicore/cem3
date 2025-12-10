@@ -1,0 +1,268 @@
+# Result/Option Helpers for Seq
+#
+# This module provides helper words for working with Result and Option patterns.
+# Since Seq doesn't support generic types, you define your own Result/Option unions
+# with the specific types you need, then use these helpers.
+#
+# ## Defining Your Own Result Type
+#
+#   # For operations that return Int or fail with String error:
+#   union IntResult {
+#     Ok { value: Int }
+#     Err { error: String }
+#   }
+#
+#   # For operations that return String or fail:
+#   union StringResult {
+#     Ok { value: String }
+#     Err { error: String }
+#   }
+#
+# ## Usage Pattern
+#
+#   include std:result
+#
+#   union IntResult { Ok { value: Int } Err { error: String } }
+#
+#   : safe-divide ( Int Int -- IntResult )
+#     dup 0 = if
+#       drop "Division by zero" Make-Err
+#     else
+#       divide Make-Ok
+#     then
+#   ;
+#
+#   : main ( -- Int )
+#     10 2 safe-divide
+#     result-ok? if
+#       result-unwrap int->string write_line
+#     else
+#       "Error: " swap result-unwrap-err string-concat write_line
+#     then
+#     0
+#   ;
+#
+# ## Result Convention
+#
+# Result-like unions should follow this convention:
+#   - First variant (tag 0) = success case with value
+#   - Second variant (tag 1) = error case with error info
+#
+# ## Option Convention
+#
+# Option-like unions should follow this convention:
+#   - First variant (tag 0) = Some/present with value
+#   - Second variant (tag 1) = None/absent (no fields)
+#
+# ## Helper Words
+#
+# Predicates (keep value on stack):
+#   - result-ok?: ( Result -- Result Int ) - Check if Ok (tag 0)
+#   - result-err?: ( Result -- Result Int ) - Check if Err (tag 1)
+#   - option-some?: ( Option -- Option Int ) - Check if Some (tag 0)
+#   - option-none?: ( Option -- Option Int ) - Check if None (tag 1)
+#
+# Unwrapping:
+#   - result-unwrap: ( Result -- value ) - Extract Ok value (panics on Err)
+#   - result-unwrap-err: ( Result -- error ) - Extract Err value (panics on Ok)
+#   - result-unwrap-or: ( Result default -- value ) - Extract Ok or use default
+#   - option-unwrap: ( Option -- value ) - Extract Some value (panics on None)
+#   - option-unwrap-or: ( Option default -- value ) - Extract Some or use default
+#
+# Combinators:
+#   - result-map: ( Result Quotation -- Result ) - Transform Ok value
+#   - result-bind: ( Result Quotation -- Result ) - Chain fallible operations
+#   - option-map: ( Option Quotation -- Option ) - Transform Some value
+#   - option-bind: ( Option Quotation -- Option ) - Chain optional operations
+#
+# ## Point-Free Chaining Example
+#
+#   # Chain fallible operations:
+#   input [ parse ] result-bind [ validate ] result-bind [ process ] result-bind
+#
+
+# =============================================================================
+#                           RESULT HELPERS
+# =============================================================================
+
+# Check if result is Ok (tag 0)
+# Stack: ( Result -- Result Int )
+: result-ok? ( Variant -- Variant Int )
+  dup variant-tag 0 =
+;
+
+# Check if result is Err (tag 1)
+# Stack: ( Result -- Result Int )
+: result-err? ( Variant -- Variant Int )
+  dup variant-tag 1 =
+;
+
+# Extract Ok value - panics if Err
+# Stack: ( Result -- value )
+: result-unwrap ( Variant -- Variant )
+  dup variant-tag 0 = if
+    0 variant-field-at
+  else
+    "PANIC: result-unwrap called on Err" write_line
+    result-panic
+  then
+;
+
+# Extract Err value - panics if Ok
+# Stack: ( Result -- error )
+: result-unwrap-err ( Variant -- Variant )
+  dup variant-tag 1 = if
+    0 variant-field-at
+  else
+    "PANIC: result-unwrap-err called on Ok" write_line
+    result-panic
+  then
+;
+
+# Extract Ok value or return default
+# Stack: ( Result default -- value )
+# Note: default should be same type as Ok's value field
+: result-unwrap-or ( Result Default -- Default )
+  swap                       # ( Default Result )
+  dup variant-tag 0 = if     # is Ok?
+    0 variant-field-at nip   # ( value ) - drop default, return Ok value
+  else
+    drop                     # ( Default ) - drop Result, return default
+  then
+;
+
+# Panic helper - infinite loop
+: result-panic ( -- )
+  result-panic
+;
+
+# =============================================================================
+#                         RESULT COMBINATORS
+# =============================================================================
+
+# Transform the Ok value, pass through Err unchanged
+# The quotation should transform: ( value -- new-value )
+# Result is reconstructed using make-variant-1 with tag 0 (Ok)
+# Stack: ( Result Quotation -- Result )
+: result-map ( Variant Quotation -- Variant )
+  swap                       # ( Quotation Result )
+  dup variant-tag 0 = if     # ( Quotation Result ) - is Ok?
+    0 variant-field-at       # ( Quotation value )
+    swap call                # ( new-value )
+    0 make-variant-1         # ( Result ) - wrap as Ok (tag 0)
+  else
+    nip                      # ( Result ) - keep original Err
+  then
+;
+
+# Transform the Ok value with custom constructor
+# Usage: my-result [ double ] [ Make-Ok ] result-map-with
+# Stack: ( Result Quotation OkConstructor -- Result )
+: result-map-with ( Variant Quotation Quotation -- Variant )
+  rot                        # ( Quotation OkCtor Result )
+  dup variant-tag 0 = if     # is Ok?
+    0 variant-field-at       # ( Quotation OkCtor value )
+    rot call                 # ( OkCtor new-value )
+    swap call                # ( Result )
+  else
+    rot drop rot drop        # ( Result ) - keep original Err
+  then
+;
+
+# Chain fallible operations
+# The quotation should return a Result: ( value -- Result )
+# Stack: ( Result Quotation -- Result )
+: result-bind ( Variant Quotation -- Variant )
+  swap                       # ( Quotation Result )
+  dup variant-tag 0 = if     # ( Quotation Result ) - is Ok?
+    0 variant-field-at       # ( Quotation value )
+    swap call                # ( Result )
+  else
+    nip                      # ( Result ) - keep original Err, drop quotation
+  then
+;
+
+# =============================================================================
+#                           OPTION HELPERS
+# =============================================================================
+
+# Check if option is Some (tag 0)
+# Stack: ( Option -- Option Int )
+: option-some? ( Variant -- Variant Int )
+  dup variant-tag 0 =
+;
+
+# Check if option is None (tag 1)
+# Stack: ( Option -- Option Int )
+: option-none? ( Variant -- Variant Int )
+  dup variant-tag 1 =
+;
+
+# Extract Some value - panics if None
+# Stack: ( Option -- value )
+: option-unwrap ( Variant -- Variant )
+  dup variant-tag 0 = if
+    0 variant-field-at
+  else
+    "PANIC: option-unwrap called on None" write_line
+    result-panic
+  then
+;
+
+# Extract Some value or return default
+# Stack: ( Option default -- value )
+# Note: default should be same type as Some's value field
+: option-unwrap-or ( Option Default -- Default )
+  swap                       # ( Default Option )
+  dup variant-tag 0 = if     # is Some?
+    0 variant-field-at nip   # ( value ) - drop default, return Some value
+  else
+    drop                     # ( Default ) - drop Option, return default
+  then
+;
+
+# =============================================================================
+#                         OPTION COMBINATORS
+# =============================================================================
+
+# Transform the Some value, pass through None unchanged
+# The quotation should transform: ( value -- new-value )
+# Result is reconstructed using make-variant-1 with tag 0 (Some)
+# Stack: ( Option Quotation -- Option )
+: option-map ( Variant Quotation -- Variant )
+  swap                       # ( Quotation Option )
+  dup variant-tag 0 = if     # ( Quotation Option ) - is Some?
+    0 variant-field-at       # ( Quotation value )
+    swap call                # ( new-value )
+    0 make-variant-1         # ( Option ) - wrap as Some (tag 0)
+  else
+    nip                      # ( Option ) - keep original None
+  then
+;
+
+# Transform the Some value with custom constructor
+# Usage: my-option [ double ] [ Make-Some ] option-map-with
+# Stack: ( Option Quotation SomeConstructor -- Option )
+: option-map-with ( Variant Quotation Quotation -- Variant )
+  rot                        # ( Quotation SomeCtor Option )
+  dup variant-tag 0 = if     # is Some?
+    0 variant-field-at       # ( Quotation SomeCtor value )
+    rot call                 # ( SomeCtor new-value )
+    swap call                # ( Option )
+  else
+    rot drop rot drop        # ( Option ) - keep original None
+  then
+;
+
+# Chain optional operations
+# The quotation should return an Option: ( value -- Option )
+# Stack: ( Option Quotation -- Option )
+: option-bind ( Variant Quotation -- Variant )
+  swap                       # ( Quotation Option )
+  dup variant-tag 0 = if     # ( Quotation Option ) - is Some?
+    0 variant-field-at       # ( Quotation value )
+    swap call                # ( Option )
+  else
+    nip                      # ( Option ) - keep original None, drop quotation
+  then
+;

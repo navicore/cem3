@@ -14,6 +14,7 @@ static STDLIB: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| 
     m.insert("yaml", include_str!("../stdlib/yaml.seq"));
     m.insert("http", include_str!("../stdlib/http.seq"));
     m.insert("stack-utils", include_str!("../stdlib/stack-utils.seq"));
+    m.insert("result", include_str!("../stdlib/result.seq"));
     m
 });
 

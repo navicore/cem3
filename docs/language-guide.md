@@ -416,6 +416,80 @@ The standard pattern for lists using low-level variants:
 1  2  3 nil cons cons cons
 ```
 
+## Error Handling with Result/Option
+
+The `std:result` module provides helpers for Result/Option patterns. Since Seq doesn't have generics, you define your own Result/Option unions with specific types, then use the standard helpers.
+
+### Defining Result Types
+
+```seq
+include std:result
+
+# Define a Result type for your use case
+union IntResult {
+  Ok { value: Int }
+  Err { error: String }
+}
+
+: safe-divide ( Int Int -- IntResult )
+  dup 0 = if
+    drop "Division by zero" Make-Err
+  else
+    divide Make-Ok
+  then
+;
+```
+
+### Result Helpers
+
+The helpers work with any union following the convention: Ok = tag 0, Err = tag 1.
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `result-ok?` | `( Result -- Result Int )` | Check if Ok (non-destructive) |
+| `result-err?` | `( Result -- Result Int )` | Check if Err (non-destructive) |
+| `result-unwrap` | `( Result -- value )` | Extract Ok value (panics on Err) |
+| `result-unwrap-or` | `( Result default -- value )` | Extract Ok or use default |
+| `result-map` | `( Result Quotation -- Result )` | Transform Ok value |
+| `result-bind` | `( Result Quotation -- Result )` | Chain fallible operations |
+
+### Point-Free Error Chaining
+
+The `result-bind` combinator enables elegant point-free chaining:
+
+```seq
+: parse-positive ( String -- IntResult )
+  string->int if
+    dup 0 > if Make-Ok else drop "not positive" Make-Err then
+  else
+    drop "not a number" Make-Err
+  then
+;
+
+# Chain fallible operations - errors short-circuit automatically
+"5" parse-positive
+  [ 2 multiply Make-Ok ] result-bind
+  [ 3 add Make-Ok ] result-bind
+# Result: Ok(13) or Err if any step fails
+```
+
+### Option Helpers
+
+For optional values (Some = tag 0, None = tag 1):
+
+```seq
+union IntOption { Some { value: Int } None }
+```
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `option-some?` | `( Option -- Option Int )` | Check if Some |
+| `option-none?` | `( Option -- Option Int )` | Check if None |
+| `option-unwrap` | `( Option -- value )` | Extract Some (panics on None) |
+| `option-unwrap-or` | `( Option default -- value )` | Extract Some or use default |
+| `option-map` | `( Option Quotation -- Option )` | Transform Some value |
+| `option-bind` | `( Option Quotation -- Option )` | Chain optional operations |
+
 ## String Operations
 
 | Word | Effect | Description |

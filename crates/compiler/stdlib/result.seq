@@ -121,11 +121,13 @@
 
 # Extract Ok value or return default
 # Stack: ( Result default -- value )
-: result-unwrap-or ( Variant Variant -- Variant )
-  swap result-ok? if
-    result-unwrap nip
+# Note: default should be same type as Ok's value field
+: result-unwrap-or ( Result Default -- Default )
+  swap                       # ( Default Result )
+  dup variant-tag 0 = if     # is Ok?
+    0 variant-field-at nip   # ( value ) - drop default, return Ok value
   else
-    drop
+    drop                     # ( Default ) - drop Result, return default
   then
 ;
 
@@ -140,15 +142,26 @@
 
 # Transform the Ok value, pass through Err unchanged
 # The quotation should transform: ( value -- new-value )
-# Then wrap result with Make-Ok (you provide the constructor)
-#
+# Result is reconstructed using make-variant-1 with tag 0 (Ok)
+# Stack: ( Result Quotation -- Result )
+: result-map ( Variant Quotation -- Variant )
+  swap                       # ( Quotation Result )
+  dup variant-tag 0 = if     # ( Quotation Result ) - is Ok?
+    0 variant-field-at       # ( Quotation value )
+    swap call                # ( new-value )
+    0 make-variant-1         # ( Result ) - wrap as Ok (tag 0)
+  else
+    nip                      # ( Result ) - keep original Err
+  then
+;
+
+# Transform the Ok value with custom constructor
 # Usage: my-result [ double ] [ Make-Ok ] result-map-with
-#
-# For simpler cases where Ok is always tag 0:
 # Stack: ( Result Quotation OkConstructor -- Result )
 : result-map-with ( Variant Quotation Quotation -- Variant )
-  rot result-ok? if          # ( Quotation OkCtor Result )
-    result-unwrap            # ( Quotation OkCtor value )
+  rot                        # ( Quotation OkCtor Result )
+  dup variant-tag 0 = if     # is Ok?
+    0 variant-field-at       # ( Quotation OkCtor value )
     rot call                 # ( OkCtor new-value )
     swap call                # ( Result )
   else
@@ -198,11 +211,13 @@
 
 # Extract Some value or return default
 # Stack: ( Option default -- value )
-: option-unwrap-or ( Variant Variant -- Variant )
-  swap option-some? if
-    option-unwrap nip
+# Note: default should be same type as Some's value field
+: option-unwrap-or ( Option Default -- Default )
+  swap                       # ( Default Option )
+  dup variant-tag 0 = if     # is Some?
+    0 variant-field-at nip   # ( value ) - drop default, return Some value
   else
-    drop
+    drop                     # ( Default ) - drop Option, return default
   then
 ;
 
@@ -211,11 +226,27 @@
 # =============================================================================
 
 # Transform the Some value, pass through None unchanged
+# The quotation should transform: ( value -- new-value )
+# Result is reconstructed using make-variant-1 with tag 0 (Some)
+# Stack: ( Option Quotation -- Option )
+: option-map ( Variant Quotation -- Variant )
+  swap                       # ( Quotation Option )
+  dup variant-tag 0 = if     # ( Quotation Option ) - is Some?
+    0 variant-field-at       # ( Quotation value )
+    swap call                # ( new-value )
+    0 make-variant-1         # ( Option ) - wrap as Some (tag 0)
+  else
+    nip                      # ( Option ) - keep original None
+  then
+;
+
+# Transform the Some value with custom constructor
 # Usage: my-option [ double ] [ Make-Some ] option-map-with
 # Stack: ( Option Quotation SomeConstructor -- Option )
 : option-map-with ( Variant Quotation Quotation -- Variant )
-  rot option-some? if        # ( Quotation SomeCtor Option )
-    option-unwrap            # ( Quotation SomeCtor value )
+  rot                        # ( Quotation SomeCtor Option )
+  dup variant-tag 0 = if     # is Some?
+    0 variant-field-at       # ( Quotation SomeCtor value )
     rot call                 # ( SomeCtor new-value )
     swap call                # ( Option )
   else

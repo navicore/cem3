@@ -94,6 +94,24 @@ union IntOption {
   then
 ;
 
+: test-result-unwrap-or-ok ( -- )
+  42 Make-Ok 99 result-unwrap-or
+  42 = if
+    "result-unwrap-or on Ok" test-pass
+  else
+    "result-unwrap-or on Ok" test-fail
+  then
+;
+
+: test-result-unwrap-or-err ( -- )
+  "error" Make-Err 99 result-unwrap-or
+  99 = if
+    "result-unwrap-or on Err returns default" test-pass
+  else
+    "result-unwrap-or on Err" test-fail
+  then
+;
+
 # =============================================================================
 #                        RESULT COMBINATOR TESTS
 # =============================================================================
@@ -144,6 +162,28 @@ union IntOption {
     then
   else
     drop "result-bind Err passthrough" test-fail
+  then
+;
+
+: test-result-map-ok ( -- )
+  5 Make-Ok [ 2 multiply ] result-map
+  result-ok? if
+    0 variant-field-at 10 = if
+      "result-map Ok" test-pass
+    else
+      "result-map Ok value" test-fail
+    then
+  else
+    drop "result-map Ok" test-fail
+  then
+;
+
+: test-result-map-err ( -- )
+  "error" Make-Err [ 2 multiply ] result-map
+  result-err? if
+    drop "result-map Err passthrough" test-pass
+  else
+    drop "result-map Err passthrough" test-fail
   then
 ;
 
@@ -200,6 +240,24 @@ union IntOption {
   then
 ;
 
+: test-option-unwrap-or-some ( -- )
+  42 Make-Some 99 option-unwrap-or
+  42 = if
+    "option-unwrap-or on Some" test-pass
+  else
+    "option-unwrap-or on Some" test-fail
+  then
+;
+
+: test-option-unwrap-or-none ( -- )
+  Make-None 99 option-unwrap-or
+  99 = if
+    "option-unwrap-or on None returns default" test-pass
+  else
+    "option-unwrap-or on None" test-fail
+  then
+;
+
 # =============================================================================
 #                        OPTION COMBINATOR TESTS
 # =============================================================================
@@ -241,6 +299,28 @@ union IntOption {
     drop "option-bind None passthrough" test-pass
   else
     drop "option-bind None passthrough" test-fail
+  then
+;
+
+: test-option-map-some ( -- )
+  5 Make-Some [ 2 multiply ] option-map
+  option-some? if
+    0 variant-field-at 10 = if
+      "option-map Some" test-pass
+    else
+      "option-map Some value" test-fail
+    then
+  else
+    drop "option-map Some" test-fail
+  then
+;
+
+: test-option-map-none ( -- )
+  Make-None [ 2 multiply ] option-map
+  option-none? if
+    drop "option-map None passthrough" test-pass
+  else
+    drop "option-map None passthrough" test-fail
   then
 ;
 
@@ -304,12 +384,16 @@ union IntOption {
   "--- Result Unwrap Tests ---" write_line
   test-unwrap-ok
   test-unwrap-err-msg
+  test-result-unwrap-or-ok
+  test-result-unwrap-or-err
 
   "" write_line
   "--- Result Combinator Tests ---" write_line
   test-result-bind-ok-ok
   test-result-bind-ok-err
   test-result-bind-err
+  test-result-map-ok
+  test-result-map-err
 
   "" write_line
   "--- Option Predicate Tests ---" write_line
@@ -321,12 +405,16 @@ union IntOption {
   "" write_line
   "--- Option Unwrap Tests ---" write_line
   test-unwrap-some
+  test-option-unwrap-or-some
+  test-option-unwrap-or-none
 
   "" write_line
   "--- Option Combinator Tests ---" write_line
   test-option-bind-some-some
   test-option-bind-some-none
   test-option-bind-none
+  test-option-map-some
+  test-option-map-none
 
   "" write_line
   "--- Chaining Tests ---" write_line

@@ -75,3 +75,46 @@ Zero overhead until signaled.
 4. Accept the limitation and document that memory stats require external tools (pmap, heaptrack, etc.)
 
 **Decision**: Deferred until we have concrete use cases that justify the complexity and potential performance cost.
+
+---
+
+## Type System Research
+
+### Implicit Type Safety Without Generics
+
+**Goal**: Achieve the safety benefits of generics without sacrificing point-free composability or adding syntactic overhead.
+
+Seq's philosophy: type safety through inference, not annotation.
+
+**Current state**:
+- Row-polymorphic stack effects provide implicit type threading
+- Result/Option helpers use duck typing on variant tags
+- Users define concrete unions (`IntResult`, `StringResult`) for their use cases
+
+**Research directions**:
+
+1. **Inferred variant types**
+   - Compiler tracks that `Make-Ok` produces a specific union type
+   - Result flowing through `result-bind` maintains type identity without annotation
+
+2. **Flow typing through combinators**
+   - If `result-bind` receives `IntResult`, infer the quotation expects `Int`
+   - Type errors caught at compile time without explicit type parameters
+
+3. **Structural typing for conventions**
+   - Recognize "union where tag 0 has one field, tag 1 has String field" as Result-like
+   - Helpers already work this way at runtime - make type checker aware
+
+4. **Constructor argument refinement**
+   ```seq
+   42 Make-Ok         # Inferred: IntResult (from Int argument)
+   "hi" Make-Ok       # Inferred: StringResult (from String argument)
+   ```
+
+5. **Stack as type evidence**
+   - The chain of stack effects *is* the type proof
+   - If `safe-divide` returns `IntResult`, the next word knows what it has
+
+**Key question**: How far can we push implicit typing before explicit annotations become necessary?
+
+**Constraint**: Must not compromise point-free style or add syntactic noise. The concatenative feel must be preserved.

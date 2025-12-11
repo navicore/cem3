@@ -118,3 +118,73 @@ Seq's philosophy: type safety through inference, not annotation.
 **Key question**: How far can we push implicit typing before explicit annotations become necessary?
 
 **Constraint**: Must not compromise point-free style or add syntactic noise. The concatenative feel must be preserved.
+
+---
+
+## Foreign Function Interface (FFI)
+
+**Design document**: [docs/design/ffi.md](design/ffi.md)
+
+### Vision
+
+Enable calling external C libraries without polluting seq-runtime. FFI is purely a compiler/linker concern.
+
+```seq
+include ffi:readline
+include ffi:sqlite
+
+: main ( -- Int )
+  "mydata.db" db-open drop
+  "SELECT * FROM users" db-exec
+  0
+;
+```
+
+### Key Principles
+
+1. **No runtime pollution** - seq-runtime has zero FFI dependencies
+2. **Opt-in via include** - `include ffi:*` is the safety boundary
+3. **Declarative bindings** - TOML manifests describe C functions
+4. **Codegen handles marshalling** - compiler generates LLVM IR for type conversion and memory management
+5. **Build flexibility** - enable/disable per target (e.g., no readline for musl static)
+
+### Implementation Phases
+
+**Phase 1: Readline** (immediate)
+- Manifest parser
+- `include ffi:` support
+- String marshalling codegen
+- Memory ownership (`caller_frees`)
+
+**Phase 2: Generalization**
+- User-provided manifests (`--ffi-manifest`)
+- Full type mapping (int, ptr, structs)
+- Out parameters
+
+**Phase 3: Advanced**
+- Callback support (C → Seq)
+- Struct passing
+- Platform-specific bindings
+
+### Example Manifest
+
+```toml
+[[library]]
+name = "readline"
+link = "readline"
+
+[[library.function]]
+c_name = "readline"
+seq_name = "readline"
+stack_effect = "( String -- String )"
+args = [{ type = "string", pass = "c_string" }]
+return = { type = "string", ownership = "caller_frees" }
+```
+
+### Use Cases
+
+- **Readline**: REPL line editing for SeqLisp
+- **SQLite**: Embedded database access
+- **PCRE**: Regular expressions
+- **libcurl**: HTTP client
+- **zlib**: Compression

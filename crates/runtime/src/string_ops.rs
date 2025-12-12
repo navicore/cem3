@@ -563,9 +563,22 @@ pub use patch_seq_string_trim as string_trim;
 /// Convert a Seq String on the stack to a null-terminated C string.
 ///
 /// The returned pointer must be freed by the caller using free().
-/// This pops the string from the stack and returns the C string pointer.
+/// This peeks the string from the stack (caller pops after use).
 ///
 /// Stack effect: ( String -- ) returns ptr to C string
+///
+/// # Memory Safety
+///
+/// The returned C string is a **completely independent copy** allocated via
+/// `malloc()`. It has no connection to Seq's memory management:
+///
+/// - The Seq String on the stack remains valid and unchanged
+/// - The returned pointer is owned by the C world and must be freed with `free()`
+/// - Even if the Seq String is garbage collected, the C string remains valid
+/// - Multiple calls with the same Seq String produce independent C strings
+///
+/// This design ensures FFI calls cannot cause use-after-free or double-free
+/// bugs between Seq and C code.
 ///
 /// # Safety
 /// Stack must have a String value on top. The unused second argument
@@ -581,8 +594,16 @@ pub unsafe extern "C" fn patch_seq_string_to_cstring(stack: Stack, _out: *mut u8
             let bytes = s.as_str().as_bytes();
             let len = bytes.len();
 
+            // Guard against overflow: len + 1 for null terminator
+            let alloc_size = len.checked_add(1).unwrap_or_else(|| {
+                panic!(
+                    "string_to_cstring: string too large for C conversion (len={})",
+                    len
+                )
+            });
+
             // Allocate space for string + null terminator
-            let ptr = unsafe { libc::malloc(len + 1) as *mut u8 };
+            let ptr = unsafe { libc::malloc(alloc_size) as *mut u8 };
             if ptr.is_null() {
                 panic!("string_to_cstring: malloc failed");
             }

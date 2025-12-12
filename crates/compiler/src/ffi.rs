@@ -138,8 +138,73 @@ pub struct FfiManifest {
 
 impl FfiManifest {
     /// Parse an FFI manifest from TOML content
+    ///
+    /// Validates the manifest after parsing to catch:
+    /// - Empty library names or linker flags
+    /// - Empty function names (c_name or seq_name)
+    /// - Malformed stack effects
     pub fn parse(content: &str) -> Result<Self, String> {
-        toml::from_str(content).map_err(|e| format!("Failed to parse FFI manifest: {}", e))
+        let manifest: Self =
+            toml::from_str(content).map_err(|e| format!("Failed to parse FFI manifest: {}", e))?;
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    /// Validate the manifest for common errors
+    fn validate(&self) -> Result<(), String> {
+        if self.libraries.is_empty() {
+            return Err("FFI manifest must define at least one library".to_string());
+        }
+
+        for (lib_idx, lib) in self.libraries.iter().enumerate() {
+            // Validate library name
+            if lib.name.trim().is_empty() {
+                return Err(format!("FFI library {} has empty name", lib_idx + 1));
+            }
+
+            // Validate linker flag
+            if lib.link.trim().is_empty() {
+                return Err(format!("FFI library '{}' has empty linker flag", lib.name));
+            }
+
+            // Validate each function
+            for (func_idx, func) in lib.functions.iter().enumerate() {
+                // Validate c_name
+                if func.c_name.trim().is_empty() {
+                    return Err(format!(
+                        "FFI function {} in library '{}' has empty c_name",
+                        func_idx + 1,
+                        lib.name
+                    ));
+                }
+
+                // Validate seq_name
+                if func.seq_name.trim().is_empty() {
+                    return Err(format!(
+                        "FFI function '{}' in library '{}' has empty seq_name",
+                        func.c_name, lib.name
+                    ));
+                }
+
+                // Validate stack_effect is not empty
+                if func.stack_effect.trim().is_empty() {
+                    return Err(format!(
+                        "FFI function '{}' has empty stack_effect",
+                        func.seq_name
+                    ));
+                }
+
+                // Validate stack_effect parses correctly
+                if let Err(e) = func.effect() {
+                    return Err(format!(
+                        "FFI function '{}' has malformed stack_effect '{}': {}",
+                        func.seq_name, func.stack_effect, e
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Get all linker flags needed for this manifest
@@ -410,5 +475,170 @@ return = { type = "void" }
         assert!(!bindings.is_ffi_function("not-defined"));
 
         assert_eq!(bindings.linker_flags, vec!["readline"]);
+    }
+
+    // Validation tests
+
+    #[test]
+    fn test_validate_empty_library_name() {
+        let content = r#"
+[[library]]
+name = ""
+link = "readline"
+
+[[library.function]]
+c_name = "readline"
+seq_name = "readline"
+stack_effect = "( String -- String )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty name"));
+    }
+
+    #[test]
+    fn test_validate_empty_link() {
+        let content = r#"
+[[library]]
+name = "readline"
+link = "  "
+
+[[library.function]]
+c_name = "readline"
+seq_name = "readline"
+stack_effect = "( String -- String )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty linker flag"));
+    }
+
+    #[test]
+    fn test_validate_empty_c_name() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = ""
+seq_name = "my-func"
+stack_effect = "( -- Int )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty c_name"));
+    }
+
+    #[test]
+    fn test_validate_empty_seq_name() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "my_func"
+seq_name = ""
+stack_effect = "( -- Int )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty seq_name"));
+    }
+
+    #[test]
+    fn test_validate_empty_stack_effect() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "my_func"
+seq_name = "my-func"
+stack_effect = ""
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty stack_effect"));
+    }
+
+    #[test]
+    fn test_validate_malformed_stack_effect_no_parens() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "my_func"
+seq_name = "my-func"
+stack_effect = "String -- Int"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("malformed stack_effect"));
+    }
+
+    #[test]
+    fn test_validate_malformed_stack_effect_no_separator() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "my_func"
+seq_name = "my-func"
+stack_effect = "( String Int )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("malformed stack_effect"));
+        assert!(err.contains("--"));
+    }
+
+    #[test]
+    fn test_validate_malformed_stack_effect_unknown_type() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "my_func"
+seq_name = "my-func"
+stack_effect = "( UnknownType -- Int )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("malformed stack_effect"));
+        assert!(err.contains("Unknown type"));
+    }
+
+    #[test]
+    fn test_validate_no_libraries() {
+        // TOML requires the `library` field to be present since it's not marked with #[serde(default)]
+        // An empty manifest will fail TOML parsing, not our custom validation
+        // But we can test with an explicit empty array
+        let content = r#"
+library = []
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least one library"));
     }
 }

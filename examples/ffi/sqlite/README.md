@@ -51,6 +51,19 @@ The `by_ref` argument doesn't come from the Seq stack - instead:
 Result: `db-open` has stack effect `( String -- Int Int )` where the first Int
 is the database handle (from the out param) and the second is the return code.
 
+**Important: Ownership Semantics**
+
+The `by_ref` pointer value pushed onto the stack is an **opaque handle** owned by
+the C library (SQLite in this case). You must:
+
+- Only pass it to functions from the same library (e.g., `db-exec`, `db-close`)
+- Never attempt to free it manually
+- Always close/release it using the library's cleanup function (`db-close`)
+- Not store it beyond its valid lifetime
+
+The compiler treats these as integers for simplicity, but they are NOT arbitrary
+integers - they are pointers that must be used according to the C library's API.
+
 ### Fixed Value Arguments
 
 For `sqlite3_exec`, we pass NULL for unused callback parameters:

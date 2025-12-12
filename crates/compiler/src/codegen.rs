@@ -1097,13 +1097,17 @@ impl CodeGen {
                     }
                     _ => {
                         // Try to parse as integer
-                        if let Ok(int_val) = value.parse::<i64>() {
-                            c_args.push(format!("i64 {}", int_val));
-                        } else {
-                            return Err(format!(
-                                "Unsupported fixed value '{}' for argument {}",
-                                value, i
-                            ));
+                        match value.parse::<i64>() {
+                            Ok(int_val) => {
+                                c_args.push(format!("i64 {}", int_val));
+                            }
+                            Err(e) => {
+                                return Err(format!(
+                                    "Invalid fixed value '{}' for argument {}: {}. \
+                                     Expected 'null' or a 64-bit integer.",
+                                    value, i, e
+                                ));
+                            }
                         }
                     }
                 }

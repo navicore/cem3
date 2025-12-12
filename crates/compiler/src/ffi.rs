@@ -162,9 +162,19 @@ impl FfiManifest {
                 return Err(format!("FFI library {} has empty name", lib_idx + 1));
             }
 
-            // Validate linker flag
+            // Validate linker flag (security: prevent injection of arbitrary flags)
             if lib.link.trim().is_empty() {
                 return Err(format!("FFI library '{}' has empty linker flag", lib.name));
+            }
+            // Only allow safe characters in linker flag: alphanumeric, dash, underscore, dot
+            for c in lib.link.chars() {
+                if !c.is_alphanumeric() && c != '-' && c != '_' && c != '.' {
+                    return Err(format!(
+                        "FFI library '{}' has invalid character '{}' in linker flag '{}'. \
+                         Only alphanumeric, dash, underscore, and dot are allowed.",
+                        lib.name, c, lib.link
+                    ));
+                }
             }
 
             // Validate each function
@@ -651,5 +661,43 @@ library = []
         let result = FfiManifest::parse(content);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("at least one library"));
+    }
+
+    #[test]
+    fn test_validate_linker_flag_injection() {
+        // Security: reject linker flags with potentially dangerous characters
+        let content = r#"
+[[library]]
+name = "evil"
+link = "evil -Wl,-rpath,/malicious"
+
+[[library.function]]
+c_name = "func"
+seq_name = "func"
+stack_effect = "( -- )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("invalid character"));
+    }
+
+    #[test]
+    fn test_validate_linker_flag_valid() {
+        // Valid linker flags: alphanumeric, dash, underscore, dot
+        let content = r#"
+[[library]]
+name = "test"
+link = "my-lib_2.0"
+
+[[library.function]]
+c_name = "func"
+seq_name = "func"
+stack_effect = "( -- )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_ok());
     }
 }

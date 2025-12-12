@@ -1,17 +1,21 @@
 # FFI Readline Demo
 #
-# Demonstrates using the ffi:readline module to create an interactive REPL
-# with line editing and history support.
+# Demonstrates using an external FFI manifest to create an interactive REPL
+# with line editing and history support via GNU readline.
 #
 # Build and run:
-#   seqc examples/ffi/readline-demo.seq -o readline-demo
+#   seqc --ffi-manifest examples/ffi/readline/readline.toml \
+#        examples/ffi/readline/readline-demo.seq -o readline-demo
 #   ./readline-demo
 #
 # Note: Requires libreadline to be installed:
 #   macOS: brew install readline
 #   Ubuntu: apt install libreadline-dev
+#
+# LICENSE WARNING: GNU Readline is GPL-3.0. Binaries linking to it must be
+# GPL-compatible. For BSD-licensed alternative, use `include ffi:libedit`.
 
-include ffi:readline
+# No include needed - functions come from --ffi-manifest
 
 # Simple command handler
 : process-command ( String -- )

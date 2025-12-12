@@ -1,6 +1,7 @@
 # GNU Readline FFI Example
 
-This example demonstrates using GNU Readline for line editing and history.
+This example demonstrates using GNU Readline for line editing and history,
+loaded via an external FFI manifest with `--ffi-manifest`.
 
 ## License Warning
 
@@ -12,16 +13,13 @@ instead. libedit is BSD-licensed and provides the same API.
 
 ## Building
 
-Once `--ffi-manifest` is implemented:
+Build using the external manifest:
 
 ```bash
-seqc --ffi-manifest readline.toml -o readline-demo readline-demo.seq
-```
-
-Or use the embedded manifest (accepting GPL for your binary):
-
-```bash
-seqc -o readline-demo readline-demo.seq
+seqc --ffi-manifest examples/ffi/readline/readline.toml \
+     examples/ffi/readline/readline-demo.seq \
+     -o readline-demo
+./readline-demo
 ```
 
 ## Dependencies

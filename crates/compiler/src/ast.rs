@@ -70,6 +70,8 @@ pub enum Include {
     Std(String),
     /// Relative path include: `include "my-utils"`
     Relative(String),
+    /// FFI library include: `include ffi:readline`
+    Ffi(String),
 }
 
 // ============================================================================

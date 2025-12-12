@@ -101,6 +101,7 @@ impl Parser {
 
     /// Parse an include statement:
     ///   include std:http     -> Include::Std("http")
+    ///   include ffi:readline -> Include::Ffi("readline")
     ///   include "my-utils"   -> Include::Relative("my-utils")
     fn parse_include(&mut self) -> Result<Include, String> {
         self.consume("include");
@@ -124,6 +125,20 @@ impl Parser {
             return Ok(Include::Std(name));
         }
 
+        // Check for ffi: prefix
+        if token == "ffi" {
+            // Expect : token
+            if !self.consume(":") {
+                return Err("Expected ':' after 'ffi' in include statement".to_string());
+            }
+            // Get the library name
+            let name = self
+                .advance()
+                .ok_or("Expected library name after 'ffi:'")?
+                .clone();
+            return Ok(Include::Ffi(name));
+        }
+
         // Check for quoted string (relative path)
         if token.starts_with('"') && token.ends_with('"') {
             let path = token.trim_start_matches('"').trim_end_matches('"');
@@ -131,7 +146,7 @@ impl Parser {
         }
 
         Err(format!(
-            "Invalid include syntax '{}'. Use 'include std:name' or 'include \"path\"'",
+            "Invalid include syntax '{}'. Use 'include std:name', 'include ffi:lib', or 'include \"path\"'",
             token
         ))
     }

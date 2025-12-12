@@ -198,6 +198,10 @@ fn resolve_include_recursive(
                 resolve_include_recursive(nested_include, include_dir, words, visited, depth + 1);
             }
         }
+        Include::Ffi(name) => {
+            // FFI includes don't contribute words directly - they're handled at compile time
+            debug!("FFI include: {} (no words added to LSP)", name);
+        }
     }
 }
 

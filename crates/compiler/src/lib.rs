@@ -180,12 +180,31 @@ pub fn compile_file_with_config(
         (program, Vec::new())
     };
 
-    // Process FFI includes
+    // Process FFI includes (embedded manifests from `include ffi:*`)
     let mut ffi_bindings = ffi::FfiBindings::new();
     for ffi_name in &ffi_includes {
         let manifest_content = ffi::get_ffi_manifest(ffi_name)
             .ok_or_else(|| format!("FFI manifest '{}' not found", ffi_name))?;
         let manifest = ffi::FfiManifest::parse(manifest_content)?;
+        ffi_bindings.add_manifest(&manifest)?;
+    }
+
+    // Load external FFI manifests from config (--ffi-manifest)
+    for manifest_path in &config.ffi_manifest_paths {
+        let manifest_content = fs::read_to_string(manifest_path).map_err(|e| {
+            format!(
+                "Failed to read FFI manifest '{}': {}",
+                manifest_path.display(),
+                e
+            )
+        })?;
+        let manifest = ffi::FfiManifest::parse(&manifest_content).map_err(|e| {
+            format!(
+                "Failed to parse FFI manifest '{}': {}",
+                manifest_path.display(),
+                e
+            )
+        })?;
         ffi_bindings.add_manifest(&manifest)?;
     }
 

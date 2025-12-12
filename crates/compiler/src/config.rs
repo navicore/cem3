@@ -25,6 +25,7 @@
 //! ```
 
 use crate::types::Effect;
+use std::path::PathBuf;
 
 /// Definition of an external builtin function
 ///
@@ -138,6 +139,13 @@ pub struct CompilerConfig {
 
     /// Additional libraries to link
     pub libraries: Vec<String>,
+
+    /// External FFI manifest paths to load
+    ///
+    /// These manifests are loaded in addition to any `include ffi:*` statements
+    /// in the source code. Use this to provide custom FFI bindings without
+    /// embedding them in the compiler.
+    pub ffi_manifest_paths: Vec<PathBuf>,
 }
 
 impl CompilerConfig {
@@ -167,6 +175,21 @@ impl CompilerConfig {
     /// Add a library to link
     pub fn with_library(mut self, lib: impl Into<String>) -> Self {
         self.libraries.push(lib.into());
+        self
+    }
+
+    /// Add an external FFI manifest path
+    ///
+    /// The manifest will be loaded and its functions made available
+    /// during compilation, in addition to any `include ffi:*` statements.
+    pub fn with_ffi_manifest(mut self, path: impl Into<PathBuf>) -> Self {
+        self.ffi_manifest_paths.push(path.into());
+        self
+    }
+
+    /// Add multiple external FFI manifest paths
+    pub fn with_ffi_manifests(mut self, paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        self.ffi_manifest_paths.extend(paths);
         self
     }
 

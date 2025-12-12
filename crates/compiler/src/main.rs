@@ -26,6 +26,13 @@ struct Cli {
     /// Keep intermediate LLVM IR file (.ll)
     #[arg(long)]
     keep_ir: bool,
+
+    /// External FFI manifest file(s) to load
+    ///
+    /// Use this to provide custom FFI bindings without embedding them in the compiler.
+    /// Can be specified multiple times for multiple manifests.
+    #[arg(long = "ffi-manifest", value_name = "PATH")]
+    ffi_manifests: Vec<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -42,6 +49,10 @@ enum Commands {
         /// Keep intermediate LLVM IR file (.ll)
         #[arg(long)]
         keep_ir: bool,
+
+        /// External FFI manifest file(s) to load
+        #[arg(long = "ffi-manifest", value_name = "PATH")]
+        ffi_manifests: Vec<PathBuf>,
     },
 
     /// Run lint checks on .seq files
@@ -68,8 +79,9 @@ fn main() {
             input,
             output,
             keep_ir,
+            ffi_manifests,
         }) => {
-            run_build(&input, &output, keep_ir);
+            run_build(&input, &output, keep_ir, &ffi_manifests);
         }
         Some(Commands::Lint {
             paths,
@@ -81,7 +93,7 @@ fn main() {
         None => {
             // Backward compatibility: if no subcommand, treat as build
             if let (Some(input), Some(output)) = (cli.input, cli.output) {
-                run_build(&input, &output, cli.keep_ir);
+                run_build(&input, &output, cli.keep_ir, &cli.ffi_manifests);
             } else {
                 eprintln!("Error: Missing required arguments. Use --help for usage.");
                 eprintln!("  seqc <input> -o <output>       Compile a file");
@@ -93,8 +105,15 @@ fn main() {
     }
 }
 
-fn run_build(input: &Path, output: &Path, keep_ir: bool) {
-    match seqc::compile_file(input, output, keep_ir) {
+fn run_build(input: &Path, output: &Path, keep_ir: bool, ffi_manifests: &[PathBuf]) {
+    // Build config with external FFI manifests
+    let config = if ffi_manifests.is_empty() {
+        seqc::CompilerConfig::default()
+    } else {
+        seqc::CompilerConfig::new().with_ffi_manifests(ffi_manifests.iter().cloned())
+    };
+
+    match seqc::compile_file_with_config(input, output, keep_ir, &config) {
         Ok(_) => {
             println!("Compiled {} -> {}", input.display(), output.display());
 

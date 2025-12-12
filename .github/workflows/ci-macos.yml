@@ -31,6 +31,9 @@ jobs:
     - name: Verify Rust version
       run: rustc --version && cargo --version && cargo clippy --version
 
+    - name: Install system dependencies
+      run: brew install readline
+
     - name: Install Just
       uses: extractions/setup-just@v2
 

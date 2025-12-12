@@ -5,6 +5,7 @@
 //!
 //! Supports:
 //! - `include std:name` - loads from embedded stdlib (or filesystem fallback)
+//! - `include ffi:name` - loads FFI manifest (collected but not processed here)
 //! - `include "path"` - loads relative to current file
 
 use crate::ast::{Include, Program, SourceLocation, UnionDef, WordDef};
@@ -12,6 +13,14 @@ use crate::parser::Parser;
 use crate::stdlib_embed;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+/// Result of resolving includes
+pub struct ResolveResult {
+    /// The resolved program with all includes merged
+    pub program: Program,
+    /// FFI library names that were included (e.g., ["readline"])
+    pub ffi_includes: Vec<String>,
+}
 
 /// Words and unions collected from a resolved include
 struct ResolvedContent {
@@ -36,6 +45,8 @@ pub struct Resolver {
     included_embedded: HashSet<String>,
     /// Path to stdlib directory (fallback for non-embedded modules), if available
     stdlib_path: Option<PathBuf>,
+    /// FFI libraries that were included
+    ffi_includes: Vec<String>,
 }
 
 impl Resolver {
@@ -45,14 +56,20 @@ impl Resolver {
             included_files: HashSet::new(),
             included_embedded: HashSet::new(),
             stdlib_path,
+            ffi_includes: Vec::new(),
         }
     }
 
-    /// Resolve all includes in a program and return a merged program
+    /// Resolve all includes in a program and return a merged program with FFI includes
     ///
     /// Takes the source file path and its already-parsed program.
     /// Recursively resolves includes and merges all word and union definitions.
-    pub fn resolve(&mut self, source_path: &Path, program: Program) -> Result<Program, String> {
+    /// FFI includes are collected but not processed (they don't produce words/unions).
+    pub fn resolve(
+        &mut self,
+        source_path: &Path,
+        program: Program,
+    ) -> Result<ResolveResult, String> {
         let source_path = source_path
             .canonicalize()
             .map_err(|e| format!("Failed to canonicalize {}: {}", source_path.display(), e))?;
@@ -101,7 +118,10 @@ impl Resolver {
         // Note: Constructor generation is done in lib.rs after resolution
         // to keep all constructor generation in one place
 
-        Ok(resolved_program)
+        Ok(ResolveResult {
+            program: resolved_program,
+            ffi_includes: std::mem::take(&mut self.ffi_includes),
+        })
     }
 
     /// Process a single include and return the resolved words and unions
@@ -110,6 +130,27 @@ impl Resolver {
         include: &Include,
         source_dir: &Path,
     ) -> Result<ResolvedContent, String> {
+        // Handle FFI includes specially - they don't produce words/unions,
+        // they're collected for later processing by the FFI system
+        if let Include::Ffi(name) = include {
+            // Check if we have the FFI manifest
+            if !crate::ffi::has_ffi_manifest(name) {
+                return Err(format!(
+                    "FFI library '{}' not found. Available: readline",
+                    name
+                ));
+            }
+            // Avoid duplicate FFI includes
+            if !self.ffi_includes.contains(name) {
+                self.ffi_includes.push(name.clone());
+            }
+            // FFI includes don't add words/unions directly
+            return Ok(ResolvedContent {
+                words: Vec::new(),
+                unions: Vec::new(),
+            });
+        }
+
         let resolved = self.resolve_include(include, source_dir)?;
 
         match resolved {
@@ -205,8 +246,8 @@ impl Resolver {
         let resolved = self.resolve(path, included_program)?;
 
         Ok(ResolvedContent {
-            words: resolved.words,
-            unions: resolved.unions,
+            words: resolved.program.words,
+            unions: resolved.program.unions,
         })
     }
 
@@ -245,6 +286,10 @@ impl Resolver {
             Include::Relative(rel_path) => Ok(ResolvedInclude::FilePath(
                 self.resolve_relative_path(rel_path, source_dir)?,
             )),
+            Include::Ffi(_) => {
+                // FFI includes are handled separately in process_include
+                unreachable!("FFI includes should be handled before resolve_include is called")
+            }
         }
     }
 

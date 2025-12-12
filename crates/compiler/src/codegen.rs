@@ -19,6 +19,7 @@
 
 use crate::ast::{MatchArm, Pattern, Program, Statement, UnionDef, WordDef};
 use crate::config::CompilerConfig;
+use crate::ffi::{FfiBindings, FfiType, Ownership, PassMode};
 use crate::types::Type;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -264,6 +265,8 @@ pub struct CodeGen {
     inside_main: bool, // Track if we're generating code for main (uses C convention, no musttail)
     inside_quotation: bool, // Track if we're generating code for a quotation (uses C convention, no musttail)
     unions: Vec<UnionDef>,  // Union type definitions for pattern matching
+    ffi_bindings: FfiBindings, // FFI function bindings
+    ffi_wrapper_code: String, // Generated FFI wrapper functions
 }
 
 impl CodeGen {
@@ -283,6 +286,8 @@ impl CodeGen {
             type_map: HashMap::new(),
             external_builtins: HashMap::new(),
             unions: Vec::new(),
+            ffi_bindings: FfiBindings::new(),
+            ffi_wrapper_code: String::new(),
         }
     }
 
@@ -722,6 +727,526 @@ impl CodeGen {
         Ok(ir)
     }
 
+    /// Generate LLVM IR for entire program with FFI support
+    ///
+    /// This is the main entry point for compiling programs that use FFI.
+    pub fn codegen_program_with_ffi(
+        &mut self,
+        program: &Program,
+        type_map: HashMap<usize, Type>,
+        config: &CompilerConfig,
+        ffi_bindings: &FfiBindings,
+    ) -> Result<String, String> {
+        // Store FFI bindings
+        self.ffi_bindings = ffi_bindings.clone();
+
+        // Generate FFI wrapper functions
+        self.generate_ffi_wrappers()?;
+
+        // Store type map for use during code generation
+        self.type_map = type_map;
+
+        // Store union definitions for pattern matching
+        self.unions = program.unions.clone();
+
+        // Build external builtins map from config
+        self.external_builtins = config
+            .external_builtins
+            .iter()
+            .map(|b| (b.seq_name.clone(), b.symbol.clone()))
+            .collect();
+
+        // Verify we have a main word
+        if program.find_word("main").is_none() {
+            return Err("No main word defined".to_string());
+        }
+
+        // Generate all user-defined words
+        for word in &program.words {
+            self.codegen_word(word)?;
+        }
+
+        // Generate main function
+        self.codegen_main()?;
+
+        // Assemble final IR
+        let mut ir = String::new();
+
+        // Target and type declarations
+        writeln!(&mut ir, "; ModuleID = 'main'").unwrap();
+        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple()).unwrap();
+        writeln!(&mut ir).unwrap();
+
+        // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
+        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)").unwrap();
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}").unwrap();
+        writeln!(&mut ir).unwrap();
+
+        // String constants
+        if !self.string_globals.is_empty() {
+            ir.push_str(&self.string_globals);
+            writeln!(&mut ir).unwrap();
+        }
+
+        // Runtime function declarations (same as codegen_program_with_config)
+        self.emit_runtime_declarations(&mut ir);
+
+        // FFI C function declarations
+        if !self.ffi_bindings.functions.is_empty() {
+            writeln!(&mut ir, "; FFI C function declarations").unwrap();
+            writeln!(&mut ir, "declare ptr @malloc(i64)").unwrap();
+            writeln!(&mut ir, "declare void @free(ptr)").unwrap();
+            writeln!(&mut ir, "declare i64 @strlen(ptr)").unwrap();
+            writeln!(&mut ir, "declare ptr @memcpy(ptr, ptr, i64)").unwrap();
+            // Declare FFI string helpers from runtime
+            writeln!(
+                &mut ir,
+                "declare ptr @patch_seq_string_to_cstring(ptr, ptr)"
+            )
+            .unwrap();
+            writeln!(
+                &mut ir,
+                "declare ptr @patch_seq_cstring_to_string(ptr, ptr)"
+            )
+            .unwrap();
+            for func in self.ffi_bindings.functions.values() {
+                let c_ret_type = ffi_return_type(&func.return_spec);
+                let c_args = ffi_c_args(&func.args);
+                writeln!(
+                    &mut ir,
+                    "declare {} @{}({})",
+                    c_ret_type, func.c_name, c_args
+                )
+                .unwrap();
+            }
+            writeln!(&mut ir).unwrap();
+        }
+
+        // External builtin declarations (from config)
+        if !self.external_builtins.is_empty() {
+            writeln!(&mut ir, "; External builtin declarations").unwrap();
+            for symbol in self.external_builtins.values() {
+                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol).unwrap();
+            }
+            writeln!(&mut ir).unwrap();
+        }
+
+        // FFI wrapper functions
+        if !self.ffi_wrapper_code.is_empty() {
+            writeln!(&mut ir, "; FFI wrapper functions").unwrap();
+            ir.push_str(&self.ffi_wrapper_code);
+            writeln!(&mut ir).unwrap();
+        }
+
+        // Quotation functions
+        if !self.quotation_functions.is_empty() {
+            writeln!(&mut ir, "; Quotation functions").unwrap();
+            ir.push_str(&self.quotation_functions);
+            writeln!(&mut ir).unwrap();
+        }
+
+        // User-defined words and main
+        ir.push_str(&self.output);
+
+        Ok(ir)
+    }
+
+    /// Emit runtime function declarations
+    fn emit_runtime_declarations(&self, ir: &mut String) {
+        writeln!(ir, "; Runtime function declarations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_int(ptr, i64)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_string(ptr, ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_write_line(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_read_line(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_read_line_plus(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_int_to_string(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_add(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_subtract(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_multiply(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_divide(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_eq(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_lt(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_gt(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_lte(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_gte(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_neq(ptr)").unwrap();
+        writeln!(ir, "; Boolean operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_and(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_or(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_not(ptr)").unwrap();
+        writeln!(ir, "; Bitwise operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_band(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_bor(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_bxor(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_bnot(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_shl(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_shr(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_popcount(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_clz(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_ctz(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_int_bits(ptr)").unwrap();
+        writeln!(ir, "; Stack operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_dup(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_swap(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_over(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_rot(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
+        writeln!(ir, "; Quotation operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_quotation(ptr, i64, i64)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_call(ptr)").unwrap();
+        writeln!(ir, "declare i64 @patch_seq_peek_is_quotation(ptr)").unwrap();
+        writeln!(ir, "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_times(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_while_loop(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_until_loop(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_spawn(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_cond(ptr)").unwrap();
+        writeln!(ir, "; Closure operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_create_env(i32)").unwrap();
+        writeln!(ir, "declare void @patch_seq_env_set(ptr, i32, %Value)").unwrap();
+        writeln!(ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)").unwrap();
+        writeln!(ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)").unwrap();
+        writeln!(ir, "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)").unwrap();
+        writeln!(ir, "declare double @patch_seq_env_get_float(ptr, i64, i32)").unwrap();
+        writeln!(
+            ir,
+            "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(ir, "declare ptr @patch_seq_env_get_string(ptr, i64, i32)").unwrap();
+        writeln!(
+            ir,
+            "declare ptr @patch_seq_env_push_string(ptr, ptr, i64, i32)"
+        )
+        .unwrap();
+        writeln!(ir, "declare %Value @patch_seq_make_closure(i64, ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_closure(ptr, i64, i32)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_seqstring(ptr, ptr)").unwrap();
+        writeln!(ir, "; Concurrency operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_channel(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_chan_send(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_chan_send_safe(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_chan_receive(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_chan_receive_safe(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_close_channel(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_yield_strand(ptr)").unwrap();
+        writeln!(ir, "; Scheduler operations").unwrap();
+        writeln!(ir, "declare void @patch_seq_scheduler_init()").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_scheduler_run()").unwrap();
+        writeln!(ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)").unwrap();
+        writeln!(ir, "; Command-line argument operations").unwrap();
+        writeln!(ir, "declare void @patch_seq_args_init(i32, ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_arg_count(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
+        writeln!(ir, "; File operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_file_slurp_safe(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_file_for_each_line_plus(ptr)").unwrap();
+        writeln!(ir, "; List operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_list_map(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_list_filter(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_list_fold(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_list_each(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_list_length(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_list_empty(ptr)").unwrap();
+        writeln!(ir, "; Map operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_map(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_get(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_get_safe(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_set(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_has(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_remove(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_keys(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_values(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_size(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_map_empty(ptr)").unwrap();
+        writeln!(ir, "; TCP operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_tcp_read(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_tcp_write(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_tcp_close(ptr)").unwrap();
+        writeln!(ir, "; String operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_byte_length(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_char_at(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_substring(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_char_to_string(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_find(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_split(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_contains(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_starts_with(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_empty(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_chomp(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_equal(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_json_escape(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_to_int(ptr)").unwrap();
+        writeln!(ir, "; Variant operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_variant_append(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_variant_last(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_variant_init(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_variant_0(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_variant_1(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_variant_3(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_make_variant_4(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)").unwrap();
+        writeln!(ir, "; Float operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_subtract(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_multiply(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_divide(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_eq(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_lt(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_gt(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_lte(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_gte(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_f_neq(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_int_to_float(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
+        writeln!(ir, "; Helpers for conditionals").unwrap();
+        writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
+        writeln!(ir).unwrap();
+    }
+
+    /// Generate FFI wrapper functions
+    fn generate_ffi_wrappers(&mut self) -> Result<(), String> {
+        // Collect functions to avoid borrowing self.ffi_bindings while mutating self
+        let funcs: Vec<_> = self.ffi_bindings.functions.values().cloned().collect();
+        for func in funcs {
+            self.generate_ffi_wrapper(&func)?;
+        }
+        Ok(())
+    }
+
+    /// Generate a single FFI wrapper function
+    ///
+    /// The wrapper:
+    /// 1. Pops arguments from the Seq stack
+    /// 2. Converts Seq types to C types
+    /// 3. Calls the C function
+    /// 4. Converts result back to Seq type
+    /// 5. Pushes result onto Seq stack
+    /// 6. Frees memory if needed (caller_frees)
+    fn generate_ffi_wrapper(&mut self, func: &crate::ffi::FfiFunctionInfo) -> Result<(), String> {
+        let wrapper_name = format!("seq_ffi_{}", mangle_name(&func.seq_name));
+
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "define ptr @{}(ptr %stack) {{",
+            wrapper_name
+        )
+        .unwrap();
+        writeln!(&mut self.ffi_wrapper_code, "entry:").unwrap();
+
+        let mut stack_var = "stack".to_string();
+        let mut c_args: Vec<String> = Vec::new();
+        let mut c_string_vars: Vec<String> = Vec::new();
+
+        // Pop arguments from stack (in reverse order - last arg on top)
+        for (i, arg) in func.args.iter().enumerate().rev() {
+            match (&arg.arg_type, &arg.pass) {
+                (FfiType::String, PassMode::CString) => {
+                    // Pop string from stack and convert to C string
+                    let cstr_var = format!("cstr_{}", i);
+                    let new_stack = format!("stack_after_pop_{}", i);
+
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_string_to_cstring(ptr %{}, ptr null)",
+                        cstr_var, stack_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                        new_stack, stack_var
+                    )
+                    .unwrap();
+
+                    stack_var = new_stack;
+                    c_args.push(format!("ptr %{}", cstr_var));
+                    c_string_vars.push(cstr_var);
+                }
+                (FfiType::Int, _) => {
+                    // Pop int from stack
+                    let int_var = format!("int_{}", i);
+                    let new_stack = format!("stack_after_pop_{}", i);
+
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
+                        int_var, stack_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                        new_stack, stack_var
+                    )
+                    .unwrap();
+
+                    stack_var = new_stack;
+                    c_args.push(format!("i64 %{}", int_var));
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported FFI argument type {:?} with pass mode {:?}",
+                        arg.arg_type, arg.pass
+                    ));
+                }
+            }
+        }
+
+        // Reverse args back to correct order for C call
+        c_args.reverse();
+
+        // Call the C function
+        let c_ret_type = ffi_return_type(&func.return_spec);
+        let c_args_str = c_args.join(", ");
+
+        let has_return = func
+            .return_spec
+            .as_ref()
+            .map(|r| r.return_type != FfiType::Void)
+            .unwrap_or(false);
+
+        if has_return {
+            writeln!(
+                &mut self.ffi_wrapper_code,
+                "  %c_result = call {} @{}({})",
+                c_ret_type, func.c_name, c_args_str
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                &mut self.ffi_wrapper_code,
+                "  call {} @{}({})",
+                c_ret_type, func.c_name, c_args_str
+            )
+            .unwrap();
+        }
+
+        // Free C strings we allocated for arguments
+        for cstr_var in &c_string_vars {
+            writeln!(
+                &mut self.ffi_wrapper_code,
+                "  call void @free(ptr %{})",
+                cstr_var
+            )
+            .unwrap();
+        }
+
+        // Handle return value
+        if let Some(ref return_spec) = func.return_spec {
+            match &return_spec.return_type {
+                FfiType::String => {
+                    // Convert C string result to Seq string
+                    // Check for NULL (readline returns NULL on EOF)
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %is_null = icmp eq ptr %c_result, null"
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  br i1 %is_null, label %null_case, label %valid_case"
+                    )
+                    .unwrap();
+
+                    writeln!(&mut self.ffi_wrapper_code, "null_case:").unwrap();
+                    // Push empty string for NULL result
+                    let empty_str = self.get_string_global("");
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %stack_null = call ptr @patch_seq_push_string(ptr %{}, ptr {})",
+                        stack_var, empty_str
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  br label %done").unwrap();
+
+                    writeln!(&mut self.ffi_wrapper_code, "valid_case:").unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %stack_with_result = call ptr @patch_seq_cstring_to_string(ptr %{}, ptr %c_result)",
+                        stack_var
+                    )
+                    .unwrap();
+
+                    // Free if caller_frees
+                    if return_spec.ownership == Ownership::CallerFrees {
+                        writeln!(
+                            &mut self.ffi_wrapper_code,
+                            "  call void @free(ptr %c_result)"
+                        )
+                        .unwrap();
+                    }
+                    writeln!(&mut self.ffi_wrapper_code, "  br label %done").unwrap();
+
+                    writeln!(&mut self.ffi_wrapper_code, "done:").unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %final_stack = phi ptr [ %stack_null, %null_case ], [ %stack_with_result, %valid_case ]"
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %final_stack").unwrap();
+                }
+                FfiType::Int => {
+                    // Push int result
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %stack_with_result = call ptr @patch_seq_push_int(ptr %{}, i64 %c_result)",
+                        stack_var
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result").unwrap();
+                }
+                FfiType::Void => {
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %{}", stack_var).unwrap();
+                }
+                FfiType::Ptr => {
+                    // Push pointer as int
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %ptr_as_int = ptrtoint ptr %c_result to i64"
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %stack_with_result = call ptr @patch_seq_push_int(ptr %{}, i64 %ptr_as_int)",
+                        stack_var
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result").unwrap();
+                }
+            }
+        } else {
+            writeln!(&mut self.ffi_wrapper_code, "  ret ptr %{}", stack_var).unwrap();
+        }
+
+        writeln!(&mut self.ffi_wrapper_code, "}}").unwrap();
+        writeln!(&mut self.ffi_wrapper_code).unwrap();
+
+        Ok(())
+    }
+
     /// Generate code for a word definition
     fn codegen_word(&mut self, word: &WordDef) -> Result<(), String> {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
@@ -926,7 +1451,9 @@ impl CodeGen {
 
     /// Check if a name refers to a runtime builtin (not a user-defined word).
     fn is_runtime_builtin(&self, name: &str) -> bool {
-        BUILTIN_SYMBOLS.contains_key(name) || self.external_builtins.contains_key(name)
+        BUILTIN_SYMBOLS.contains_key(name)
+            || self.external_builtins.contains_key(name)
+            || self.ffi_bindings.is_ffi_function(name)
     }
 
     /// Emit code to push a captured value onto the stack.
@@ -1304,6 +1831,9 @@ impl CodeGen {
             (symbol.to_string(), false)
         } else if let Some(symbol) = self.external_builtins.get(name) {
             (symbol.clone(), false)
+        } else if self.ffi_bindings.is_ffi_function(name) {
+            // FFI wrapper function
+            (format!("seq_ffi_{}", mangle_name(name)), false)
         } else {
             (format!("seq_{}", mangle_name(name)), true)
         };
@@ -1884,6 +2414,42 @@ fn get_target_triple() -> &'static str {
     {
         "unknown"
     }
+}
+
+// ============================================================================
+// FFI Helper Functions
+// ============================================================================
+
+use crate::ffi::{FfiArg, FfiReturn};
+
+/// Get the LLVM IR return type for an FFI function
+fn ffi_return_type(return_spec: &Option<FfiReturn>) -> &'static str {
+    match return_spec {
+        Some(spec) => match spec.return_type {
+            FfiType::Int => "i64",
+            FfiType::String => "ptr",
+            FfiType::Ptr => "ptr",
+            FfiType::Void => "void",
+        },
+        None => "void",
+    }
+}
+
+/// Get the LLVM IR argument types for an FFI function
+fn ffi_c_args(args: &[FfiArg]) -> String {
+    if args.is_empty() {
+        return String::new();
+    }
+
+    args.iter()
+        .map(|arg| match arg.arg_type {
+            FfiType::Int => "i64",
+            FfiType::String => "ptr",
+            FfiType::Ptr => "ptr",
+            FfiType::Void => "void",
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

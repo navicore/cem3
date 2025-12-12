@@ -21,6 +21,7 @@ pub mod builtins;
 pub mod capture_analysis;
 pub mod codegen;
 pub mod config;
+pub mod ffi;
 pub mod lint;
 pub mod parser;
 pub mod resolver;
@@ -34,7 +35,9 @@ pub use codegen::CodeGen;
 pub use config::{CompilerConfig, ExternalBuiltin};
 pub use lint::{LintConfig, LintDiagnostic, Linter, Severity};
 pub use parser::Parser;
-pub use resolver::{Resolver, check_collisions, check_union_collisions, find_stdlib};
+pub use resolver::{
+    ResolveResult, Resolver, check_collisions, check_union_collisions, find_stdlib,
+};
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 
@@ -168,13 +171,23 @@ pub fn compile_file_with_config(
     let program = parser.parse()?;
 
     // Resolve includes (if any)
-    let mut program = if !program.includes.is_empty() {
+    let (mut program, ffi_includes) = if !program.includes.is_empty() {
         let stdlib_path = find_stdlib();
         let mut resolver = Resolver::new(stdlib_path);
-        resolver.resolve(source_path, program)?
+        let result = resolver.resolve(source_path, program)?;
+        (result.program, result.ffi_includes)
     } else {
-        program
+        (program, Vec::new())
     };
+
+    // Process FFI includes
+    let mut ffi_bindings = ffi::FfiBindings::new();
+    for ffi_name in &ffi_includes {
+        let manifest_content = ffi::get_ffi_manifest(ffi_name)
+            .ok_or_else(|| format!("FFI manifest '{}' not found", ffi_name))?;
+        let manifest = ffi::FfiManifest::parse(manifest_content)?;
+        ffi_bindings.add_manifest(&manifest)?;
+    }
 
     // Generate constructor words for all union types (Make-VariantName)
     // Always done here to consolidate constructor generation in one place
@@ -192,8 +205,9 @@ pub fn compile_file_with_config(
     }
 
     // Validate all word calls reference defined words or built-ins
-    // Include external builtins from config
-    let external_names = config.external_names();
+    // Include external builtins from config and FFI functions
+    let mut external_names = config.external_names();
+    external_names.extend(ffi_bindings.function_names());
     program.validate_word_calls_with_externals(&external_names)?;
 
     // Type check (validates stack effects, especially for conditionals)
@@ -209,6 +223,16 @@ pub fn compile_file_with_config(
         type_checker.register_external_words(&external_effects);
     }
 
+    // Register FFI functions with the type checker
+    if !ffi_bindings.functions.is_empty() {
+        let ffi_effects: Vec<(&str, Option<&types::Effect>)> = ffi_bindings
+            .functions
+            .values()
+            .map(|f| (f.seq_name.as_str(), Some(&f.effect)))
+            .collect();
+        type_checker.register_external_words(&ffi_effects);
+    }
+
     type_checker.check_program(&program)?;
 
     // Extract inferred quotation types (in DFS traversal order)
@@ -216,7 +240,7 @@ pub fn compile_file_with_config(
 
     // Generate LLVM IR with type information and external builtins
     let mut codegen = CodeGen::new();
-    let ir = codegen.codegen_program_with_config(&program, quotation_types, config)?;
+    let ir = codegen.codegen_program_with_ffi(&program, quotation_types, config, &ffi_bindings)?;
 
     // Write IR to file
     let ir_path = output_path.with_extension("ll");
@@ -251,6 +275,11 @@ pub fn compile_file_with_config(
 
     // Add custom libraries from config
     for lib in &config.libraries {
+        clang.arg("-l").arg(lib);
+    }
+
+    // Add FFI linker flags
+    for lib in &ffi_bindings.linker_flags {
         clang.arg("-l").arg(lib);
     }
 

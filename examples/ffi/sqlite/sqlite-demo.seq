@@ -1,0 +1,68 @@
+# SQLite FFI Demo
+#
+# Demonstrates using SQLite with by_ref out parameters.
+#
+# Build and run:
+#   seqc --ffi-manifest examples/ffi/sqlite/sqlite.toml \
+#        examples/ffi/sqlite/sqlite-demo.seq -o sqlite-demo
+#   ./sqlite-demo
+#
+# Installation:
+#   macOS: SQLite is pre-installed
+#   Ubuntu: apt install libsqlite3-dev
+#   Fedora: dnf install sqlite-devel
+
+# SQLite result codes
+: SQLITE_OK ( -- Int ) 0 ;
+
+# Check if SQLite operation succeeded (returns 1 for success, 0 for failure)
+: db-ok? ( Int -- Int ) SQLITE_OK = ;
+
+# Open database and check result
+: open-db ( String -- Int Int )
+  db-open       # ( String -- Int Int )
+  db-ok?        # ( Int Int -- Int Int )
+;
+
+# Execute SQL and report errors
+: exec-sql ( Int String -- Int )
+  db-exec db-ok?
+;
+
+: main ( -- )
+  "SQLite FFI Demo" write_line
+  "===============" write_line
+  "" write_line
+
+  # Open (or create) test database
+  "test_seq.db" open-db if
+    "Database opened successfully" write_line
+
+    # Create a table
+    dup "CREATE TABLE IF NOT EXISTS greetings (id INTEGER PRIMARY KEY, msg TEXT)" exec-sql if
+      "Table created" write_line
+    else
+      "Table creation failed (may already exist)" write_line
+    then
+
+    # Insert some data
+    dup "INSERT INTO greetings (msg) VALUES ('Hello from Seq!')" exec-sql if
+      "Data inserted" write_line
+    else
+      "Insert failed" write_line
+    then
+
+    # Clean up
+    db-close db-ok? if
+      "Database closed" write_line
+    else
+      "Close failed" write_line
+    then
+  else
+    drop  # drop the db handle (will be 0/null)
+    "Failed to open database" write_line
+  then
+
+  "" write_line
+  "Done! Check test_seq.db with: sqlite3 test_seq.db 'SELECT * FROM greetings'" write_line
+;

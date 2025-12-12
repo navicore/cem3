@@ -1059,10 +1059,63 @@ impl CodeGen {
         let mut stack_var = "stack".to_string();
         let mut c_args: Vec<String> = Vec::new();
         let mut c_string_vars: Vec<String> = Vec::new();
+        let mut by_ref_vars: Vec<(String, FfiType)> = Vec::new(); // (alloca_var, type)
 
-        // Pop arguments from stack (in reverse order - last arg on top)
+        // First pass: allocate storage for by_ref out parameters
+        for (i, arg) in func.args.iter().enumerate() {
+            if arg.pass == PassMode::ByRef {
+                let alloca_var = format!("out_param_{}", i);
+                let llvm_type = match arg.arg_type {
+                    FfiType::Ptr => "ptr",
+                    FfiType::Int => "i64",
+                    _ => {
+                        return Err(format!(
+                            "Unsupported type {:?} for by_ref parameter",
+                            arg.arg_type
+                        ));
+                    }
+                };
+                writeln!(
+                    &mut self.ffi_wrapper_code,
+                    "  %{} = alloca {}",
+                    alloca_var, llvm_type
+                )
+                .unwrap();
+                by_ref_vars.push((alloca_var, arg.arg_type.clone()));
+            }
+        }
+
+        // Second pass: pop arguments from stack (in reverse order - last arg on top)
+        // Skip by_ref args as they don't come from the stack
+        // Skip args with fixed values (they don't come from the stack either)
         for (i, arg) in func.args.iter().enumerate().rev() {
+            // Handle fixed value arguments first
+            if let Some(ref value) = arg.value {
+                match value.as_str() {
+                    "null" | "NULL" => {
+                        c_args.push("ptr null".to_string());
+                    }
+                    _ => {
+                        // Try to parse as integer
+                        if let Ok(int_val) = value.parse::<i64>() {
+                            c_args.push(format!("i64 {}", int_val));
+                        } else {
+                            return Err(format!(
+                                "Unsupported fixed value '{}' for argument {}",
+                                value, i
+                            ));
+                        }
+                    }
+                }
+                continue;
+            }
+
             match (&arg.arg_type, &arg.pass) {
+                (_, PassMode::ByRef) => {
+                    // by_ref args don't pop from stack - just reference the alloca
+                    let alloca_var = format!("out_param_{}", i);
+                    c_args.push(format!("ptr %{}", alloca_var));
+                }
                 (FfiType::String, PassMode::CString) => {
                     // Pop string from stack and convert to C string
                     let cstr_var = format!("cstr_{}", i);
@@ -1105,6 +1158,34 @@ impl CodeGen {
 
                     stack_var = new_stack;
                     c_args.push(format!("i64 %{}", int_var));
+                }
+                (FfiType::Ptr, PassMode::Ptr) => {
+                    // Pop pointer (as int) from stack
+                    let int_var = format!("ptr_int_{}", i);
+                    let ptr_var = format!("ptr_{}", i);
+                    let new_stack = format!("stack_after_pop_{}", i);
+
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
+                        int_var, stack_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = inttoptr i64 %{} to ptr",
+                        ptr_var, int_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                        new_stack, stack_var
+                    )
+                    .unwrap();
+
+                    stack_var = new_stack;
+                    c_args.push(format!("ptr %{}", ptr_var));
                 }
                 _ => {
                     return Err(format!(
@@ -1152,6 +1233,53 @@ impl CodeGen {
                 cstr_var
             )
             .unwrap();
+        }
+
+        // Push by_ref out parameter values onto stack (before return value)
+        // These are pushed in order, so they end up below the return value
+        for (alloca_var, ffi_type) in &by_ref_vars {
+            let new_stack = format!("stack_after_byref_{}", alloca_var);
+            match ffi_type {
+                FfiType::Ptr => {
+                    let loaded_var = format!("{}_val", alloca_var);
+                    let int_var = format!("{}_int", alloca_var);
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = load ptr, ptr %{}",
+                        loaded_var, alloca_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = ptrtoint ptr %{} to i64",
+                        int_var, loaded_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
+                        new_stack, stack_var, int_var
+                    )
+                    .unwrap();
+                }
+                FfiType::Int => {
+                    let loaded_var = format!("{}_val", alloca_var);
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = load i64, ptr %{}",
+                        loaded_var, alloca_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
+                        new_stack, stack_var, loaded_var
+                    )
+                    .unwrap();
+                }
+                _ => {} // Other types not supported for by_ref
+            }
+            stack_var = new_stack;
         }
 
         // Handle return value

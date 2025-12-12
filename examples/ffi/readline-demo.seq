@@ -1,0 +1,58 @@
+# FFI Readline Demo
+#
+# Demonstrates using the ffi:readline module to create an interactive REPL
+# with line editing and history support.
+#
+# Build and run:
+#   seqc examples/ffi/readline-demo.seq -o readline-demo
+#   ./readline-demo
+#
+# Note: Requires libreadline to be installed:
+#   macOS: brew install readline
+#   Ubuntu: apt install libreadline-dev
+
+include ffi:readline
+
+# Simple command handler
+: process-command ( String -- )
+  dup "quit" string-equal if
+    drop "Goodbye!" write_line
+  else
+    dup "help" string-equal if
+      drop
+      "Commands:" write_line
+      "  help  - Show this message" write_line
+      "  quit  - Exit the program" write_line
+      "  <any> - Echo your input" write_line
+    else
+      "You said: " swap string-concat write_line
+    then
+  then
+;
+
+# Main REPL loop
+: repl ( -- )
+  "seq> " readline
+  dup string-empty if
+    # Empty string means EOF (Ctrl+D) - exit
+    drop
+    "" write_line
+    "Goodbye!" write_line
+  else
+    # Add non-empty input to history
+    dup add-history
+    # Process the command
+    dup process-command
+    # Continue unless quit
+    "quit" string-equal not if
+      repl
+    then
+  then
+;
+
+: main ( -- )
+  "Welcome to the Seq REPL with readline!" write_line
+  "Type 'help' for commands, 'quit' to exit." write_line
+  "" write_line
+  repl
+;

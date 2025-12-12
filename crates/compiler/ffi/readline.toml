@@ -1,0 +1,34 @@
+# FFI Manifest for GNU Readline
+#
+# Provides line-editing and history functionality for interactive programs.
+#
+# Usage in Seq:
+#   include ffi:readline
+#
+#   "prompt> " readline  # Read a line with editing
+#   dup add-history      # Add to history
+
+[[library]]
+name = "readline"
+link = "readline"
+
+[[library.function]]
+c_name = "readline"
+seq_name = "readline"
+stack_effect = "( String -- String )"
+args = [
+  { type = "string", pass = "c_string" }
+]
+[library.function.return]
+type = "string"
+ownership = "caller_frees"
+
+[[library.function]]
+c_name = "add_history"
+seq_name = "add-history"
+stack_effect = "( String -- )"
+args = [
+  { type = "string", pass = "c_string" }
+]
+[library.function.return]
+type = "void"

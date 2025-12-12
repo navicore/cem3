@@ -556,6 +556,75 @@ pub use patch_seq_string_to_lower as string_to_lower;
 pub use patch_seq_string_to_upper as string_to_upper;
 pub use patch_seq_string_trim as string_trim;
 
+// ============================================================================
+// FFI String Helpers
+// ============================================================================
+
+/// Convert a Seq String on the stack to a null-terminated C string.
+///
+/// The returned pointer must be freed by the caller using free().
+/// This pops the string from the stack and returns the C string pointer.
+///
+/// Stack effect: ( String -- ) returns ptr to C string
+///
+/// # Safety
+/// Stack must have a String value on top. The unused second argument
+/// exists for future extension (passing output buffer).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_to_cstring(stack: Stack, _out: *mut u8) -> *mut u8 {
+    assert!(!stack.is_null(), "string_to_cstring: stack is empty");
+
+    // Peek the string value (don't pop - caller will pop after we return)
+    let node = unsafe { &*stack };
+    match &node.value {
+        Value::String(s) => {
+            let bytes = s.as_str().as_bytes();
+            let len = bytes.len();
+
+            // Allocate space for string + null terminator
+            let ptr = unsafe { libc::malloc(len + 1) as *mut u8 };
+            if ptr.is_null() {
+                panic!("string_to_cstring: malloc failed");
+            }
+
+            // Copy string data
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
+                // Add null terminator
+                *ptr.add(len) = 0;
+            }
+
+            ptr
+        }
+        _ => panic!("string_to_cstring: expected String on stack"),
+    }
+}
+
+/// Convert a null-terminated C string to a Seq String and push onto stack.
+///
+/// The C string is NOT freed by this function.
+///
+/// Stack effect: ( -- String )
+///
+/// # Safety
+/// cstr must be a valid null-terminated C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_cstring_to_string(stack: Stack, cstr: *const u8) -> Stack {
+    if cstr.is_null() {
+        // NULL string - push empty string
+        return unsafe { push(stack, Value::String(global_string(String::new()))) };
+    }
+
+    // Get string length
+    let len = unsafe { libc::strlen(cstr as *const libc::c_char) };
+
+    // Create Rust string from C string
+    let slice = unsafe { std::slice::from_raw_parts(cstr, len) };
+    let s = String::from_utf8_lossy(slice).into_owned();
+
+    unsafe { push(stack, Value::String(global_string(s))) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

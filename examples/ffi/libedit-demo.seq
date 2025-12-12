@@ -1,0 +1,62 @@
+# FFI libedit Demo
+#
+# Demonstrates using the ffi:libedit module to create an interactive REPL
+# with line editing and history support.
+#
+# libedit is a BSD-licensed alternative to GNU readline, providing the
+# same API without GPL licensing requirements.
+#
+# Build and run:
+#   seqc examples/ffi/libedit-demo.seq -o libedit-demo
+#   ./libedit-demo
+#
+# Installation:
+#   macOS: Already installed (Apple ships libedit)
+#   Ubuntu: apt install libedit-dev
+#   Fedora: dnf install libedit-devel
+
+include ffi:libedit
+
+# Simple command handler
+: process-command ( String -- )
+  dup "quit" string-equal if
+    drop "Goodbye!" write_line
+  else
+    dup "help" string-equal if
+      drop
+      "Commands:" write_line
+      "  help  - Show this message" write_line
+      "  quit  - Exit the program" write_line
+      "  <any> - Echo your input" write_line
+    else
+      "You said: " swap string-concat write_line
+    then
+  then
+;
+
+# Main REPL loop
+: repl ( -- )
+  "seq> " readline
+  dup string-empty if
+    # Empty string means EOF (Ctrl+D) - exit
+    drop
+    "" write_line
+    "Goodbye!" write_line
+  else
+    # Add non-empty input to history
+    dup add-history
+    # Process the command
+    dup process-command
+    # Continue unless quit
+    "quit" string-equal not if
+      repl
+    then
+  then
+;
+
+: main ( -- )
+  "Welcome to the Seq REPL with libedit!" write_line
+  "Type 'help' for commands, 'quit' to exit." write_line
+  "" write_line
+  repl
+;

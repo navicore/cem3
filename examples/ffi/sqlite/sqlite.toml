@@ -1,0 +1,79 @@
+# FFI Manifest for SQLite3
+#
+# Provides basic SQLite database access from Seq programs.
+#
+# Installation:
+#   macOS: Already installed (or brew install sqlite3)
+#   Ubuntu/Debian: apt install libsqlite3-dev
+#   Fedora: dnf install sqlite-devel
+#
+# Usage in Seq (with --ffi-manifest):
+#   seqc --ffi-manifest sqlite.toml myapp.seq -o myapp
+#
+#   "test.db" db-open    # ( path -- db-handle result-code )
+#   0 = if
+#     # success - db-handle is now on stack
+#     dup "CREATE TABLE users (id INT, name TEXT)" db-exec
+#     # ... use database ...
+#     db-close drop
+#   else
+#     drop "Failed to open" write_line
+#   then
+
+[[library]]
+name = "sqlite3"
+link = "sqlite3"
+
+# sqlite3_open(const char *filename, sqlite3 **ppDb) -> int
+# Opens a database file. The db handle is returned via out parameter.
+[[library.function]]
+c_name = "sqlite3_open"
+seq_name = "db-open"
+stack_effect = "( String -- Int Int )"
+args = [
+  { type = "string", pass = "c_string" },
+  { type = "ptr", pass = "by_ref" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_close(sqlite3 *db) -> int
+# Closes a database connection.
+[[library.function]]
+c_name = "sqlite3_close"
+seq_name = "db-close"
+stack_effect = "( Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_exec(sqlite3 *db, const char *sql, callback, arg, errmsg) -> int
+# Executes SQL statement. Callback and errmsg are NULL for simple usage.
+[[library.function]]
+c_name = "sqlite3_exec"
+seq_name = "db-exec"
+stack_effect = "( Int String -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "string", pass = "c_string" },
+  { type = "ptr", value = "null" },
+  { type = "ptr", value = "null" },
+  { type = "ptr", value = "null" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_errmsg(sqlite3 *db) -> const char*
+# Returns the error message for the most recent error.
+[[library.function]]
+c_name = "sqlite3_errmsg"
+seq_name = "db-errmsg"
+stack_effect = "( Int -- Int String )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "string"
+ownership = "static"

@@ -130,7 +130,7 @@ Seq's philosophy: type safety through inference, not annotation.
 Enable calling external C libraries without polluting seq-runtime. FFI is purely a compiler/linker concern.
 
 ```seq
-include ffi:readline
+include ffi:libedit
 include ffi:sqlite
 
 : main ( -- Int )
@@ -146,7 +146,7 @@ include ffi:sqlite
 2. **Opt-in via include** - `include ffi:*` is the safety boundary
 3. **Declarative bindings** - TOML manifests describe C functions
 4. **Codegen handles marshalling** - compiler generates LLVM IR for type conversion and memory management
-5. **Build flexibility** - enable/disable per target (e.g., no readline for musl static)
+5. **Build flexibility** - enable/disable per target (e.g., no libedit for musl static)
 
 ### Implementation Phases
 
@@ -166,16 +166,16 @@ include ffi:sqlite
 - SQLite example demonstrating all features
 
 **Phase 3: Advanced**
-- Callback support (C → Seq)
 - Struct passing
 - Platform-specific bindings
+- Callback support (C → Seq) - *shelved*: most useful callback patterns require low-level memory operations that are too invasive for Seq's design; many C APIs have non-callback alternatives (e.g., SQLite prepared statements)
 
 ### Example Manifest
 
 ```toml
 [[library]]
-name = "readline"
-link = "readline"
+name = "libedit"
+link = "edit"
 
 [[library.function]]
 c_name = "readline"
@@ -187,7 +187,7 @@ return = { type = "string", ownership = "caller_frees" }
 
 ### Use Cases
 
-- **Readline**: REPL line editing for SeqLisp
+- **libedit**: Line editing for interactive CLI programs
 - **SQLite**: Embedded database access
 - **PCRE**: Regular expressions
 - **libcurl**: HTTP client
@@ -199,21 +199,21 @@ return = { type = "string", ownership = "caller_frees" }
 
 ### Tab Completion
 
-**Goal**: Enable tab completion for the Seq REPL and command-line tools.
+**Goal**: Enable tab completion for interactive CLI programs built with Seq.
 
-Now that FFI supports readline-compatible libraries, tab completion becomes achievable:
+Now that FFI supports libedit, tab completion for Seq-based CLI tools becomes achievable:
 
-**Near-term: Basic REPL completion**:
-- Word name completion (built-ins and user-defined)
-- Prefix matching for partially typed words
-- Integration with libedit/readline via FFI
+**Near-term: Basic completion**:
+- Word name completion in interactive prompts
+- Prefix matching for partially typed input
+- Integration with libedit via FFI
 
 **Medium-term: Context-aware completion**:
-- Stack-effect-aware suggestions (only show words that accept current stack types)
-- Include file completion for `include` statements
-- FFI library completion for `include ffi:`
+- Application-specific completions
+- File path completion
+- Custom completion vocabularies
 
 **Potential implementation paths**:
-1. **libedit's built-in completion** - Use `rl_completion_matches` callback
-2. **Custom completion protocol** - Seq-side word table lookup
-3. **LSP integration** - Reuse seq-lsp's completion logic for REPL
+1. **libedit's built-in completion** - Requires FFI callback support (currently shelved)
+2. **Custom completion protocol** - Seq-side lookup with manual key handling
+3. **LSP integration** - For editor/IDE support of Seq source files

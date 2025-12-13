@@ -190,10 +190,12 @@ If you don't use FFI, your Seq program has full memory safety.
 
 BSD-licensed readline alternative. Provides:
 
-| Word          | Stack Effect      | Description                    |
-|---------------|-------------------|--------------------------------|
-| `readline`    | `( String -- String )` | Read line with prompt     |
-| `add-history` | `( String -- )`   | Add line to history            |
+| Word           | Stack Effect           | Description                    |
+|----------------|------------------------|--------------------------------|
+| `readline`     | `( String -- String )` | Read line with prompt          |
+| `add-history`  | `( String -- )`        | Add line to history            |
+| `read-history` | `( String -- Int )`    | Load history from file         |
+| `write-history`| `( String -- Int )`    | Save history to file           |
 
 ## Examples
 
@@ -216,6 +218,35 @@ include ffi:libedit
 : main ( -- Int )
   "Welcome to Seq REPL" write_line
   repl
+  0
+;
+```
+
+### Example: Persistent History
+
+```seq
+include ffi:libedit
+
+: repl ( -- )
+  "seq> " readline
+  dup string-length 0 > if
+    dup add-history
+    process-input
+    repl
+  else
+    drop
+  then
+;
+
+: main ( -- Int )
+  # Load history at startup (ignore error if file doesn't exist)
+  "~/.myapp_history" read-history drop
+
+  "Welcome to Seq REPL" write_line
+  repl
+
+  # Save history on exit
+  "~/.myapp_history" write-history drop
   0
 ;
 ```

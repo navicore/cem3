@@ -1,0 +1,44 @@
+# FFI Manifest for libedit (BSD-licensed readline alternative)
+#
+# Provides line-editing and history functionality for interactive programs.
+# This is the BSD-licensed alternative to GNU readline, used by PostgreSQL,
+# Python (on macOS), and many other projects.
+#
+# Installation:
+#   macOS: Already installed (Apple ships libedit)
+#   Ubuntu/Debian: apt install libedit-dev
+#   Fedora: dnf install libedit-devel
+#
+# Usage in Seq:
+#   include ffi:libedit
+#
+#   "prompt> " readline  # Read a line with editing
+#   dup add-history      # Add to history
+#
+# Note: The function names (readline, add-history) match GNU readline's API,
+# making it easy to switch between the two libraries.
+
+[[library]]
+name = "libedit"
+link = "edit"
+
+[[library.function]]
+c_name = "readline"
+seq_name = "readline"
+stack_effect = "( String -- String )"
+args = [
+  { type = "string", pass = "c_string" }
+]
+[library.function.return]
+type = "string"
+ownership = "caller_frees"
+
+[[library.function]]
+c_name = "add_history"
+seq_name = "add-history"
+stack_effect = "( String -- )"
+args = [
+  { type = "string", pass = "c_string" }
+]
+[library.function.return]
+type = "void"

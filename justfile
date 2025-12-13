@@ -41,6 +41,13 @@ build-examples: build
             echo "  Skipping $file (library file, no main)"
             continue
         fi
+        # Skip examples in directories with their own .toml manifest
+        # These require --ffi-manifest and special dependencies (e.g., GPL readline)
+        dir=$(dirname "$file")
+        if ls "$dir"/*.toml >/dev/null 2>&1; then
+            echo "  Skipping $file (requires external manifest, see $dir/README.md)"
+            continue
+        fi
         # Get category and name (e.g., examples/basics/hello-world.seq -> basics-hello-world)
         category=$(dirname "$file" | sed 's|examples/||' | sed 's|examples||')
         name=$(basename "$file" .seq)

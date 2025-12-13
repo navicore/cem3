@@ -18,13 +18,13 @@ include "parser"
 # ============================================
 
 : make-binding ( String Variant -- Variant )
-  50 make-variant-2 ;
+  50 variant.make-2 ;
 
 : binding-name ( Variant -- String )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : binding-value ( Variant -- Variant )
-  1 variant-field-at ;
+  1 variant.field-at ;
 
 : env-empty ( -- Variant )
   snil ;
@@ -43,19 +43,19 @@ include "parser"
 # ============================================
 
 : make-closure ( Variant Variant Variant -- Variant )
-  60 make-variant-3 ;
+  60 variant.make-3 ;
 
 : closure? ( Variant -- Int )
-  variant-tag 60 = ;
+  variant.tag 60 = ;
 
 : closure-params ( Variant -- Variant )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : closure-body ( Variant -- Variant )
-  1 variant-field-at ;
+  1 variant.field-at ;
 
 : closure-env ( Variant -- Variant )
-  2 variant-field-at ;
+  2 variant.field-at ;
 
 : env-lookup ( String Variant -- Variant )
   # Stack: Name Env
@@ -65,7 +65,7 @@ include "parser"
     drop drop snil slist
   else
     dup scar binding-name
-    2 pick string-equal if
+    2 pick string.equal? if
       # Found it
       nip scar binding-value
     else
@@ -151,25 +151,25 @@ include "parser"
 : eval-builtin-with-env ( String Variant Variant -- Variant )
   # Stack: FuncName List Env
   rot
-  dup "+" string-equal if
+  dup "+" string.equal? if
     drop eval-add-with-env
   else
-    dup "-" string-equal if
+    dup "-" string.equal? if
       drop eval-sub-with-env
     else
-      dup "*" string-equal if
+      dup "*" string.equal? if
         drop eval-mul-with-env
       else
-        dup "/" string-equal if
+        dup "/" string.equal? if
           drop eval-div-with-env
         else
-          dup "if" string-equal if
+          dup "if" string.equal? if
             drop eval-if-with-env
           else
-            dup "let" string-equal if
+            dup "let" string.equal? if
               drop eval-let-with-env
             else
-              dup "lambda" string-equal if
+              dup "lambda" string.equal? if
                 drop eval-lambda-with-env
               else
                 # Unknown function - return list as-is
@@ -398,4 +398,4 @@ include "parser"
 # ============================================
 
 : eval-print ( String -- )
-  parse eval sexpr-to-string write_line ;
+  parse eval sexpr-to-string io.write-line ;

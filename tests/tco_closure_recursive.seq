@@ -17,7 +17,7 @@
 ;
 
 : main ( -- )
-    "Testing closure with captured value (50000 recursions)..." write_line
+    "Testing closure with captured value (50000 recursions)..." io.write-line
     50000 recurse-with-closure drop
-    "Success! Closure recursion completed." write_line
+    "Success! Closure recursion completed." io.write-line
 ;

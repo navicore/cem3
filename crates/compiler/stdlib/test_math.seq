@@ -77,23 +77,23 @@
 
 # Tests
 : main ( -- )
-  5 abs 5 = if "abs(5) = 5 ✓" write_line else "abs(5) FAILED" write_line then
-  0 5 subtract abs 5 = if "abs(-5) = 5 ✓" write_line else "abs(-5) FAILED" write_line then
+  5 abs 5 = if "abs(5) = 5 ✓" io.write-line else "abs(5) FAILED" io.write-line then
+  0 5 subtract abs 5 = if "abs(-5) = 5 ✓" io.write-line else "abs(-5) FAILED" io.write-line then
 
-  3 7 max 7 = if "max(3,7) = 7 ✓" write_line else "max(3,7) FAILED" write_line then
-  9 2 max 9 = if "max(9,2) = 9 ✓" write_line else "max(9,2) FAILED" write_line then
+  3 7 max 7 = if "max(3,7) = 7 ✓" io.write-line else "max(3,7) FAILED" io.write-line then
+  9 2 max 9 = if "max(9,2) = 9 ✓" io.write-line else "max(9,2) FAILED" io.write-line then
 
-  3 7 min 3 = if "min(3,7) = 3 ✓" write_line else "min(3,7) FAILED" write_line then
-  9 2 min 2 = if "min(9,2) = 2 ✓" write_line else "min(9,2) FAILED" write_line then
+  3 7 min 3 = if "min(3,7) = 3 ✓" io.write-line else "min(3,7) FAILED" io.write-line then
+  9 2 min 2 = if "min(9,2) = 2 ✓" io.write-line else "min(9,2) FAILED" io.write-line then
 
-  48 18 gcd 6 = if "gcd(48,18) = 6 ✓" write_line else "gcd(48,18) FAILED" write_line then
-  100 35 gcd 5 = if "gcd(100,35) = 5 ✓" write_line else "gcd(100,35) FAILED" write_line then
+  48 18 gcd 6 = if "gcd(48,18) = 6 ✓" io.write-line else "gcd(48,18) FAILED" io.write-line then
+  100 35 gcd 5 = if "gcd(100,35) = 5 ✓" io.write-line else "gcd(100,35) FAILED" io.write-line then
 
-  2 0 pow 1 = if "pow(2,0) = 1 ✓" write_line else "pow(2,0) FAILED" write_line then
-  2 3 pow 8 = if "pow(2,3) = 8 ✓" write_line else "pow(2,3) FAILED" write_line then
-  5 2 pow 25 = if "pow(5,2) = 25 ✓" write_line else "pow(5,2) FAILED" write_line then
+  2 0 pow 1 = if "pow(2,0) = 1 ✓" io.write-line else "pow(2,0) FAILED" io.write-line then
+  2 3 pow 8 = if "pow(2,3) = 8 ✓" io.write-line else "pow(2,3) FAILED" io.write-line then
+  5 2 pow 25 = if "pow(5,2) = 25 ✓" io.write-line else "pow(5,2) FAILED" io.write-line then
 
-  0 5 subtract sign 0 1 subtract = if "sign(-5) = -1 ✓" write_line else "sign(-5) FAILED" write_line then
-  0 sign 0 = if "sign(0) = 0 ✓" write_line else "sign(0) FAILED" write_line then
-  5 sign 1 = if "sign(5) = 1 ✓" write_line else "sign(5) FAILED" write_line then
+  0 5 subtract sign 0 1 subtract = if "sign(-5) = -1 ✓" io.write-line else "sign(-5) FAILED" io.write-line then
+  0 sign 0 = if "sign(0) = 0 ✓" io.write-line else "sign(0) FAILED" io.write-line then
+  5 sign 1 = if "sign(5) = 1 ✓" io.write-line else "sign(5) FAILED" io.write-line then
 ;

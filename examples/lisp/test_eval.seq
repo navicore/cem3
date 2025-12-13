@@ -3,7 +3,7 @@
 include "eval"
 
 : main ( -- )
-  "Testing evaluator:" write_line
+  "Testing evaluator:" io.write-line
 
   # Simple numbers
   "42" eval-print

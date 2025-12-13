@@ -13,7 +13,7 @@
 ;
 
 : main ( -- )
-    "Testing non-tail recursive factorial..." write_line
-    10 factorial int->string write_line
-    "Success! Non-tail recursive works (result should be 3628800)." write_line
+    "Testing non-tail recursive factorial..." io.write-line
+    10 factorial int->string io.write-line
+    "Success! Non-tail recursive works (result should be 3628800)." io.write-line
 ;

@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn test_type_mismatch() {
-        // : test ( String -- ) write_line ;  with body: 42
+        // : test ( String -- ) io.write-line ;  with body: 42
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1051,7 +1051,7 @@ mod tests {
                 body: vec![
                     Statement::IntLiteral(42), // Pushes Int, not String!
                     Statement::WordCall {
-                        name: "write_line".to_string(),
+                        name: "io.write-line".to_string(),
                         span: None,
                     },
                 ],
@@ -1152,7 +1152,7 @@ mod tests {
     #[test]
     fn test_user_defined_word_call() {
         // : helper ( Int -- String ) int->string ;
-        // : main ( -- ) 42 helper write_line ;
+        // : main ( -- ) 42 helper io.write-line ;
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1179,7 +1179,7 @@ mod tests {
                             span: None,
                         },
                         Statement::WordCall {
-                            name: "write_line".to_string(),
+                            name: "io.write-line".to_string(),
                             span: None,
                         },
                     ],
@@ -1228,7 +1228,7 @@ mod tests {
 
     #[test]
     fn test_write_line_type_error() {
-        // : test ( Int -- ) write_line ;  // ERROR: write_line expects String
+        // : test ( Int -- ) io.write-line ;  // ERROR: io.write-line expects String
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1239,7 +1239,7 @@ mod tests {
                     StackType::Empty,
                 )),
                 body: vec![Statement::WordCall {
-                    name: "write_line".to_string(),
+                    name: "io.write-line".to_string(),
                     span: None,
                 }],
                 source: None,
@@ -1304,9 +1304,9 @@ mod tests {
     #[test]
     fn test_csp_operations() {
         // : test ( -- )
-        //   make-channel  # ( -- Int )
+        //   chan.make     # ( -- Int )
         //   42 swap       # ( Int Int -- Int Int )
-        //   send          # ( Int Int -- )
+        //   chan.send     # ( Int Int -- )
         // ;
         let program = Program {
             includes: vec![],
@@ -1316,7 +1316,7 @@ mod tests {
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![
                     Statement::WordCall {
-                        name: "make-channel".to_string(),
+                        name: "chan.make".to_string(),
                         span: None,
                     },
                     Statement::IntLiteral(42),
@@ -1325,7 +1325,7 @@ mod tests {
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "send".to_string(),
+                        name: "chan.send".to_string(),
                         span: None,
                     },
                 ],
@@ -1510,7 +1510,7 @@ mod tests {
     #[test]
     fn test_multiple_word_chain() {
         // : helper1 ( Int -- String ) int->string ;
-        // : helper2 ( String -- ) write_line ;
+        // : helper2 ( String -- ) io.write-line ;
         // : main ( -- ) 42 helper1 helper2 ;
         let program = Program {
             includes: vec![],
@@ -1535,7 +1535,7 @@ mod tests {
                         StackType::Empty,
                     )),
                     body: vec![Statement::WordCall {
-                        name: "write_line".to_string(),
+                        name: "io.write-line".to_string(),
                         span: None,
                     }],
                     source: None,
@@ -1611,9 +1611,9 @@ mod tests {
         //   42 int->string      # ( -- String )
         //   100 200 >           # ( String -- String Int )
         //   if                  # ( String -- String )
-        //     write_line        # ( String -- )
+        //     io.write-line     # ( String -- )
         //   else
-        //     write_line
+        //     io.write-line
         //   then ;
         let program = Program {
             includes: vec![],
@@ -1635,11 +1635,11 @@ mod tests {
                     },
                     Statement::If {
                         then_branch: vec![Statement::WordCall {
-                            name: "write_line".to_string(),
+                            name: "io.write-line".to_string(),
                             span: None,
                         }],
                         else_branch: Some(vec![Statement::WordCall {
-                            name: "write_line".to_string(),
+                            name: "io.write-line".to_string(),
                             span: None,
                         }]),
                     },
@@ -1699,9 +1699,9 @@ mod tests {
     fn test_type_error_in_nested_conditional() {
         // : test ( Int Int -- ? )
         //   > if
-        //     42 write_line   # ERROR: write_line expects String, got Int
+        //     42 io.write-line   # ERROR: io.write-line expects String, got Int
         //   else
-        //     "ok" write_line
+        //     "ok" io.write-line
         //   then ;
         let program = Program {
             includes: vec![],
@@ -1720,14 +1720,14 @@ mod tests {
                         then_branch: vec![
                             Statement::IntLiteral(42),
                             Statement::WordCall {
-                                name: "write_line".to_string(),
+                                name: "io.write-line".to_string(),
                                 span: None,
                             },
                         ],
                         else_branch: Some(vec![
                             Statement::StringLiteral("ok".to_string()),
                             Statement::WordCall {
-                                name: "write_line".to_string(),
+                                name: "io.write-line".to_string(),
                                 span: None,
                             },
                         ]),
@@ -1745,7 +1745,7 @@ mod tests {
 
     #[test]
     fn test_read_line_operation() {
-        // : test ( -- String ) read_line ;
+        // : test ( -- String ) io.read-line ;
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1756,7 +1756,7 @@ mod tests {
                     StackType::singleton(Type::String),
                 )),
                 body: vec![Statement::WordCall {
-                    name: "read_line".to_string(),
+                    name: "io.read-line".to_string(),
                     span: None,
                 }],
                 source: None,

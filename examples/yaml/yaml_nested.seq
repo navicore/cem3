@@ -10,41 +10,41 @@ include std:yaml
 ;
 
 : main ( -- Int )
-  "=== Nested YAML Tests ===" write_line
+  "=== Nested YAML Tests ===" io.write-line
 
   # Test 1: Simple nested object
-  "server:" newline-str string-concat
-  "  host: localhost" string-concat newline-str string-concat
-  "  port: 8080" string-concat
+  "server:" newline-str string.concat
+  "  host: localhost" string.concat newline-str string.concat
+  "  port: 8080" string.concat
 
-  "Input:" write_line
-  dup write_line
-  "" write_line
+  "Input:" io.write-line
+  dup io.write-line
+  "" io.write-line
 
   yaml-parse
   if
-    "PASS nested: " swap yaml-serialize string-concat write_line
+    "PASS nested: " swap yaml-serialize string.concat io.write-line
   else
-    drop "FAIL: nested object" write_line
+    drop "FAIL: nested object" io.write-line
   then
 
   # Test 2: Nested with sibling
-  "server:" newline-str string-concat
-  "  host: localhost" string-concat newline-str string-concat
-  "name: myapp" string-concat
+  "server:" newline-str string.concat
+  "  host: localhost" string.concat newline-str string.concat
+  "name: myapp" string.concat
 
-  "Input:" write_line
-  dup write_line
-  "" write_line
+  "Input:" io.write-line
+  dup io.write-line
+  "" io.write-line
 
   yaml-parse
   if
-    "PASS nested+sibling: " swap yaml-serialize string-concat write_line
+    "PASS nested+sibling: " swap yaml-serialize string.concat io.write-line
   else
-    drop "FAIL: nested with sibling" write_line
+    drop "FAIL: nested with sibling" io.write-line
   then
 
-  "" write_line
-  "Nested tests completed!" write_line
+  "" io.write-line
+  "Nested tests completed!" io.write-line
   0
 ;

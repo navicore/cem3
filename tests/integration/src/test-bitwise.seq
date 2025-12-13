@@ -1,166 +1,166 @@
 # Test bitwise operations
 
 : test-band ( -- )
-  "Testing band (bitwise AND)..." write_line
+  "Testing band (bitwise AND)..." io.write-line
   0xFF 0x0F band 0x0F =
-  if "  PASS: 0xFF & 0x0F = 0x0F" write_line
-  else "  FAIL: band" write_line
+  if "  PASS: 0xFF & 0x0F = 0x0F" io.write-line
+  else "  FAIL: band" io.write-line
   then
 ;
 
 : test-bor ( -- )
-  "Testing bor (bitwise OR)..." write_line
+  "Testing bor (bitwise OR)..." io.write-line
   0xF0 0x0F bor 0xFF =
-  if "  PASS: 0xF0 | 0x0F = 0xFF" write_line
-  else "  FAIL: bor" write_line
+  if "  PASS: 0xF0 | 0x0F = 0xFF" io.write-line
+  else "  FAIL: bor" io.write-line
   then
 ;
 
 : test-bxor ( -- )
-  "Testing bxor (bitwise XOR)..." write_line
+  "Testing bxor (bitwise XOR)..." io.write-line
   0xFF 0x0F bxor 0xF0 =
-  if "  PASS: 0xFF ^ 0x0F = 0xF0" write_line
-  else "  FAIL: bxor" write_line
+  if "  PASS: 0xFF ^ 0x0F = 0xF0" io.write-line
+  else "  FAIL: bxor" io.write-line
   then
 ;
 
 : test-bnot ( -- )
-  "Testing bnot (bitwise NOT)..." write_line
+  "Testing bnot (bitwise NOT)..." io.write-line
   # bnot of 0 should have all bits set (i.e., -1 in two's complement)
   0 bnot -1 =
-  if "  PASS: ~0 = -1" write_line
-  else "  FAIL: bnot" write_line
+  if "  PASS: ~0 = -1" io.write-line
+  else "  FAIL: bnot" io.write-line
   then
 ;
 
 : test-shl ( -- )
-  "Testing shl (shift left)..." write_line
+  "Testing shl (shift left)..." io.write-line
   1 4 shl 16 =
-  if "  PASS: 1 << 4 = 16" write_line
-  else "  FAIL: shl" write_line
+  if "  PASS: 1 << 4 = 16" io.write-line
+  else "  FAIL: shl" io.write-line
   then
 ;
 
 : test-shr ( -- )
-  "Testing shr (logical shift right)..." write_line
+  "Testing shr (logical shift right)..." io.write-line
   16 4 shr 1 =
-  if "  PASS: 16 >> 4 = 1" write_line
-  else "  FAIL: shr" write_line
+  if "  PASS: 16 >> 4 = 1" io.write-line
+  else "  FAIL: shr" io.write-line
   then
 ;
 
 : test-popcount ( -- )
-  "Testing popcount..." write_line
+  "Testing popcount..." io.write-line
   0xFF popcount 8 =
-  if "  PASS: popcount(0xFF) = 8" write_line
-  else "  FAIL: popcount" write_line
+  if "  PASS: popcount(0xFF) = 8" io.write-line
+  else "  FAIL: popcount" io.write-line
   then
 ;
 
 : test-clz ( -- )
-  "Testing clz (count leading zeros)..." write_line
+  "Testing clz (count leading zeros)..." io.write-line
   # 1 has 63 leading zeros in a 64-bit int
   1 clz 63 =
-  if "  PASS: clz(1) = 63" write_line
-  else "  FAIL: clz" write_line
+  if "  PASS: clz(1) = 63" io.write-line
+  else "  FAIL: clz" io.write-line
   then
 ;
 
 : test-ctz ( -- )
-  "Testing ctz (count trailing zeros)..." write_line
+  "Testing ctz (count trailing zeros)..." io.write-line
   # 16 = 0b10000, has 4 trailing zeros
   16 ctz 4 =
-  if "  PASS: ctz(16) = 4" write_line
-  else "  FAIL: ctz" write_line
+  if "  PASS: ctz(16) = 4" io.write-line
+  else "  FAIL: ctz" io.write-line
   then
 ;
 
 : test-int-bits ( -- )
-  "Testing int-bits..." write_line
+  "Testing int-bits..." io.write-line
   int-bits 64 =
-  if "  PASS: int-bits = 64" write_line
-  else "  FAIL: int-bits" write_line
+  if "  PASS: int-bits = 64" io.write-line
+  else "  FAIL: int-bits" io.write-line
   then
 ;
 
 : test-hex-literals ( -- )
-  "Testing hex literals..." write_line
+  "Testing hex literals..." io.write-line
   0xFF 255 =
-  if "  PASS: 0xFF = 255" write_line
-  else "  FAIL: hex literals" write_line
+  if "  PASS: 0xFF = 255" io.write-line
+  else "  FAIL: hex literals" io.write-line
   then
 ;
 
 : test-binary-literals ( -- )
-  "Testing binary literals..." write_line
+  "Testing binary literals..." io.write-line
   0b1010 10 =
-  if "  PASS: 0b1010 = 10" write_line
-  else "  FAIL: binary literals" write_line
+  if "  PASS: 0b1010 = 10" io.write-line
+  else "  FAIL: binary literals" io.write-line
   then
 ;
 
 # Edge case tests (from PR review)
 
 : test-shift-edge-cases ( -- )
-  "Testing shift edge cases..." write_line
+  "Testing shift edge cases..." io.write-line
   # Shift by 0
   42 0 shl 42 =
-  if "  PASS: 42 << 0 = 42" write_line
-  else "  FAIL: shift by 0" write_line
+  if "  PASS: 42 << 0 = 42" io.write-line
+  else "  FAIL: shift by 0" io.write-line
   then
   # Shift by exactly 63 (last valid shift)
   1 63 shl -9223372036854775808 =
-  if "  PASS: 1 << 63 = i64::MIN" write_line
-  else "  FAIL: shift by 63" write_line
+  if "  PASS: 1 << 63 = i64::MIN" io.write-line
+  else "  FAIL: shift by 63" io.write-line
   then
   # Shift by 64 (out of range, returns 0)
   1 64 shl 0 =
-  if "  PASS: 1 << 64 = 0" write_line
-  else "  FAIL: shift by 64" write_line
+  if "  PASS: 1 << 64 = 0" io.write-line
+  else "  FAIL: shift by 64" io.write-line
   then
   # Shift by negative (out of range, returns 0)
   1 -1 shl 0 =
-  if "  PASS: 1 << -1 = 0" write_line
-  else "  FAIL: shift by -1" write_line
+  if "  PASS: 1 << -1 = 0" io.write-line
+  else "  FAIL: shift by -1" io.write-line
   then
   # Logical right shift of negative (fills with 0, not sign-extended)
   -1 1 shr 9223372036854775807 =
-  if "  PASS: -1 >> 1 = i64::MAX (logical shift)" write_line
-  else "  FAIL: logical right shift of -1" write_line
+  if "  PASS: -1 >> 1 = i64::MAX (logical shift)" io.write-line
+  else "  FAIL: logical right shift of -1" io.write-line
   then
 ;
 
 : test-clz-ctz-edge-cases ( -- )
-  "Testing clz/ctz edge cases..." write_line
+  "Testing clz/ctz edge cases..." io.write-line
   # clz(0) should be 64
   0 clz 64 =
-  if "  PASS: clz(0) = 64" write_line
-  else "  FAIL: clz(0)" write_line
+  if "  PASS: clz(0) = 64" io.write-line
+  else "  FAIL: clz(0)" io.write-line
   then
   # ctz(0) should be 64
   0 ctz 64 =
-  if "  PASS: ctz(0) = 64" write_line
-  else "  FAIL: ctz(0)" write_line
+  if "  PASS: ctz(0) = 64" io.write-line
+  else "  FAIL: ctz(0)" io.write-line
   then
 ;
 
 : test-popcount-edge-cases ( -- )
-  "Testing popcount edge cases..." write_line
+  "Testing popcount edge cases..." io.write-line
   # popcount(-1) = 64 (all bits set)
   -1 popcount 64 =
-  if "  PASS: popcount(-1) = 64" write_line
-  else "  FAIL: popcount(-1)" write_line
+  if "  PASS: popcount(-1) = 64" io.write-line
+  else "  FAIL: popcount(-1)" io.write-line
   then
   # popcount(0) = 0
   0 popcount 0 =
-  if "  PASS: popcount(0) = 0" write_line
-  else "  FAIL: popcount(0)" write_line
+  if "  PASS: popcount(0) = 0" io.write-line
+  else "  FAIL: popcount(0)" io.write-line
   then
 ;
 
 : main ( -- )
-  "Bitwise Operations Test Suite" write_line
-  "==============================" write_line
+  "Bitwise Operations Test Suite" io.write-line
+  "==============================" io.write-line
   test-band
   test-bor
   test-bxor
@@ -173,10 +173,10 @@
   test-int-bits
   test-hex-literals
   test-binary-literals
-  "--- Edge Cases ---" write_line
+  "--- Edge Cases ---" io.write-line
   test-shift-edge-cases
   test-clz-ctz-edge-cases
   test-popcount-edge-cases
-  "==============================" write_line
-  "All tests completed!" write_line
+  "==============================" io.write-line
+  "All tests completed!" io.write-line
 ;

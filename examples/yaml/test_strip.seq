@@ -3,17 +3,17 @@
 include std:yaml
 
 : main ( -- Int )
-  "Test yaml-strip-simple" write_line
+  "Test yaml-strip-simple" io.write-line
 
   # Test 1: Strip spaces from lines
-  "  host: localhost" write_line
+  "  host: localhost" io.write-line
   "  host: localhost" yaml-strip-simple
-  "Stripped: " swap string-concat write_line
+  "Stripped: " swap string.concat io.write-line
 
   # Test 2: Multi-line
   "  host: localhost
   port: 8080" yaml-strip-simple
-  "Stripped multi: " swap string-concat write_line
+  "Stripped multi: " swap string.concat io.write-line
 
   0
 ;

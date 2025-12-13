@@ -461,14 +461,14 @@ mod tests {
 
     #[test]
     fn test_builtin_make_variant_recognized() {
-        // make-variant-2 should be recognized as a builtin, not flagged as unknown
-        let source = ": main ( -- ) 1 2 3 make-variant-2 drop ;";
+        // variant.make-2 should be recognized as a builtin, not flagged as unknown
+        let source = ": main ( -- ) 1 2 3 variant.make-2 drop ;";
         let diagnostics = check_document(source);
-        // Should have no "Undefined word" errors for make-variant-2
+        // Should have no "Undefined word" errors for variant.make-2
         for d in &diagnostics {
             assert!(
-                !d.message.contains("make-variant-2"),
-                "make-variant-2 should be recognized as builtin, got: {}",
+                !d.message.contains("variant.make-2"),
+                "variant.make-2 should be recognized as builtin, got: {}",
                 d.message
             );
         }

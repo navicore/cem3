@@ -264,67 +264,67 @@ impl Program {
         // IMPORTANT: Keep this in sync with codegen.rs WordCall matching
         let builtins = [
             // I/O operations
-            "write_line",
-            "read_line",
-            "read_line+",
+            "io.write-line",
+            "io.read-line",
+            "io.read-line+",
             "int->string",
             // Command-line arguments
-            "arg-count",
-            "arg",
+            "args.count",
+            "args.at",
             // File operations
-            "file-slurp",
-            "file-slurp-safe",
-            "file-exists?",
-            "file-for-each-line+",
+            "file.slurp",
+            "file.slurp-safe",
+            "file.exists?",
+            "file.for-each-line+",
             // String operations
-            "string-concat",
-            "string-length",
-            "string-byte-length",
-            "string-char-at",
-            "string-substring",
+            "string.concat",
+            "string.length",
+            "string.byte-length",
+            "string.char-at",
+            "string.substring",
             "char->string",
-            "string-find",
-            "string-split",
-            "string-contains",
-            "string-starts-with",
-            "string-empty",
-            "string-trim",
-            "string-chomp",
-            "string-to-upper",
-            "string-to-lower",
-            "string-equal",
-            "json-escape",
+            "string.find",
+            "string.split",
+            "string.contains",
+            "string.starts-with",
+            "string.empty?",
+            "string.trim",
+            "string.chomp",
+            "string.to-upper",
+            "string.to-lower",
+            "string.equal?",
+            "string.json-escape",
             "string->int",
             // List operations
-            "list-map",
-            "list-filter",
-            "list-fold",
-            "list-each",
-            "list-length",
-            "list-empty?",
+            "list.map",
+            "list.filter",
+            "list.fold",
+            "list.each",
+            "list.length",
+            "list.empty?",
             // Map operations
-            "make-map",
-            "map-get",
-            "map-get-safe",
-            "map-set",
-            "map-has?",
-            "map-remove",
-            "map-keys",
-            "map-values",
-            "map-size",
-            "map-empty?",
+            "map.make",
+            "map.get",
+            "map.get-safe",
+            "map.set",
+            "map.has?",
+            "map.remove",
+            "map.keys",
+            "map.values",
+            "map.size",
+            "map.empty?",
             // Variant operations
-            "variant-field-count",
-            "variant-tag",
-            "variant-field-at",
-            "variant-append",
-            "variant-last",
-            "variant-init",
-            "make-variant-0",
-            "make-variant-1",
-            "make-variant-2",
-            "make-variant-3",
-            "make-variant-4",
+            "variant.field-count",
+            "variant.tag",
+            "variant.field-at",
+            "variant.append",
+            "variant.last",
+            "variant.init",
+            "variant.make-0",
+            "variant.make-1",
+            "variant.make-2",
+            "variant.make-3",
+            "variant.make-4",
             // Arithmetic operations
             "add",
             "subtract",
@@ -362,14 +362,14 @@ impl Program {
             "clz",
             "ctz",
             "int-bits",
-            // Concurrency operations
-            "make-channel",
-            "send",
-            "send-safe",
-            "receive",
-            "receive-safe",
-            "close-channel",
-            "yield",
+            // Channel operations
+            "chan.make",
+            "chan.send",
+            "chan.send-safe",
+            "chan.receive",
+            "chan.receive-safe",
+            "chan.close",
+            "chan.yield",
             // Quotation operations
             "call",
             "times",
@@ -378,21 +378,21 @@ impl Program {
             "spawn",
             "cond",
             // TCP operations
-            "tcp-listen",
-            "tcp-accept",
-            "tcp-read",
-            "tcp-write",
-            "tcp-close",
+            "tcp.listen",
+            "tcp.accept",
+            "tcp.read",
+            "tcp.write",
+            "tcp.close",
             // OS operations
-            "getenv",
-            "home-dir",
-            "current-dir",
-            "path-exists",
-            "path-is-file",
-            "path-is-dir",
-            "path-join",
-            "path-parent",
-            "path-filename",
+            "os.getenv",
+            "os.home-dir",
+            "os.current-dir",
+            "os.path-exists",
+            "os.path-is-file",
+            "os.path-is-dir",
+            "os.path-join",
+            "os.path-parent",
+            "os.path-filename",
             // Float arithmetic operations
             "f.add",
             "f.subtract",
@@ -483,10 +483,10 @@ impl Program {
     /// For each union variant, generates a `Make-VariantName` word that:
     /// 1. Takes the variant's field values from the stack
     /// 2. Pushes the variant tag (index)
-    /// 3. Calls the appropriate `make-variant-N` builtin
+    /// 3. Calls the appropriate `variant.make-N` builtin
     ///
     /// Example: For `union Message { Get { chan: Int } }`
-    /// Generates: `: Make-Get ( Int -- Message ) 0 make-variant-1 ;`
+    /// Generates: `: Make-Get ( Int -- Message ) 0 variant.make-1 ;`
     ///
     /// Returns an error if any variant exceeds the maximum field count.
     pub fn generate_constructors(&mut self) -> Result<(), String> {
@@ -525,11 +525,11 @@ impl Program {
 
                 // Build the body:
                 // 1. Push the variant tag
-                // 2. Call make-variant-N
+                // 2. Call variant.make-N
                 let body = vec![
                     Statement::IntLiteral(variant_idx as i64),
                     Statement::WordCall {
-                        name: format!("make-variant-{}", field_count),
+                        name: format!("variant.make-{}", field_count),
                         span: None, // Generated code, no source span
                     },
                 ];
@@ -586,7 +586,7 @@ mod tests {
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "write_line".to_string(),
+                        name: "io.write-line".to_string(),
                         span: None,
                     },
                 ],
@@ -594,7 +594,7 @@ mod tests {
             }],
         };
 
-        // Should succeed - add and write_line are built-ins
+        // Should succeed - add and io.write-line are built-ins
         assert!(program.validate_word_calls().is_ok());
     }
 
@@ -737,26 +737,26 @@ mod tests {
         assert!(make_put.effect.is_some());
 
         // Check the body generates correct code
-        // Make-Get should be: 0 make-variant-1
+        // Make-Get should be: 0 variant.make-1
         assert_eq!(make_get.body.len(), 2);
         match &make_get.body[0] {
             Statement::IntLiteral(0) => {}
             _ => panic!("Expected IntLiteral(0) for variant tag"),
         }
         match &make_get.body[1] {
-            Statement::WordCall { name, span: None } if name == "make-variant-1" => {}
-            _ => panic!("Expected WordCall(make-variant-1)"),
+            Statement::WordCall { name, span: None } if name == "variant.make-1" => {}
+            _ => panic!("Expected WordCall(variant.make-1)"),
         }
 
-        // Make-Put should be: 1 make-variant-2
+        // Make-Put should be: 1 variant.make-2
         assert_eq!(make_put.body.len(), 2);
         match &make_put.body[0] {
             Statement::IntLiteral(1) => {}
             _ => panic!("Expected IntLiteral(1) for variant tag"),
         }
         match &make_put.body[1] {
-            Statement::WordCall { name, span: None } if name == "make-variant-2" => {}
-            _ => panic!("Expected WordCall(make-variant-2)"),
+            Statement::WordCall { name, span: None } if name == "variant.make-2" => {}
+            _ => panic!("Expected WordCall(variant.make-2)"),
         }
     }
 }

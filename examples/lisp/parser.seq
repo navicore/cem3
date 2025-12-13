@@ -21,34 +21,34 @@ union ParseResult {
   Make-PResult ;
 
 : result-expr ( ParseResult -- Sexpr )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : result-tokens ( ParseResult -- TokenList )
-  1 variant-field-at ;
+  1 variant.field-at ;
 
 # ============================================
 # Token Predicates
 # ============================================
 
 : is-lparen ( String -- Int )
-  "(" string-equal ;
+  "(" string.equal? ;
 
 : is-rparen ( String -- Int )
-  ")" string-equal ;
+  ")" string.equal? ;
 
 : is-digit ( Int -- Int )
   dup 48 >= swap 57 <= and ;
 
 : is-number-token ( String -- Int )
   # Check if first char is a digit or minus followed by digit
-  dup string-length 0 = if
+  dup string.length 0 = if
     drop 0
   else
-    dup 0 string-char-at
+    dup 0 string.char-at
     dup 45 = if
       # Starts with minus - check if length > 1 and second char is digit
-      drop dup string-length 1 > if
-        1 string-char-at is-digit
+      drop dup string.length 1 > if
+        1 string.char-at is-digit
       else
         drop 0
       then
@@ -143,4 +143,4 @@ union ParseResult {
 # ============================================
 
 : print-parse ( String -- )
-  parse sexpr-to-string write_line ;
+  parse sexpr-to-string io.write-line ;

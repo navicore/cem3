@@ -3,16 +3,16 @@
 include std:yaml
 
 : main ( -- Int )
-  "Test yaml-parse-nested" write_line
+  "Test yaml-parse-nested" io.write-line
 
   # Test 1: Simple flat parsing
   "host: localhost
 port: 8080" yaml-parse-nested
 
   if
-    "Parsed OK: " swap yaml-serialize string-concat write_line
+    "Parsed OK: " swap yaml-serialize string.concat io.write-line
   else
-    drop "Parse failed" write_line
+    drop "Parse failed" io.write-line
   then
 
   0

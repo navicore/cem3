@@ -3,7 +3,7 @@
 include "parser"
 
 : main ( -- )
-  "Testing parser:" write_line
+  "Testing parser:" io.write-line
 
   # Simple number
   "42" print-parse

@@ -27,7 +27,7 @@ union Lambda {
 
   # If we get here, unification worked
   drop
-  "PASS: Make-MakeLambda with two Sexpr fields" write_line
+  "PASS: Make-MakeLambda with two Sexpr fields" io.write-line
 ;
 
 : main ( -- )

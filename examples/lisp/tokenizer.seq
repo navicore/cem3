@@ -26,13 +26,13 @@ union TokState {
   Make-TCons ;
 
 : tnil? ( TokenList -- Int )
-  variant-tag 0 = ;
+  variant.tag 0 = ;
 
 : tcar ( TokenList -- String )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : tcdr ( TokenList -- TokenList )
-  1 variant-field-at ;
+  1 variant.field-at ;
 
 : trev ( TokenList -- TokenList )
   tnil trev-loop ;
@@ -51,16 +51,16 @@ union TokState {
   Make-TState ;
 
 : state-input ( TokState -- String )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : state-pos ( TokState -- Int )
-  1 variant-field-at ;
+  1 variant.field-at ;
 
 : state-tok ( TokState -- String )
-  2 variant-field-at ;
+  2 variant.field-at ;
 
 : state-list ( TokState -- TokenList )
-  3 variant-field-at ;
+  3 variant.field-at ;
 
 # ============================================
 # Simple tokenizer
@@ -73,10 +73,10 @@ union TokState {
 ;
 
 : tokenize-loop ( TokState -- TokState )
-  dup state-input string-length
+  dup state-input string.length
   over state-pos <= if
     # Done - flush any remaining token
-    dup state-tok string-empty if
+    dup state-tok string.empty? if
       # Nothing to flush - keep state as is (do nothing)
     else
       # Flush final token using consistent pattern
@@ -90,7 +90,7 @@ union TokState {
     then
   else
     # Get current char code at position
-    dup state-input over state-pos string-char-at
+    dup state-input over state-pos string.char-at
     # Stack: State CharCode
 
     dup 32 = over 10 = or over 9 = or over 13 = or if
@@ -115,7 +115,7 @@ union TokState {
 
 # Flush current token (if any) and reset
 : handle-space ( TokState -- TokState )
-  dup state-tok string-empty if
+  dup state-tok string.empty? if
     advance-pos
   else
     # Flush token and advance
@@ -131,7 +131,7 @@ union TokState {
 
 # Flush token, add "(", advance
 : handle-lparen ( TokState -- TokState )
-  dup state-tok string-empty if
+  dup state-tok string.empty? if
     # Just add "(" to list and advance
     dup state-input
     over state-pos 1 add
@@ -154,7 +154,7 @@ union TokState {
 
 # Flush token, add ")", advance
 : handle-rparen ( TokState -- TokState )
-  dup state-tok string-empty if
+  dup state-tok string.empty? if
     # Just add ")" to list and advance
     dup state-input
     over state-pos 1 add
@@ -184,8 +184,8 @@ union TokState {
   3 pick state-tok
   4 pick state-input
   5 pick state-pos
-  1 string-substring
-  string-concat
+  1 string.substring
+  string.concat
   swap
   make-state nip
 ;
@@ -205,6 +205,6 @@ union TokState {
 
 : print-tokens ( TokenList -- )
   dup tnil? if drop else
-    dup tcar write_line tcdr print-tokens
+    dup tcar io.write-line tcdr print-tokens
   then
 ;

@@ -11,8 +11,8 @@
 ;
 
 : main ( -- )
-    "Testing single-branch if with tail call..." write_line
+    "Testing single-branch if with tail call..." io.write-line
     100 single-branch-countdown
-    int->string write_line
-    "Success! Single branch if works (result should be 0)." write_line
+    int->string io.write-line
+    "Success! Single branch if works (result should be 0)." io.write-line
 ;

@@ -1,14 +1,14 @@
 : worker ( String -- )
-  write_line
+  io.write-line
 ;
 
 : main ( -- )
-  "Testing spawn with closure..." write_line
+  "Testing spawn with closure..." io.write-line
 
   "Hello from closure!" [ worker ] spawn
   # Stack after spawn: ( "Hello..." strand-id )
   # spawn clones stack to child, doesn't consume from parent
-  "Spawned worker with captured value" write_line
+  "Spawned worker with captured value" io.write-line
 
   drop   # drop strand-id
   drop   # drop "Hello from closure!" (stays on parent stack)

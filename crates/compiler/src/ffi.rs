@@ -291,19 +291,13 @@ fn parse_type_name(name: &str) -> Result<Type, String> {
 // Embedded FFI Manifests
 // ============================================================================
 
-/// Embedded libedit FFI manifest (BSD-licensed, recommended default)
+/// Embedded libedit FFI manifest (BSD-licensed)
 pub const LIBEDIT_MANIFEST: &str = include_str!("../ffi/libedit.toml");
-
-/// Embedded readline FFI manifest (GPL-licensed, use with caution)
-/// Note: GNU Readline is GPL-3.0. Programs linking to it must be GPL-compatible.
-/// Consider using libedit instead for permissively-licensed projects.
-pub const READLINE_MANIFEST: &str = include_str!("../ffi/readline.toml");
 
 /// Get an embedded FFI manifest by name
 pub fn get_ffi_manifest(name: &str) -> Option<&'static str> {
     match name {
         "libedit" => Some(LIBEDIT_MANIFEST),
-        "readline" => Some(READLINE_MANIFEST),
         _ => None,
     }
 }
@@ -315,7 +309,7 @@ pub fn has_ffi_manifest(name: &str) -> bool {
 
 /// List all available embedded FFI manifests
 pub fn list_ffi_manifests() -> &'static [&'static str] {
-    &["libedit", "readline"]
+    &["libedit"]
 }
 
 // ============================================================================

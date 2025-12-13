@@ -23,7 +23,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libreadline-dev
+          sudo apt-get install -y libedit-dev
 
       - name: Extract version from tag
         id: version
@@ -163,7 +163,7 @@ jobs:
           targets: x86_64-unknown-linux-musl
 
       - name: Install musl-tools and dependencies
-        run: sudo apt-get update && sudo apt-get install -y musl-tools libreadline-dev
+        run: sudo apt-get update && sudo apt-get install -y musl-tools libedit-dev
 
       - name: Build runtime first (needed for embedding)
         run: cargo build --release -p seq-runtime --target x86_64-unknown-linux-musl
@@ -221,8 +221,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install system dependencies
-        run: brew install readline
+      # Note: libedit is pre-installed on macOS
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -272,8 +271,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install system dependencies
-        run: brew install readline
+      # Note: libedit is pre-installed on macOS
 
       - name: Cache cargo
         uses: actions/cache@v4

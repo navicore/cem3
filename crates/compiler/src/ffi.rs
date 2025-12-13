@@ -162,9 +162,19 @@ impl FfiManifest {
                 return Err(format!("FFI library {} has empty name", lib_idx + 1));
             }
 
-            // Validate linker flag
+            // Validate linker flag (security: prevent injection of arbitrary flags)
             if lib.link.trim().is_empty() {
                 return Err(format!("FFI library '{}' has empty linker flag", lib.name));
+            }
+            // Only allow safe characters in linker flag: alphanumeric, dash, underscore, dot
+            for c in lib.link.chars() {
+                if !c.is_alphanumeric() && c != '-' && c != '_' && c != '.' {
+                    return Err(format!(
+                        "FFI library '{}' has invalid character '{}' in linker flag '{}'. \
+                         Only alphanumeric, dash, underscore, and dot are allowed.",
+                        lib.name, c, lib.link
+                    ));
+                }
             }
 
             // Validate each function
@@ -281,12 +291,18 @@ fn parse_type_name(name: &str) -> Result<Type, String> {
 // Embedded FFI Manifests
 // ============================================================================
 
-/// Embedded readline FFI manifest
+/// Embedded libedit FFI manifest (BSD-licensed, recommended default)
+pub const LIBEDIT_MANIFEST: &str = include_str!("../ffi/libedit.toml");
+
+/// Embedded readline FFI manifest (GPL-licensed, use with caution)
+/// Note: GNU Readline is GPL-3.0. Programs linking to it must be GPL-compatible.
+/// Consider using libedit instead for permissively-licensed projects.
 pub const READLINE_MANIFEST: &str = include_str!("../ffi/readline.toml");
 
 /// Get an embedded FFI manifest by name
 pub fn get_ffi_manifest(name: &str) -> Option<&'static str> {
     match name {
+        "libedit" => Some(LIBEDIT_MANIFEST),
         "readline" => Some(READLINE_MANIFEST),
         _ => None,
     }
@@ -295,6 +311,11 @@ pub fn get_ffi_manifest(name: &str) -> Option<&'static str> {
 /// Check if an FFI manifest exists
 pub fn has_ffi_manifest(name: &str) -> bool {
     get_ffi_manifest(name).is_some()
+}
+
+/// List all available embedded FFI manifests
+pub fn list_ffi_manifests() -> &'static [&'static str] {
+    &["libedit", "readline"]
 }
 
 // ============================================================================
@@ -640,5 +661,43 @@ library = []
         let result = FfiManifest::parse(content);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("at least one library"));
+    }
+
+    #[test]
+    fn test_validate_linker_flag_injection() {
+        // Security: reject linker flags with potentially dangerous characters
+        let content = r#"
+[[library]]
+name = "evil"
+link = "evil -Wl,-rpath,/malicious"
+
+[[library.function]]
+c_name = "func"
+seq_name = "func"
+stack_effect = "( -- )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("invalid character"));
+    }
+
+    #[test]
+    fn test_validate_linker_flag_valid() {
+        // Valid linker flags: alphanumeric, dash, underscore, dot
+        let content = r#"
+[[library]]
+name = "test"
+link = "my-lib_2.0"
+
+[[library.function]]
+c_name = "func"
+seq_name = "func"
+stack_effect = "( -- )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_ok());
     }
 }

@@ -1,17 +1,21 @@
-# FFI Readline Demo
+# FFI libedit Demo
 #
-# Demonstrates using the ffi:readline module to create an interactive REPL
+# Demonstrates using the ffi:libedit module to create an interactive REPL
 # with line editing and history support.
 #
-# Build and run:
-#   seqc examples/ffi/readline-demo.seq -o readline-demo
-#   ./readline-demo
+# libedit is a BSD-licensed alternative to GNU readline, providing the
+# same API without GPL licensing requirements.
 #
-# Note: Requires libreadline to be installed:
-#   macOS: brew install readline
-#   Ubuntu: apt install libreadline-dev
+# Build and run:
+#   seqc examples/ffi/libedit-demo.seq -o libedit-demo
+#   ./libedit-demo
+#
+# Installation:
+#   macOS: Already installed (Apple ships libedit)
+#   Ubuntu: apt install libedit-dev
+#   Fedora: dnf install libedit-devel
 
-include ffi:readline
+include ffi:libedit
 
 # Simple command handler
 : process-command ( String -- )
@@ -51,7 +55,7 @@ include ffi:readline
 ;
 
 : main ( -- )
-  "Welcome to the Seq REPL with readline!" write_line
+  "Welcome to the Seq REPL with libedit!" write_line
   "Type 'help' for commands, 'quit' to exit." write_line
   "" write_line
   repl

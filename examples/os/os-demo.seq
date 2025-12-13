@@ -7,6 +7,9 @@
 #   - path-exists: Check if path exists
 #   - path-is-file: Check if path is a regular file
 #   - path-is-dir: Check if path is a directory
+#   - path-join: Join path components
+#   - path-parent: Get parent directory
+#   - path-filename: Get filename component
 #
 # Build and run:
 #   seqc examples/os/os-demo.seq -o os-demo
@@ -118,6 +121,45 @@
     then
   else
     drop "  Could not get home directory" write_line
+  then
+  "" write_line
+
+  # Test path manipulation
+  "Path manipulation:" write_line
+
+  # Test path-join
+  "/usr" "local" path-join
+  "  path-join '/usr' 'local' = " swap string-concat write_line
+
+  "/home/user" ".config" path-join
+  "  path-join '/home/user' '.config' = " swap string-concat write_line
+  "" write_line
+
+  # Test path-parent
+  "/home/user/documents/file.txt" path-parent if
+    "  path-parent '/home/user/documents/file.txt' = " swap string-concat write_line
+  else
+    drop "  path-parent failed (unexpected)" write_line
+  then
+
+  "/" path-parent if
+    "  path-parent '/' = '" swap string-concat "'" string-concat write_line
+  else
+    drop "  path-parent '/' = (no parent)" write_line
+  then
+  "" write_line
+
+  # Test path-filename
+  "/home/user/documents/file.txt" path-filename if
+    "  path-filename '/home/user/documents/file.txt' = " swap string-concat write_line
+  else
+    drop "  path-filename failed (unexpected)" write_line
+  then
+
+  "/home/user/" path-filename if
+    "  path-filename '/home/user/' = " swap string-concat write_line
+  else
+    drop "  path-filename '/home/user/' = (no filename)" write_line
   then
 
   "" write_line

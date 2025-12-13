@@ -383,6 +383,10 @@ impl Program {
             "tcp-read",
             "tcp-write",
             "tcp-close",
+            // OS operations
+            "getenv",
+            "home-dir",
+            "current-dir",
             // Float arithmetic operations
             "f.add",
             "f.subtract",

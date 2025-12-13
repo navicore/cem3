@@ -103,6 +103,10 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("tcp-read", "patch_seq_tcp_read"),
         ("tcp-write", "patch_seq_tcp_write"),
         ("tcp-close", "patch_seq_tcp_close"),
+        // OS operations
+        ("getenv", "patch_seq_getenv"),
+        ("home-dir", "patch_seq_home_dir"),
+        ("current-dir", "patch_seq_current_dir"),
         // String operations
         ("string-concat", "patch_seq_string_concat"),
         ("string-length", "patch_seq_string_length"),
@@ -651,6 +655,10 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_read(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_write(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tcp_close(ptr)").unwrap();
+        writeln!(&mut ir, "; OS operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_getenv(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_home_dir(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_current_dir(ptr)").unwrap();
         writeln!(&mut ir, "; String operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
@@ -972,6 +980,10 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_tcp_read(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_tcp_write(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_tcp_close(ptr)").unwrap();
+        writeln!(ir, "; OS operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_getenv(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_home_dir(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_current_dir(ptr)").unwrap();
         writeln!(ir, "; String operations").unwrap();
         writeln!(ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();

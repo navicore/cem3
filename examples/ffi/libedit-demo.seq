@@ -6,7 +6,7 @@
 # Features:
 #   - Line editing (arrow keys, backspace, etc.)
 #   - Session history (up/down arrows)
-#   - Persistent history saved to /tmp/.seq-demo-history
+#   - Persistent history saved to ~/.seq-demo-history
 #
 # libedit is a BSD-licensed alternative to GNU readline, providing the
 # same API without GPL licensing requirements.
@@ -22,11 +22,14 @@
 
 include ffi:libedit
 
-# History file path
-# Note: Path resolution (like ~ expansion) is the application's responsibility.
-# This demo uses /tmp for simplicity. A real app might use getenv to build
-# a path like "$HOME/.myapp_history" once std:os is available.
-: history-file ( -- String ) "/tmp/.seq-demo-history" ;
+# History file path - uses home-dir to get user's home directory
+: history-file ( -- String )
+  home-dir if
+    "/.seq-demo-history" string-concat
+  else
+    drop "/tmp/.seq-demo-history"  # Fallback if home-dir fails
+  then
+;
 
 # Simple command handler
 : process-command ( String -- )
@@ -71,7 +74,7 @@ include ffi:libedit
 
   "Welcome to the Seq REPL with libedit!" write_line
   "Type 'help' for commands, 'quit' to exit." write_line
-  "History is saved to /tmp/.seq-demo-history" write_line
+  "History is saved to " history-file string-concat write_line
   "" write_line
   repl
 

@@ -17,6 +17,7 @@ pub mod float_ops;
 pub mod io;
 pub mod list_ops;
 pub mod map_ops;
+pub mod os;
 pub mod pool;
 pub mod quotations;
 pub mod scheduler;

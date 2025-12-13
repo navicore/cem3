@@ -195,6 +195,60 @@ return = { type = "string", ownership = "caller_frees" }
 
 ---
 
+## Standard Library: OS Module
+
+### Vision
+
+Provide portable OS interaction primitives as runtime built-ins, following the same pattern as TCP/HTTP (Rust implementation with C ABI exports).
+
+```seq
+include std:os
+
+: get-history-path ( -- String )
+  "HOME" getenv if
+    "/.myapp_history" string-concat
+  else
+    drop "/tmp/.myapp_history"
+  then
+;
+```
+
+### Phase 1: Environment & Paths (Priority)
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `getenv` | `( String -- String Int )` | Get env var, returns value and 1 on success, "" and 0 on failure |
+| `home-dir` | `( -- String )` | User's home directory |
+| `current-dir` | `( -- String )` | Current working directory |
+
+These unblock the persistent history path use case and are simple to implement.
+
+### Phase 2: File System
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `path-exists` | `( String -- Int )` | 1 if path exists, 0 otherwise |
+| `path-is-file` | `( String -- Int )` | 1 if regular file |
+| `path-is-dir` | `( String -- Int )` | 1 if directory |
+
+### Phase 3: Process & System
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `exit` | `( Int -- )` | Exit process with code |
+| `args` | `( -- ... Int )` | Push command line args and count |
+| `os-name` | `( -- String )` | "darwin", "linux", "windows" |
+| `arch` | `( -- String )` | "x86_64", "aarch64" |
+
+### Implementation Notes
+
+- Implemented in `crates/runtime/src/os.rs`
+- C ABI exports: `patch_seq_getenv`, `patch_seq_home_dir`, etc.
+- Compiler built-in recognition for `include std:os`
+- Cross-platform via Rust's `std::env` and `std::fs`
+
+---
+
 ## CLI & Developer Experience
 
 ### Tab Completion

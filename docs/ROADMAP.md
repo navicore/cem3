@@ -150,16 +150,20 @@ include ffi:sqlite
 
 ### Implementation Phases
 
-**Phase 1: Readline** (immediate)
+**Phase 1: Readline** ✅ Complete
 - Manifest parser
 - `include ffi:` support
 - String marshalling codegen
 - Memory ownership (`caller_frees`)
 
-**Phase 2: Generalization**
+**Phase 2: Generalization** ✅ Complete
+- BSD-licensed `ffi:libedit` as default (no GPL concerns)
 - User-provided manifests (`--ffi-manifest`)
-- Full type mapping (int, ptr, structs)
-- Out parameters
+- Full type mapping (int, ptr, string, void)
+- Out parameters (`by_ref` pass mode)
+- Fixed value arguments (`value = "null"`)
+- Security validation on linker flags
+- SQLite example demonstrating all features
 
 **Phase 3: Advanced**
 - Callback support (C → Seq)
@@ -188,3 +192,28 @@ return = { type = "string", ownership = "caller_frees" }
 - **PCRE**: Regular expressions
 - **libcurl**: HTTP client
 - **zlib**: Compression
+
+---
+
+## CLI & Developer Experience
+
+### Tab Completion
+
+**Goal**: Enable tab completion for the Seq REPL and command-line tools.
+
+Now that FFI supports readline-compatible libraries, tab completion becomes achievable:
+
+**Near-term: Basic REPL completion**:
+- Word name completion (built-ins and user-defined)
+- Prefix matching for partially typed words
+- Integration with libedit/readline via FFI
+
+**Medium-term: Context-aware completion**:
+- Stack-effect-aware suggestions (only show words that accept current stack types)
+- Include file completion for `include` statements
+- FFI library completion for `include ffi:`
+
+**Potential implementation paths**:
+1. **libedit's built-in completion** - Use `rl_completion_matches` callback
+2. **Custom completion protocol** - Seq-side word table lookup
+3. **LSP integration** - Reuse seq-lsp's completion logic for REPL

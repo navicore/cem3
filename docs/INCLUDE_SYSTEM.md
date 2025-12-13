@@ -15,6 +15,9 @@ Seq supports a simple include system for code reuse. The design prioritizes:
 include std:http
 include std:math
 
+# FFI bindings (C library wrappers)
+include ffi:libedit
+
 # Relative to current file
 include "my-utils"
 include "lib/helpers"
@@ -26,13 +29,19 @@ include "lib/helpers"
    - Compiler knows where stdlib lives (not user's concern)
    - Example: `include std:http` loads `http.seq` from stdlib
 
-2. **Quoted string** - Path relative to the including file
+2. **`ffi:` prefix** - References FFI bindings for C libraries
+   - Some bindings ship with compiler (e.g., `ffi:libedit`)
+   - Others require `--ffi-manifest` flag with a TOML manifest
+   - Example: `include ffi:libedit` loads readline-style functions
+   - See [FFI_GUIDE.md](FFI_GUIDE.md) for full documentation
+
+3. **Quoted string** - Path relative to the including file
    - No absolute paths allowed
    - Example: `include "lib/foo"` loads `./lib/foo.seq`
 
-3. **Extension omitted** - Compiler adds `.seq` automatically
+4. **Extension omitted** - Compiler adds `.seq` automatically
 
-4. **Include once** - Files are included at most once per compilation
+5. **Include once** - Files are included at most once per compilation
    - Duplicate includes are silently ignored
    - Prevents diamond dependency issues
 

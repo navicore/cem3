@@ -24,6 +24,15 @@ pub struct IncludedWord {
     pub start_line: usize,
 }
 
+/// Results from resolving includes
+#[derive(Debug, Clone, Default)]
+pub struct IncludeResolution {
+    /// Words from included modules (including auto-generated constructors)
+    pub words: Vec<IncludedWord>,
+    /// Union type names from included modules (for type validation)
+    pub union_names: Vec<String>,
+}
+
 /// A word defined in the current document
 #[derive(Debug, Clone)]
 pub struct LocalWord {
@@ -67,25 +76,25 @@ pub fn parse_document(source: &str) -> (Vec<Include>, Vec<LocalWord>) {
 
 /// Resolve includes and extract words from included files.
 /// Uses embedded stdlib for std: includes, filesystem for relative includes.
-pub fn resolve_includes(includes: &[Include], doc_path: Option<&Path>) -> Vec<IncludedWord> {
-    let mut words = Vec::new();
+pub fn resolve_includes(includes: &[Include], doc_path: Option<&Path>) -> IncludeResolution {
+    let mut result = IncludeResolution::default();
     let mut visited = HashSet::new();
 
     // Convert file path to directory for relative include resolution
     let doc_dir = doc_path.and_then(|p| p.parent());
 
     for include in includes {
-        resolve_include_recursive(include, doc_dir, &mut words, &mut visited, 0);
+        resolve_include_recursive(include, doc_dir, &mut result, &mut visited, 0);
     }
 
-    words
+    result
 }
 
 /// Recursively resolve an include, with cycle detection and depth limit
 fn resolve_include_recursive(
     include: &Include,
     doc_dir: Option<&Path>,
-    words: &mut Vec<IncludedWord>,
+    result: &mut IncludeResolution,
     visited: &mut HashSet<String>,
     depth: usize,
 ) {
@@ -124,7 +133,7 @@ fn resolve_include_recursive(
             // Extract words from stdlib module
             for word in &program.words {
                 let start_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
-                words.push(IncludedWord {
+                result.words.push(IncludedWord {
                     name: word.name.clone(),
                     effect: word.effect.clone(),
                     source: format!("std:{}", name),
@@ -133,11 +142,14 @@ fn resolve_include_recursive(
                 });
             }
 
-            // Extract union constructors (Make-VariantName) from stdlib module
+            // Extract union type names and constructors (Make-VariantName) from stdlib module
             for union_def in &program.unions {
+                // Track the union type name for field type validation
+                result.union_names.push(union_def.name.clone());
+
                 for variant in &union_def.variants {
                     let constructor_name = format!("Make-{}", variant.name);
-                    words.push(IncludedWord {
+                    result.words.push(IncludedWord {
                         name: constructor_name,
                         effect: None, // Constructor effects are complex, skip for now
                         source: format!("std:{}", name),
@@ -149,7 +161,7 @@ fn resolve_include_recursive(
 
             // Recursively resolve nested includes (stdlib can include other stdlib)
             for nested_include in &program.includes {
-                resolve_include_recursive(nested_include, None, words, visited, depth + 1);
+                resolve_include_recursive(nested_include, None, result, visited, depth + 1);
             }
         }
         Include::Relative(name) => {
@@ -197,7 +209,7 @@ fn resolve_include_recursive(
             // Extract words from this file
             for word in &program.words {
                 let start_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
-                words.push(IncludedWord {
+                result.words.push(IncludedWord {
                     name: word.name.clone(),
                     effect: word.effect.clone(),
                     source: name.clone(),
@@ -206,11 +218,14 @@ fn resolve_include_recursive(
                 });
             }
 
-            // Extract union constructors (Make-VariantName) from this file
+            // Extract union type names and constructors (Make-VariantName) from this file
             for union_def in &program.unions {
+                // Track the union type name for field type validation
+                result.union_names.push(union_def.name.clone());
+
                 for variant in &union_def.variants {
                     let constructor_name = format!("Make-{}", variant.name);
-                    words.push(IncludedWord {
+                    result.words.push(IncludedWord {
                         name: constructor_name,
                         effect: None, // Constructor effects are complex, skip for now
                         source: name.clone(),
@@ -223,7 +238,7 @@ fn resolve_include_recursive(
             // Recursively resolve nested includes
             let include_dir = canonical.parent();
             for nested_include in &program.includes {
-                resolve_include_recursive(nested_include, include_dir, words, visited, depth + 1);
+                resolve_include_recursive(nested_include, include_dir, result, visited, depth + 1);
             }
         }
         Include::Ffi(name) => {
@@ -344,10 +359,10 @@ include "utils"
         assert_eq!(includes.len(), 1);
 
         // Resolve the includes using embedded stdlib
-        let words = resolve_includes(&includes, None);
+        let result = resolve_includes(&includes, None);
 
         // Check that json-serialize is in the resolved words
-        let names: Vec<&str> = words.iter().map(|w| w.name.as_str()).collect();
+        let names: Vec<&str> = result.words.iter().map(|w| w.name.as_str()).collect();
         assert!(
             names.contains(&"json-serialize"),
             "Expected json-serialize in {:?}",
@@ -368,11 +383,11 @@ include "utils"
         assert_eq!(includes.len(), 1);
 
         // Resolve the includes using embedded stdlib
-        let words = resolve_includes(&includes, None);
+        let result = resolve_includes(&includes, None);
 
         // Check that union constructors are extracted
         // std:result defines IntResult with Ok and Err variants
-        let names: Vec<&str> = words.iter().map(|w| w.name.as_str()).collect();
+        let names: Vec<&str> = result.words.iter().map(|w| w.name.as_str()).collect();
 
         // The result module should have helper words
         assert!(

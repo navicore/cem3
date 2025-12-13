@@ -12,7 +12,7 @@ mod completion;
 mod diagnostics;
 mod includes;
 
-use includes::{IncludedWord, LocalWord};
+use includes::{IncludeResolution, LocalWord};
 
 /// State for a single document
 struct DocumentState {
@@ -20,8 +20,8 @@ struct DocumentState {
     content: String,
     /// File path (for resolving relative includes)
     file_path: Option<PathBuf>,
-    /// Words available from includes (cached)
-    included_words: Vec<IncludedWord>,
+    /// Words and union types from includes (cached)
+    includes: IncludeResolution,
     /// Words defined in this document
     local_words: Vec<LocalWord>,
 }
@@ -40,43 +40,44 @@ impl SeqLanguageServer {
         }
     }
 
-    /// Get all words available from includes for a document
-    fn get_included_words(&self, uri: &str) -> Vec<IncludedWord> {
+    /// Get all words and union types available from includes for a document
+    fn get_includes(&self, uri: &str) -> IncludeResolution {
         if let Ok(docs) = self.documents.read()
             && let Some(state) = docs.get(uri)
         {
-            return state.included_words.clone();
+            return state.includes.clone();
         }
-        Vec::new()
+        IncludeResolution::default()
     }
 
     /// Update document state and resolve includes
     fn update_document(&self, uri: &str, content: String, file_path: Option<PathBuf>) {
         // Parse document to extract includes and local words
-        let (includes, local_words) = includes::parse_document(&content);
+        let (include_stmts, local_words) = includes::parse_document(&content);
 
         info!(
             "Parsed document: {} includes, {} local words, file_path={:?}",
-            includes.len(),
+            include_stmts.len(),
             local_words.len(),
             file_path
         );
 
-        // Resolve includes to get words from included files
+        // Resolve includes to get words and union types from included files
         // Uses embedded stdlib for std: includes, filesystem for relative includes
-        let included_words = includes::resolve_includes(&includes, file_path.as_deref());
+        let resolved = includes::resolve_includes(&include_stmts, file_path.as_deref());
 
         info!(
-            "Document has {} local words, {} included words from {} includes",
+            "Document has {} local words, {} included words, {} included unions from {} includes",
             local_words.len(),
-            included_words.len(),
-            includes.len()
+            resolved.words.len(),
+            resolved.union_names.len(),
+            include_stmts.len()
         );
 
         let state = DocumentState {
             content,
             file_path,
-            included_words,
+            includes: resolved,
             local_words,
         };
 
@@ -165,15 +166,16 @@ impl LanguageServer for SeqLanguageServer {
         // Update document state (parses includes)
         self.update_document(uri.as_str(), text.clone(), file_path.clone());
 
-        // Get included words for diagnostics
-        let included_words = self.get_included_words(uri.as_str());
+        // Get included words and types for diagnostics
+        let includes = self.get_includes(uri.as_str());
         info!(
-            "Got {} included words for diagnostics",
-            included_words.len()
+            "Got {} included words, {} included unions for diagnostics",
+            includes.words.len(),
+            includes.union_names.len()
         );
 
         let diagnostics =
-            diagnostics::check_document_with_includes(&text, &included_words, file_path.as_deref());
+            diagnostics::check_document_with_includes(&text, &includes, file_path.as_deref());
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -198,14 +200,11 @@ impl LanguageServer for SeqLanguageServer {
             // Update document state (re-parses includes)
             self.update_document(uri.as_str(), text.clone(), file_path.clone());
 
-            // Get included words for diagnostics
-            let included_words = self.get_included_words(uri.as_str());
+            // Get included words and types for diagnostics
+            let includes = self.get_includes(uri.as_str());
 
-            let diagnostics = diagnostics::check_document_with_includes(
-                &text,
-                &included_words,
-                file_path.as_deref(),
-            );
+            let diagnostics =
+                diagnostics::check_document_with_includes(&text, &includes, file_path.as_deref());
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
@@ -236,7 +235,7 @@ impl LanguageServer for SeqLanguageServer {
                 (
                     word,
                     state.local_words.clone(),
-                    state.included_words.clone(),
+                    state.includes.words.clone(),
                 )
             } else {
                 return Ok(None);
@@ -271,7 +270,7 @@ impl LanguageServer for SeqLanguageServer {
                 (
                     word,
                     state.local_words.clone(),
-                    state.included_words.clone(),
+                    state.includes.words.clone(),
                 )
             } else {
                 return Ok(None);
@@ -360,7 +359,7 @@ impl LanguageServer for SeqLanguageServer {
                     });
                 (
                     prefix,
-                    state.included_words.clone(),
+                    state.includes.words.clone(),
                     state.local_words.clone(),
                 )
             } else {
@@ -458,7 +457,7 @@ impl LanguageServer for SeqLanguageServer {
                 (
                     state.content.clone(),
                     state.local_words.clone(),
-                    state.included_words.clone(),
+                    state.includes.words.clone(),
                 )
             } else {
                 return Ok(None);

@@ -81,6 +81,25 @@ impl TypeChecker {
         }
     }
 
+    /// Register external union type names (e.g., from included modules).
+    ///
+    /// This allows field types in union definitions to reference types from includes.
+    /// We only register the name as a valid type; we don't need full variant info
+    /// since the actual union definition lives in the included file.
+    pub fn register_external_unions(&mut self, union_names: &[&str]) {
+        for name in union_names {
+            // Insert a placeholder union with no variants
+            // This makes is_valid_type_name() return true for this type
+            self.unions.insert(
+                name.to_string(),
+                UnionTypeInfo {
+                    name: name.to_string(),
+                    variants: vec![],
+                },
+            );
+        }
+    }
+
     /// Extract the type map (quotation ID -> inferred type)
     ///
     /// This should be called after check_program() to get the inferred types

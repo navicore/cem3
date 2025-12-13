@@ -743,6 +743,9 @@ impl CodeGen {
         // Generate FFI wrapper functions
         self.generate_ffi_wrappers()?;
 
+        // Generate callback trampolines
+        self.generate_callback_trampolines()?;
+
         // Store type map for use during code generation
         self.type_map = type_map;
 
@@ -794,10 +797,22 @@ impl CodeGen {
         // FFI C function declarations
         if !self.ffi_bindings.functions.is_empty() {
             writeln!(&mut ir, "; FFI C function declarations").unwrap();
-            writeln!(&mut ir, "declare ptr @malloc(i64)").unwrap();
-            writeln!(&mut ir, "declare void @free(ptr)").unwrap();
-            writeln!(&mut ir, "declare i64 @strlen(ptr)").unwrap();
-            writeln!(&mut ir, "declare ptr @memcpy(ptr, ptr, i64)").unwrap();
+
+            // Track which C functions we've already declared to avoid duplicates
+            let mut declared: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+            // Common C library functions needed for FFI infrastructure
+            let common_c_funcs = [
+                ("malloc", "declare ptr @malloc(i64)"),
+                ("free", "declare void @free(ptr)"),
+                ("strlen", "declare i64 @strlen(ptr)"),
+                ("memcpy", "declare ptr @memcpy(ptr, ptr, i64)"),
+            ];
+            for (name, decl) in &common_c_funcs {
+                writeln!(&mut ir, "{}", decl).unwrap();
+                declared.insert(*name);
+            }
+
             // Declare FFI string helpers from runtime
             writeln!(
                 &mut ir,
@@ -809,7 +824,20 @@ impl CodeGen {
                 "declare ptr @patch_seq_cstring_to_string(ptr, ptr)"
             )
             .unwrap();
+            // Callback stack management
+            writeln!(&mut ir, "declare ptr @patch_seq_callback_stack_new()").unwrap();
+            writeln!(&mut ir, "declare void @patch_seq_callback_stack_free(ptr)").unwrap();
+            writeln!(&mut ir, "declare i64 @patch_seq_pop_int(ptr)").unwrap();
+            writeln!(
+                &mut ir,
+                "declare i64 @patch_seq_peek_quotation_wrapper(ptr)"
+            )
+            .unwrap();
             for func in self.ffi_bindings.functions.values() {
+                // Skip if already declared
+                if declared.contains(func.c_name.as_str()) {
+                    continue;
+                }
                 let c_ret_type = ffi_return_type(&func.return_spec);
                 let c_args = ffi_c_args(&func.args);
                 writeln!(
@@ -818,6 +846,7 @@ impl CodeGen {
                     c_ret_type, func.c_name, c_args
                 )
                 .unwrap();
+                declared.insert(&func.c_name);
             }
             writeln!(&mut ir).unwrap();
         }
@@ -1036,6 +1065,242 @@ impl CodeGen {
         Ok(())
     }
 
+    /// Generate callback trampolines for FFI callbacks
+    ///
+    /// For each callback type, generates:
+    /// 1. Global slot to hold the bound Seq quotation wrapper pointer
+    /// 2. C-callable trampoline that:
+    ///    - Creates a fresh Seq stack
+    ///    - Pushes C arguments onto it
+    ///    - Calls the bound Seq quotation
+    ///    - Pops result and returns to C
+    /// 3. A bind function to associate a quotation with the trampoline
+    fn generate_callback_trampolines(&mut self) -> Result<(), String> {
+        // Collect callbacks to avoid borrowing issues
+        let callbacks: Vec<_> = self.ffi_bindings.callbacks.values().cloned().collect();
+
+        for callback in callbacks {
+            self.generate_callback_trampoline(&callback)?;
+        }
+        Ok(())
+    }
+
+    /// Generate a single callback trampoline
+    fn generate_callback_trampoline(
+        &mut self,
+        callback: &crate::ffi::FfiCallbackInfo,
+    ) -> Result<(), String> {
+        let cb_name = mangle_name(&callback.name);
+
+        // Generate global slot to hold the bound quotation
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "; Callback trampoline for '{}'",
+            callback.name
+        )
+        .unwrap();
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "@callback_{}_fn = global i64 0",
+            cb_name
+        )
+        .unwrap();
+        writeln!(&mut self.ffi_wrapper_code).unwrap();
+
+        // Build C argument list for trampoline signature
+        let c_args: Vec<String> = callback
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| {
+                let llvm_type = match arg.arg_type {
+                    FfiType::Int => "i64",
+                    FfiType::Ptr => "ptr",
+                    FfiType::String => "ptr",
+                    FfiType::Void => "void",
+                    FfiType::Callback => "ptr",
+                };
+                format!("{} %arg{}", llvm_type, i)
+            })
+            .collect();
+
+        // Determine return type
+        let ret_type = match &callback.return_spec {
+            Some(spec) => match spec.return_type {
+                FfiType::Int => "i64",
+                FfiType::Ptr => "ptr",
+                FfiType::Void => "void",
+                FfiType::String => "ptr",
+                FfiType::Callback => panic!("Callback cannot return a callback"),
+            },
+            None => "void",
+        };
+
+        // Generate trampoline function
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "define {} @seq_callback_{}({}) {{",
+            ret_type,
+            cb_name,
+            c_args.join(", ")
+        )
+        .unwrap();
+        writeln!(&mut self.ffi_wrapper_code, "entry:").unwrap();
+
+        // Create fresh stack for the callback
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "  %stack0 = call ptr @patch_seq_callback_stack_new()"
+        )
+        .unwrap();
+
+        // Push C arguments onto stack (in order - first arg pushed first, ends up deepest)
+        let mut stack_var = "stack0".to_string();
+        for (i, arg) in callback.args.iter().enumerate() {
+            let new_stack = format!("stack{}", i + 1);
+            match arg.arg_type {
+                FfiType::Int => {
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %arg{})",
+                        new_stack, stack_var, i
+                    )
+                    .unwrap();
+                }
+                FfiType::Ptr => {
+                    // Convert pointer to int
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %arg{}_int = ptrtoint ptr %arg{} to i64",
+                        i, i
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %arg{}_int)",
+                        new_stack, stack_var, i
+                    )
+                    .unwrap();
+                }
+                FfiType::String => {
+                    // Convert C string to Seq string
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_cstring_to_string(ptr %{}, ptr %arg{})",
+                        new_stack, stack_var, i
+                    )
+                    .unwrap();
+                }
+                FfiType::Void | FfiType::Callback => {
+                    // These shouldn't appear as callback arguments in practice
+                }
+            }
+            stack_var = new_stack;
+        }
+
+        // Load and call the bound Seq quotation
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "  %fn_ptr_int = load i64, ptr @callback_{}_fn",
+            cb_name
+        )
+        .unwrap();
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "  %fn_ptr = inttoptr i64 %fn_ptr_int to ptr"
+        )
+        .unwrap();
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "  %result_stack = call ptr %fn_ptr(ptr %{})",
+            stack_var
+        )
+        .unwrap();
+
+        // Handle return value
+        match &callback.return_spec {
+            Some(spec) => match spec.return_type {
+                FfiType::Int => {
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %result = call i64 @patch_seq_pop_int(ptr %result_stack)"
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  call void @patch_seq_callback_stack_free(ptr %result_stack)"
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret i64 %result").unwrap();
+                }
+                FfiType::Ptr => {
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %result_int = call i64 @patch_seq_pop_int(ptr %result_stack)"
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %result = inttoptr i64 %result_int to ptr"
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  call void @patch_seq_callback_stack_free(ptr %result_stack)"
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %result").unwrap();
+                }
+                FfiType::Void => {
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  call void @patch_seq_callback_stack_free(ptr %result_stack)"
+                    )
+                    .unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret void").unwrap();
+                }
+                FfiType::String | FfiType::Callback => {
+                    // String returns from callbacks need more work (allocation, etc.)
+                    // For now, not supported
+                    return Err(format!(
+                        "Callback '{}' has unsupported return type",
+                        callback.name
+                    ));
+                }
+            },
+            None => {
+                writeln!(
+                    &mut self.ffi_wrapper_code,
+                    "  call void @patch_seq_callback_stack_free(ptr %result_stack)"
+                )
+                .unwrap();
+                writeln!(&mut self.ffi_wrapper_code, "  ret void").unwrap();
+            }
+        }
+
+        writeln!(&mut self.ffi_wrapper_code, "}}").unwrap();
+        writeln!(&mut self.ffi_wrapper_code).unwrap();
+
+        // Generate bind function
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "define void @seq_bind_callback_{}(i64 %fn_ptr) {{",
+            cb_name
+        )
+        .unwrap();
+        writeln!(
+            &mut self.ffi_wrapper_code,
+            "  store i64 %fn_ptr, ptr @callback_{}_fn",
+            cb_name
+        )
+        .unwrap();
+        writeln!(&mut self.ffi_wrapper_code, "  ret void").unwrap();
+        writeln!(&mut self.ffi_wrapper_code, "}}").unwrap();
+        writeln!(&mut self.ffi_wrapper_code).unwrap();
+
+        Ok(())
+    }
+
     /// Generate a single FFI wrapper function
     ///
     /// The wrapper:
@@ -1190,6 +1455,43 @@ impl CodeGen {
 
                     stack_var = new_stack;
                     c_args.push(format!("ptr %{}", ptr_var));
+                }
+                (FfiType::Callback, _) => {
+                    // Pop quotation from stack, bind it to the callback trampoline
+                    let callback_name = arg
+                        .callback
+                        .as_ref()
+                        .ok_or_else(|| format!("Callback argument {} has no callback name", i))?;
+                    let cb_mangled = mangle_name(callback_name);
+
+                    let quot_ptr_var = format!("quot_ptr_{}", i);
+                    let new_stack = format!("stack_after_pop_{}", i);
+
+                    // Get quotation wrapper pointer from stack
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call i64 @patch_seq_peek_quotation_wrapper(ptr %{})",
+                        quot_ptr_var, stack_var
+                    )
+                    .unwrap();
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                        new_stack, stack_var
+                    )
+                    .unwrap();
+
+                    // Bind the quotation to the callback slot
+                    writeln!(
+                        &mut self.ffi_wrapper_code,
+                        "  call void @seq_bind_callback_{}(i64 %{})",
+                        cb_mangled, quot_ptr_var
+                    )
+                    .unwrap();
+
+                    stack_var = new_stack;
+                    // Pass the trampoline function pointer to C
+                    c_args.push(format!("ptr @seq_callback_{}", cb_mangled));
                 }
                 _ => {
                     return Err(format!(
@@ -1367,6 +1669,10 @@ impl CodeGen {
                     )
                     .unwrap();
                     writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result").unwrap();
+                }
+                FfiType::Callback => {
+                    // Callbacks cannot be return types
+                    panic!("FFI function cannot return a callback type");
                 }
             }
         } else {
@@ -2562,6 +2868,7 @@ fn ffi_return_type(return_spec: &Option<FfiReturn>) -> &'static str {
             FfiType::String => "ptr",
             FfiType::Ptr => "ptr",
             FfiType::Void => "void",
+            FfiType::Callback => panic!("Callback cannot be a return type"),
         },
         None => "void",
     }
@@ -2579,6 +2886,7 @@ fn ffi_c_args(args: &[FfiArg]) -> String {
             FfiType::String => "ptr",
             FfiType::Ptr => "ptr",
             FfiType::Void => "void",
+            FfiType::Callback => "ptr", // Function pointer
         })
         .collect::<Vec<_>>()
         .join(", ")

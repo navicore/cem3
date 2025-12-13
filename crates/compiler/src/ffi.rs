@@ -39,6 +39,8 @@ pub enum FfiType {
     Ptr,
     /// C void - no return value
     Void,
+    /// Callback function pointer (requires `callback` field to reference callback definition)
+    Callback,
 }
 
 /// Argument passing mode
@@ -78,6 +80,33 @@ pub struct FfiArg {
     pub pass: PassMode,
     /// Fixed value (for parameters like NULL callbacks)
     pub value: Option<String>,
+    /// Reference to a callback type (when type = "callback")
+    pub callback: Option<String>,
+}
+
+/// An argument in a callback signature
+#[derive(Debug, Clone, Deserialize)]
+pub struct FfiCallbackArg {
+    /// The type of the argument
+    #[serde(rename = "type")]
+    pub arg_type: FfiType,
+    /// Optional name for documentation
+    pub name: Option<String>,
+}
+
+/// A callback type definition
+#[derive(Debug, Clone, Deserialize)]
+pub struct FfiCallback {
+    /// Callback name for reference
+    pub name: String,
+    /// C arguments the callback receives
+    #[serde(default)]
+    pub args: Vec<FfiCallbackArg>,
+    /// Return type for the callback
+    #[serde(rename = "return")]
+    pub return_spec: Option<FfiReturn>,
+    /// Seq stack effect when called
+    pub seq_effect: String,
 }
 
 fn default_pass_mode() -> PassMode {
@@ -123,6 +152,9 @@ pub struct FfiLibrary {
     pub name: String,
     /// Linker flag (e.g., "readline" for -lreadline)
     pub link: String,
+    /// Callback type definitions
+    #[serde(rename = "callback", default)]
+    pub callbacks: Vec<FfiCallback>,
     /// Function bindings
     #[serde(rename = "function", default)]
     pub functions: Vec<FfiFunction>,
@@ -177,6 +209,35 @@ impl FfiManifest {
                 }
             }
 
+            // Collect callback names for reference validation
+            let callback_names: Vec<&str> = lib.callbacks.iter().map(|c| c.name.as_str()).collect();
+
+            // Validate each callback
+            for (cb_idx, callback) in lib.callbacks.iter().enumerate() {
+                if callback.name.trim().is_empty() {
+                    return Err(format!(
+                        "FFI callback {} in library '{}' has empty name",
+                        cb_idx + 1,
+                        lib.name
+                    ));
+                }
+
+                if callback.seq_effect.trim().is_empty() {
+                    return Err(format!(
+                        "FFI callback '{}' has empty seq_effect",
+                        callback.name
+                    ));
+                }
+
+                // Validate seq_effect parses correctly
+                if let Err(e) = callback.effect() {
+                    return Err(format!(
+                        "FFI callback '{}' has malformed seq_effect '{}': {}",
+                        callback.name, callback.seq_effect, e
+                    ));
+                }
+            }
+
             // Validate each function
             for (func_idx, func) in lib.functions.iter().enumerate() {
                 // Validate c_name
@@ -211,6 +272,28 @@ impl FfiManifest {
                         func.seq_name, func.stack_effect, e
                     ));
                 }
+
+                // Validate callback references
+                for arg in &func.args {
+                    if arg.arg_type == FfiType::Callback {
+                        match &arg.callback {
+                            None => {
+                                return Err(format!(
+                                    "FFI function '{}' has callback argument without 'callback' field",
+                                    func.seq_name
+                                ));
+                            }
+                            Some(cb_name) => {
+                                if !callback_names.contains(&cb_name.as_str()) {
+                                    return Err(format!(
+                                        "FFI function '{}' references undefined callback '{}'",
+                                        func.seq_name, cb_name
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -232,6 +315,13 @@ impl FfiFunction {
     /// Parse the stack effect string into an Effect
     pub fn effect(&self) -> Result<Effect, String> {
         parse_stack_effect(&self.stack_effect)
+    }
+}
+
+impl FfiCallback {
+    /// Parse the seq_effect string into an Effect
+    pub fn effect(&self) -> Result<Effect, String> {
+        parse_stack_effect(&self.seq_effect)
     }
 }
 
@@ -291,19 +381,13 @@ fn parse_type_name(name: &str) -> Result<Type, String> {
 // Embedded FFI Manifests
 // ============================================================================
 
-/// Embedded libedit FFI manifest (BSD-licensed, recommended default)
+/// Embedded libedit FFI manifest (BSD-licensed)
 pub const LIBEDIT_MANIFEST: &str = include_str!("../ffi/libedit.toml");
-
-/// Embedded readline FFI manifest (GPL-licensed, use with caution)
-/// Note: GNU Readline is GPL-3.0. Programs linking to it must be GPL-compatible.
-/// Consider using libedit instead for permissively-licensed projects.
-pub const READLINE_MANIFEST: &str = include_str!("../ffi/readline.toml");
 
 /// Get an embedded FFI manifest by name
 pub fn get_ffi_manifest(name: &str) -> Option<&'static str> {
     match name {
         "libedit" => Some(LIBEDIT_MANIFEST),
-        "readline" => Some(READLINE_MANIFEST),
         _ => None,
     }
 }
@@ -315,7 +399,7 @@ pub fn has_ffi_manifest(name: &str) -> bool {
 
 /// List all available embedded FFI manifests
 pub fn list_ffi_manifests() -> &'static [&'static str] {
-    &["libedit", "readline"]
+    &["libedit"]
 }
 
 // ============================================================================
@@ -327,6 +411,8 @@ pub fn list_ffi_manifests() -> &'static [&'static str] {
 pub struct FfiBindings {
     /// Map from Seq word name to C function info
     pub functions: HashMap<String, FfiFunctionInfo>,
+    /// Map from callback name to callback info
+    pub callbacks: HashMap<String, FfiCallbackInfo>,
     /// Linker flags to add
     pub linker_flags: Vec<String>,
 }
@@ -346,11 +432,25 @@ pub struct FfiFunctionInfo {
     pub return_spec: Option<FfiReturn>,
 }
 
+/// Information about an FFI callback for code generation
+#[derive(Debug, Clone)]
+pub struct FfiCallbackInfo {
+    /// Callback name
+    pub name: String,
+    /// C arguments the callback receives
+    pub args: Vec<FfiCallbackArg>,
+    /// Return type for the callback
+    pub return_spec: Option<FfiReturn>,
+    /// Seq stack effect
+    pub effect: Effect,
+}
+
 impl FfiBindings {
     /// Create empty bindings
     pub fn new() -> Self {
         FfiBindings {
             functions: HashMap::new(),
+            callbacks: HashMap::new(),
             linker_flags: Vec::new(),
         }
     }
@@ -360,9 +460,45 @@ impl FfiBindings {
         // Add linker flags
         self.linker_flags.extend(manifest.linker_flags());
 
+        // Add callback definitions
+        for lib in &manifest.libraries {
+            for callback in &lib.callbacks {
+                let effect = callback.effect()?;
+                let info = FfiCallbackInfo {
+                    name: callback.name.clone(),
+                    args: callback.args.clone(),
+                    return_spec: callback.return_spec.clone(),
+                    effect,
+                };
+
+                if self.callbacks.contains_key(&callback.name) {
+                    return Err(format!(
+                        "FFI callback '{}' is already defined",
+                        callback.name
+                    ));
+                }
+
+                self.callbacks.insert(callback.name.clone(), info);
+            }
+        }
+
         // Add function bindings
         for func in manifest.functions() {
-            let effect = func.effect()?;
+            let mut effect = func.effect()?;
+
+            // Add callback argument types to the effect
+            // Callbacks consume a quotation from the stack
+            for arg in &func.args {
+                if arg.arg_type == FfiType::Callback
+                    && let Some(cb_name) = &arg.callback
+                    && let Some(cb_info) = self.callbacks.get(cb_name)
+                {
+                    // Create a quotation type from the callback's effect
+                    let quot_type = crate::types::Type::Quotation(Box::new(cb_info.effect.clone()));
+                    effect.inputs = effect.inputs.push(quot_type);
+                }
+            }
+
             let info = FfiFunctionInfo {
                 c_name: func.c_name.clone(),
                 seq_name: func.seq_name.clone(),
@@ -382,6 +518,11 @@ impl FfiBindings {
         }
 
         Ok(())
+    }
+
+    /// Get callback info by name
+    pub fn get_callback(&self, name: &str) -> Option<&FfiCallbackInfo> {
+        self.callbacks.get(name)
     }
 
     /// Check if a word is an FFI function
@@ -699,5 +840,126 @@ stack_effect = "( -- )"
 
         let result = FfiManifest::parse(content);
         assert!(result.is_ok());
+    }
+
+    // Callback tests
+
+    #[test]
+    fn test_parse_callback() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.callback]]
+name = "comparator"
+args = [
+  { type = "ptr", name = "a" },
+  { type = "ptr", name = "b" }
+]
+return = { type = "int" }
+seq_effect = "( Int Int -- Int )"
+
+[[library.function]]
+c_name = "qsort"
+seq_name = "c-qsort"
+stack_effect = "( Int Int Int -- )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "int", pass = "int" },
+  { type = "int", pass = "int" },
+  { type = "callback", callback = "comparator" }
+]
+return = { type = "void" }
+"#;
+
+        let manifest = FfiManifest::parse(content).unwrap();
+        assert_eq!(manifest.libraries[0].callbacks.len(), 1);
+        assert_eq!(manifest.libraries[0].callbacks[0].name, "comparator");
+        assert_eq!(manifest.libraries[0].callbacks[0].args.len(), 2);
+
+        let mut bindings = FfiBindings::new();
+        bindings.add_manifest(&manifest).unwrap();
+        assert!(bindings.get_callback("comparator").is_some());
+    }
+
+    #[test]
+    fn test_validate_callback_undefined_reference() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "qsort"
+seq_name = "c-qsort"
+stack_effect = "( Int Int Int -- )"
+args = [
+  { type = "callback", callback = "undefined_callback" }
+]
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("undefined callback"));
+    }
+
+    #[test]
+    fn test_validate_callback_missing_field() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.function]]
+c_name = "qsort"
+seq_name = "c-qsort"
+stack_effect = "( Int -- )"
+args = [
+  { type = "callback" }
+]
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("without 'callback' field"));
+    }
+
+    #[test]
+    fn test_validate_callback_empty_name() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.callback]]
+name = ""
+seq_effect = "( Int -- Int )"
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("empty name"));
+    }
+
+    #[test]
+    fn test_validate_callback_empty_seq_effect() {
+        let content = r#"
+[[library]]
+name = "mylib"
+link = "mylib"
+
+[[library.callback]]
+name = "my_callback"
+seq_effect = ""
+"#;
+
+        let result = FfiManifest::parse(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("empty seq_effect"));
     }
 }

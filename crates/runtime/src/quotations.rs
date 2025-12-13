@@ -4,7 +4,7 @@
 //! A quotation is represented as a function pointer stored as usize.
 
 use crate::scheduler::patch_seq_strand_spawn;
-use crate::stack::{Stack, pop, push};
+use crate::stack::{Stack, peek, pop, push};
 use crate::value::Value;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -580,8 +580,102 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
     }
 }
 
+// ============================================================================
+// FFI Callback Support
+// ============================================================================
+
+/// Create a fresh stack for FFI callback execution
+///
+/// This is called from generated callback trampolines to create a new
+/// stack for executing the Seq quotation that handles the callback.
+///
+/// Note: This allocates a new stack (null pointer = empty stack) which is
+/// separate from any strand's stack. The callback operates in C context,
+/// not within the May coroutine scheduler.
+///
+/// # Safety
+/// Always safe to call - returns a null pointer representing empty stack.
+#[unsafe(no_mangle)]
+pub extern "C" fn patch_seq_callback_stack_new() -> Stack {
+    std::ptr::null_mut()
+}
+
+/// Free a callback stack after execution
+///
+/// This is called from generated callback trampolines after the Seq quotation
+/// returns to clean up any remaining values on the stack.
+///
+/// # Safety
+/// Stack must have been created by patch_seq_callback_stack_new or be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_callback_stack_free(mut stack: Stack) {
+    // Pop and drop all values from the stack
+    unsafe {
+        while !stack.is_null() {
+            let (rest, _value) = pop(stack);
+            stack = rest;
+        }
+    }
+}
+
+/// Pop an integer from the stack and return it
+///
+/// Used by callback trampolines to get the return value from the Seq quotation.
+///
+/// Stack effect: ( Int -- )
+///
+/// # Safety
+/// Stack must not be null and top must be Int.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_pop_int(stack: Stack) -> i64 {
+    assert!(!stack.is_null(), "pop_int: stack is empty");
+    unsafe {
+        let (_rest, value) = pop(stack);
+        match value {
+            Value::Int(n) => n,
+            _ => panic!("pop_int: expected Int, got {:?}", value),
+        }
+    }
+}
+
+/// Peek at a quotation's wrapper function pointer without consuming it
+///
+/// Used by FFI wrapper codegen to get the quotation's wrapper pointer
+/// before binding it to a callback trampoline.
+///
+/// Stack effect: ( quot -- quot ) [non-consuming peek]
+///
+/// # Safety
+/// Stack must not be null and top must be a Quotation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_peek_quotation_wrapper(stack: Stack) -> usize {
+    assert!(!stack.is_null(), "peek_quotation_wrapper: stack is empty");
+    let value = unsafe { peek(stack) };
+    match value {
+        Value::Quotation { wrapper, .. } => {
+            debug_assert!(
+                *wrapper != 0,
+                "peek_quotation_wrapper: wrapper function pointer is null"
+            );
+            *wrapper
+        }
+        _ => {
+            debug_assert!(
+                false,
+                "peek_quotation_wrapper: expected Quotation, got {:?}",
+                value
+            );
+            0
+        }
+    }
+}
+
 // Public re-exports with short names for internal use
 pub use patch_seq_call as call;
+pub use patch_seq_callback_stack_free as callback_stack_free;
+pub use patch_seq_callback_stack_new as callback_stack_new;
+pub use patch_seq_peek_quotation_wrapper as peek_quotation_wrapper;
+pub use patch_seq_pop_int as pop_int;
 pub use patch_seq_push_quotation as push_quotation;
 pub use patch_seq_spawn as spawn;
 pub use patch_seq_times as times;

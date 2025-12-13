@@ -707,6 +707,27 @@ Seq uses a consistent naming scheme for all built-in operations:
 | `-` (hyphen) | Compound words within names | `home-dir`, `field-at`, `write-line` |
 | `->` (arrow) | Type conversions | `int->string`, `float->int` |
 
+### Words Are Just Names
+
+In Seq, a *word* is any contiguous sequence of non-whitespace characters. There are
+no operators - the `.` in `io.write-line` is part of the word's name, not syntax
+for "calling a method on an object."
+
+```seq
+io.write-line    # This is ONE word, not "io" followed by "write-line"
+string.concat    # This is ONE word, not a method call on a string object
+```
+
+If you come from object-oriented languages, this may feel strange at first. In OO,
+`foo.bar` means "send the `bar` message to `foo`." In Seq, `io.write-line` is simply
+a name that includes a dot - exactly like `write-line` is a name that includes a
+hyphen. The dot is a naming convention for grouping related operations, not a
+dereferencing or method dispatch operator.
+
+Concatenative languages work differently: there are no objects receiving messages.
+There is only the stack. Words consume values from the stack and push results back.
+`io.write-line` doesn't operate "on" an io object - it pops a string and writes it.
+
 ### Module Prefixes
 
 Operations are grouped by functionality:

@@ -96,3 +96,78 @@ pub unsafe extern "C" fn patch_seq_current_dir(stack: Stack) -> Stack {
         }
     }
 }
+
+/// Check if a path exists
+///
+/// Stack effect: ( path -- exists )
+///
+/// Returns 1 if path exists, 0 otherwise.
+///
+/// # Safety
+/// Stack must have a String (path) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_path_exists(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, path_val) = pop(stack);
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => panic!(
+                "path-exists: expected String (path) on stack, got {:?}",
+                path_val
+            ),
+        };
+
+        let exists = std::path::Path::new(path.as_str()).exists();
+        push(stack, Value::Int(if exists { 1 } else { 0 }))
+    }
+}
+
+/// Check if a path is a regular file
+///
+/// Stack effect: ( path -- is-file )
+///
+/// Returns 1 if path is a regular file, 0 otherwise.
+///
+/// # Safety
+/// Stack must have a String (path) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_path_is_file(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, path_val) = pop(stack);
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => panic!(
+                "path-is-file: expected String (path) on stack, got {:?}",
+                path_val
+            ),
+        };
+
+        let is_file = std::path::Path::new(path.as_str()).is_file();
+        push(stack, Value::Int(if is_file { 1 } else { 0 }))
+    }
+}
+
+/// Check if a path is a directory
+///
+/// Stack effect: ( path -- is-dir )
+///
+/// Returns 1 if path is a directory, 0 otherwise.
+///
+/// # Safety
+/// Stack must have a String (path) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_path_is_dir(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, path_val) = pop(stack);
+        let path = match path_val {
+            Value::String(s) => s,
+            _ => panic!(
+                "path-is-dir: expected String (path) on stack, got {:?}",
+                path_val
+            ),
+        };
+
+        let is_dir = std::path::Path::new(path.as_str()).is_dir();
+        push(stack, Value::Int(if is_dir { 1 } else { 0 }))
+    }
+}

@@ -16,9 +16,14 @@
 #   dup add-history      # Add to history
 #
 # Persistent history:
-#   "~/.myapp_history" read-history drop   # Load at startup
+#   "/path/to/history" read-history drop   # Load at startup
 #   # ... run REPL ...
-#   "~/.myapp_history" write-history drop  # Save at exit
+#   "/path/to/history" write-history drop  # Save at exit
+#
+# Note: These functions accept file paths as-is. Shell expansions like ~
+# are not performed - that's the responsibility of your application.
+# A future std:os module could provide getenv for building paths like
+# "$HOME/.myapp_history".
 #
 # Note: The function names (readline, add-history) match GNU readline's API,
 # making it easy to switch between the two libraries.

@@ -685,6 +685,36 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // path-exists: ( ..a String -- ..a Int )
+    // Check if path exists, returns 1 if exists, 0 otherwise
+    sigs.insert(
+        "path-exists".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // path-is-file: ( ..a String -- ..a Int )
+    // Check if path is a regular file, returns 1 if file, 0 otherwise
+    sigs.insert(
+        "path-is-file".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // path-is-dir: ( ..a String -- ..a Int )
+    // Check if path is a directory, returns 1 if directory, 0 otherwise
+    sigs.insert(
+        "path-is-dir".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     // String operations
     // string-concat: ( ..a String String -- ..a String )
     // Concatenate two strings

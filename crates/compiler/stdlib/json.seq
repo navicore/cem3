@@ -7,7 +7,7 @@
 #   include std:json
 #
 #   : main ( -- Int )
-#     "hello" json-string json-serialize write_line
+#     "hello" json-string json-serialize io.write-line
 #     0
 #   ;
 #
@@ -104,7 +104,7 @@
 # Create a JSON null value
 # Stack: ( -- JsonNull )
 : json-null
-  0 make-variant-0
+  0 variant.make-0
 ;
 
 # Create a JSON boolean from an Int
@@ -112,29 +112,29 @@
 # Input: 0 for false, non-zero for true
 : json-bool
   0 <> if 1 else 0 then
-  1 make-variant-1
+  1 variant.make-1
 ;
 
 # Convenience: create JSON true
 : json-true
-  1 1 make-variant-1
+  1 1 variant.make-1
 ;
 
 # Convenience: create JSON false
 : json-false
-  0 1 make-variant-1
+  0 1 variant.make-1
 ;
 
 # Create a JSON number from a Float
 # Stack: ( Float -- JsonNumber )
 : json-number
-  2 make-variant-1
+  2 variant.make-1
 ;
 
 # Create a JSON string
 # Stack: ( String -- JsonString )
 : json-string
-  3 make-variant-1
+  3 variant.make-1
 ;
 
 # ============================================================================
@@ -148,7 +148,7 @@
 # Stack: ( JsonArray JsonValue -- JsonArray' )
 # Example: json-empty-array 42 json-number array-with -> [42]
 : array-with ( ..rest Variant Variant -- ..rest Variant )
-  variant-append
+  variant.append
 ;
 
 # Add a key-value pair to a JSON object, returning a new object
@@ -159,9 +159,9 @@
   # Stack: obj key val
   # Need to append key then val to obj
   rot rot                      # val obj key
-  variant-append               # val obj' (obj with key appended)
+  variant.append               # val obj' (obj with key appended)
   swap                         # obj' val
-  variant-append               # obj'' (obj with key and val)
+  variant.append               # obj'' (obj with key and val)
 ;
 
 # ============================================================================
@@ -171,37 +171,37 @@
 # Check if value is null
 # Stack: ( JsonValue -- JsonValue Int )
 : json-null?
-  dup variant-tag 0 =
+  dup variant.tag 0 =
 ;
 
 # Check if value is bool
 # Stack: ( JsonValue -- JsonValue Int )
 : json-bool?
-  dup variant-tag 1 =
+  dup variant.tag 1 =
 ;
 
 # Check if value is number
 # Stack: ( JsonValue -- JsonValue Int )
 : json-number?
-  dup variant-tag 2 =
+  dup variant.tag 2 =
 ;
 
 # Check if value is string
 # Stack: ( JsonValue -- JsonValue Int )
 : json-string?
-  dup variant-tag 3 =
+  dup variant.tag 3 =
 ;
 
 # Check if value is array
 # Stack: ( JsonValue -- JsonValue Int )
 : json-array?
-  dup variant-tag 4 =
+  dup variant.tag 4 =
 ;
 
 # Check if value is object
 # Stack: ( JsonValue -- JsonValue Int )
 : json-object?
-  dup variant-tag 5 =
+  dup variant.tag 5 =
 ;
 
 # ============================================================================
@@ -211,19 +211,19 @@
 # Unwrap a JSON bool to an Int (0 or 1)
 # Stack: ( JsonBool -- Int )
 : json-unwrap-bool
-  0 variant-field-at
+  0 variant.field-at
 ;
 
 # Unwrap a JSON number to a Float
 # Stack: ( JsonNumber -- Float )
 : json-unwrap-number
-  0 variant-field-at
+  0 variant.field-at
 ;
 
 # Unwrap a JSON string to a String
 # Stack: ( JsonString -- String )
 : json-unwrap-string
-  0 variant-field-at
+  0 variant.field-at
 ;
 
 # ============================================================================
@@ -233,7 +233,7 @@
 # Serialize a JSON value to a string
 # Stack: ( JsonValue -- String )
 : json-serialize
-  dup variant-tag
+  dup variant.tag
   # Stack: value tag
 
   # Tag 0: null
@@ -260,8 +260,8 @@
   dup 3 = if
     drop
     json-unwrap-string
-    json-escape-string
-    quote-char swap string-concat quote-char string-concat
+    string.json-escape-string
+    quote-char swap string.concat quote-char string.concat
   else
 
   # Tag 4: array
@@ -284,8 +284,8 @@
 # Escape special characters in a string for JSON output
 # Stack: ( String -- String )
 # Handles: quotes, backslashes, newlines, tabs, carriage-returns, backspace, form-feed, and control chars
-: json-escape-string
-  json-escape
+: string.json-escape-string
+  string.json-escape
 ;
 
 # Serialize a JSON array to string
@@ -293,7 +293,7 @@
 # Supports arrays with 0, 1, or 2 elements
 : json-serialize-array
   # Stack: JsonArray
-  dup variant-field-count    # JsonArray count
+  dup variant.field-count    # JsonArray count
   dup 0 = if
     # Empty array
     drop drop "[]"
@@ -301,42 +301,42 @@
     dup 1 = if
       # Single element array
       drop                   # JsonArray
-      0 variant-field-at     # elem
+      0 variant.field-at     # elem
       json-serialize         # elemstr
-      "[" swap string-concat # "[elem"
-      "]" string-concat      # "[elem]"
+      "[" swap string.concat # "[elem"
+      "]" string.concat      # "[elem]"
     else
       dup 2 = if
         # Two element array
         drop                   # JsonArray
         # Get first element
-        dup 0 variant-field-at # JsonArray elem0
+        dup 0 variant.field-at # JsonArray elem0
         json-serialize         # JsonArray elem0str
         # Get second element
         swap                   # elem0str JsonArray
-        1 variant-field-at     # elem0str elem1
+        1 variant.field-at     # elem0str elem1
         json-serialize         # elem0str elem1str
         # Build result: "[" + elem0str + "," + elem1str + "]"
         swap                   # elem1str elem0str
-        "[" swap string-concat # elem1str "[elem0"
-        "," string-concat      # elem1str "[elem0,"
-        swap string-concat     # "[elem0,elem1"
-        "]" string-concat      # "[elem0,elem1]"
+        "[" swap string.concat # elem1str "[elem0"
+        "," string.concat      # elem1str "[elem0,"
+        swap string.concat     # "[elem0,elem1"
+        "]" string.concat      # "[elem0,elem1]"
       else
         dup 3 = if
           # Three element array
           drop                     # JsonArray
           # Build incrementally using over
           "["                      # JsonArray "["
-          over 0 variant-field-at  # JsonArray "[" elem0
-          json-serialize string-concat  # JsonArray "[elem0"
-          "," string-concat        # JsonArray "[elem0,"
-          over 1 variant-field-at  # JsonArray "[elem0," elem1
-          json-serialize string-concat  # JsonArray "[elem0,elem1"
-          "," string-concat        # JsonArray "[elem0,elem1,"
-          swap 2 variant-field-at  # "[elem0,elem1," elem2
-          json-serialize string-concat  # "[elem0,elem1,elem2"
-          "]" string-concat        # "[elem0,elem1,elem2]"
+          over 0 variant.field-at  # JsonArray "[" elem0
+          json-serialize string.concat  # JsonArray "[elem0"
+          "," string.concat        # JsonArray "[elem0,"
+          over 1 variant.field-at  # JsonArray "[elem0," elem1
+          json-serialize string.concat  # JsonArray "[elem0,elem1"
+          "," string.concat        # JsonArray "[elem0,elem1,"
+          swap 2 variant.field-at  # "[elem0,elem1," elem2
+          json-serialize string.concat  # "[elem0,elem1,elem2"
+          "]" string.concat        # "[elem0,elem1,elem2]"
         else
           # More than 3 elements - fall back to representation
           drop drop "[...]"
@@ -352,7 +352,7 @@
 # Currently supports 0 or 1 key-value pairs (0 or 2 fields)
 : json-serialize-object
   # Stack: JsonObject
-  dup variant-field-count      # JsonObject count
+  dup variant.field-count      # JsonObject count
   dup 0 = if
     # Empty object
     drop drop "{}"
@@ -361,39 +361,39 @@
       # Single key-value pair (2 fields)
       drop                     # JsonObject
       # Get key (field 0) and value (field 1)
-      dup 0 variant-field-at   # JsonObject key
+      dup 0 variant.field-at   # JsonObject key
       json-serialize           # JsonObject keystr
       swap                     # keystr JsonObject
-      1 variant-field-at       # keystr val
+      1 variant.field-at       # keystr val
       json-serialize           # keystr valstr
       # Build: "{" + keystr + ":" + valstr + "}"
       swap                     # valstr keystr
-      "{" swap string-concat   # valstr "{key"
-      ":" string-concat        # valstr "{key:"
-      swap string-concat       # "{key:val"
-      "}" string-concat        # "{key:val}"
+      "{" swap string.concat   # valstr "{key"
+      ":" string.concat        # valstr "{key:"
+      swap string.concat       # "{key:val"
+      "}" string.concat        # "{key:val}"
     else
       dup 4 = if
         # Two key-value pairs (4 fields)
         drop                     # JsonObject
         # Strategy: build result string incrementally, keep obj on stack
         "{"                      # JsonObject "{"
-        over 0 variant-field-at  # JsonObject "{" key1
+        over 0 variant.field-at  # JsonObject "{" key1
         json-serialize           # JsonObject "{" key1str
-        string-concat            # JsonObject "{key1"
-        ":" string-concat        # JsonObject "{key1:"
-        over 1 variant-field-at  # JsonObject "{key1:" val1
+        string.concat            # JsonObject "{key1"
+        ":" string.concat        # JsonObject "{key1:"
+        over 1 variant.field-at  # JsonObject "{key1:" val1
         json-serialize           # JsonObject "{key1:" val1str
-        string-concat            # JsonObject "{key1:val1"
-        "," string-concat        # JsonObject "{key1:val1,"
-        over 2 variant-field-at  # JsonObject "{key1:val1," key2
+        string.concat            # JsonObject "{key1:val1"
+        "," string.concat        # JsonObject "{key1:val1,"
+        over 2 variant.field-at  # JsonObject "{key1:val1," key2
         json-serialize           # JsonObject "{key1:val1," key2str
-        string-concat            # JsonObject "{key1:val1,key2"
-        ":" string-concat        # JsonObject "{key1:val1,key2:"
-        swap 3 variant-field-at  # "{key1:val1,key2:" val2
+        string.concat            # JsonObject "{key1:val1,key2"
+        ":" string.concat        # JsonObject "{key1:val1,key2:"
+        swap 3 variant.field-at  # "{key1:val1,key2:" val2
         json-serialize           # "{key1:val1,key2:" val2str
-        string-concat            # "{key1:val1,key2:val2"
-        "}" string-concat        # "{key1:val1,key2:val2}"
+        string.concat            # "{key1:val1,key2:val2"
+        "}" string.concat        # "{key1:val1,key2:val2}"
       else
         # More than 2 pairs - fall back for now
         drop drop "{...}"
@@ -422,19 +422,19 @@
 # Stack: ( String Int -- PState )
 # Note: PState is a variant with tag 100 and 2 fields [str, pos]
 : make-pstate
-  100 make-variant-2
+  100 variant.make-2
 ;
 
 # Get the string from parser state (non-destructive)
 # Stack: ( PState -- PState String )
 : pstate-str
-  dup 0 variant-field-at
+  dup 0 variant.field-at
 ;
 
 # Get the position from parser state (non-destructive)
 # Stack: ( ..rest PState -- ..rest PState Int )
 : pstate-pos ( ..rest Variant -- ..rest Variant Int )
-  dup 1 variant-field-at
+  dup 1 variant.field-at
 ;
 
 # Advance parser state by n characters
@@ -442,9 +442,9 @@
 : pstate-advance
   # Stack: PState n
   swap                      # n PState
-  dup 0 variant-field-at    # n PState str
+  dup 0 variant.field-at    # n PState str
   rot rot                   # str n PState
-  1 variant-field-at        # str n pos
+  1 variant.field-at        # str n pos
   add                       # str newpos
   make-pstate               # PState'
 ;
@@ -454,10 +454,10 @@
 # Note: Returns 1 if pos >= len, 0 otherwise
 : pstate-at-end? ( ..rest Variant -- ..rest Variant Int )
   # Get length of string
-  dup 0 variant-field-at    # PState str
-  string-length             # PState len
+  dup 0 variant.field-at    # PState str
+  string.length             # PState len
   # Get position
-  over 1 variant-field-at   # PState len pos
+  over 1 variant.field-at   # PState len pos
   # Compare: pos >= len  means len <= pos
   <=                        # PState (len <= pos)
 ;
@@ -466,9 +466,9 @@
 # Stack: ( ..rest PState -- ..rest PState Int )
 : pstate-char-at ( ..rest Variant -- ..rest Variant Int )
   # Stack: PState
-  dup 0 variant-field-at    # PState str
-  over 1 variant-field-at   # PState str pos
-  string-char-at            # PState charcode
+  dup 0 variant.field-at    # PState str
+  over 1 variant.field-at   # PState str pos
+  string.char-at            # PState charcode
 ;
 
 # Check if a character code is whitespace (space, tab, newline, carriage return)
@@ -514,8 +514,8 @@
 # Stack: ( str pos -- str pos Int )
 : json-at-end? ( ..rest String Int -- ..rest String Int Int )
   # Stack: str pos
-  # Check: pos >= string-length(str)
-  over string-length  # str pos len
+  # Check: pos >= string.length(str)
+  over string.length  # str pos len
   over  # str pos len pos
   <=  # str pos (len <= pos) i.e. pos >= len
 ;
@@ -523,7 +523,7 @@
 # Get character code at position (non-destructive)
 # Stack: ( str pos -- str pos Int )
 : json-char-at ( ..rest String Int -- ..rest String Int Int )
-  over over string-char-at
+  over over string.char-at
 ;
 
 # Advance position by n characters
@@ -668,14 +668,14 @@
 # Helper: Get substring from position to end
 # Stack: ( String Int -- String )
 : string-from ( ..rest String Int -- ..rest String )
-  over string-length over subtract
-  string-substring
+  over string.length over subtract
+  string.substring
 ;
 
 # Helper: Get substring from start with given length
 # Stack: ( String Int -- String )
 : string-take ( ..rest String Int -- ..rest String )
-  0 swap string-substring
+  0 swap string.substring
 ;
 
 # Scan for closing quote using PState
@@ -727,8 +727,8 @@
       over subtract          # str pos str startpos len
 
       # Stack: str pos str startpos len
-      # Call string-substring(str, startpos, len)
-      string-substring       # str pos content
+      # Call string.substring(str, startpos, len)
+      string.substring       # str pos content
 
       # Make JsonString
       json-string            # str pos JsonString
@@ -794,7 +794,7 @@
 # Takes str startpos endpos, returns str[startpos:endpos]
 : substr-by-range ( String Int Int -- String )
   over subtract              # str startpos len
-  string-substring           # numstr
+  string.substring           # numstr
 ;
 
 # Helper: Extract number substring from current position
@@ -803,8 +803,8 @@
 # Uses roll to manage 4+ items on the stack.
 : pstate-extract-number-str ( Variant -- Variant String )
   # Unpack PState
-  dup 0 variant-field-at     # PState str
-  over 1 variant-field-at    # PState str startpos
+  dup 0 variant.field-at     # PState str
+  over 1 variant.field-at    # PState str startpos
   rot drop                   # str startpos (discard old PState)
 
   # Scan for number end
@@ -835,8 +835,8 @@
   # len = endpos - startpos
   over subtract              # PState' str startpos len
 
-  # string-substring: str startpos len -> substring
-  string-substring           # PState' numstr
+  # string.substring: str startpos len -> substring
+  string.substring           # PState' numstr
 ;
 
 # Parse a JSON number using PState with boundary detection
@@ -867,10 +867,10 @@
 
   # Extract str from PState'
   rot                        # JsonValue success PState'
-  dup 0 variant-field-at     # JsonValue success PState' str
+  dup 0 variant.field-at     # JsonValue success PState' str
 
   # Extract pos from PState'
-  swap 1 variant-field-at    # JsonValue success str pos
+  swap 1 variant.field-at    # JsonValue success str pos
 
   # Stack: JsonValue success str pos
   # Need:  str pos JsonValue success
@@ -887,13 +887,13 @@
 # Create an empty JSON array
 # Stack: ( -- JsonArray )
 : json-empty-array ( -- Variant )
-  4 make-variant-0
+  4 variant.make-0
 ;
 
 # Create an empty JSON object
 # Stack: ( -- JsonObject )
 : json-empty-object ( -- Variant )
-  5 make-variant-0
+  5 variant.make-0
 ;
 
 # Skip whitespace characters
@@ -917,8 +917,8 @@
   # Stack: PState arr
   swap                           # arr PState
   # Parse the element
-  dup 0 variant-field-at         # arr PState str
-  over 1 variant-field-at        # arr PState str pos
+  dup 0 variant.field-at         # arr PState str
+  over 1 variant.field-at        # arr PState str pos
   json-parse-value               # arr PState str' pos' elem success
   0 = if
     # Failed to parse element
@@ -991,14 +991,14 @@
   0 = if
     # Failed - extract str pos from PState
     drop                         # PState'
-    dup 0 variant-field-at       # PState' str
-    swap 1 variant-field-at      # str pos
+    dup 0 variant.field-at       # PState' str
+    swap 1 variant.field-at      # str pos
     json-null 0
   else
     # Success - extract str pos from PState
     swap                         # arr PState'
-    dup 0 variant-field-at       # arr PState' str
-    swap 1 variant-field-at      # arr str pos
+    dup 0 variant.field-at       # arr PState' str
+    swap 1 variant.field-at      # arr str pos
     rot                          # str pos arr
     1
   then
@@ -1034,8 +1034,8 @@
   swap                           # obj PState
   pstate-char-at 34 = if         # Check for opening quote
     # Unpack PState to call json-parse-string
-    dup 0 variant-field-at       # obj PState str
-    over 1 variant-field-at      # obj PState str pos
+    dup 0 variant.field-at       # obj PState str
+    over 1 variant.field-at      # obj PState str pos
     json-parse-string            # obj PState str' pos' JsonString success
     0 = if
       # Failed to parse key
@@ -1056,8 +1056,8 @@
         pstate-skip-ws           # obj JsonString PState'
 
         # Parse the value
-        dup 0 variant-field-at   # obj JsonString PState' str
-        over 1 variant-field-at  # obj JsonString PState' str pos
+        dup 0 variant.field-at   # obj JsonString PState' str
+        over 1 variant.field-at  # obj JsonString PState' str pos
         json-parse-value         # obj JsonString PState' str' pos' val success
         0 = if
           # Failed to parse value
@@ -1150,14 +1150,14 @@
   0 = if
     # Failed - extract str pos from PState
     drop                         # PState'
-    dup 0 variant-field-at       # PState' str
-    swap 1 variant-field-at      # str pos
+    dup 0 variant.field-at       # PState' str
+    swap 1 variant.field-at      # str pos
     json-null 0
   else
     # Success - extract str pos from PState
     swap                         # obj PState'
-    dup 0 variant-field-at       # obj PState' str
-    swap 1 variant-field-at      # obj str pos
+    dup 0 variant.field-at       # obj PState' str
+    swap 1 variant.field-at      # obj str pos
     rot                          # str pos obj
     1
   then

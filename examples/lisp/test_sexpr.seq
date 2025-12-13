@@ -4,20 +4,20 @@ include "sexpr"
 
 : main ( -- )
   # Test snum
-  42 snum sexpr-to-string write_line
+  42 snum sexpr-to-string io.write-line
 
   # Test ssym
-  "hello" ssym sexpr-to-string write_line
+  "hello" ssym sexpr-to-string io.write-line
 
   # Test empty list
-  snil slist sexpr-to-string write_line
+  snil slist sexpr-to-string io.write-line
 
   # Test list with one element: (42)
-  42 snum snil scons slist sexpr-to-string write_line
+  42 snum snil scons slist sexpr-to-string io.write-line
 
   # Test list with two elements: (1 2)
-  1 snum 2 snum snil scons scons slist sexpr-to-string write_line
+  1 snum 2 snum snil scons scons slist sexpr-to-string io.write-line
 
   # Test nested: (+ 1 2)
-  "+" ssym 1 snum 2 snum snil scons scons scons slist sexpr-to-string write_line
+  "+" ssym 1 snum 2 snum snil scons scons scons slist sexpr-to-string io.write-line
 ;

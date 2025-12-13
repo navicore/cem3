@@ -13,7 +13,7 @@
 ;
 
 : main ( -- )
-    "Testing quotation call TCO with 100000 recursive calls..." write_line
+    "Testing quotation call TCO with 100000 recursive calls..." io.write-line
     100000 recurse-via-quotation
-    "Success! Quotation call TCO is working." write_line
+    "Success! Quotation call TCO is working." io.write-line
 ;

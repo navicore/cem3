@@ -7,7 +7,7 @@
 #   include std:math
 #
 #   : main ( -- Int )
-#     -5 abs int->string write_line
+#     -5 abs int->string io.write-line
 #     0
 #   ;
 #

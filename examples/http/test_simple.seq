@@ -1,7 +1,7 @@
 # Simple test
 
 : myhello
-  "myhello works!" write_line
+  "myhello works!" io.write-line
 ;
 
 : main ( -- Int )

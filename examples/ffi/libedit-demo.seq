@@ -22,28 +22,28 @@
 
 include ffi:libedit
 
-# History file path - uses home-dir to get user's home directory
+# History file path - uses os.home-dir to get user's home directory
 : history-file ( -- String )
-  home-dir if
-    "/.seq-demo-history" string-concat
+  os.home-dir if
+    "/.seq-demo-history" string.concat
   else
-    drop "/tmp/.seq-demo-history"  # Fallback if home-dir fails
+    drop "/tmp/.seq-demo-history"  # Fallback if os.home-dir fails
   then
 ;
 
 # Simple command handler
 : process-command ( String -- )
-  dup "quit" string-equal if
-    drop "Goodbye!" write_line
+  dup "quit" string.equal? if
+    drop "Goodbye!" io.write-line
   else
-    dup "help" string-equal if
+    dup "help" string.equal? if
       drop
-      "Commands:" write_line
-      "  help  - Show this message" write_line
-      "  quit  - Exit the program" write_line
-      "  <any> - Echo your input" write_line
+      "Commands:" io.write-line
+      "  help  - Show this message" io.write-line
+      "  quit  - Exit the program" io.write-line
+      "  <any> - Echo your input" io.write-line
     else
-      "You said: " swap string-concat write_line
+      "You said: " swap string.concat io.write-line
     then
   then
 ;
@@ -51,18 +51,18 @@ include ffi:libedit
 # Main REPL loop
 : repl ( -- )
   "seq> " readline
-  dup string-empty if
+  dup string.empty? if
     # Empty string means EOF (Ctrl+D) - exit
     drop
-    "" write_line
-    "Goodbye!" write_line
+    "" io.write-line
+    "Goodbye!" io.write-line
   else
     # Add non-empty input to history
     dup add-history
     # Process the command
     dup process-command
     # Continue unless quit
-    "quit" string-equal not if
+    "quit" string.equal? not if
       repl
     then
   then
@@ -72,10 +72,10 @@ include ffi:libedit
   # Load history from previous sessions (ignore error if file doesn't exist)
   history-file read-history drop
 
-  "Welcome to the Seq REPL with libedit!" write_line
-  "Type 'help' for commands, 'quit' to exit." write_line
-  "History is saved to " history-file string-concat write_line
-  "" write_line
+  "Welcome to the Seq REPL with libedit!" io.write-line
+  "Type 'help' for commands, 'quit' to exit." io.write-line
+  "History is saved to " history-file string.concat io.write-line
+  "" io.write-line
   repl
 
   # Save history for next session

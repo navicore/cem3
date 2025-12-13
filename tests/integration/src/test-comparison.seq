@@ -2,35 +2,35 @@
 # All comparisons return 1 (true) or 0 (false) as integers
 
 : test-eq ( -- )
-  5 5 = int->string write_line
-  5 3 = int->string write_line
+  5 5 = int->string io.write-line
+  5 3 = int->string io.write-line
 ;
 
 : test-lt ( -- )
-  3 5 < int->string write_line
-  5 3 < int->string write_line
+  3 5 < int->string io.write-line
+  5 3 < int->string io.write-line
 ;
 
 : test-gt ( -- )
-  5 3 > int->string write_line
-  3 5 > int->string write_line
+  5 3 > int->string io.write-line
+  3 5 > int->string io.write-line
 ;
 
 : test-lte ( -- )
-  3 5 <= int->string write_line
-  5 5 <= int->string write_line
-  5 3 <= int->string write_line
+  3 5 <= int->string io.write-line
+  5 5 <= int->string io.write-line
+  5 3 <= int->string io.write-line
 ;
 
 : test-gte ( -- )
-  5 3 >= int->string write_line
-  5 5 >= int->string write_line
-  3 5 >= int->string write_line
+  5 3 >= int->string io.write-line
+  5 5 >= int->string io.write-line
+  3 5 >= int->string io.write-line
 ;
 
 : test-neq ( -- )
-  5 3 <> int->string write_line
-  5 5 <> int->string write_line
+  5 3 <> int->string io.write-line
+  5 5 <> int->string io.write-line
 ;
 
 : main ( -- )

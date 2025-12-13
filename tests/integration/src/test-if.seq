@@ -3,16 +3,16 @@
 : test-if-true ( -- )
   5 3 >
   if
-    "Greater!" write_line
+    "Greater!" io.write-line
   then
 ;
 
 : test-if-false ( -- )
   3 5 >
   if
-    "This should not print" write_line
+    "This should not print" io.write-line
   then
-  "After if" write_line
+  "After if" io.write-line
 ;
 
 : main ( -- )

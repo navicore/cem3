@@ -387,6 +387,9 @@ impl Program {
             "getenv",
             "home-dir",
             "current-dir",
+            "path-exists",
+            "path-is-file",
+            "path-is-dir",
             // Float arithmetic operations
             "f.add",
             "f.subtract",

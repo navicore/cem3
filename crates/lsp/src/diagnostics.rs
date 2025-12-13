@@ -1,4 +1,4 @@
-use crate::includes::IncludedWord;
+use crate::includes::IncludeResolution;
 use seqc::{Parser, TypeChecker, lint};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,18 +14,18 @@ use tracing::{debug, warn};
 /// for include-aware diagnostics.
 #[cfg(test)]
 pub fn check_document(source: &str) -> Vec<Diagnostic> {
-    check_document_with_includes(source, &[], None)
+    check_document_with_includes(source, &IncludeResolution::default(), None)
 }
 
-/// Check a document for parse and type errors, with knowledge of included words.
+/// Check a document for parse and type errors, with knowledge of included words and types.
 ///
-/// The `included_words` parameter should contain all words available from
-/// included modules, with their effects if known.
+/// The `includes` parameter should contain all words and union types available from
+/// included modules.
 ///
 /// The `file_path` parameter is used for lint diagnostics to identify the source file.
 pub fn check_document_with_includes(
     source: &str,
-    included_words: &[IncludedWord],
+    includes: &IncludeResolution,
     file_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -49,7 +49,7 @@ pub fn check_document_with_includes(
     }
 
     // Extract names for word call validation
-    let included_word_names: Vec<&str> = included_words.iter().map(|w| w.name.as_str()).collect();
+    let included_word_names: Vec<&str> = includes.words.iter().map(|w| w.name.as_str()).collect();
 
     // Phase 2: Validate word calls (check for undefined words)
     // This catches references to words that don't exist as either
@@ -62,8 +62,12 @@ pub fn check_document_with_includes(
     }
 
     // Phase 3: Type check
-    // Register external words with the typechecker so it knows about included words
+    // Register external words and union types with the typechecker
     let mut typechecker = TypeChecker::new();
+
+    // Register external union types so they can be referenced in field type declarations
+    let external_unions: Vec<&str> = includes.union_names.iter().map(|s| s.as_str()).collect();
+    typechecker.register_external_unions(&external_unions);
 
     // Build list of external words with their effects (or None for placeholder)
     // TODO: When effect is None, a maximally polymorphic placeholder (..a -- ..b) is used.
@@ -71,7 +75,8 @@ pub fn check_document_with_includes(
     // - Emitting a warning when a word has no effect signature
     // - Requiring all exported words to have effects
     // - Tracking which words used placeholders and showing them in diagnostics
-    let external_words: Vec<(&str, Option<&seqc::Effect>)> = included_words
+    let external_words: Vec<(&str, Option<&seqc::Effect>)> = includes
+        .words
         .iter()
         .map(|w| (w.name.as_str(), w.effect.as_ref()))
         .collect();

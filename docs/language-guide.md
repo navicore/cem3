@@ -22,7 +22,7 @@ as syntactic sugar over function application, Seq makes composition the *only*
 mechanism:
 
 ```seq
-data [ transform ] list-map [ predicate ] list-filter init [ combine ] list-fold
+data [ transform ] list.map [ predicate ] list.filter init [ combine ] list.fold
 ```
 
 The connection runs deeper than syntax. Rust's `FnOnce` trait means "callable
@@ -119,7 +119,7 @@ Quotations enable higher-order programming:
 5 [ 2 multiply ] call    # Result: 10
 ```
 
-They're essential for combinators like `list-map`, `list-filter`, and control flow.
+They're essential for combinators like `list.map`, `list.filter`, and control flow.
 
 ## Control Flow
 
@@ -227,32 +227,32 @@ Basic console I/O:
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `write_line` | `( String -- )` | Print string to stdout with newline |
-| `read_line` | `( -- String )` | Read line from stdin (includes newline) |
-| `read_line+` | `( -- String Int )` | Read line with EOF detection |
+| `io.write-line` | `( String -- )` | Print string to stdout with newline |
+| `io.read-line` | `( -- String )` | Read line from stdin (includes newline) |
+| `io.read-line+` | `( -- String Int )` | Read line with EOF detection |
 
 ### Line Ending Normalization
 
-All line-reading operations (`read_line`, `read_line+`, `file-for-each-line+`)
+All line-reading operations (`io.read-line`, `io.read-line+`, `file.for-each-line+`)
 normalize line endings to `\n`. Windows-style `\r\n` is converted to `\n`.
 This ensures Seq programs behave consistently across operating systems.
 
-### Handling EOF with read_line+
+### Handling EOF with io.read-line+
 
-The `read_line` word panics at EOF, which is fine for simple scripts. For robust input handling, use `read_line+` which returns a status flag:
+The `io.read-line` word panics at EOF, which is fine for simple scripts. For robust input handling, use `io.read-line+` which returns a status flag:
 
 ```seq
-read_line+    # ( -- String Int )
-              # Success: ( "line\n" 1 )
-              # EOF:     ( "" 0 )
+io.read-line+    # ( -- String Int )
+                 # Success: ( "line\n" 1 )
+                 # EOF:     ( "" 0 )
 ```
 
 Example - reading all lines until EOF:
 
 ```seq
 : process-input ( -- )
-    read_line+ if
-        string-chomp    # Remove trailing newline
+    io.read-line+ if
+        string.chomp    # Remove trailing newline
         process-line    # Your processing word
         process-input   # Recurse for next line
     else
@@ -390,15 +390,15 @@ For dynamic use cases, low-level primitives are still available:
 
 ```seq
 # Create a variant with tag 1 and one field
-42 1 make-variant-1     # (Tag1 42)
+42 1 variant.make-1     # (Tag1 42)
 
 # Create with two fields
-"key" 100 2 make-variant-2   # (Tag2 "key" 100)
+"key" 100 2 variant.make-2   # (Tag2 "key" 100)
 
 # Inspect variants
-variant-tag             # Get the tag number
-0 variant-field-at      # Get field 0
-1 variant-field-at      # Get field 1
+variant.tag             # Get the tag number
+0 variant.field-at      # Get field 0
+1 variant.field-at      # Get field 1
 ```
 
 ### Cons Lists
@@ -406,11 +406,11 @@ variant-tag             # Get the tag number
 The standard pattern for lists using low-level variants:
 
 ```seq
-: nil ( -- Variant )  0 make-variant-0 ;
-: cons ( head tail -- Variant )  1 make-variant-2 ;
-: nil? ( Variant -- Int )  variant-tag 0 = ;
-: car ( Variant -- head )  0 variant-field-at ;
-: cdr ( Variant -- tail )  1 variant-field-at ;
+: nil ( -- Variant )  0 variant.make-0 ;
+: cons ( head tail -- Variant )  1 variant.make-2 ;
+: nil? ( Variant -- Int )  variant.tag 0 = ;
+: car ( Variant -- head )  0 variant.field-at ;
+: cdr ( Variant -- tail )  1 variant.field-at ;
 
 # Build a list: (1 2 3)
 1  2  3 nil cons cons cons
@@ -494,16 +494,16 @@ union IntOption { Some { value: Int } None }
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `string-concat` | `( a b -- ab )` | Concatenate |
-| `string-length` | `( s -- Int )` | Character count |
-| `string-empty` | `( s -- Int )` | True if empty |
-| `string-equal` | `( a b -- Int )` | Compare |
-| `string-char-at` | `( s i -- Int )` | Char code at index |
-| `string-substring` | `( s start len -- s )` | Extract substring |
-| `string-split` | `( s delim -- Variant )` | Split into list |
-| `string-chomp` | `( s -- s )` | Remove trailing newline |
-| `string-trim` | `( s -- s )` | Remove whitespace |
-| `string->int` | `( s -- Int )` | Parse integer |
+| `string.concat` | `( a b -- ab )` | Concatenate |
+| `string.length` | `( s -- Int )` | Character count |
+| `string.empty?` | `( s -- Int )` | True if empty |
+| `string.equal?` | `( a b -- Int )` | Compare |
+| `string.char-at` | `( s i -- Int )` | Char code at index |
+| `string.substring` | `( s start len -- s )` | Extract substring |
+| `string.split` | `( s delim -- Variant )` | Split into list |
+| `string.chomp` | `( s -- s )` | Remove trailing newline |
+| `string.trim` | `( s -- s )` | Remove whitespace |
+| `string->int` | `( s -- Int Int )` | Parse integer (value, success flag) |
 | `int->string` | `( Int -- s )` | Format integer |
 
 ## Bitwise Operations
@@ -552,7 +552,7 @@ Seq has no loop keywords. Iteration is recursion:
 # Count down
 : countdown ( Int -- )
     dup 0 > if
-        dup int->string write_line
+        dup int->string io.write-line
         1 - countdown
     else
         drop
@@ -580,8 +580,8 @@ you can write natural recursive code without restructuring for optimization:
 
 ```seq
 : process-input ( -- )
-    read_line+ if
-        string-chomp
+    io.read-line+ if
+        string.chomp
         process-line
         process-input   # Tail call - even inside a branch
     else
@@ -626,46 +626,46 @@ internally, so this distinction rarely matters in practice.
 
 ```seq
 : main ( -- )
-    arg-count 1 > if
-        1 arg              # First argument (0 is program name)
+    args.count 1 > if
+        1 args.at          # First argument (0 is program name)
         process-file
     else
-        "Usage: prog <file>" write_line
+        "Usage: prog <file>" io.write-line
     then
 ;
 ```
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `arg-count` | `( -- Int )` | Number of arguments |
-| `arg` | `( Int -- String )` | Get argument by index |
+| `args.count` | `( -- Int )` | Number of arguments |
+| `args.at` | `( Int -- String )` | Get argument by index |
 
 ## File Operations
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `file-slurp` | `( path -- String )` | Read entire file |
-| `file-exists?` | `( path -- Int )` | Check if file exists |
-| `file-for-each-line+` | `( path quot -- String Int )` | Process file line by line |
+| `file.slurp` | `( path -- String )` | Read entire file |
+| `file.exists?` | `( path -- Int )` | Check if file exists |
+| `file.for-each-line+` | `( path quot -- String Int )` | Process file line by line |
 
 ### Line-by-Line File Processing
 
-For processing files line by line (similar to `read_line+` for stdin), use `file-for-each-line+`:
+For processing files line by line (similar to `io.read-line+` for stdin), use `file.for-each-line+`:
 
 ```seq
 : process-line ( String -- )
-    string-chomp
+    string.chomp
     # ... do something with line
 ;
 
 : main ( -- )
-    "data.txt" [ process-line ] file-for-each-line+
+    "data.txt" [ process-line ] file.for-each-line+
     if
         drop  # drop empty string on success
-        "Done!" write_line
+        "Done!" io.write-line
     else
         # error message is on stack
-        "Error: " swap string-concat write_line
+        "Error: " swap string.concat io.write-line
     then
 ;
 ```
@@ -697,41 +697,89 @@ include "eval"
 
 The include path is relative to the including file.
 
-## Naming Conventions
+## Naming Convention
+
+Seq uses a consistent naming scheme for all built-in operations:
+
+| Delimiter | Usage | Example |
+|-----------|-------|---------|
+| `.` (dot) | Module/namespace prefix | `io.write-line`, `tcp.listen`, `string.concat` |
+| `-` (hyphen) | Compound words within names | `home-dir`, `field-at`, `write-line` |
+| `->` (arrow) | Type conversions | `int->string`, `float->int` |
+
+### Module Prefixes
+
+Operations are grouped by functionality:
+
+| Prefix | Domain | Examples |
+|--------|--------|----------|
+| `io.` | Console I/O | `io.write-line`, `io.read-line` |
+| `file.` | File operations | `file.slurp`, `file.exists?` |
+| `string.` | String manipulation | `string.concat`, `string.trim` |
+| `list.` | List operations | `list.map`, `list.filter` |
+| `map.` | Hash maps | `map.make`, `map.get`, `map.set` |
+| `chan.` | Channels | `chan.make`, `chan.send`, `chan.receive` |
+| `tcp.` | Networking | `tcp.listen`, `tcp.accept` |
+| `os.` | Operating system | `os.getenv`, `os.home-dir` |
+| `args.` | Command-line args | `args.count`, `args.at` |
+| `variant.` | Variant introspection | `variant.tag`, `variant.field-at` |
+| `f.` | Float operations | `f.add`, `f.<`, `f.>=` |
+
+### Suffixes
 
 | Suffix | Meaning | Example |
 |--------|---------|---------|
-| `?` | Predicate (returns boolean) | `nil?`, `empty?`, `file-exists?` |
-| `+` | Returns result + status | `read_line+`, `map-get-safe` |
-| `->` | Conversion | `int->string`, `string->int` |
+| `?` | Predicate (returns boolean) | `nil?`, `string.empty?`, `file.exists?` |
+| `+` | Returns result + status | `io.read-line+`, `file.for-each-line+` |
+| `-safe` | Safe variant (no panic) | `chan.send-safe`, `map.get-safe` |
+
+### Core Primitives (No Prefix)
+
+Fundamental operations remain unnamespaced for conciseness:
+
+- **Stack:** `dup`, `swap`, `over`, `rot`, `nip`, `tuck`, `drop`, `pick`, `roll`
+- **Arithmetic:** `add`, `subtract`, `multiply`, `divide`
+- **Comparison:** `=`, `<`, `>`, `<=`, `>=`, `<>`
+- **Boolean:** `and`, `or`, `not`
+- **Bitwise:** `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
+- **Control:** `call`, `times`, `while`, `until`, `spawn`, `cond`
+
+### Rationale
+
+The naming convention provides:
+
+1. **Discoverability** - Related operations share a prefix. Wondering what you can do with strings? Look for `string.*`
+2. **No collisions** - `length` could mean string length, list length, or map size. `string.length`, `list.length`, and `map.size` are unambiguous
+3. **Clean primitives** - Core stack operations like `dup` and `swap` appear in nearly every word; namespacing them would add noise
+4. **Familiar patterns** - The `.` delimiter echoes method syntax from other languages; `->` for conversions is intuitive
 
 ## Maps
 
 Key-value dictionaries with O(1) lookup:
 
 ```seq
-make-map                    # ( -- Map )
-"name" "Alice" map-set      # ( Map -- Map )
-"age" 30 map-set
-"name" map-get              # ( Map key -- Map value )
-"name" map-has?             # ( Map key -- Map Int )
-map-keys                    # ( Map -- Variant ) list of keys
+map.make                    # ( -- Map )
+"name" "Alice" map.set      # ( Map -- Map )
+"age" 30 map.set
+"name" map.get              # ( Map key -- Map value )
+"name" map.has?             # ( Map key -- Map Int )
+map.keys                    # ( Map -- Variant ) list of keys
 ```
 
 ## Higher-Order Words
 
 ```seq
 # Map over a list
-my-list [ 2 * ] list-map
+my-list [ 2 * ] list.map
 
 # Filter a list
-my-list [ 0 > ] list-filter
+my-list [ 0 > ] list.filter
 
 # Fold (reduce)
-my-list 0 [ + ] list-fold
+my-list 0 [ + ] list.fold
 
 # Execute N times
-10 [ "hello" write_line ] times
+10 [ "hello" io.write-line ] times
 
 # Loop while condition true
 [ condition ] [ body ] while
@@ -748,7 +796,7 @@ cooperatively yielding during I/O operations.
 Spawn a quotation as a new strand:
 
 ```seq
-[ "Hello from strand!" write_line ] spawn
+[ "Hello from strand!" io.write-line ] spawn
 # Returns strand ID (Int)
 ```
 
@@ -764,17 +812,17 @@ Processes) model - similar to Go channels or Erlang message passing.
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `make-channel` | `( -- Int )` | Create channel, return ID |
-| `send` | `( value Int -- )` | Send value to channel |
-| `receive` | `( Int -- value )` | Receive value from channel (blocks) |
-| `close-channel` | `( Int -- )` | Close the channel |
+| `chan.make` | `( -- Int )` | Create channel, return ID |
+| `chan.send` | `( value Int -- )` | Send value to channel |
+| `chan.receive` | `( Int -- value )` | Receive value from channel (blocks) |
+| `chan.close` | `( Int -- )` | Close the channel |
 
 Safe variants return status instead of panicking:
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `send-safe` | `( value Int -- Int )` | Returns 1 on success, 0 if closed |
-| `receive-safe` | `( Int -- value Int )` | Returns (value 1) or (0 0) if closed |
+| `chan.send-safe` | `( value Int -- Int )` | Returns 1 on success, 0 if closed |
+| `chan.receive-safe` | `( Int -- value Int )` | Returns (value 1) or (0 0) if closed |
 
 ### Producer-Consumer Example
 
@@ -783,15 +831,15 @@ Safe variants return status instead of panicking:
     10 [
         dup             # channel on stack
         "message" swap  # ( "message" channel )
-        send
+        chan.send
     ] times
-    close-channel
+    chan.close
 ;
 
 : consumer ( Int -- )
     [
-        dup receive-safe if
-            write_line
+        dup chan.receive-safe if
+            io.write-line
             1               # continue
         else
             drop 0          # channel closed, stop
@@ -801,7 +849,7 @@ Safe variants return status instead of panicking:
 ;
 
 : main ( -- )
-    make-channel
+    chan.make
     dup [ producer ] spawn drop
     consumer
 ;
@@ -813,31 +861,31 @@ Build network servers with strand-per-connection:
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `tcp-listen` | `( Int -- Int )` | Listen on port, return listener |
-| `tcp-accept` | `( Int -- Int )` | Accept connection, return socket |
-| `tcp-read` | `( Int -- String )` | Read from socket |
-| `tcp-write` | `( String Int -- )` | Write to socket |
-| `tcp-close` | `( Int -- )` | Close socket |
+| `tcp.listen` | `( Int -- Int )` | Listen on port, return listener |
+| `tcp.accept` | `( Int -- Int )` | Accept connection, return socket |
+| `tcp.read` | `( Int -- String )` | Read from socket |
+| `tcp.write` | `( String Int -- )` | Write to socket |
+| `tcp.close` | `( Int -- )` | Close socket |
 
 ### Concurrent Server Pattern
 
 ```seq
 : handle-client ( Int -- )
-    dup tcp-read      # read request
+    dup tcp.read      # read request
     process-request   # your logic here
-    over tcp-write    # write response
-    tcp-close
+    over tcp.write    # write response
+    tcp.close
 ;
 
 : accept-loop ( Int -- )
-    dup tcp-accept                    # ( listener client )
+    dup tcp.accept                    # ( listener client )
     [ handle-client ] spawn drop      # spawn handler
     accept-loop                       # tail call - runs forever, no stack growth
 ;
 
 : main ( -- )
-    8080 tcp-listen
-    "Listening on :8080" write_line
+    8080 tcp.listen
+    "Listening on :8080" io.write-line
     accept-loop
 ;
 ```

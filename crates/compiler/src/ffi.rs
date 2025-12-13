@@ -9,7 +9,7 @@
 //! # Usage
 //!
 //! ```seq
-//! include ffi:readline
+//! include ffi:libedit
 //!
 //! : repl ( -- )
 //!   "prompt> " readline
@@ -102,9 +102,9 @@ fn default_ownership() -> Ownership {
 /// A function binding in an FFI manifest
 #[derive(Debug, Clone, Deserialize)]
 pub struct FfiFunction {
-    /// C function name (e.g., "readline")
+    /// C function name (e.g., "sqlite3_open")
     pub c_name: String,
-    /// Seq word name (e.g., "readline")
+    /// Seq word name (e.g., "db-open")
     pub seq_name: String,
     /// Stack effect annotation (e.g., "( String -- String )")
     pub stack_effect: String,
@@ -121,7 +121,7 @@ pub struct FfiFunction {
 pub struct FfiLibrary {
     /// Library name for reference
     pub name: String,
-    /// Linker flag (e.g., "readline" for -lreadline)
+    /// Linker flag (e.g., "sqlite3" for -lsqlite3)
     pub link: String,
     /// Function bindings
     #[serde(rename = "function", default)]
@@ -408,12 +408,12 @@ mod tests {
     fn test_parse_manifest() {
         let content = r#"
 [[library]]
-name = "readline"
-link = "readline"
+name = "example"
+link = "example"
 
 [[library.function]]
-c_name = "readline"
-seq_name = "readline"
+c_name = "example_func"
+seq_name = "example-func"
 stack_effect = "( String -- String )"
 args = [
   { type = "string", pass = "c_string" }
@@ -423,13 +423,13 @@ return = { type = "string", ownership = "caller_frees" }
 
         let manifest = FfiManifest::parse(content).unwrap();
         assert_eq!(manifest.libraries.len(), 1);
-        assert_eq!(manifest.libraries[0].name, "readline");
-        assert_eq!(manifest.libraries[0].link, "readline");
+        assert_eq!(manifest.libraries[0].name, "example");
+        assert_eq!(manifest.libraries[0].link, "example");
         assert_eq!(manifest.libraries[0].functions.len(), 1);
 
         let func = &manifest.libraries[0].functions[0];
-        assert_eq!(func.c_name, "readline");
-        assert_eq!(func.seq_name, "readline");
+        assert_eq!(func.c_name, "example_func");
+        assert_eq!(func.seq_name, "example-func");
         assert_eq!(func.args.len(), 1);
         assert_eq!(func.args[0].arg_type, FfiType::String);
         assert_eq!(func.args[0].pass, PassMode::CString);
@@ -463,19 +463,19 @@ return = { type = "string", ownership = "caller_frees" }
     fn test_ffi_bindings() {
         let content = r#"
 [[library]]
-name = "readline"
-link = "readline"
+name = "example"
+link = "example"
 
 [[library.function]]
-c_name = "readline"
-seq_name = "readline"
+c_name = "example_read"
+seq_name = "example-read"
 stack_effect = "( String -- String )"
 args = [{ type = "string", pass = "c_string" }]
 return = { type = "string", ownership = "caller_frees" }
 
 [[library.function]]
-c_name = "add_history"
-seq_name = "add-history"
+c_name = "example_store"
+seq_name = "example-store"
 stack_effect = "( String -- )"
 args = [{ type = "string", pass = "c_string" }]
 return = { type = "void" }
@@ -485,11 +485,11 @@ return = { type = "void" }
         let mut bindings = FfiBindings::new();
         bindings.add_manifest(&manifest).unwrap();
 
-        assert!(bindings.is_ffi_function("readline"));
-        assert!(bindings.is_ffi_function("add-history"));
+        assert!(bindings.is_ffi_function("example-read"));
+        assert!(bindings.is_ffi_function("example-store"));
         assert!(!bindings.is_ffi_function("not-defined"));
 
-        assert_eq!(bindings.linker_flags, vec!["readline"]);
+        assert_eq!(bindings.linker_flags, vec!["example"]);
     }
 
     // Validation tests
@@ -499,11 +499,11 @@ return = { type = "void" }
         let content = r#"
 [[library]]
 name = ""
-link = "readline"
+link = "example"
 
 [[library.function]]
-c_name = "readline"
-seq_name = "readline"
+c_name = "example_func"
+seq_name = "example-func"
 stack_effect = "( String -- String )"
 "#;
 
@@ -516,12 +516,12 @@ stack_effect = "( String -- String )"
     fn test_validate_empty_link() {
         let content = r#"
 [[library]]
-name = "readline"
+name = "example"
 link = "  "
 
 [[library.function]]
-c_name = "readline"
-seq_name = "readline"
+c_name = "example_func"
+seq_name = "example-func"
 stack_effect = "( String -- String )"
 "#;
 

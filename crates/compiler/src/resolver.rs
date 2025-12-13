@@ -136,8 +136,9 @@ impl Resolver {
             // Check if we have the FFI manifest
             if !crate::ffi::has_ffi_manifest(name) {
                 return Err(format!(
-                    "FFI library '{}' not found. Available: readline",
-                    name
+                    "FFI library '{}' not found. Available: {}",
+                    name,
+                    crate::ffi::list_ffi_manifests().join(", ")
                 ));
             }
             // Avoid duplicate FFI includes

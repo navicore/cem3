@@ -3,68 +3,68 @@
 : main ( -- Int )
   # Basic arithmetic
   1.5 2.5 f.add 4.0 f.= if
-    "PASS: f.add (1.5 + 2.5 = 4.0)" write_line
+    "PASS: f.add (1.5 + 2.5 = 4.0)" io.write-line
   else
-    "FAIL: f.add" write_line
+    "FAIL: f.add" io.write-line
   then
 
   10.0 3.0 f.subtract 7.0 f.= if
-    "PASS: f.subtract (10.0 - 3.0 = 7.0)" write_line
+    "PASS: f.subtract (10.0 - 3.0 = 7.0)" io.write-line
   else
-    "FAIL: f.subtract" write_line
+    "FAIL: f.subtract" io.write-line
   then
 
   2.5 4.0 f.multiply 10.0 f.= if
-    "PASS: f.multiply (2.5 * 4.0 = 10.0)" write_line
+    "PASS: f.multiply (2.5 * 4.0 = 10.0)" io.write-line
   else
-    "FAIL: f.multiply" write_line
+    "FAIL: f.multiply" io.write-line
   then
 
   10.0 4.0 f.divide 2.5 f.= if
-    "PASS: f.divide (10.0 / 4.0 = 2.5)" write_line
+    "PASS: f.divide (10.0 / 4.0 = 2.5)" io.write-line
   else
-    "FAIL: f.divide" write_line
+    "FAIL: f.divide" io.write-line
   then
 
   # Comparisons
   1.5 2.5 f.< if
-    "PASS: f.< (1.5 < 2.5)" write_line
+    "PASS: f.< (1.5 < 2.5)" io.write-line
   else
-    "FAIL: f.<" write_line
+    "FAIL: f.<" io.write-line
   then
 
   3.0 2.0 f.> if
-    "PASS: f.> (3.0 > 2.0)" write_line
+    "PASS: f.> (3.0 > 2.0)" io.write-line
   else
-    "FAIL: f.>" write_line
+    "FAIL: f.>" io.write-line
   then
 
   # Conversions
   42 int->float 42.0 f.= if
-    "PASS: int->float (42 -> 42.0)" write_line
+    "PASS: int->float (42 -> 42.0)" io.write-line
   else
-    "FAIL: int->float" write_line
+    "FAIL: int->float" io.write-line
   then
 
   3.7 float->int 3 = if
-    "PASS: float->int truncates (3.7 -> 3)" write_line
+    "PASS: float->int truncates (3.7 -> 3)" io.write-line
   else
-    "FAIL: float->int" write_line
+    "FAIL: float->int" io.write-line
   then
 
   # Scientific notation
   1e3 1000.0 f.= if
-    "PASS: scientific notation (1e3 = 1000.0)" write_line
+    "PASS: scientific notation (1e3 = 1000.0)" io.write-line
   else
-    "FAIL: scientific notation" write_line
+    "FAIL: scientific notation" io.write-line
   then
 
   1.5e2 150.0 f.= if
-    "PASS: scientific notation (1.5e2 = 150.0)" write_line
+    "PASS: scientific notation (1.5e2 = 150.0)" io.write-line
   else
-    "FAIL: scientific notation" write_line
+    "FAIL: scientific notation" io.write-line
   then
 
-  "All float tests completed!" write_line
+  "All float tests completed!" io.write-line
   0
 ;

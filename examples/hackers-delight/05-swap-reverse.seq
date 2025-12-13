@@ -80,43 +80,43 @@
 
 # Test helpers
 : test-xor-swap ( -- )
-  "XOR swap (no temp variable):" write_line
-  "  Before: a=42, b=17" write_line
+  "XOR swap (no temp variable):" io.write-line
+  "  Before: a=42, b=17" io.write-line
   42 17 xor-swap
-  "  After:  a=" write_line swap int->string write_line
-  ", b=" write_line int->string write_line
-  "" write_line
+  "  After:  a=" io.write-line swap int->string io.write-line
+  ", b=" io.write-line int->string io.write-line
+  "" io.write-line
 ;
 
 : test-reverse ( -- )
-  "Bit reversal:" write_line
-  "  reverse-byte(0b10110000) = " write_line
-  0b10110000 reverse-byte int->string write_line
-  "  (expected: 0b00001101 = 13)" write_line
-  "" write_line
-  "  reverse-32(0x12345678) = " write_line
+  "Bit reversal:" io.write-line
+  "  reverse-byte(0b10110000) = " io.write-line
+  0b10110000 reverse-byte int->string io.write-line
+  "  (expected: 0b00001101 = 13)" io.write-line
+  "" io.write-line
+  "  reverse-32(0x12345678) = " io.write-line
   0x12345678 reverse-32
-  "0x" write_line dup int->string write_line
-  " (decimal: " write_line int->string write_line ")" write_line
-  "" write_line
+  "0x" io.write-line dup int->string io.write-line
+  " (decimal: " io.write-line int->string io.write-line ")" io.write-line
+  "" io.write-line
 ;
 
 : test-bit-ops ( -- )
-  "Bit operations:" write_line
-  "  value = 0b1010 (10)" write_line
-  "" write_line
-  "  bit 1 set? " write_line 0b1010 1 bit-set? int->string write_line
-  "  bit 2 set? " write_line 0b1010 2 bit-set? int->string write_line
-  "" write_line
-  "  set bit 0:    " write_line 0b1010 0 bit-set int->string write_line
-  "  clear bit 1:  " write_line 0b1010 1 bit-clear int->string write_line
-  "  toggle bit 3: " write_line 0b1010 3 bit-toggle int->string write_line
-  "" write_line
+  "Bit operations:" io.write-line
+  "  value = 0b1010 (10)" io.write-line
+  "" io.write-line
+  "  bit 1 set? " io.write-line 0b1010 1 bit-set? int->string io.write-line
+  "  bit 2 set? " io.write-line 0b1010 2 bit-set? int->string io.write-line
+  "" io.write-line
+  "  set bit 0:    " io.write-line 0b1010 0 bit-set int->string io.write-line
+  "  clear bit 1:  " io.write-line 0b1010 1 bit-clear int->string io.write-line
+  "  toggle bit 3: " io.write-line 0b1010 3 bit-toggle int->string io.write-line
+  "" io.write-line
 ;
 
 : main ( -- )
-  "=== Hacker's Delight: Swapping and Reversing ===" write_line
-  "" write_line
+  "=== Hacker's Delight: Swapping and Reversing ===" io.write-line
+  "" io.write-line
   test-xor-swap
   test-reverse
   test-bit-ops

@@ -3,11 +3,11 @@
 include "tokenizer"
 
 : main ( -- )
-  "Testing tokenizer:" write_line
+  "Testing tokenizer:" io.write-line
 
   "(+ 1 2)" tokenize print-tokens
 
-  "---" write_line
+  "---" io.write-line
 
   "(define x 42)" tokenize print-tokens
 ;

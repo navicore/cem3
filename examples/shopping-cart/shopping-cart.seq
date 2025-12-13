@@ -46,31 +46,31 @@ include std:stack-utils
 # =============================================================================
 
 : http-ok ( String -- String )
-  dup string-length int->string
-  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 : http-bad-request ( String -- String )
-  dup string-length int->string
-  "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.length int->string
+  "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 : http-not-found ( String -- String )
-  dup string-length int->string
-  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 : http-error ( String -- String )
-  dup string-length int->string
-  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.length int->string
+  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 # =============================================================================
@@ -78,30 +78,30 @@ include std:stack-utils
 # =============================================================================
 
 : http-request-line ( String -- String )
-  "\r\n" string-split 0 variant-field-at
+  "\r\n" string.split 0 variant.field-at
 ;
 
 : http-request-path ( String -- String )
-  http-request-line " " string-split 1 variant-field-at
+  http-request-line " " string.split 1 variant.field-at
 ;
 
 : http-request-method ( String -- String )
-  http-request-line " " string-split 0 variant-field-at
+  http-request-line " " string.split 0 variant.field-at
 ;
 
 # Extract path without query string: "/cart/add?x=1" -> "/cart/add"
 : http-path-base ( String -- String )
   http-request-path
-  "?" string-split 0 variant-field-at
+  "?" string.split 0 variant.field-at
 ;
 
 # Extract query string: "/cart/add?x=1&y=2" -> "x=1&y=2" (or "" if none)
 : http-query-string ( String -- String )
   http-request-path
-  dup "?" string-contains if
-    "?" string-split
-    dup variant-field-count 1 > if
-      1 variant-field-at
+  dup "?" string.contains if
+    "?" string.split
+    dup variant.field-count 1 > if
+      1 variant.field-at
     else
       drop ""
     then
@@ -114,13 +114,13 @@ include std:stack-utils
 # Returns empty string if not found
 : query-param ( String String -- String )
   # Stack: ( query-string param-name )
-  "=" string-concat  # ( query-string "param-name=" )
+  "=" string.concat  # ( query-string "param-name=" )
   over swap          # ( query-string query-string "param-name=" )
-  string-split       # ( query-string variant )
-  dup variant-field-count 1 > if
+  string.split       # ( query-string variant )
+  dup variant.field-count 1 > if
     # Found the param
-    1 variant-field-at  # Get part after "param-name="
-    "&" string-split 0 variant-field-at  # Get value before next &
+    1 variant.field-at  # Get part after "param-name="
+    "&" string.split 0 variant.field-at  # Get value before next &
     nip  # Drop original query-string
   else
     drop drop ""  # Not found
@@ -181,10 +181,10 @@ include std:stack-utils
         dup "INSERT INTO products (name, price, stock) VALUES ('Orange', 120, 25)" db-exec drop
         dup "INSERT INTO products (name, price, stock) VALUES ('Milk', 350, 20)" db-exec drop
         dup "INSERT INTO products (name, price, stock) VALUES ('Bread', 250, 15)" db-exec drop
-        "Seeded 5 products" write_line
+        "Seeded 5 products" io.write-line
       else
         db-finalize drop
-        "Products already exist" write_line
+        "Products already exist" io.write-line
       then
     else
       db-finalize drop
@@ -192,7 +192,7 @@ include std:stack-utils
   else
     # Prepare failed - finalize to prevent leak
     db-finalize drop
-    "Warning: Could not check products table" write_line
+    "Warning: Could not check products table" io.write-line
   then
 ;
 
@@ -204,12 +204,12 @@ include std:stack-utils
       seed-products
       # db is on stack
     else
-      "Failed to create schema" write_line
+      "Failed to create schema" io.write-line
       drop 0
     then
   else
     drop  # drop the null handle
-    "Failed to open database" write_line
+    "Failed to open database" io.write-line
     0
   then
 ;
@@ -224,14 +224,14 @@ include std:stack-utils
   # Columns: id(0), name(1), price(2), stock(3)
   # Simple format: just concatenate in order
   "  "
-  over 0 db-column-int int->string string-concat
-  ". " string-concat
-  over 1 db-column-text string-concat
-  " - $" string-concat
-  over 2 db-column-int int->string string-concat
-  " (stock: " string-concat
-  over 3 db-column-int int->string string-concat
-  ")" string-concat
+  over 0 db-column-int int->string string.concat
+  ". " string.concat
+  over 1 db-column-text string.concat
+  " - $" string.concat
+  over 2 db-column-int int->string string.concat
+  " (stock: " string.concat
+  over 3 db-column-int int->string string.concat
+  ")" string.concat
   nip
 ;
 
@@ -244,11 +244,11 @@ include std:stack-utils
     # Get this row
     over format-product-row
     # Add newline if not first
-    over string-length 0 > if
-      "\n" swap string-concat
+    over string.length 0 > if
+      "\n" swap string.concat
     then
     # Append to accumulated
-    string-concat
+    string.concat
     collect-products  # Recurse
   else
     SQLITE_DONE = if
@@ -274,7 +274,7 @@ include std:stack-utils
     dup "ERROR" string-equal if
       drop "Error querying products"
     else
-      "Products:\n" swap string-concat
+      "Products:\n" swap string.concat
     then
   else
     # Stack: ( db stmt ) - finalize to prevent leak (safe even if NULL)
@@ -291,15 +291,15 @@ include std:stack-utils
   # Columns: cart_id(0), product_name(1), quantity(2), price(3), subtotal(4)
   # Simple format: just concatenate in order
   "  #"
-  over 0 db-column-int int->string string-concat
-  ": " string-concat
-  over 1 db-column-text string-concat
-  " x " string-concat
-  over 2 db-column-int int->string string-concat
-  " @ $" string-concat
-  over 3 db-column-int int->string string-concat
-  " = $" string-concat
-  over 4 db-column-int int->string string-concat
+  over 0 db-column-int int->string string.concat
+  ": " string.concat
+  over 1 db-column-text string.concat
+  " x " string.concat
+  over 2 db-column-int int->string string.concat
+  " @ $" string.concat
+  over 3 db-column-int int->string string.concat
+  " = $" string.concat
+  over 4 db-column-int int->string string.concat
   nip
 ;
 
@@ -308,10 +308,10 @@ include std:stack-utils
   dup SQLITE_ROW = if
     drop
     over format-cart-row
-    over string-length 0 > if
-      "\n" swap string-concat
+    over string.length 0 > if
+      "\n" swap string.concat
     then
-    string-concat
+    string.concat
     collect-cart-items
   else
     SQLITE_DONE = if
@@ -339,10 +339,10 @@ include std:stack-utils
     dup "ERROR" string-equal if
       drop "Error querying cart"
     else
-      dup string-length 0 = if
+      dup string.length 0 = if
         drop "Cart is empty"
       else
-        "Cart:\n" swap string-concat
+        "Cart:\n" swap string.concat
       then
     then
   else
@@ -534,10 +534,10 @@ include std:stack-utils
 
             # Build success message ( db total count )
             swap int->string swap int->string
-            "Checkout successful! Order total: $" rot string-concat
-            " (" string-concat
-            swap string-concat
-            " items)" string-concat
+            "Checkout successful! Order total: $" rot string.concat
+            " (" string.concat
+            swap string.concat
+            " items)" string.concat
           else
             drop  # drop clear result
             2 pick "ROLLBACK" db-exec drop
@@ -587,11 +587,11 @@ include std:stack-utils
   # Stack: ( db request product_str qty_str )
 
   # Validate params present
-  over string-length 0 = if
+  over string.length 0 = if
     drop drop drop
     "Missing 'product' parameter" http-bad-request
   else
-    dup string-length 0 = if
+    dup string.length 0 = if
       drop drop drop
       "Missing 'qty' parameter" http-bad-request
     else
@@ -625,7 +625,7 @@ include std:stack-utils
 
 : handle-remove-from-cart ( Int String -- Int String )
   dup http-query-string "id" query-param
-  dup string-length 0 = if
+  dup string.length 0 = if
     drop drop
     "Missing 'id' parameter" http-bad-request
   else
@@ -695,20 +695,20 @@ include std:stack-utils
   # Each request opens its own DB connection for simplicity
   "shop.db" db-open db-ok? if
     # Stack: ( socket db )
-    swap dup tcp-read  # ( db socket request )
+    swap dup tcp.read  # ( db socket request )
     rot                # ( socket request db )
     swap route         # ( socket db response )
     rot                # ( db response socket )
     swap               # ( db socket response )
-    over tcp-write     # ( db socket )
-    tcp-close          # ( db )
+    over tcp.write     # ( db socket )
+    tcp.close          # ( db )
     db-close drop      # close our db connection
   else
     # DB open failed
     drop  # drop null db handle
     "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 13\r\n\r\nDatabase error"
-    over tcp-write
-    tcp-close
+    over tcp.write
+    tcp.close
   then
 ;
 
@@ -720,7 +720,7 @@ include std:stack-utils
 
 : accept-loop ( Int -- )
   # Stack: ( listener -- )
-  dup tcp-accept
+  dup tcp.accept
   # Stack: ( listener client )
 
   make-channel
@@ -745,29 +745,29 @@ include std:stack-utils
 # =============================================================================
 
 : main ( -- )
-  "Initializing Shopping Cart Server..." write_line
+  "Initializing Shopping Cart Server..." io.write-line
 
   # Initialize DB schema and seed data, then close the setup connection
   init-db
   dup 0 = if
     drop
-    "Failed to initialize database" write_line
+    "Failed to initialize database" io.write-line
   else
     db-close drop  # Close the setup connection
-    "Database initialized" write_line
-    "" write_line
-    "Starting server on port 8080..." write_line
-    "API Endpoints:" write_line
-    "  GET  http://localhost:8080/           - API info" write_line
-    "  GET  http://localhost:8080/products   - List products" write_line
-    "  GET  http://localhost:8080/cart       - View cart" write_line
-    "  POST http://localhost:8080/cart/add?product=ID&qty=N" write_line
-    "  POST http://localhost:8080/cart/remove?id=N" write_line
-    "  POST http://localhost:8080/cart/checkout" write_line
-    "" write_line
+    "Database initialized" io.write-line
+    "" io.write-line
+    "Starting server on port 8080..." io.write-line
+    "API Endpoints:" io.write-line
+    "  GET  http://localhost:8080/           - API info" io.write-line
+    "  GET  http://localhost:8080/products   - List products" io.write-line
+    "  GET  http://localhost:8080/cart       - View cart" io.write-line
+    "  POST http://localhost:8080/cart/add?product=ID&qty=N" io.write-line
+    "  POST http://localhost:8080/cart/remove?id=N" io.write-line
+    "  POST http://localhost:8080/cart/checkout" io.write-line
+    "" io.write-line
 
-    8080 tcp-listen
-    "Listening..." write_line
+    8080 tcp.listen
+    "Listening..." io.write-line
     accept-loop
   then
 ;

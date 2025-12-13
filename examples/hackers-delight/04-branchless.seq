@@ -55,40 +55,40 @@
 
 # Test helpers
 : show ( Int String -- )
-  write_line int->string write_line
+  io.write-line int->string io.write-line
 ;
 
 : test-abs ( -- )
-  "Absolute value (branchless):" write_line
+  "Absolute value (branchless):" io.write-line
   5 abs-branchless "  abs(5) = " show
   -5 abs-branchless "  abs(-5) = " show
   0 abs-branchless "  abs(0) = " show
   -100 abs-branchless "  abs(-100) = " show
-  "" write_line
+  "" io.write-line
 ;
 
 : test-sign ( -- )
-  "Sign function (-1, 0, or 1):" write_line
+  "Sign function (-1, 0, or 1):" io.write-line
   42 sign "  sign(42) = " show
   -17 sign "  sign(-17) = " show
   0 sign "  sign(0) = " show
-  "" write_line
+  "" io.write-line
 ;
 
 : test-minmax ( -- )
-  "Min/Max (branchless):" write_line
+  "Min/Max (branchless):" io.write-line
   3 7 min-branchless "  min(3, 7) = " show
   7 3 min-branchless "  min(7, 3) = " show
   3 7 max-branchless "  max(3, 7) = " show
   7 3 max-branchless "  max(7, 3) = " show
   -5 5 min-branchless "  min(-5, 5) = " show
   -5 5 max-branchless "  max(-5, 5) = " show
-  "" write_line
+  "" io.write-line
 ;
 
 : main ( -- )
-  "=== Hacker's Delight: Branchless Operations ===" write_line
-  "" write_line
+  "=== Hacker's Delight: Branchless Operations ===" io.write-line
+  "" io.write-line
   test-abs
   test-sign
   test-minmax

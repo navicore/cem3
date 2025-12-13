@@ -16,26 +16,26 @@
   1 2 2dup
   2 = swap 1 = and swap drop swap drop
   if
-    "2dup works ✓" write_line
+    "2dup works ✓" io.write-line
   else
-    "2dup FAILED" write_line
+    "2dup FAILED" io.write-line
   then
 
   5 10 15
   2drop
   15 =
   if
-    "2drop works ✓" write_line
+    "2drop works ✓" io.write-line
   else
-    "2drop FAILED" write_line
+    "2drop FAILED" io.write-line
   then
 
   1 2 3 4
   3drop
   4 =
   if
-    "3drop works ✓" write_line
+    "3drop works ✓" io.write-line
   else
-    "3drop FAILED" write_line
+    "3drop FAILED" io.write-line
   then
 ;

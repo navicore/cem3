@@ -15,24 +15,24 @@
   0 fib
   1 =
   if
-    "fib(0) = 1 ✓" write_line
+    "fib(0) = 1 ✓" io.write-line
   else
-    "fib(0) FAILED!" write_line
+    "fib(0) FAILED!" io.write-line
   then
 
   5 fib
   8 =
   if
-    "fib(5) = 8 ✓" write_line
+    "fib(5) = 8 ✓" io.write-line
   else
-    "fib(5) FAILED!" write_line
+    "fib(5) FAILED!" io.write-line
   then
 
   10 fib
   89 =
   if
-    "fib(10) = 89 ✓" write_line
+    "fib(10) = 89 ✓" io.write-line
   else
-    "fib(10) FAILED!" write_line
+    "fib(10) FAILED!" io.write-line
   then
 ;

@@ -84,20 +84,20 @@ union Message {
 # Stack: ( parent-chan my-chan count pending -- ) [never returns]
 : store-loop ( Int Int Int Int -- )
   # Receive on my-chan (which is at depth 2)
-  2 pick receive             # ( parent my count pending msg )
+  2 pick chan.receive             # ( parent my count pending msg )
 
   match
     Get { >response_chan } ->
       # Return current count on response channel
       # Stack: ( parent my count pending response_chan )
-      2 pick swap send       # ( parent my count pending )
+      2 pick swap chan.send       # ( parent my count pending )
       store-loop
 
     Increment { >response_chan } ->
       # Increment counter and return new count
       # Stack: ( parent my count pending response_chan )
       rot 1 add              # ( parent my pending response_chan count+1 )
-      dup rot send           # ( parent my pending count+1 ) - sent response
+      dup rot chan.send           # ( parent my pending count+1 ) - sent response
       swap 1 add             # ( parent my count+1 pending+1 )
 
       # Check if we should report to parent
@@ -106,7 +106,7 @@ union Message {
         dup                  # ( parent my count pending pending )
         2 pick               # ( parent my count pending pending count )
         Make-Report          # ( parent my count pending report-msg )
-        4 pick send          # ( parent my count pending ) - sent to parent
+        4 pick chan.send          # ( parent my count pending ) - sent to parent
         drop 0               # ( parent my count 0 ) - reset pending
       then
       store-loop
@@ -139,13 +139,13 @@ union Message {
 # District actor main loop - simple: aggregate and forward immediately
 # Stack: ( parent-chan my-chan total -- ) [never returns]
 : district-loop ( Int Int Int -- )
-  over receive               # ( parent my total msg )
+  over chan.receive               # ( parent my total msg )
 
   match
     Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( parent my total response_chan )
-      over swap send         # ( parent my total ) - sent total
+      over swap chan.send         # ( parent my total ) - sent total
       district-loop
 
     Report { >delta } ->
@@ -155,7 +155,7 @@ union Message {
       swap                   # ( parent my total' delta )
       over                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
-      3 pick send            # ( parent my total' ) - forwarded to region
+      3 pick chan.send            # ( parent my total' ) - forwarded to region
       district-loop
 
     Increment ->
@@ -184,13 +184,13 @@ union Message {
 # Region actor main loop - simple: aggregate and forward immediately
 # Stack: ( parent-chan my-chan total -- ) [never returns]
 : region-loop ( Int Int Int -- )
-  over receive               # ( parent my total msg )
+  over chan.receive               # ( parent my total msg )
 
   match
     Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( parent my total response_chan )
-      over swap send         # ( parent my total )
+      over swap chan.send         # ( parent my total )
       region-loop
 
     Report { >delta } ->
@@ -200,7 +200,7 @@ union Message {
       swap                   # ( parent my total' delta )
       over                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
-      3 pick send            # ( parent my total' ) - forwarded to company
+      3 pick chan.send            # ( parent my total' ) - forwarded to company
       region-loop
 
     Increment ->
@@ -228,13 +228,13 @@ union Message {
 # Company actor main loop
 # Stack: ( my-chan total -- ) [never returns]
 : company-loop ( Int Int -- )
-  over receive               # ( my-chan total msg )
+  over chan.receive               # ( my-chan total msg )
 
   match
     Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( my-chan total response_chan )
-      over swap send         # ( my-chan total )
+      over swap chan.send         # ( my-chan total )
       company-loop
 
     Report { >delta } ->
@@ -264,19 +264,19 @@ union Message {
 # Create an empty registry
 # Stack: ( -- registry )
 : make-registry ( -- Variant )
-  make-map
+  map.make
 ;
 
 # Look up in a registry
 # Stack: ( registry path -- channel-id found? )
 : lookup-store ( Variant String -- Int Int )
-  map-get-safe   # ( value found? )
+  map.get-safe   # ( value found? )
 ;
 
 # Create a company actor and register it
 # Stack: ( company-registry company-name -- company-registry' company-chan )
 : create-company ( Variant String -- Variant Int )
-  make-channel               # ( registry name chan )
+  chan.make               # ( registry name chan )
   dup                        # ( registry name chan chan )
   [ company-actor ] spawn    # ( registry name chan chan strand-id )
   drop drop                  # ( registry name chan )
@@ -285,14 +285,14 @@ union Message {
   3 roll                     # ( name chan chan registry )
   3 roll                     # ( chan chan registry name )
   3 roll                     # ( chan registry name chan )
-  map-set                    # ( chan registry' )
+  map.set                    # ( chan registry' )
   swap                       # ( registry' chan )
 ;
 
 # Create a region actor and register it
 # Stack: ( parent-chan region-registry region-path -- region-registry' region-chan )
 : create-region ( Int Variant String -- Variant Int )
-  make-channel               # ( parent registry path chan )
+  chan.make               # ( parent registry path chan )
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
   [ region-actor ] spawn     # ( parent registry path chan chan parent strand-id )
@@ -302,7 +302,7 @@ union Message {
   3 roll                     # ( parent path chan chan registry )
   3 roll                     # ( parent chan chan registry path )
   3 roll                     # ( parent chan registry path chan )
-  map-set                    # ( parent chan registry' )
+  map.set                    # ( parent chan registry' )
   swap                       # ( parent registry' chan )
   rot drop                   # ( registry' chan )
 ;
@@ -310,7 +310,7 @@ union Message {
 # Create a district actor and register it
 # Stack: ( parent-chan district-registry district-path -- district-registry' district-chan )
 : create-district ( Int Variant String -- Variant Int )
-  make-channel               # ( parent registry path chan )
+  chan.make               # ( parent registry path chan )
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
   [ district-actor ] spawn   # ( parent registry path chan chan parent strand-id )
@@ -320,7 +320,7 @@ union Message {
   3 roll                     # ( parent path chan chan registry )
   3 roll                     # ( parent chan chan registry path )
   3 roll                     # ( parent chan registry path chan )
-  map-set                    # ( parent chan registry' )
+  map.set                    # ( parent chan registry' )
   swap                       # ( parent registry' chan )
   rot drop                   # ( registry' chan )
 ;
@@ -340,7 +340,7 @@ union Message {
   dup 0 <= if
     drop
   else
-    "0" rot string-concat swap
+    "0" rot string.concat swap
     1 subtract pad-zeros
   then
 ;
@@ -348,7 +348,7 @@ union Message {
 # Pad a string to a minimum width with leading zeros
 # Stack: ( str width -- padded-str )
 : pad-to-width ( String Int -- String )
-  over string-length        # ( str width len )
+  over string.length        # ( str width len )
   over swap subtract        # ( str width padding )
   nip                       # ( str padding )
   pad-zeros                 # ( padded-str )
@@ -365,22 +365,22 @@ union Message {
   # Build: company/region/district/store
 
   # Join district "/" store -> "district/store"
-  swap "/" string-concat    # ( company region store "district/" )
-  swap string-concat        # ( company region "district/store" )
+  swap "/" string.concat    # ( company region store "district/" )
+  swap string.concat        # ( company region "district/store" )
 
   # Join region "/" ... -> "region/district/store"
-  swap "/" string-concat    # ( company "district/store" "region/" )
-  swap string-concat        # ( company "region/district/store" )
+  swap "/" string.concat    # ( company "district/store" "region/" )
+  swap string.concat        # ( company "region/district/store" )
 
   # Join company "/" ... -> "company/region/district/store"
-  swap "/" string-concat    # ( "region/district/store" "company/" )
-  swap string-concat        # ( "company/region/district/store" )
+  swap "/" string.concat    # ( "region/district/store" "company/" )
+  swap string.concat        # ( "company/region/district/store" )
 ;
 
 # Create a single store with parent channel
 # Stack: ( parent-chan path registry -- registry' )
 : create-store ( Int String Variant -- Variant )
-  make-channel               # ( parent path registry chan )
+  chan.make               # ( parent path registry chan )
 
   # Spawn the store actor: needs ( my-chan parent-chan ) on stack
   dup                        # ( parent path registry chan chan )
@@ -389,7 +389,7 @@ union Message {
   drop drop drop             # ( parent path registry chan )
 
   # Now: ( parent path registry chan )
-  # Need: ( registry path chan ) for map-set
+  # Need: ( registry path chan ) for map.set
 
   # rot on top 3 ( path registry chan ) -> ( registry chan path )
   rot                        # ( parent registry chan path )
@@ -402,7 +402,7 @@ union Message {
   # Need ( registry path chan )
   # swap swaps top 2: ( registry path chan )
   swap                       # ( registry path chan )
-  map-set                    # ( registry' )
+  map.set                    # ( registry' )
 ;
 
 # Number of stores per district
@@ -430,7 +430,7 @@ union Message {
     nip nip nip
   else
     over int->string 4 pad-to-width
-    3 pick swap string-concat      # ( parent prefix counter registry path )
+    3 pick swap string.concat      # ( parent prefix counter registry path )
     over 5 pick rot rot            # ( parent prefix counter registry parent path registry )
     create-store                   # ( parent prefix counter registry new-reg )
     nip swap 1 subtract swap       # ( parent prefix counter-1 new-reg )
@@ -441,7 +441,7 @@ union Message {
 # Create stores for a district
 # Stack: ( registry district-chan district-path -- registry' )
 : add-stores ( Variant Int String -- Variant )
-  "/" string-concat                # ( registry district-chan prefix )
+  "/" string.concat                # ( registry district-chan prefix )
   stores-per-district              # ( registry district-chan prefix count )
   rot                              # ( registry prefix count district-chan )
   rot rot                          # ( registry district-chan prefix count )
@@ -454,7 +454,7 @@ union Message {
 # Stack: ( -- registry )
 : init-four-tier ( -- Variant )
   make-registry
-  "Initializing 4-tier actor hierarchy..." write_line
+  "Initializing 4-tier actor hierarchy..." io.write-line
 
   # === ACME COMPANY ===
   "acme" create-company           # ( registry acme-chan )
@@ -486,10 +486,10 @@ union Message {
   "acme/east/newyork" add-stores  # ( registry )
 
   # Print summary
-  "  Company: acme" write_line
-  "  Regions: acme/west, acme/east" write_line
-  "  Districts: seattle, portland, boston, newyork" write_line
-  dup map-size int->string " actors in unified registry" string-concat write_line
+  "  Company: acme" io.write-line
+  "  Regions: acme/west, acme/east" io.write-line
+  "  Districts: seattle, portland, boston, newyork" io.write-line
+  dup map.size int->string " actors in unified registry" string.concat io.write-line
 ;
 
 
@@ -509,17 +509,17 @@ union Message {
 # Stack: ( path -- count )
 : count-path-segments ( String -- Int )
   # Strip leading / if present
-  dup 0 string-char-at 47 = if  # 47 = '/'
-    1 over string-length 1 subtract string-substring
+  dup 0 string.char-at 47 = if  # 47 = '/'
+    1 over string.length 1 subtract string.substring
   then
-  "/" string-split variant-field-count
+  "/" string.split variant.field-count
 ;
 
 # Handle an HTTP request
 # Stack: ( registry socket -- registry )
 : handle-request ( Variant Int -- Variant )
   # Read the HTTP request
-  dup tcp-read               # ( registry socket request )
+  dup tcp.read               # ( registry socket request )
 
   # Extract path from request
   dup http-request-path      # ( registry socket request path )
@@ -536,7 +536,7 @@ union Message {
   over "/increment" string-ends-with? if
     # Increment request - strip suffix and do increment
     drop                     # ( registry socket path )
-    dup string-length 10 subtract 0 swap string-substring  # remove "/increment"
+    dup string.length 10 subtract 0 swap string.substring  # remove "/increment"
     do-increment
   else
     drop                     # ( registry socket path )
@@ -561,8 +561,8 @@ union Message {
             # Unknown - return 404
             drop drop
             "Not found - use 1-4 segments: company/region/district/store" http-not-found
-            over tcp-write
-            tcp-close
+            over tcp.write
+            tcp.close
           then
         then
       then
@@ -573,8 +573,8 @@ union Message {
 # Check if string ends with suffix
 # Stack: ( str suffix -- bool )
 : string-ends-with? ( String String -- Int )
-  dup string-length         # ( str suffix suffix-len )
-  rot dup string-length     # ( suffix suffix-len str str-len )
+  dup string.length         # ( str suffix suffix-len )
+  rot dup string.length     # ( suffix suffix-len str str-len )
   rot                       # ( suffix str str-len suffix-len )
   over over < if
     # suffix longer than string - can't match
@@ -582,9 +582,9 @@ union Message {
   else
     # Get the end of the string
     subtract                # ( suffix str offset )
-    over string-length      # ( suffix str offset len )
-    string-substring        # ( suffix end-of-str )
-    string-equal
+    over string.length      # ( suffix str offset len )
+    string.substring        # ( suffix end-of-str )
+    string.equal?
   then
 ;
 
@@ -592,8 +592,8 @@ union Message {
 # Stack: ( registry socket path -- registry )
 : do-get-store ( Variant Int String -- Variant )
   # Strip leading / if present
-  dup 0 string-char-at 47 = if  # 47 = '/'
-    1 over string-length 1 subtract string-substring
+  dup 0 string.char-at 47 = if  # 47 = '/'
+    1 over string.length 1 subtract string.substring
   then
 
   # Look up actor in unified registry
@@ -604,14 +604,14 @@ union Message {
     # Store not found
     drop                    # ( registry socket )
     "Store not found" http-not-found
-    over tcp-write
-    tcp-close               # ( registry )
+    over tcp.write
+    tcp.close               # ( registry )
   else
     # Send get request to actor and wait for response
     query-actor             # ( registry socket count )
     make-json-response      # ( registry socket response )
-    over tcp-write
-    tcp-close               # ( registry )
+    over tcp.write
+    tcp.close               # ( registry )
   then
 ;
 
@@ -619,8 +619,8 @@ union Message {
 # Stack: ( registry socket path -- registry )
 : do-increment ( Variant Int String -- Variant )
   # Strip leading / if present
-  dup 0 string-char-at 47 = if
-    1 over string-length 1 subtract string-substring
+  dup 0 string.char-at 47 = if
+    1 over string.length 1 subtract string.substring
   then
 
   # Look up store in unified registry
@@ -630,14 +630,14 @@ union Message {
   0 = if
     drop                    # ( registry socket )
     "Store not found" http-not-found
-    over tcp-write
-    tcp-close               # ( registry )
+    over tcp.write
+    tcp.close               # ( registry )
   else
     # Send increment request to actor and wait for response
     query-actor-increment   # ( registry socket count )
     make-json-response      # ( registry socket response )
-    over tcp-write
-    tcp-close               # ( registry )
+    over tcp.write
+    tcp.close               # ( registry )
   then
 ;
 
@@ -645,8 +645,8 @@ union Message {
 # Stack: ( registry socket path -- registry )
 : do-get-actor ( Variant Int String -- Variant )
   # Strip leading / if present
-  dup 0 string-char-at 47 = if  # 47 = '/'
-    1 over string-length 1 subtract string-substring
+  dup 0 string.char-at 47 = if  # 47 = '/'
+    1 over string.length 1 subtract string.substring
   then
 
   # Look up actor in unified registry
@@ -657,52 +657,52 @@ union Message {
     # Actor not found
     drop                    # ( registry socket )
     "Actor not found" http-not-found
-    over tcp-write
-    tcp-close               # ( registry )
+    over tcp.write
+    tcp.close               # ( registry )
   else
     # Query actor for aggregate
     query-actor             # ( registry socket count )
     make-json-response      # ( registry socket response )
-    over tcp-write
-    tcp-close               # ( registry )
+    over tcp.write
+    tcp.close               # ( registry )
   then
 ;
 
 # Query an actor for its current count
 # Stack: ( chan-id -- count )
 : query-actor ( Int -- Int )
-  make-channel              # ( chan-id resp-chan )
+  chan.make              # ( chan-id resp-chan )
   dup Make-Get              # ( chan-id resp-chan msg )
-  rot send                  # ( resp-chan ) - sent msg to actor
-  dup receive               # ( resp-chan count )
-  swap close-channel        # ( count ) - close response channel to avoid leak
+  rot chan.send                  # ( resp-chan ) - sent msg to actor
+  dup chan.receive               # ( resp-chan count )
+  swap chan.close        # ( count ) - close response channel to avoid leak
 ;
 
 # Query an actor to increment and return new count
 # Stack: ( chan-id -- count )
 : query-actor-increment ( Int -- Int )
-  make-channel              # ( chan-id resp-chan )
+  chan.make              # ( chan-id resp-chan )
   dup Make-Increment        # ( chan-id resp-chan msg )
-  rot send                  # ( resp-chan ) - sent msg to actor
-  dup receive               # ( resp-chan count )
-  swap close-channel        # ( count ) - close response channel to avoid leak
+  rot chan.send                  # ( resp-chan ) - sent msg to actor
+  dup chan.receive               # ( resp-chan count )
+  swap chan.close        # ( count ) - close response channel to avoid leak
 ;
 
 # Build JSON response from count
 # Stack: ( count -- response-string )
 : make-json-response ( Int -- String )
   int->string
-  "{\"count\":" swap string-concat "}" string-concat
+  "{\"count\":" swap string.concat "}" string.concat
   http-json-ok
 ;
 
 # Build HTTP 200 OK response with JSON content type
 # Stack: ( body -- response )
 : http-json-ok ( String -- String )
-  dup string-length int->string
-  "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 # ============================================================================
@@ -723,7 +723,7 @@ union Message {
 # Accept loop - spawns concurrent handlers
 # Stack: ( registry listener -- ) [never returns]
 : accept-loop ( Variant Int -- )
-  dup tcp-accept            # ( registry listener client )
+  dup tcp.accept            # ( registry listener client )
 
   # Prepare stack for spawn: child needs ( registry client )
   2 pick                    # ( registry listener client registry )
@@ -744,35 +744,35 @@ union Message {
 # ============================================================================
 
 : main ( -- Int )
-  "=== Actor Counters Demo (4-Tier Hierarchical Aggregation) ===" write_line
-  "" write_line
+  "=== Actor Counters Demo (4-Tier Hierarchical Aggregation) ===" io.write-line
+  "" io.write-line
 
   # Initialize the full 4-tier actor hierarchy
   init-four-tier            # ( registry )
 
-  "" write_line
-  "Starting HTTP server on port 8080..." write_line
-  "Try:" write_line
-  "  curl http://localhost:8080/acme/west/seattle/0001           (store)" write_line
-  "  curl -X POST http://localhost:8080/acme/west/seattle/0001/increment" write_line
-  "  curl http://localhost:8080/acme/west/seattle                (district)" write_line
-  "  curl http://localhost:8080/acme/west                        (region)" write_line
-  "  curl http://localhost:8080/acme                             (company)" write_line
-  "" write_line
-  "Aggregation: stores batch (every 5), parents forward immediately" write_line
-  "  Stores report to district every 5 increments (batching)" write_line
-  "  Districts/regions/company forward on every update" write_line
-  "" write_line
+  "" io.write-line
+  "Starting HTTP server on port 8080..." io.write-line
+  "Try:" io.write-line
+  "  curl http://localhost:8080/acme/west/seattle/0001           (store)" io.write-line
+  "  curl -X POST http://localhost:8080/acme/west/seattle/0001/increment" io.write-line
+  "  curl http://localhost:8080/acme/west/seattle                (district)" io.write-line
+  "  curl http://localhost:8080/acme/west                        (region)" io.write-line
+  "  curl http://localhost:8080/acme                             (company)" io.write-line
+  "" io.write-line
+  "Aggregation: stores batch (every 5), parents forward immediately" io.write-line
+  "  Stores report to district every 5 increments (batching)" io.write-line
+  "  Districts/regions/company forward on every update" io.write-line
+  "" io.write-line
 
   # Start listening
-  8080 tcp-listen           # ( registry listener )
+  8080 tcp.listen           # ( registry listener )
 
   dup 0 < if
     drop drop
-    "Failed to start server" write_line
+    "Failed to start server" io.write-line
     1
   else
-    "Server listening... (concurrent request handling)" write_line
+    "Server listening... (concurrent request handling)" io.write-line
     accept-loop             # Never returns - spawns handler per connection
     0
   then

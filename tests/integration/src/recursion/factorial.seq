@@ -13,16 +13,16 @@
   5 factorial
   120 =
   if
-    "factorial(5) = 120 ✓" write_line
+    "factorial(5) = 120 ✓" io.write-line
   else
-    "factorial(5) FAILED!" write_line
+    "factorial(5) FAILED!" io.write-line
   then
 
   0 factorial
   1 =
   if
-    "factorial(0) = 1 ✓" write_line
+    "factorial(0) = 1 ✓" io.write-line
   else
-    "factorial(0) FAILED!" write_line
+    "factorial(0) FAILED!" io.write-line
   then
 ;

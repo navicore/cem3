@@ -40,44 +40,44 @@
 
 # Test and display
 : show-binary ( Int -- )
-  int->string write_line
+  int->string io.write-line
 ;
 
 : test-rightmost-1-off ( -- )
-  "Turn off rightmost 1-bit: x & (x - 1)" write_line
-  "  0b1010 (10) -> " write_line
+  "Turn off rightmost 1-bit: x & (x - 1)" io.write-line
+  "  0b1010 (10) -> " io.write-line
   0b1010 rightmost-1-off
-  "  Result: " write_line show-binary
-  ""  write_line
+  "  Result: " io.write-line show-binary
+  ""  io.write-line
 ;
 
 : test-rightmost-1-isolate ( -- )
-  "Isolate rightmost 1-bit: x & (-x)" write_line
-  "  0b1010 (10) -> " write_line
+  "Isolate rightmost 1-bit: x & (-x)" io.write-line
+  "  0b1010 (10) -> " io.write-line
   0b1010 rightmost-1-isolate
-  "  Result: " write_line show-binary
-  "" write_line
+  "  Result: " io.write-line show-binary
+  "" io.write-line
 ;
 
 : test-rightmost-0-on ( -- )
-  "Turn on rightmost 0-bit: x | (x + 1)" write_line
-  "  0b1010 (10) -> " write_line
+  "Turn on rightmost 0-bit: x | (x + 1)" io.write-line
+  "  0b1010 (10) -> " io.write-line
   0b1010 rightmost-0-on
-  "  Result: " write_line show-binary
-  "" write_line
+  "  Result: " io.write-line show-binary
+  "" io.write-line
 ;
 
 : test-rightmost-0-isolate ( -- )
-  "Isolate rightmost 0-bit: ~x & (x + 1)" write_line
-  "  0b1010 (10) -> " write_line
+  "Isolate rightmost 0-bit: ~x & (x + 1)" io.write-line
+  "  0b1010 (10) -> " io.write-line
   0b1010 rightmost-0-isolate
-  "  Result: " write_line show-binary
-  "" write_line
+  "  Result: " io.write-line show-binary
+  "" io.write-line
 ;
 
 : main ( -- )
-  "=== Hacker's Delight: Rightmost Bit Manipulation ===" write_line
-  "" write_line
+  "=== Hacker's Delight: Rightmost Bit Manipulation ===" io.write-line
+  "" io.write-line
   test-rightmost-1-off
   test-rightmost-1-isolate
   test-rightmost-0-on

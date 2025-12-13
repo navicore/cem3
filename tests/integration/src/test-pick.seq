@@ -24,33 +24,33 @@
 ;
 
 : main ( -- )
-  "Pick Operation Tests" write_line
-  "" write_line
+  "Pick Operation Tests" io.write-line
+  "" io.write-line
 
-  "Testing pick(0) = dup..." write_line
+  "Testing pick(0) = dup..." io.write-line
   test-pick-0
   30 = if
-    "  pick(0) works ✓" write_line
+    "  pick(0) works ✓" io.write-line
   else
-    "  pick(0) FAILED" write_line
+    "  pick(0) FAILED" io.write-line
   then
 
-  "Testing pick(1) = over..." write_line
+  "Testing pick(1) = over..." io.write-line
   test-pick-1
   20 = if
-    "  pick(1) works ✓" write_line
+    "  pick(1) works ✓" io.write-line
   else
-    "  pick(1) FAILED" write_line
+    "  pick(1) FAILED" io.write-line
   then
 
-  "Testing pick(2) = third..." write_line
+  "Testing pick(2) = third..." io.write-line
   test-pick-2
   10 = if
-    "  pick(2) works ✓" write_line
+    "  pick(2) works ✓" io.write-line
   else
-    "  pick(2) FAILED" write_line
+    "  pick(2) FAILED" io.write-line
   then
 
-  "" write_line
-  "All pick tests complete!" write_line
+  "" io.write-line
+  "All pick tests complete!" io.write-line
 ;

@@ -16,7 +16,7 @@
 ;
 
 : main ( -- )
-    "Testing TCO with nested if statements (50000 calls)..." write_line
+    "Testing TCO with nested if statements (50000 calls)..." io.write-line
     50000 nested-countdown
-    "Success! Nested if with TCO works." write_line
+    "Success! Nested if with TCO works." io.write-line
 ;

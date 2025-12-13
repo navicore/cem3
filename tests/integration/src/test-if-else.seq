@@ -3,27 +3,27 @@
 : test-if-else-true ( -- )
   5 3 >
   if
-    "True branch" write_line
+    "True branch" io.write-line
   else
-    "False branch" write_line
+    "False branch" io.write-line
   then
 ;
 
 : test-if-else-false ( -- )
   3 5 >
   if
-    "True branch" write_line
+    "True branch" io.write-line
   else
-    "False branch" write_line
+    "False branch" io.write-line
   then
 ;
 
 : test-equality ( -- )
   5 5 =
   if
-    "Numbers are equal" write_line
+    "Numbers are equal" io.write-line
   else
-    "Numbers are not equal" write_line
+    "Numbers are not equal" io.write-line
   then
 ;
 

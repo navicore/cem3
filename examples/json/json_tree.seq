@@ -31,19 +31,19 @@ include std:json
 # Format a JSON value as an indented string
 : json-format
   json-serialize
-  "  " swap string-concat
+  "  " swap string.concat
 ;
 
 # Check if argument looks like a file (ends with .json)
 # Non-destructive: keeps the string on stack
 : is-json-file? ( String -- String Int )
-  dup ".json" string-contains
+  dup ".json" string.contains
 ;
 
 # Read file or return empty string if not found
 : read-json-file ( String -- String )
-  dup file-exists? if
-    file-slurp
+  dup file.exists? if
+    file.slurp
   else
     drop ""
   then
@@ -60,41 +60,41 @@ include std:json
 
 # Get JSON input - from file, command line, or stdin
 : get-json-input ( -- String )
-  arg-count 1 > if
+  args.count 1 > if
     # Have an argument
-    1 arg process-arg
+    1 args.at process-arg
   else
     # No argument - read from stdin
-    "Paste JSON and press Enter:" write_line
-    read_line string-chomp
+    "Paste JSON and press Enter:" io.write-line
+    io.read-line string.chomp
   then
 ;
 
 : main ( -- Int )
-  "=== JSON Tree Viewer ===" write_line
-  "" write_line
+  "=== JSON Tree Viewer ===" io.write-line
+  "" io.write-line
 
   get-json-input
 
-  dup string-length 0 = if
+  dup string.length 0 = if
     drop
-    "No input." write_line
+    "No input." io.write-line
     1
   else
-    "Input: " over string-concat write_line
-    "" write_line
+    "Input: " over string.concat io.write-line
+    "" io.write-line
 
     json-parse
     0 = if
       drop
-      "Parse error!" write_line
+      "Parse error!" io.write-line
       1
     else
-      "Type: " over variant-tag int->string string-concat write_line
+      "Type: " over variant.tag int->string string.concat io.write-line
       # Tag meanings: 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
 
-      "Value:" write_line
-      json-format write_line
+      "Value:" io.write-line
+      json-format io.write-line
       0
     then
   then

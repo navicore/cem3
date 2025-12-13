@@ -40,50 +40,50 @@
 
 # Test helpers
 : bool->string ( Int -- )
-  if "true" write_line
-  else "false" write_line
+  if "true" io.write-line
+  else "false" io.write-line
   then
 ;
 
 : test-power-check ( -- )
-  "Is power of 2?" write_line
-  "  1:  " write_line 1 power-of-2? bool->string
-  "  2:  " write_line 2 power-of-2? bool->string
-  "  3:  " write_line 3 power-of-2? bool->string
-  "  4:  " write_line 4 power-of-2? bool->string
-  "  5:  " write_line 5 power-of-2? bool->string
-  "  8:  " write_line 8 power-of-2? bool->string
-  "  16: " write_line 16 power-of-2? bool->string
-  "  0:  " write_line 0 power-of-2? bool->string
-  "" write_line
+  "Is power of 2?" io.write-line
+  "  1:  " io.write-line 1 power-of-2? bool->string
+  "  2:  " io.write-line 2 power-of-2? bool->string
+  "  3:  " io.write-line 3 power-of-2? bool->string
+  "  4:  " io.write-line 4 power-of-2? bool->string
+  "  5:  " io.write-line 5 power-of-2? bool->string
+  "  8:  " io.write-line 8 power-of-2? bool->string
+  "  16: " io.write-line 16 power-of-2? bool->string
+  "  0:  " io.write-line 0 power-of-2? bool->string
+  "" io.write-line
 ;
 
 : test-next-power ( -- )
-  "Next power of 2:" write_line
-  "  1  -> " write_line 1 next-power-of-2 int->string write_line
-  "  3  -> " write_line 3 next-power-of-2 int->string write_line
-  "  5  -> " write_line 5 next-power-of-2 int->string write_line
-  "  7  -> " write_line 7 next-power-of-2 int->string write_line
-  "  9  -> " write_line 9 next-power-of-2 int->string write_line
-  "  17 -> " write_line 17 next-power-of-2 int->string write_line
-  "" write_line
+  "Next power of 2:" io.write-line
+  "  1  -> " io.write-line 1 next-power-of-2 int->string io.write-line
+  "  3  -> " io.write-line 3 next-power-of-2 int->string io.write-line
+  "  5  -> " io.write-line 5 next-power-of-2 int->string io.write-line
+  "  7  -> " io.write-line 7 next-power-of-2 int->string io.write-line
+  "  9  -> " io.write-line 9 next-power-of-2 int->string io.write-line
+  "  17 -> " io.write-line 17 next-power-of-2 int->string io.write-line
+  "" io.write-line
 ;
 
 : test-log2 ( -- )
-  "Floor of log2:" write_line
-  "  1   -> " write_line 1 log2-floor int->string write_line
-  "  2   -> " write_line 2 log2-floor int->string write_line
-  "  3   -> " write_line 3 log2-floor int->string write_line
-  "  4   -> " write_line 4 log2-floor int->string write_line
-  "  7   -> " write_line 7 log2-floor int->string write_line
-  "  8   -> " write_line 8 log2-floor int->string write_line
-  "  100 -> " write_line 100 log2-floor int->string write_line
-  "" write_line
+  "Floor of log2:" io.write-line
+  "  1   -> " io.write-line 1 log2-floor int->string io.write-line
+  "  2   -> " io.write-line 2 log2-floor int->string io.write-line
+  "  3   -> " io.write-line 3 log2-floor int->string io.write-line
+  "  4   -> " io.write-line 4 log2-floor int->string io.write-line
+  "  7   -> " io.write-line 7 log2-floor int->string io.write-line
+  "  8   -> " io.write-line 8 log2-floor int->string io.write-line
+  "  100 -> " io.write-line 100 log2-floor int->string io.write-line
+  "" io.write-line
 ;
 
 : main ( -- )
-  "=== Hacker's Delight: Power of Two Operations ===" write_line
-  "" write_line
+  "=== Hacker's Delight: Power of Two Operations ===" io.write-line
+  "" io.write-line
   test-power-check
   test-next-power
   test-log2

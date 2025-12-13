@@ -1,48 +1,48 @@
-# Test send-safe and receive-safe error handling
+# Test chan.send-safe and chan.receive-safe error handling
 
 : print-result ( Int String -- )
   swap if
-    " PASS" string-concat write_line
+    " PASS" string.concat io.write-line
   else
-    " FAIL" string-concat write_line
+    " FAIL" string.concat io.write-line
   then
 ;
 
-# Test send-safe with valid channel
-: test-send-safe-success ( -- )
-  make-channel  # create channel, get ID
-  42 swap send-safe
-  "send-safe returns 1 on success" print-result
+# Test chan.send-safe with valid channel
+: test-chan.send-safe-success ( -- )
+  chan.make  # create channel, get ID
+  42 swap chan.send-safe
+  "chan.send-safe returns 1 on success" print-result
 ;
 
-# Test send-safe with invalid channel ID
-: test-send-safe-invalid ( -- )
-  42 999999 send-safe  # non-existent channel
-  not "send-safe returns 0 for invalid channel" print-result
+# Test chan.send-safe with invalid channel ID
+: test-chan.send-safe-invalid ( -- )
+  42 999999 chan.send-safe  # non-existent channel
+  not "chan.send-safe returns 0 for invalid channel" print-result
 ;
 
-# Test receive-safe with valid channel
-: test-receive-safe-success ( -- )
-  make-channel  # create channel, get ID
-  dup 42 swap send  # send value
-  receive-safe  # returns (value success_flag)
-  "receive-safe returns 1 on success" print-result
-  42 = "receive-safe gets correct value" print-result
+# Test chan.receive-safe with valid channel
+: test-chan.receive-safe-success ( -- )
+  chan.make  # create channel, get ID
+  dup 42 swap chan.send # chan.sendvalue
+  chan.receive-safe  # returns (value success_flag)
+  "chan.receive-safe returns 1 on success" print-result
+  42 = "chan.receive-safe gets correct value" print-result
 ;
 
-# Test receive-safe with invalid channel ID
-: test-receive-safe-invalid ( -- )
-  999999 receive-safe  # non-existent channel
-  not "receive-safe returns 0 for invalid channel" print-result
+# Test chan.receive-safe with invalid channel ID
+: test-chan.receive-safe-invalid ( -- )
+  999999 chan.receive-safe  # non-existent channel
+  not "chan.receive-safe returns 0 for invalid channel" print-result
   drop  # drop the placeholder value
 ;
 
 : main ( -- )
-  "Testing send-safe:" write_line
-  test-send-safe-success
-  test-send-safe-invalid
+  "Testing chan.send-safe:" io.write-line
+  test-chan.send-safe-success
+  test-chan.send-safe-invalid
 
-  "Testing receive-safe:" write_line
-  test-receive-safe-success
-  test-receive-safe-invalid
+  "Testing chan.receive-safe:" io.write-line
+  test-chan.receive-safe-success
+  test-chan.receive-safe-invalid
 ;

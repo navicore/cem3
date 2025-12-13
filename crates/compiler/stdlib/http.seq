@@ -42,40 +42,40 @@
 
 # Build HTTP 200 OK response with body
 # Stack effect: ( body -- response )
-# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
+# Note: Uses string.byte-length for Content-Length (HTTP requires byte count)
 : http-ok ( String -- String )
-  dup string-byte-length int->string
-  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.byte-length int->string
+  "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 # Build HTTP 404 Not Found response with body
 # Stack effect: ( body -- response )
-# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
+# Note: Uses string.byte-length for Content-Length (HTTP requires byte count)
 : http-not-found ( String -- String )
-  dup string-byte-length int->string
-  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.byte-length int->string
+  "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 # Build HTTP 500 Internal Server Error response with body
 # Stack effect: ( body -- response )
-# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
+# Note: Uses string.byte-length for Content-Length (HTTP requires byte count)
 : http-error ( String -- String )
-  dup string-byte-length int->string
-  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: " swap string-concat
-  "\r\n\r\n" string-concat
-  swap string-concat
+  dup string.byte-length int->string
+  "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: " swap string.concat
+  "\r\n\r\n" string.concat
+  swap string.concat
 ;
 
 # Extract first line from HTTP request
 # Splits on \r\n and returns first part
 # Stack effect: ( request -- first_line )
 : http-request-line ( String -- String )
-  "\r\n" string-split
-  0 variant-field-at
+  "\r\n" string.split
+  0 variant.field-at
 ;
 
 # Extract path from HTTP request
@@ -83,8 +83,8 @@
 # Stack effect: ( request -- path )
 : http-request-path ( String -- String )
   http-request-line
-  " " string-split
-  1 variant-field-at
+  " " string.split
+  1 variant.field-at
 ;
 
 # Extract method from HTTP request
@@ -92,13 +92,13 @@
 # Stack effect: ( request -- method )
 : http-request-method ( String -- String )
   http-request-line
-  " " string-split
-  0 variant-field-at
+  " " string.split
+  0 variant.field-at
 ;
 
 # Build complete HTTP response with custom status
 # Stack effect: ( status_code reason_phrase body -- response )
-# Note: Uses string-byte-length for Content-Length (HTTP requires byte count)
+# Note: Uses string.byte-length for Content-Length (HTTP requires byte count)
 #
 # Example: 201 "Created" "Resource created" http-response
 : http-response ( Int String String -- String )
@@ -107,49 +107,49 @@
   # Bring status_code to top and convert to string
   rot rot                           # ( body status_code reason )
   swap int->string                  # ( body reason "code" )
-  "HTTP/1.1 " swap string-concat    # ( body reason "HTTP/1.1 code" )
-  " " string-concat                 # ( body reason "HTTP/1.1 code " )
-  swap string-concat                # ( body "HTTP/1.1 code reason" )
-  "\r\n" string-concat              # ( body "HTTP/1.1 code reason\r\n" )
+  "HTTP/1.1 " swap string.concat    # ( body reason "HTTP/1.1 code" )
+  " " string.concat                 # ( body reason "HTTP/1.1 code " )
+  swap string.concat                # ( body "HTTP/1.1 code reason" )
+  "\r\n" string.concat              # ( body "HTTP/1.1 code reason\r\n" )
 
   # Add Content-Type header
-  "Content-Type: text/plain\r\n" string-concat
+  "Content-Type: text/plain\r\n" string.concat
 
   # Add Content-Length header (uses byte length for HTTP compliance)
-  "Content-Length: " string-concat
-  over string-byte-length int->string string-concat
-  "\r\n\r\n" string-concat
+  "Content-Length: " string.concat
+  over string.byte-length int->string string.concat
+  "\r\n\r\n" string.concat
 
   # Add body
-  swap string-concat
+  swap string.concat
 ;
 
 # Check if request is GET method
 # Stack effect: ( request -- bool )
 : http-is-get ( String -- Int )
   http-request-method
-  "GET" string-equal
+  "GET" string.equal?
 ;
 
 # Check if request is POST method
 # Stack effect: ( request -- bool )
 : http-is-post ( String -- Int )
   http-request-method
-  "POST" string-equal
+  "POST" string.equal?
 ;
 
 # Check if request path matches
 # Stack effect: ( request path -- bool )
 : http-path-is ( String String -- Int )
   swap http-request-path
-  swap string-equal
+  swap string.equal?
 ;
 
 # Check if request path starts with prefix
 # Stack effect: ( request prefix -- bool )
 : http-path-starts-with ( String String -- Int )
   swap http-request-path
-  swap string-starts-with
+  swap string.starts-with
 ;
 
 # Extract suffix after a prefix from a string
@@ -158,22 +158,22 @@
 # Example: "/echo/hello" "/echo/" -> "hello"
 : string-suffix-after ( String String -- String )
   # Stack: ( str prefix )
-  over over string-starts-with if
+  over over string.starts-with if
     # String starts with prefix, extract suffix
     # Stack: ( str prefix )
 
     # Split on the prefix
-    string-split
+    string.split
 
     # The split result is a Variant with fields
     # For "/echo/hello" split on "/echo/", we get ["", "hello"]
     # We want field 1 (the part after the prefix)
-    dup variant-field-count 2 < if
+    dup variant.field-count 2 < if
       # Not enough parts, return empty string
       drop drop ""
     else
       # Get field 1 (the suffix)
-      1 variant-field-at
+      1 variant.field-at
     then
   else
     # Doesn't start with prefix, return empty string

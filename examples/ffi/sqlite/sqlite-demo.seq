@@ -30,39 +30,39 @@
 ;
 
 : main ( -- )
-  "SQLite FFI Demo" write_line
-  "===============" write_line
-  "" write_line
+  "SQLite FFI Demo" io.write-line
+  "===============" io.write-line
+  "" io.write-line
 
   # Open (or create) test database
   "test_seq.db" open-db if
-    "Database opened successfully" write_line
+    "Database opened successfully" io.write-line
 
     # Create a table
     dup "CREATE TABLE IF NOT EXISTS greetings (id INTEGER PRIMARY KEY, msg TEXT)" exec-sql if
-      "Table created" write_line
+      "Table created" io.write-line
     else
-      "Table creation failed (may already exist)" write_line
+      "Table creation failed (may already exist)" io.write-line
     then
 
     # Insert some data
     dup "INSERT INTO greetings (msg) VALUES ('Hello from Seq!')" exec-sql if
-      "Data inserted" write_line
+      "Data inserted" io.write-line
     else
-      "Insert failed" write_line
+      "Insert failed" io.write-line
     then
 
     # Clean up
     db-close db-ok? if
-      "Database closed" write_line
+      "Database closed" io.write-line
     else
-      "Close failed" write_line
+      "Close failed" io.write-line
     then
   else
     drop  # drop the db handle (will be 0/null)
-    "Failed to open database" write_line
+    "Failed to open database" io.write-line
   then
 
-  "" write_line
-  "Done! Check test_seq.db with: sqlite3 test_seq.db 'SELECT * FROM greetings'" write_line
+  "" io.write-line
+  "Done! Check test_seq.db with: sqlite3 test_seq.db 'SELECT * FROM greetings'" io.write-line
 ;

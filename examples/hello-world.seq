@@ -2,4 +2,4 @@
 # The classic first program
 
 : main ( -- )
-  "Hello, World!" write_line ;
+  "Hello, World!" io.write-line ;

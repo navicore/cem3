@@ -9,9 +9,9 @@
 ;
 
 : main ( -- )
-    "Testing closure without TCO..." write_line
+    "Testing closure without TCO..." io.write-line
     # Test a simple quotation that captures a value
     5 [ 2 add-n ] call
-    int->string write_line
-    "Success! Closure works (result should be 7)." write_line
+    int->string io.write-line
+    "Success! Closure works (result should be 7)." io.write-line
 ;

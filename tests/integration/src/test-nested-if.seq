@@ -3,39 +3,39 @@
 : test-nested ( -- )
   5 3 >
   if
-    "Outer: 5 > 3" write_line
+    "Outer: 5 > 3" io.write-line
     10 10 =
     if
-      "Inner: 10 = 10" write_line
+      "Inner: 10 = 10" io.write-line
     else
-      "Inner: 10 != 10" write_line
+      "Inner: 10 != 10" io.write-line
     then
   else
-    "Outer: 5 <= 3" write_line
+    "Outer: 5 <= 3" io.write-line
   then
 ;
 
 : test-multiple-comparisons ( -- )
   7 5 <
   if
-    "7 < 5 (should not print)" write_line
+    "7 < 5 (should not print)" io.write-line
   then
 
   7 5 >=
   if
-    "7 >= 5 (correct!)" write_line
+    "7 >= 5 (correct!)" io.write-line
   then
 
   3 8 <=
   if
-    "3 <= 8 (correct!)" write_line
+    "3 <= 8 (correct!)" io.write-line
   then
 
   4 4 <>
   if
-    "4 <> 4 (should not print)" write_line
+    "4 <> 4 (should not print)" io.write-line
   else
-    "4 equals 4 (correct!)" write_line
+    "4 equals 4 (correct!)" io.write-line
   then
 ;
 

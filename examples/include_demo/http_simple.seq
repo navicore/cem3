@@ -11,13 +11,13 @@
 include std:http
 
 : route ( String -- String )
-  dup "GET / " string-starts-with if
+  dup "GET / " string.starts-with if
     drop "Hello from stdlib!" http-ok
   else
-    dup "GET /health" string-starts-with if
+    dup "GET /health" string.starts-with if
       drop "OK" http-ok
     else
-      dup "GET /custom" string-starts-with if
+      dup "GET /custom" string.starts-with if
         drop
         201 "Created" "Custom status response" http-response
       else
@@ -28,26 +28,26 @@ include std:http
 ;
 
 : handle-connection ( Int -- )
-  dup tcp-read route
-  over tcp-write
-  tcp-close
+  dup tcp.read route
+  over tcp.write
+  tcp.close
 ;
 
 : accept-loop ( Int -- )
-  dup tcp-accept          # ( listener client )
-  make-channel            # ( listener client chan )
-  dup [ receive handle-connection ] spawn  # ( listener client chan chan strand-id )
+  dup tcp.accept          # ( listener client )
+  chan.make            # ( listener client chan )
+  dup [ chan.receive handle-connection ] spawn  # ( listener client chan chan strand-id )
   drop drop               # ( listener client chan ) - drop strand-id AND extra chan
-  send                    # ( listener ) - send client on chan
+  chan.send                    # ( listener ) - send client on chan
   accept-loop             # tail call - runs forever, no stack growth
 ;
 
 : main ( -- )
-  "Simple HTTP server using std:http" write_line
-  "Listening on port 8080..." write_line
-  "Try: curl http://localhost:8080/" write_line
-  "Try: curl http://localhost:8080/health" write_line
-  "Try: curl http://localhost:8080/custom" write_line
-  8080 tcp-listen
+  "Simple HTTP server using std:http" io.write-line
+  "Listening on port 8080..." io.write-line
+  "Try: curl http://localhost:8080/" io.write-line
+  "Try: curl http://localhost:8080/health" io.write-line
+  "Try: curl http://localhost:8080/custom" io.write-line
+  8080 tcp.listen
   accept-loop   # never returns
 ;

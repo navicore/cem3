@@ -20,11 +20,11 @@ union IntOption {
 # =============================================================================
 
 : test-pass ( String -- )
-  "PASS: " swap string-concat write_line
+  "PASS: " swap string.concat io.write-line
 ;
 
 : test-fail ( String -- )
-  "FAIL: " swap string-concat write_line
+  "FAIL: " swap string.concat io.write-line
 ;
 
 # =============================================================================
@@ -67,11 +67,11 @@ union IntOption {
   then
 ;
 
-# Test unwrap using variant-field-at directly (type-safe within our union)
+# Test unwrap using variant.field-at directly (type-safe within our union)
 : test-unwrap-ok ( -- )
   42 Make-Ok
   result-ok? if
-    0 variant-field-at 42 = if
+    0 variant.field-at 42 = if
       "unwrap Ok value" test-pass
     else
       "unwrap Ok value" test-fail
@@ -84,7 +84,7 @@ union IntOption {
 : test-unwrap-err-msg ( -- )
   "my error" Make-Err
   result-err? if
-    0 variant-field-at "my error" string-equal if
+    0 variant.field-at "my error" string.equal? if
       "unwrap Err message" test-pass
     else
       "unwrap Err message" test-fail
@@ -133,7 +133,7 @@ union IntOption {
 : test-result-bind-ok-ok ( -- )
   5 Make-Ok [ double-ok ] result-bind
   result-ok? if
-    0 variant-field-at 10 = if
+    0 variant.field-at 10 = if
       "result-bind Ok->Ok" test-pass
     else
       "result-bind Ok->Ok value" test-fail
@@ -155,7 +155,7 @@ union IntOption {
 : test-result-bind-err ( -- )
   "original" Make-Err [ double-ok ] result-bind
   result-err? if
-    0 variant-field-at "original" string-equal if
+    0 variant.field-at "original" string.equal? if
       "result-bind Err passthrough" test-pass
     else
       "result-bind Err passthrough msg" test-fail
@@ -168,7 +168,7 @@ union IntOption {
 : test-result-map-ok ( -- )
   5 Make-Ok [ 2 multiply ] result-map
   result-ok? if
-    0 variant-field-at 10 = if
+    0 variant.field-at 10 = if
       "result-map Ok" test-pass
     else
       "result-map Ok value" test-fail
@@ -230,7 +230,7 @@ union IntOption {
 : test-unwrap-some ( -- )
   42 Make-Some
   option-some? if
-    0 variant-field-at 42 = if
+    0 variant.field-at 42 = if
       "unwrap Some value" test-pass
     else
       "unwrap Some value" test-fail
@@ -274,7 +274,7 @@ union IntOption {
 : test-option-bind-some-some ( -- )
   5 Make-Some [ positive-or-none ] option-bind
   option-some? if
-    0 variant-field-at 5 = if
+    0 variant.field-at 5 = if
       "option-bind Some->Some" test-pass
     else
       "option-bind Some->Some value" test-fail
@@ -305,7 +305,7 @@ union IntOption {
 : test-option-map-some ( -- )
   5 Make-Some [ 2 multiply ] option-map
   option-some? if
-    0 variant-field-at 10 = if
+    0 variant.field-at 10 = if
       "option-map Some" test-pass
     else
       "option-map Some value" test-fail
@@ -345,7 +345,7 @@ union IntOption {
   [ 2 multiply Make-Ok ] result-bind
   [ 3 add Make-Ok ] result-bind
   result-ok? if
-    0 variant-field-at 13 = if
+    0 variant.field-at 13 = if
       "chain success (5*2+3=13)" test-pass
     else
       "chain success value" test-fail
@@ -371,57 +371,57 @@ union IntOption {
 # =============================================================================
 
 : main ( -- Int )
-  "=== Result/Option Helper Tests ===" write_line
-  "" write_line
+  "=== Result/Option Helper Tests ===" io.write-line
+  "" io.write-line
 
-  "--- Result Predicate Tests ---" write_line
+  "--- Result Predicate Tests ---" io.write-line
   test-ok-predicate
   test-ok-predicate-false
   test-err-predicate
   test-err-predicate-false
 
-  "" write_line
-  "--- Result Unwrap Tests ---" write_line
+  "" io.write-line
+  "--- Result Unwrap Tests ---" io.write-line
   test-unwrap-ok
   test-unwrap-err-msg
   test-result-unwrap-or-ok
   test-result-unwrap-or-err
 
-  "" write_line
-  "--- Result Combinator Tests ---" write_line
+  "" io.write-line
+  "--- Result Combinator Tests ---" io.write-line
   test-result-bind-ok-ok
   test-result-bind-ok-err
   test-result-bind-err
   test-result-map-ok
   test-result-map-err
 
-  "" write_line
-  "--- Option Predicate Tests ---" write_line
+  "" io.write-line
+  "--- Option Predicate Tests ---" io.write-line
   test-some-predicate
   test-some-predicate-false
   test-none-predicate
   test-none-predicate-false
 
-  "" write_line
-  "--- Option Unwrap Tests ---" write_line
+  "" io.write-line
+  "--- Option Unwrap Tests ---" io.write-line
   test-unwrap-some
   test-option-unwrap-or-some
   test-option-unwrap-or-none
 
-  "" write_line
-  "--- Option Combinator Tests ---" write_line
+  "" io.write-line
+  "--- Option Combinator Tests ---" io.write-line
   test-option-bind-some-some
   test-option-bind-some-none
   test-option-bind-none
   test-option-map-some
   test-option-map-none
 
-  "" write_line
-  "--- Chaining Tests ---" write_line
+  "" io.write-line
+  "--- Chaining Tests ---" io.write-line
   test-chain-success
   test-chain-early-err
 
-  "" write_line
-  "=== All tests complete ===" write_line
+  "" io.write-line
+  "=== All tests complete ===" io.write-line
   0
 ;

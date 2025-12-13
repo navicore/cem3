@@ -12,7 +12,7 @@
 ;
 
 : main ( -- )
-    "Testing TCO with 100000 recursive calls..." write_line
+    "Testing TCO with 100000 recursive calls..." io.write-line
     100000 count-down
-    "Success! TCO is working." write_line
+    "Success! TCO is working." io.write-line
 ;

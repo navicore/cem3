@@ -75,47 +75,47 @@
 ;
 
 : test-popcount-methods ( -- )
-  "Counting bits (multiple methods):" write_line
-  "  Value: 0b10110100 (180)" write_line
-  "" write_line
-  "  popcount (builtin): " write_line
-  0b10110100 popcount int->string write_line
-  "  parallel method:    " write_line
-  0b10110100 count-bits-parallel int->string write_line
-  "  sparse method:      " write_line
-  0b10110100 count-bits-sparse int->string write_line
-  "" write_line
+  "Counting bits (multiple methods):" io.write-line
+  "  Value: 0b10110100 (180)" io.write-line
+  "" io.write-line
+  "  popcount (builtin): " io.write-line
+  0b10110100 popcount int->string io.write-line
+  "  parallel method:    " io.write-line
+  0b10110100 count-bits-parallel int->string io.write-line
+  "  sparse method:      " io.write-line
+  0b10110100 count-bits-sparse int->string io.write-line
+  "" io.write-line
 ;
 
 : test-parity ( -- )
-  "Parity (odd=1, even=0):" write_line
-  "  0b111 (3 bits): " write_line 0b111 parity int->string write_line
-  "  0b1111 (4 bits): " write_line 0b1111 parity int->string write_line
-  "  0b10101 (3 bits): " write_line 0b10101 parity int->string write_line
-  "" write_line
+  "Parity (odd=1, even=0):" io.write-line
+  "  0b111 (3 bits): " io.write-line 0b111 parity int->string io.write-line
+  "  0b1111 (4 bits): " io.write-line 0b1111 parity int->string io.write-line
+  "  0b10101 (3 bits): " io.write-line 0b10101 parity int->string io.write-line
+  "" io.write-line
 ;
 
 : test-leading-zeros ( -- )
-  "Leading zeros:" write_line
-  "  1:   clz=" write_line 1 clz int->string write_line
-  "       manual=" write_line 1 count-leading-zeros int->string write_line
-  "  256: clz=" write_line 256 clz int->string write_line
-  "       manual=" write_line 256 count-leading-zeros int->string write_line
-  "" write_line
+  "Leading zeros:" io.write-line
+  "  1:   clz=" io.write-line 1 clz int->string io.write-line
+  "       manual=" io.write-line 1 count-leading-zeros int->string io.write-line
+  "  256: clz=" io.write-line 256 clz int->string io.write-line
+  "       manual=" io.write-line 256 count-leading-zeros int->string io.write-line
+  "" io.write-line
 ;
 
 : test-trailing-zeros ( -- )
-  "Trailing zeros:" write_line
-  "  8:  ctz=" write_line 8 ctz int->string write_line
-  "      manual=" write_line 8 count-trailing-zeros int->string write_line
-  "  48: ctz=" write_line 48 ctz int->string write_line
-  "      manual=" write_line 48 count-trailing-zeros int->string write_line
-  "" write_line
+  "Trailing zeros:" io.write-line
+  "  8:  ctz=" io.write-line 8 ctz int->string io.write-line
+  "      manual=" io.write-line 8 count-trailing-zeros int->string io.write-line
+  "  48: ctz=" io.write-line 48 ctz int->string io.write-line
+  "      manual=" io.write-line 48 count-trailing-zeros int->string io.write-line
+  "" io.write-line
 ;
 
 : main ( -- )
-  "=== Hacker's Delight: Counting Bits ===" write_line
-  "" write_line
+  "=== Hacker's Delight: Counting Bits ===" io.write-line
+  "" io.write-line
   test-popcount-methods
   test-parity
   test-leading-zeros

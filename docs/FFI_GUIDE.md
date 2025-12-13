@@ -227,13 +227,6 @@ See `examples/ffi/sqlite/` for a complete SQLite example demonstrating:
 - Fixed `null` values for unused callbacks
 - Proper handle cleanup with `db-close`
 
-### Example: GNU Readline (GPL)
-
-See `examples/ffi/readline/` for GNU readline with external manifest.
-
-**Warning**: GNU Readline is GPL-3.0. Any binary linking to it must be
-GPL-compatible. Use `ffi:libedit` (BSD) for permissive licensing.
-
 ## Troubleshooting
 
 ### "Unknown word: readline"
@@ -259,8 +252,21 @@ This prevents command injection attacks via malicious manifests.
 
 ## Future Work
 
-- **Callback support**: C functions calling back into Seq
 - **Struct passing**: Pass and return C structs
 - **Platform-specific bindings**: Conditional compilation per target
+
+### Callbacks (Shelved)
+
+FFI callbacks (C functions calling back into Seq) were explored but shelved for now.
+
+**Why shelved:**
+- Most useful callback patterns (qsort comparators, iteration handlers) pass pointers
+  to the callback, requiring low-level memory operations to interpret them
+- Those low-level operations (`ptr-read-i64`, etc.) are too invasive for Seq's design
+- Many C APIs have non-callback alternatives (e.g., SQLite's prepared statement API
+  works without callbacks)
+
+Callbacks may be revisited when there's a concrete use case that justifies the
+complexity.
 
 See [ROADMAP.md](ROADMAP.md) for the full FFI roadmap.

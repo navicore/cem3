@@ -15,6 +15,11 @@
 #   "prompt> " readline  # Read a line with editing
 #   dup add-history      # Add to history
 #
+# Persistent history:
+#   "~/.myapp_history" read-history drop   # Load at startup
+#   # ... run REPL ...
+#   "~/.myapp_history" write-history drop  # Save at exit
+#
 # Note: The function names (readline, add-history) match GNU readline's API,
 # making it easy to switch between the two libraries.
 
@@ -42,3 +47,29 @@ args = [
 ]
 [library.function.return]
 type = "void"
+
+# read_history(const char *filename) -> int
+# Loads command history from a file. Call at program startup.
+# Returns 0 on success, non-zero on error (e.g., file not found).
+[[library.function]]
+c_name = "read_history"
+seq_name = "read-history"
+stack_effect = "( String -- Int )"
+args = [
+  { type = "string", pass = "c_string" }
+]
+[library.function.return]
+type = "int"
+
+# write_history(const char *filename) -> int
+# Saves command history to a file. Call at program exit.
+# Returns 0 on success, non-zero on error.
+[[library.function]]
+c_name = "write_history"
+seq_name = "write-history"
+stack_effect = "( String -- Int )"
+args = [
+  { type = "string", pass = "c_string" }
+]
+[library.function.return]
+type = "int"

@@ -648,6 +648,43 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // OS operations
+    // getenv: ( ..a String -- ..a String Int )
+    // Get environment variable, returns value and success flag (1=found, 0=not found)
+    sigs.insert(
+        "getenv".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
+    // home-dir: ( ..a -- ..a String Int )
+    // Get user's home directory, returns path and success flag
+    sigs.insert(
+        "home-dir".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
+    // current-dir: ( ..a -- ..a String Int )
+    // Get current working directory, returns path and success flag
+    sigs.insert(
+        "current-dir".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
     // String operations
     // string-concat: ( ..a String String -- ..a String )
     // Concatenate two strings

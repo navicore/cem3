@@ -190,10 +190,12 @@ If you don't use FFI, your Seq program has full memory safety.
 
 BSD-licensed readline alternative. Provides:
 
-| Word          | Stack Effect      | Description                    |
-|---------------|-------------------|--------------------------------|
-| `readline`    | `( String -- String )` | Read line with prompt     |
-| `add-history` | `( String -- )`   | Add line to history            |
+| Word           | Stack Effect           | Description                    |
+|----------------|------------------------|--------------------------------|
+| `readline`     | `( String -- String )` | Read line with prompt          |
+| `add-history`  | `( String -- )`        | Add line to history            |
+| `read-history` | `( String -- Int )`    | Load history from file         |
+| `write-history`| `( String -- Int )`    | Save history to file           |
 
 ## Examples
 
@@ -219,6 +221,40 @@ include ffi:libedit
   0
 ;
 ```
+
+### Example: Persistent History
+
+```seq
+include ffi:libedit
+
+: repl ( -- )
+  "seq> " readline
+  dup string-length 0 > if
+    dup add-history
+    process-input
+    repl
+  else
+    drop
+  then
+;
+
+: main ( -- Int )
+  # Load history at startup (ignore error if file doesn't exist)
+  "/tmp/.myapp_history" read-history drop
+
+  "Welcome to Seq REPL" write_line
+  repl
+
+  # Save history on exit
+  "/tmp/.myapp_history" write-history drop
+  0
+;
+```
+
+**Note:** File paths are passed directly to the C library. Shell expansions
+like `~` are not performed - path resolution is your application's responsibility.
+A future `std:os` module could provide environment variable access for building
+paths like `$HOME/.myapp_history`.
 
 ### Example: SQLite Database
 

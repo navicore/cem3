@@ -8,7 +8,7 @@
 # - Concurrent request handling with strands
 #
 # Build:
-#   seqc --ffi-manifest examples/ffi/sqlite/sqlite.toml \
+#   seqc --ffi-manifest examples/shopping-cart/sqlite.toml \
 #        examples/shopping-cart/shopping-cart.seq -o shopping-cart
 #
 # Run:
@@ -339,32 +339,64 @@ include std:stack-utils
   then
 ;
 
-# Add item to cart using string concatenation
-: add-to-cart ( Int String String -- Int String )
-  # Stack: ( db product_id_str qty_str -- db result )
-  # Build SQL: INSERT INTO cart_items (product_id, quantity) VALUES (P, Q)
-  "INSERT INTO cart_items (product_id, quantity) VALUES ("
-  rot string-concat
-  ", " string-concat
-  swap string-concat
-  ")" string-concat
-  # Stack: ( db sql )
-  over swap db-exec
+# Add item to cart using prepared statement (prevents SQL injection)
+: add-to-cart ( Int Int Int -- Int String )
+  # Stack: ( db product_id qty -- db result )
+  # First check if product exists and has sufficient stock
+  2 pick "SELECT stock FROM products WHERE id = ?" db-prepare
   db-ok? if
-    "Added to cart"
+    # Stack: ( db product_id qty stmt )
+    dup 3 pick 1 swap db-bind-int drop  # bind product_id to param 1
+    dup db-step SQLITE_ROW = if
+      # Product exists, check stock
+      dup 0 db-column-int  # ( db product_id qty stmt stock )
+      3 pick               # ( db product_id qty stmt stock qty )
+      < if
+        # Not enough stock
+        db-finalize drop
+        drop drop
+        "Insufficient stock"
+      else
+        db-finalize drop
+        # Insert using prepared statement
+        2 pick "INSERT INTO cart_items (product_id, quantity) VALUES (?, ?)" db-prepare
+        db-ok? if
+          # Stack: ( db product_id qty stmt )
+          dup 3 pick 1 swap db-bind-int drop  # bind product_id
+          dup 2 pick 2 swap db-bind-int drop  # bind qty
+          db-step drop
+          db-finalize drop
+          drop drop
+          "Added to cart"
+        else
+          drop drop drop drop
+          "Failed to prepare insert"
+        then
+      then
+    else
+      db-finalize drop
+      drop drop
+      "Product not found"
+    then
   else
-    "Failed to add to cart"
+    drop drop drop drop
+    "Failed to prepare query"
   then
 ;
 
-: remove-from-cart ( Int String -- Int String )
-  # Stack: ( db cart_item_id_str -- db result )
-  "DELETE FROM cart_items WHERE id = " swap string-concat
-  over swap db-exec
+# Remove item from cart using prepared statement (prevents SQL injection)
+: remove-from-cart ( Int Int -- Int String )
+  # Stack: ( db cart_item_id -- db result )
+  over "DELETE FROM cart_items WHERE id = ?" db-prepare
   db-ok? if
+    # Stack: ( db cart_item_id stmt )
+    dup rot 1 swap db-bind-int drop  # bind cart_item_id to param 1
+    db-step drop
+    db-finalize drop
     "Removed from cart"
   else
-    "Failed to remove from cart"
+    drop drop
+    "Failed to prepare delete"
   then
 ;
 
@@ -397,11 +429,33 @@ include std:stack-utils
   then
 ;
 
+: check-stock-available ( Int -- Int Int )
+  # Stack: ( db -- db sufficient? )
+  # Check that all cart items have sufficient stock
+  dup "SELECT COUNT(*) FROM cart_items c
+       JOIN products p ON c.product_id = p.id
+       WHERE c.quantity > p.stock" db-prepare
+  db-ok? if
+    dup db-step SQLITE_ROW = if
+      dup 0 db-column-int 0 =  # True if count is 0 (no insufficient items)
+      swap db-finalize drop
+    else
+      db-finalize drop
+      0  # Error, return false
+    then
+  else
+    drop
+    0  # Error, return false
+  then
+;
+
 : update-stock ( Int -- Int Int )
   # Stack: ( db -- db success? )
+  # Only update if stock won't go negative
   dup "UPDATE products SET stock = stock - (
     SELECT c.quantity FROM cart_items c WHERE c.product_id = products.id
-  ) WHERE id IN (SELECT product_id FROM cart_items)" db-exec
+  ) WHERE id IN (SELECT product_id FROM cart_items)
+    AND stock >= (SELECT c.quantity FROM cart_items c WHERE c.product_id = products.id)" db-exec
   db-ok?
 ;
 
@@ -435,47 +489,53 @@ include std:stack-utils
     drop drop
     "Cart is empty - nothing to checkout"
   else
-    # Save values for later: total count
-    over over  # ( db total count total count )
+    # Check stock availability before proceeding
+    2 pick check-stock-available if
+      # Save values for later: total count
+      over over  # ( db total count total count )
 
-    # Start transaction
-    4 pick "BEGIN TRANSACTION" db-exec drop
+      # Start transaction
+      4 pick "BEGIN TRANSACTION" db-exec drop
 
-    # Update stock
-    4 pick update-stock if
-      drop  # drop update result
-      # Create order record ( db total count total count )
-      4 pick rot rot create-order if
-        drop  # drop create result
-        # Clear cart ( db total count )
-        2 pick clear-cart if
-          drop  # drop clear result
-          # Commit
-          2 pick "COMMIT" db-exec drop
+      # Update stock
+      4 pick update-stock if
+        drop  # drop update result
+        # Create order record ( db total count total count )
+        4 pick rot rot create-order if
+          drop  # drop create result
+          # Clear cart ( db total count )
+          2 pick clear-cart if
+            drop  # drop clear result
+            # Commit
+            2 pick "COMMIT" db-exec drop
 
-          # Build success message ( db total count )
-          swap int->string swap int->string
-          "Checkout successful! Order total: $" rot string-concat
-          " (" string-concat
-          swap string-concat
-          " items)" string-concat
+            # Build success message ( db total count )
+            swap int->string swap int->string
+            "Checkout successful! Order total: $" rot string-concat
+            " (" string-concat
+            swap string-concat
+            " items)" string-concat
+          else
+            drop  # drop clear result
+            2 pick "ROLLBACK" db-exec drop
+            drop drop
+            "Checkout failed: could not clear cart"
+          then
         else
-          drop  # drop clear result
+          drop  # drop create result
           2 pick "ROLLBACK" db-exec drop
           drop drop
-          "Checkout failed: could not clear cart"
+          "Checkout failed: could not create order"
         then
       else
-        drop  # drop create result
+        drop  # drop update result
         2 pick "ROLLBACK" db-exec drop
-        drop drop
-        "Checkout failed: could not create order"
+        drop drop drop drop  # clean up extra total count
+        "Checkout failed: could not update stock"
       then
     else
-      drop  # drop update result
-      2 pick "ROLLBACK" db-exec drop
-      drop drop drop drop  # clean up extra total count
-      "Checkout failed: could not update stock"
+      drop drop
+      "Checkout failed: insufficient stock for one or more items"
     then
   then
 ;
@@ -503,7 +563,7 @@ include std:stack-utils
   swap "qty" query-param
   # Stack: ( db request product_str qty_str )
 
-  # Validate params
+  # Validate params present
   over string-length 0 = if
     drop drop drop
     "Missing 'product' parameter" http-bad-request
@@ -513,10 +573,29 @@ include std:stack-utils
       "Missing 'qty' parameter" http-bad-request
     else
       # Stack: ( db request product_str qty_str )
-      # Rearrange for add-to-cart: ( db product qty )
-      rot drop  # ( db product_str qty_str )
-      add-to-cart
-      http-ok
+      # Parse qty string to int
+      string->int if
+        # qty parsed successfully ( db request product_str qty_int )
+        swap string->int if
+          # product parsed successfully ( db request qty_int product_int )
+          swap  # ( db request product_int qty_int )
+          # Validate qty is positive
+          dup 0 > if
+            rot drop  # ( db product_int qty_int )
+            add-to-cart
+            http-ok
+          else
+            drop drop drop
+            "Quantity must be positive" http-bad-request
+          then
+        else
+          drop drop drop drop
+          "Invalid product ID (must be a number)" http-bad-request
+        then
+      else
+        drop drop drop drop
+        "Invalid quantity (must be a number)" http-bad-request
+      then
     then
   then
 ;
@@ -527,9 +606,16 @@ include std:stack-utils
     drop drop
     "Missing 'id' parameter" http-bad-request
   else
-    nip  # drop request
-    remove-from-cart
-    http-ok
+    # Parse id string to int
+    string->int if
+      # id parsed successfully ( db request id_int )
+      nip  # drop request
+      remove-from-cart
+      http-ok
+    else
+      drop drop
+      "Invalid id (must be a number)" http-bad-request
+    then
   then
 ;
 

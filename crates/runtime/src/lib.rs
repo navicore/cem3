@@ -118,6 +118,13 @@ pub use tcp::{
     patch_seq_tcp_write as tcp_write,
 };
 
+// OS operations (exported for LLVM linking)
+pub use os::{
+    patch_seq_current_dir as current_dir, patch_seq_getenv as getenv,
+    patch_seq_home_dir as home_dir, patch_seq_path_exists as path_exists,
+    patch_seq_path_is_dir as path_is_dir, patch_seq_path_is_file as path_is_file,
+};
+
 // Variant operations (exported for LLVM linking)
 pub use variant_ops::{
     patch_seq_make_variant_0 as make_variant_0, patch_seq_make_variant_1 as make_variant_1,

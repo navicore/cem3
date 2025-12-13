@@ -4,6 +4,9 @@
 #   - getenv: Get environment variables
 #   - home-dir: Get user's home directory
 #   - current-dir: Get current working directory
+#   - path-exists: Check if path exists
+#   - path-is-file: Check if path is a regular file
+#   - path-is-dir: Check if path is a directory
 #
 # Build and run:
 #   seqc examples/os/os-demo.seq -o os-demo
@@ -61,6 +64,60 @@
     drop "  Found (unexpected)" write_line
   else
     drop "  Not found (expected)" write_line
+  then
+  "" write_line
+
+  # Test path operations
+  "Path operations:" write_line
+
+  # Test with current directory (should exist and be a directory)
+  "." path-exists if
+    "  '.' exists: yes" write_line
+  else
+    "  '.' exists: no (unexpected)" write_line
+  then
+
+  "." path-is-dir if
+    "  '.' is directory: yes" write_line
+  else
+    "  '.' is directory: no (unexpected)" write_line
+  then
+
+  "." path-is-file if
+    "  '.' is file: yes (unexpected)" write_line
+  else
+    "  '.' is file: no" write_line
+  then
+  "" write_line
+
+  # Test with a path that shouldn't exist
+  "/this/path/does/not/exist/12345" path-exists if
+    "  Non-existent path exists: yes (unexpected)" write_line
+  else
+    "  Non-existent path exists: no" write_line
+  then
+  "" write_line
+
+  # Test with home directory (should exist and be a directory)
+  home-dir if
+    dup "  Testing home dir: " swap string-concat write_line
+    dup path-exists if
+      "    exists: yes" write_line
+    else
+      "    exists: no (unexpected)" write_line
+    then
+    dup path-is-dir if
+      "    is directory: yes" write_line
+    else
+      "    is directory: no (unexpected)" write_line
+    then
+    path-is-file if
+      "    is file: yes (unexpected)" write_line
+    else
+      "    is file: no" write_line
+    then
+  else
+    drop "  Could not get home directory" write_line
   then
 
   "" write_line

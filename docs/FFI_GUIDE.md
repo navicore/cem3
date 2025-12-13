@@ -240,16 +240,21 @@ include ffi:libedit
 
 : main ( -- Int )
   # Load history at startup (ignore error if file doesn't exist)
-  "~/.myapp_history" read-history drop
+  "/tmp/.myapp_history" read-history drop
 
   "Welcome to Seq REPL" write_line
   repl
 
   # Save history on exit
-  "~/.myapp_history" write-history drop
+  "/tmp/.myapp_history" write-history drop
   0
 ;
 ```
+
+**Note:** File paths are passed directly to the C library. Shell expansions
+like `~` are not performed - path resolution is your application's responsibility.
+A future `std:os` module could provide environment variable access for building
+paths like `$HOME/.myapp_history`.
 
 ### Example: SQLite Database
 

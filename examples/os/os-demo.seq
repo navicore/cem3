@@ -1,0 +1,69 @@
+# OS Module Demo
+#
+# Demonstrates the built-in OS module functions:
+#   - getenv: Get environment variables
+#   - home-dir: Get user's home directory
+#   - current-dir: Get current working directory
+#
+# Build and run:
+#   seqc examples/os/os-demo.seq -o os-demo
+#   ./os-demo
+
+: main ( -- Int )
+  "=== OS Module Demo ===" write_line
+  "" write_line
+
+  # Test current-dir
+  "Current directory:" write_line
+  current-dir if
+    "  " swap string-concat write_line
+  else
+    drop "  Error getting current directory" write_line
+  then
+  "" write_line
+
+  # Test home-dir
+  "Home directory:" write_line
+  home-dir if
+    "  " swap string-concat write_line
+  else
+    drop "  Error getting home directory" write_line
+  then
+  "" write_line
+
+  # Test getenv with common variables
+  "Environment variables:" write_line
+
+  "USER" getenv if
+    "  USER = " swap string-concat write_line
+  else
+    drop "  USER not set" write_line
+  then
+
+  "SHELL" getenv if
+    "  SHELL = " swap string-concat write_line
+  else
+    drop "  SHELL not set" write_line
+  then
+
+  "PATH" getenv if
+    # PATH is usually very long, just show its length
+    string-length int->string
+    "  PATH = (set, " swap string-concat " chars)" string-concat write_line
+  else
+    drop "  PATH not set" write_line
+  then
+  "" write_line
+
+  # Test getenv with non-existent variable
+  "Non-existent variable:" write_line
+  "THIS_DOES_NOT_EXIST_12345" getenv if
+    drop "  Found (unexpected)" write_line
+  else
+    drop "  Not found (expected)" write_line
+  then
+
+  "" write_line
+  "Demo complete!" write_line
+  0
+;

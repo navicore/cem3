@@ -715,6 +715,42 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // path-join: ( ..a String String -- ..a String )
+    // Join two path components
+    sigs.insert(
+        "path-join".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // path-parent: ( ..a String -- ..a String Int )
+    // Get parent directory, returns path and success flag
+    sigs.insert(
+        "path-parent".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
+    // path-filename: ( ..a String -- ..a String Int )
+    // Get filename component, returns filename and success flag
+    sigs.insert(
+        "path-filename".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::Int),
+        ),
+    );
+
     // String operations
     // string-concat: ( ..a String String -- ..a String )
     // Concatenate two strings

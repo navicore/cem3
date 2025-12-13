@@ -390,6 +390,9 @@ impl Program {
             "path-exists",
             "path-is-file",
             "path-is-dir",
+            "path-join",
+            "path-parent",
+            "path-filename",
             // Float arithmetic operations
             "f.add",
             "f.subtract",

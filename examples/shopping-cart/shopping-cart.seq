@@ -169,24 +169,30 @@ include std:stack-utils
 : seed-products ( Int -- Int )
   # Stack: ( db -- db )
   # Only seed if products table is empty
-  dup "SELECT COUNT(*) FROM products" db-prepare drop
-  # Stack: ( db stmt )
-  dup db-step SQLITE_ROW = if
-    dup 0 db-column-int 0 = if
-      # Table is empty, seed it
-      db-finalize drop
-      dup "INSERT INTO products (name, price, stock) VALUES ('Apple', 100, 50)" db-exec drop
-      dup "INSERT INTO products (name, price, stock) VALUES ('Banana', 75, 30)" db-exec drop
-      dup "INSERT INTO products (name, price, stock) VALUES ('Orange', 120, 25)" db-exec drop
-      dup "INSERT INTO products (name, price, stock) VALUES ('Milk', 350, 20)" db-exec drop
-      dup "INSERT INTO products (name, price, stock) VALUES ('Bread', 250, 15)" db-exec drop
-      "Seeded 5 products" write_line
+  dup "SELECT COUNT(*) FROM products" db-prepare
+  db-ok? if
+    # Stack: ( db stmt )
+    dup db-step SQLITE_ROW = if
+      dup 0 db-column-int 0 = if
+        # Table is empty, seed it
+        db-finalize drop
+        dup "INSERT INTO products (name, price, stock) VALUES ('Apple', 100, 50)" db-exec drop
+        dup "INSERT INTO products (name, price, stock) VALUES ('Banana', 75, 30)" db-exec drop
+        dup "INSERT INTO products (name, price, stock) VALUES ('Orange', 120, 25)" db-exec drop
+        dup "INSERT INTO products (name, price, stock) VALUES ('Milk', 350, 20)" db-exec drop
+        dup "INSERT INTO products (name, price, stock) VALUES ('Bread', 250, 15)" db-exec drop
+        "Seeded 5 products" write_line
+      else
+        db-finalize drop
+        "Products already exist" write_line
+      then
     else
       db-finalize drop
-      "Products already exist" write_line
     then
   else
+    # Prepare failed - finalize to prevent leak
     db-finalize drop
+    "Warning: Could not check products table" write_line
   then
 ;
 
@@ -249,7 +255,10 @@ include std:stack-utils
       # Finalize and return
       swap db-finalize drop
     else
-      drop drop "ERROR"  # Error
+      # Error - finalize statement to prevent leak
+      # Stack: ( stmt accumulated ) - step result already consumed by comparison
+      swap db-finalize drop  # finalize stmt, drop result
+      drop "ERROR"  # drop accumulated, return error
     then
   then
 ;
@@ -268,8 +277,8 @@ include std:stack-utils
       "Products:\n" swap string-concat
     then
   else
-    # Stack: ( db stmt ) - need to clean up stmt
-    drop "Error preparing query"
+    # Stack: ( db stmt ) - finalize to prevent leak (safe even if NULL)
+    db-finalize drop "Error preparing query"
   then
 ;
 
@@ -308,7 +317,10 @@ include std:stack-utils
     SQLITE_DONE = if
       swap db-finalize drop
     else
-      drop drop "ERROR"
+      # Error - finalize statement to prevent leak
+      # Stack: ( stmt accumulated ) - step result already consumed by comparison
+      swap db-finalize drop  # finalize stmt, drop result
+      drop "ERROR"  # drop accumulated, return error
     then
   then
 ;
@@ -334,8 +346,8 @@ include std:stack-utils
       then
     then
   else
-    # Stack: ( db stmt ) - need to clean up stmt
-    drop "Error preparing cart query"
+    # Stack: ( db stmt ) - finalize to prevent leak (safe even if NULL)
+    db-finalize drop "Error preparing cart query"
   then
 ;
 
@@ -364,12 +376,13 @@ include std:stack-utils
           # Stack: ( db product_id qty stmt )
           dup 3 pick 1 swap db-bind-int drop  # bind product_id
           dup 2 pick 2 swap db-bind-int drop  # bind qty
-          db-step drop
-          db-finalize drop
+          dup db-step drop  # keep stmt, call step, drop result
+          db-finalize drop  # finalize stmt
           drop drop
           "Added to cart"
         else
-          drop drop drop drop
+          # Stack: ( db product_id qty stmt ) - finalize and clean up, keep db
+          db-finalize drop drop drop
           "Failed to prepare insert"
         then
       then
@@ -379,7 +392,8 @@ include std:stack-utils
       "Product not found"
     then
   else
-    drop drop drop drop
+    # Stack: ( db product_id qty stmt ) - finalize and clean up, keep db
+    db-finalize drop drop drop
     "Failed to prepare query"
   then
 ;
@@ -391,11 +405,13 @@ include std:stack-utils
   db-ok? if
     # Stack: ( db cart_item_id stmt )
     dup rot 1 swap db-bind-int drop  # bind cart_item_id to param 1
-    db-step drop
-    db-finalize drop
+    # Stack now: ( db stmt )
+    dup db-step drop  # keep stmt, call step, drop result
+    db-finalize drop  # finalize stmt
     "Removed from cart"
   else
-    drop drop
+    # Stack: ( db cart_item_id stmt ) - finalize and clean up, keep db
+    db-finalize drop drop
     "Failed to prepare delete"
   then
 ;
@@ -423,8 +439,8 @@ include std:stack-utils
       0 0  # ( db 0 0 )
     then
   else
-    # Prepare failed - clean up stmt
-    drop
+    # Prepare failed - finalize to prevent leak (safe even if NULL)
+    db-finalize drop
     0 0  # ( db 0 0 )
   then
 ;
@@ -444,7 +460,8 @@ include std:stack-utils
       0  # Error, return false
     then
   else
-    drop
+    # Prepare failed - finalize to prevent leak (safe even if NULL)
+    db-finalize drop
     0  # Error, return false
   then
 ;
@@ -461,15 +478,21 @@ include std:stack-utils
 
 : create-order ( Int Int Int -- Int Int )
   # Stack: ( db total count -- db success? )
-  swap int->string  # ( db count total_str )
-  swap int->string  # ( db total_str count_str )
-  "INSERT INTO orders (total, item_count) VALUES (" rot string-concat
-  ", " string-concat
-  swap string-concat
-  ")" string-concat
-  # ( db sql )
-  over swap db-exec
-  db-ok?
+  # Use prepared statement to prevent SQL injection
+  2 pick "INSERT INTO orders (total, item_count) VALUES (?, ?)" db-prepare
+  db-ok? if
+    # Stack: ( db total count stmt )
+    dup 3 pick 1 swap db-bind-int drop  # bind total to param 1
+    dup 2 pick 2 swap db-bind-int drop  # bind count to param 2
+    dup db-step drop  # keep stmt, call step, drop result
+    db-finalize drop  # finalize stmt
+    drop drop         # drop total count
+    1  # success
+  else
+    # Stack: ( db total count stmt ) - finalize and clean up
+    db-finalize drop drop drop
+    0  # failure
+  then
 ;
 
 : clear-cart ( Int -- Int Int )

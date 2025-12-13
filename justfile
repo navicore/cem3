@@ -10,6 +10,12 @@ default:
 # Build everything (compiler + runtime + lsp)
 build: build-runtime build-compiler build-lsp
 
+install:
+    @echo "Installing the compiler..."
+    cargo install --path crates/compiler
+    @echo "Installing the lsp server..."
+    cargo install --path crates/lsp
+
 # Build the Rust runtime as static library
 build-runtime:
     @echo "Building runtime (clean concatenative foundation)..."

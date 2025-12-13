@@ -3,7 +3,9 @@
 //! Command-line interface for compiling .seq programs to executables
 //! and running lint checks.
 
-use clap::{Parser as ClapParser, Subcommand};
+use clap::{CommandFactory, Parser as ClapParser, Subcommand};
+use clap_complete::{Shell, generate};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -69,6 +71,13 @@ enum Commands {
         #[arg(long)]
         errors_only: bool,
     },
+
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() {
@@ -90,6 +99,9 @@ fn main() {
         }) => {
             run_lint(&paths, config.as_deref(), errors_only);
         }
+        Some(Commands::Completions { shell }) => {
+            run_completions(shell);
+        }
         None => {
             // Backward compatibility: if no subcommand, treat as build
             if let (Some(input), Some(output)) = (cli.input, cli.output) {
@@ -103,6 +115,11 @@ fn main() {
             }
         }
     }
+}
+
+fn run_completions(shell: Shell) {
+    let mut cmd = Cli::command();
+    generate(shell, &mut cmd, "seqc", &mut io::stdout());
 }
 
 fn run_build(input: &Path, output: &Path, keep_ir: bool, ffi_manifests: &[PathBuf]) {

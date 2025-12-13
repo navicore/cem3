@@ -234,7 +234,10 @@ impl Linter {
         self.lint_nested(&word.body, word, file, diagnostics);
     }
 
-    /// Extract a flat sequence of word names with spans from statements
+    /// Extract a flat sequence of word names with spans from statements.
+    /// Non-WordCall statements (literals, quotations, etc.) are represented as
+    /// a special marker `<non-word>` to prevent false pattern matches across
+    /// non-consecutive word calls.
     fn extract_word_sequence<'a>(&self, statements: &'a [Statement]) -> Vec<WordInfo<'a>> {
         let mut words = Vec::new();
         for stmt in statements {
@@ -242,6 +245,14 @@ impl Linter {
                 words.push(WordInfo {
                     name: name.as_str(),
                     span: span.as_ref(),
+                });
+            } else {
+                // Insert a marker for non-word statements to break up patterns.
+                // This prevents false positives like matching "swap swap" when
+                // there's a literal between them: "swap 0 swap"
+                words.push(WordInfo {
+                    name: "<non-word>",
+                    span: None,
                 });
             }
         }
@@ -682,5 +693,72 @@ severity = "warning"
         };
         let result = CompiledPattern::compile(rule);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_literal_breaks_pattern() {
+        // "swap 0 swap" should NOT match "swap swap" because the literal breaks the pattern
+        let config = test_config();
+        let linter = Linter::new(&config).unwrap();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(0), // This should break the pattern
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let diagnostics = linter.lint_program(&program, &PathBuf::from("test.seq"));
+        // Should NOT find "swap swap" because there's a literal in between
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no matches, but got: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_consecutive_swap_swap_still_matches() {
+        // Actual consecutive "swap swap" should still be detected
+        let config = test_config();
+        let linter = Linter::new(&config).unwrap();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let diagnostics = linter.lint_program(&program, &PathBuf::from("test.seq"));
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].id, "redundant-swap-swap");
     }
 }

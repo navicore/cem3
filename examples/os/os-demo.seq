@@ -1,9 +1,13 @@
 # OS Module Demo
 #
 # Demonstrates the built-in OS module functions:
+#
+# Phase 1 - Environment:
 #   - os.getenv: Get environment variables
 #   - os.home-dir: Get user's home directory
 #   - os.current-dir: Get current working directory
+#
+# Phase 2 - File System:
 #   - os.path-exists: Check if path exists
 #   - os.path-is-file: Check if path is a regular file
 #   - os.path-is-dir: Check if path is a directory
@@ -11,12 +15,23 @@
 #   - os.path-parent: Get parent directory
 #   - os.path-filename: Get filename component
 #
+# Phase 3 - System Info:
+#   - os.name: Get operating system name (darwin, linux, windows, etc.)
+#   - os.arch: Get CPU architecture (x86_64, aarch64, arm, etc.)
+#   - os.exit: Exit process with code (not demonstrated - would exit early!)
+#
 # Build and run:
 #   seqc examples/os/os-demo.seq -o os-demo
 #   ./os-demo
 
 : main ( -- Int )
   "=== OS Module Demo ===" io.write-line
+  "" io.write-line
+
+  # System information (Phase 3)
+  "System information:" io.write-line
+  "  OS:   " os.name string.concat io.write-line
+  "  Arch: " os.arch string.concat io.write-line
   "" io.write-line
 
   # Test os.current-dir

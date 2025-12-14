@@ -322,7 +322,8 @@ pub unsafe extern "C" fn patch_seq_exit(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( -- name )
 ///
-/// Returns "darwin", "linux", "windows", or "unknown".
+/// Returns one of: "darwin", "linux", "windows", "freebsd", "openbsd", "netbsd",
+/// or "unknown" for unrecognized platforms.
 ///
 /// # Safety
 /// Stack pointer must be valid
@@ -344,14 +345,15 @@ pub unsafe extern "C" fn patch_seq_os_name(stack: Stack) -> Stack {
         "unknown"
     };
 
-    unsafe { push(stack, Value::String(global_string(name.to_string()))) }
+    unsafe { push(stack, Value::String(global_string(name.to_owned()))) }
 }
 
 /// Get the CPU architecture
 ///
 /// Stack effect: ( -- arch )
 ///
-/// Returns "x86_64", "aarch64", "arm", "x86", or "unknown".
+/// Returns one of: "x86_64", "aarch64", "arm", "x86", "riscv64",
+/// or "unknown" for unrecognized architectures.
 ///
 /// # Safety
 /// Stack pointer must be valid
@@ -371,5 +373,5 @@ pub unsafe extern "C" fn patch_seq_os_arch(stack: Stack) -> Stack {
         "unknown"
     };
 
-    unsafe { push(stack, Value::String(global_string(arch.to_string()))) }
+    unsafe { push(stack, Value::String(global_string(arch.to_owned()))) }
 }

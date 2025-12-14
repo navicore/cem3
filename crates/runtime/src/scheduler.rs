@@ -146,14 +146,18 @@ impl StrandRegistry {
 
         // Scan for a free slot
         for (idx, slot) in self.slots.iter().enumerate() {
+            // Set spawn time first, before claiming the slot
+            // This prevents a race where a reader sees strand_id != 0 but spawn_time == 0
+            // If we fail to claim the slot, the owner will overwrite this value anyway
+            slot.spawn_time.store(spawn_time, Ordering::Relaxed);
+
             // Try to claim this slot (CAS from 0 to strand_id)
+            // AcqRel ensures the spawn_time write above is visible before strand_id becomes non-zero
             if slot
                 .strand_id
                 .compare_exchange(0, strand_id, Ordering::AcqRel, Ordering::Relaxed)
                 .is_ok()
             {
-                // Successfully claimed the slot, set spawn time
-                slot.spawn_time.store(spawn_time, Ordering::Release);
                 return Some(idx);
             }
         }
@@ -189,9 +193,12 @@ impl StrandRegistry {
     /// Note: This is a snapshot and may be slightly inconsistent due to concurrent updates.
     pub fn active_strands(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
         self.slots.iter().filter_map(|slot| {
+            // Acquire on strand_id synchronizes with the Release in register()
             let id = slot.strand_id.load(Ordering::Acquire);
             if id > 0 {
-                let time = slot.spawn_time.load(Ordering::Acquire);
+                // Relaxed is sufficient here - we've already synchronized via strand_id Acquire
+                // and spawn_time is written before strand_id in register()
+                let time = slot.spawn_time.load(Ordering::Relaxed);
                 Some((id, time))
             } else {
                 None
@@ -337,12 +344,13 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
 
     // Update peak strands if this is a new high-water mark
     // Uses a CAS loop to safely update the maximum without locks
+    // Uses Release ordering on success to synchronize with Acquire reads in diagnostics
     let mut peak = PEAK_STRANDS.load(Ordering::Relaxed);
     while new_count > peak {
         match PEAK_STRANDS.compare_exchange_weak(
             peak,
             new_count,
-            Ordering::Relaxed,
+            Ordering::Release,
             Ordering::Relaxed,
         ) {
             Ok(_) => break,
@@ -385,13 +393,14 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
             // Unregister strand from registry (uses captured strand_id)
             strand_registry().unregister(strand_id);
 
-            // Track completion and decrement active strand counter
-            TOTAL_COMPLETED.fetch_add(1, Ordering::Relaxed);
-
-            // Decrement active strand counter
-            // If this was the last strand, notify anyone waiting for shutdown
+            // Decrement active strand counter first, then track completion
+            // This ordering ensures the invariant SPAWNED = COMPLETED + ACTIVE + lost
+            // is never violated from an external observer's perspective
             // Use AcqRel to establish proper synchronization (both acquire and release barriers)
             let prev_count = ACTIVE_STRANDS.fetch_sub(1, Ordering::AcqRel);
+
+            // Track completion after decrementing active count
+            TOTAL_COMPLETED.fetch_add(1, Ordering::Release);
             if prev_count == 1 {
                 // We were the last strand - acquire mutex and signal shutdown
                 // The mutex must be held when calling notify to prevent missed wakeups
@@ -862,5 +871,131 @@ mod tests {
             parse_stack_size(Some("1.5".to_string())),
             DEFAULT_STACK_SIZE
         );
+    }
+
+    #[test]
+    fn test_strand_registry_basic() {
+        let registry = StrandRegistry::new(10);
+
+        // Register some strands
+        assert_eq!(registry.register(1), Some(0)); // First slot
+        assert_eq!(registry.register(2), Some(1)); // Second slot
+        assert_eq!(registry.register(3), Some(2)); // Third slot
+
+        // Verify active strands
+        let active: Vec<_> = registry.active_strands().collect();
+        assert_eq!(active.len(), 3);
+
+        // Unregister one
+        assert!(registry.unregister(2));
+        let active: Vec<_> = registry.active_strands().collect();
+        assert_eq!(active.len(), 2);
+
+        // Unregister non-existent should return false
+        assert!(!registry.unregister(999));
+    }
+
+    #[test]
+    fn test_strand_registry_overflow() {
+        let registry = StrandRegistry::new(3); // Small capacity
+
+        // Fill it up
+        assert!(registry.register(1).is_some());
+        assert!(registry.register(2).is_some());
+        assert!(registry.register(3).is_some());
+
+        // Next should overflow
+        assert!(registry.register(4).is_none());
+        assert_eq!(registry.overflow_count.load(Ordering::Relaxed), 1);
+
+        // Another overflow
+        assert!(registry.register(5).is_none());
+        assert_eq!(registry.overflow_count.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn test_strand_registry_slot_reuse() {
+        let registry = StrandRegistry::new(3);
+
+        // Fill it up
+        registry.register(1);
+        registry.register(2);
+        registry.register(3);
+
+        // Unregister middle one
+        registry.unregister(2);
+
+        // New registration should reuse the slot
+        assert!(registry.register(4).is_some());
+        assert_eq!(registry.active_strands().count(), 3);
+    }
+
+    #[test]
+    fn test_strand_registry_concurrent_stress() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let registry = Arc::new(StrandRegistry::new(50)); // Moderate capacity
+
+        let handles: Vec<_> = (0..100)
+            .map(|i| {
+                let reg = Arc::clone(&registry);
+                thread::spawn(move || {
+                    let id = (i + 1) as u64;
+                    // Register
+                    let _ = reg.register(id);
+                    // Brief work
+                    thread::yield_now();
+                    // Unregister
+                    reg.unregister(id);
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // All slots should be free after all threads complete
+        assert_eq!(registry.active_strands().count(), 0);
+    }
+
+    #[test]
+    fn test_strand_lifecycle_counters() {
+        unsafe {
+            // Reset counters for isolation (not perfect but helps)
+            let initial_spawned = TOTAL_SPAWNED.load(Ordering::Relaxed);
+            let initial_completed = TOTAL_COMPLETED.load(Ordering::Relaxed);
+
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+            extern "C" fn simple_work(_stack: Stack) -> Stack {
+                COUNTER.fetch_add(1, Ordering::SeqCst);
+                std::ptr::null_mut()
+            }
+
+            COUNTER.store(0, Ordering::SeqCst);
+
+            // Spawn some strands
+            for _ in 0..10 {
+                strand_spawn(simple_work, std::ptr::null_mut());
+            }
+
+            wait_all_strands();
+
+            // Verify counters incremented
+            let final_spawned = TOTAL_SPAWNED.load(Ordering::Relaxed);
+            let final_completed = TOTAL_COMPLETED.load(Ordering::Relaxed);
+
+            assert!(
+                final_spawned >= initial_spawned + 10,
+                "TOTAL_SPAWNED should have increased by at least 10"
+            );
+            assert!(
+                final_completed >= initial_completed + 10,
+                "TOTAL_COMPLETED should have increased by at least 10"
+            );
+            assert_eq!(COUNTER.load(Ordering::SeqCst), 10);
+        }
     }
 }

@@ -50,10 +50,16 @@ The `kill -3` (SIGQUIT) feature reports:
   - Total completed count (monotonic)
   - Peak concurrent strands (high-water mark)
   - Automatic leak detection warning (spawned - completed - active > 0)
+- **Lock-free strand registry** (per-strand visibility):
+  - Individual strand IDs and spawn timestamps
+  - Duration each strand has been running (helps detect stuck strands)
+  - Configurable capacity via `SEQ_STRAND_REGISTRY_SIZE` (default: 1024)
+  - Overflow tracking when registry is full
 - **Channel statistics**:
   - Open channel count (global registry - accurate)
 
 Zero overhead until signaled. All counters use lock-free atomics.
+Registry uses CAS operations for registration/unregistration.
 
 ### Near-term: Strand & Channel Visibility
 

@@ -21,7 +21,9 @@
 //! waits for signals using signal-hook's iterator API, making all the I/O
 //! operations safe.
 
-use crate::scheduler::{ACTIVE_STRANDS, PEAK_STRANDS, TOTAL_COMPLETED, TOTAL_SPAWNED};
+use crate::scheduler::{
+    ACTIVE_STRANDS, PEAK_STRANDS, TOTAL_COMPLETED, TOTAL_SPAWNED, strand_registry,
+};
 use std::sync::Once;
 use std::sync::atomic::Ordering;
 
@@ -106,6 +108,55 @@ pub fn dump_diagnostics() {
             "  WARNING: {} strands may have been lost (panic/abort)",
             lost
         );
+    }
+
+    // Active strand details from registry
+    let registry = strand_registry();
+    let overflow = registry.overflow_count.load(Ordering::Relaxed);
+
+    let _ = writeln!(out, "\n[Active Strand Details]");
+    let _ = writeln!(out, "  Registry capacity: {} slots", registry.capacity());
+    if overflow > 0 {
+        let _ = writeln!(
+            out,
+            "  WARNING: {} strands exceeded registry capacity (not tracked)",
+            overflow
+        );
+    }
+
+    // Get current time for duration calculation
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Collect and sort active strands by spawn time (oldest first)
+    let mut strands: Vec<_> = registry.active_strands().collect();
+    strands.sort_by_key(|(_, spawn_time)| *spawn_time);
+
+    if strands.is_empty() {
+        let _ = writeln!(out, "  (no active strands in registry)");
+    } else {
+        let _ = writeln!(out, "  {} strand(s) tracked:", strands.len());
+        // Show up to 20 strands to avoid overwhelming output
+        let display_limit = 20;
+        for (i, (strand_id, spawn_time)) in strands.iter().take(display_limit).enumerate() {
+            let duration = now.saturating_sub(*spawn_time);
+            let _ = writeln!(
+                out,
+                "    [{:2}] Strand #{:<8} running for {}s",
+                i + 1,
+                strand_id,
+                duration
+            );
+        }
+        if strands.len() > display_limit {
+            let _ = writeln!(
+                out,
+                "    ... and {} more strands",
+                strands.len() - display_limit
+            );
+        }
     }
 
     // Channel stats (global registry - accurate if lock available)

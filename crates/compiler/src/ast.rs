@@ -393,6 +393,9 @@ impl Program {
             "os.path-join",
             "os.path-parent",
             "os.path-filename",
+            "os.exit",
+            "os.name",
+            "os.arch",
             // Float arithmetic operations
             "f.add",
             "f.subtract",

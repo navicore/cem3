@@ -278,3 +278,83 @@ pub unsafe extern "C" fn patch_seq_path_filename(stack: Stack) -> Stack {
         }
     }
 }
+
+/// Exit the process with the given exit code
+///
+/// Stack effect: ( code -- )
+///
+/// This function does not return.
+///
+/// # Safety
+/// Stack must have an Int (exit code) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_exit(stack: Stack) -> Stack {
+    unsafe {
+        let (_stack, code_val) = pop(stack);
+        let code = match code_val {
+            Value::Int(n) => n as i32,
+            _ => panic!(
+                "os.exit: expected Int (exit code) on stack, got {:?}",
+                code_val
+            ),
+        };
+
+        std::process::exit(code);
+    }
+}
+
+/// Get the operating system name
+///
+/// Stack effect: ( -- name )
+///
+/// Returns "darwin", "linux", "windows", or "unknown".
+///
+/// # Safety
+/// Stack pointer must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_os_name(stack: Stack) -> Stack {
+    let name = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "freebsd") {
+        "freebsd"
+    } else if cfg!(target_os = "openbsd") {
+        "openbsd"
+    } else if cfg!(target_os = "netbsd") {
+        "netbsd"
+    } else {
+        "unknown"
+    };
+
+    unsafe { push(stack, Value::String(global_string(name.to_string()))) }
+}
+
+/// Get the CPU architecture
+///
+/// Stack effect: ( -- arch )
+///
+/// Returns "x86_64", "aarch64", "arm", "x86", or "unknown".
+///
+/// # Safety
+/// Stack pointer must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_os_arch(stack: Stack) -> Stack {
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else if cfg!(target_arch = "arm") {
+        "arm"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "riscv64") {
+        "riscv64"
+    } else {
+        "unknown"
+    };
+
+    unsafe { push(stack, Value::String(global_string(arch.to_string()))) }
+}

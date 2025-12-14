@@ -715,7 +715,8 @@ include std:stack-utils
 
 : worker ( Int -- )
   # Stack: ( channel -- )
-  chan.receive  # get socket from channel
+  dup chan.receive  # keep channel ID, get socket
+  swap chan.close   # close the channel (no longer needed)
   handle-connection
 ;
 

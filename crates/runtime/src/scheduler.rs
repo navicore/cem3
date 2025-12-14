@@ -44,6 +44,24 @@ pub static ACTIVE_STRANDS: AtomicUsize = AtomicUsize::new(0);
 static SHUTDOWN_CONDVAR: Condvar = Condvar::new();
 static SHUTDOWN_MUTEX: Mutex<()> = Mutex::new(());
 
+// Strand lifecycle statistics (for diagnostics)
+//
+// These counters provide observability into strand lifecycle without any locking.
+// All operations are lock-free atomic increments/loads.
+//
+// - TOTAL_SPAWNED: Monotonically increasing count of all strands ever spawned
+// - TOTAL_COMPLETED: Monotonically increasing count of all strands that completed
+// - PEAK_STRANDS: High-water mark of concurrent strands (helps detect strand leaks)
+//
+// Useful diagnostics:
+// - Currently running: ACTIVE_STRANDS
+// - Completed successfully: TOTAL_COMPLETED
+// - Potential leaks: TOTAL_SPAWNED - TOTAL_COMPLETED - ACTIVE_STRANDS > 0 (strands lost)
+// - Peak concurrency: PEAK_STRANDS
+pub static TOTAL_SPAWNED: AtomicU64 = AtomicU64::new(0);
+pub static TOTAL_COMPLETED: AtomicU64 = AtomicU64::new(0);
+pub static PEAK_STRANDS: AtomicUsize = AtomicUsize::new(0);
+
 // Unique strand ID generation
 static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -159,8 +177,24 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
     // Generate unique strand ID
     let strand_id = NEXT_STRAND_ID.fetch_add(1, Ordering::Relaxed);
 
-    // Increment active strand counter
-    ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
+    // Increment active strand counter and track total spawned
+    let new_count = ACTIVE_STRANDS.fetch_add(1, Ordering::Release) + 1;
+    TOTAL_SPAWNED.fetch_add(1, Ordering::Relaxed);
+
+    // Update peak strands if this is a new high-water mark
+    // Uses a CAS loop to safely update the maximum without locks
+    let mut peak = PEAK_STRANDS.load(Ordering::Relaxed);
+    while new_count > peak {
+        match PEAK_STRANDS.compare_exchange_weak(
+            peak,
+            new_count,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(current) => peak = current,
+        }
+    }
 
     // Function pointers are already Send, no wrapper needed
     let entry_fn = entry;
@@ -189,6 +223,9 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
 
             // Clean up the final stack to prevent memory leak
             free_stack(final_stack);
+
+            // Track completion and decrement active strand counter
+            TOTAL_COMPLETED.fetch_add(1, Ordering::Relaxed);
 
             // Decrement active strand counter
             // If this was the last strand, notify anyone waiting for shutdown

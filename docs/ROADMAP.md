@@ -41,13 +41,19 @@ Foreign function interface for calling C libraries:
 
 ## Runtime Observability
 
-### Current: SIGQUIT Diagnostics
+### Current: SIGQUIT Diagnostics ✅
 
 The `kill -3` (SIGQUIT) feature reports:
-- Active strand count (global atomic - accurate)
-- Open channel count (global registry - accurate)
+- **Strand lifecycle statistics** (lock-free atomics - zero hot-path overhead):
+  - Active strand count
+  - Total spawned count (monotonic)
+  - Total completed count (monotonic)
+  - Peak concurrent strands (high-water mark)
+  - Automatic leak detection warning (spawned - completed - active > 0)
+- **Channel statistics**:
+  - Open channel count (global registry - accurate)
 
-Zero overhead until signaled.
+Zero overhead until signaled. All counters use lock-free atomics.
 
 ### Near-term: Strand & Channel Visibility
 

@@ -171,6 +171,10 @@ impl StrandRegistry {
     ///
     /// Scans for the slot containing this strand ID and clears it.
     /// Returns true if found and cleared, false if not found.
+    ///
+    /// Note: ABA problem is not a concern here because strand IDs are monotonically
+    /// increasing u64 values. ID reuse would require 2^64 spawns, which is practically
+    /// impossible (at 1 billion spawns/sec, it would take ~584 years).
     pub fn unregister(&self, strand_id: u64) -> bool {
         for slot in self.slots.iter() {
             // Check if this slot contains our strand
@@ -344,8 +348,8 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
 
     // Update peak strands if this is a new high-water mark
     // Uses a CAS loop to safely update the maximum without locks
-    // Uses Release ordering on success to synchronize with Acquire reads in diagnostics
-    let mut peak = PEAK_STRANDS.load(Ordering::Relaxed);
+    // Uses Acquire/Release ordering for proper synchronization with diagnostics reads
+    let mut peak = PEAK_STRANDS.load(Ordering::Acquire);
     while new_count > peak {
         match PEAK_STRANDS.compare_exchange_weak(
             peak,

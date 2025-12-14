@@ -29,6 +29,10 @@ use std::sync::atomic::Ordering;
 
 static SIGNAL_HANDLER_INIT: Once = Once::new();
 
+/// Maximum number of individual strands to display in diagnostics output
+/// to avoid overwhelming the output for programs with many strands
+const STRAND_DISPLAY_LIMIT: usize = 20;
+
 /// Install the SIGQUIT signal handler for diagnostics
 ///
 /// This is called automatically by scheduler_init, but can be called
@@ -138,23 +142,22 @@ pub fn dump_diagnostics() {
         let _ = writeln!(out, "  (no active strands in registry)");
     } else {
         let _ = writeln!(out, "  {} strand(s) tracked:", strands.len());
-        // Show up to 20 strands to avoid overwhelming output
-        let display_limit = 20;
-        for (i, (strand_id, spawn_time)) in strands.iter().take(display_limit).enumerate() {
+        for (idx, (strand_id, spawn_time)) in strands.iter().take(STRAND_DISPLAY_LIMIT).enumerate()
+        {
             let duration = now.saturating_sub(*spawn_time);
             let _ = writeln!(
                 out,
                 "    [{:2}] Strand #{:<8} running for {}s",
-                i + 1,
+                idx + 1,
                 strand_id,
                 duration
             );
         }
-        if strands.len() > display_limit {
+        if strands.len() > STRAND_DISPLAY_LIMIT {
             let _ = writeln!(
                 out,
                 "    ... and {} more strands",
-                strands.len() - display_limit
+                strands.len() - STRAND_DISPLAY_LIMIT
             );
         }
     }

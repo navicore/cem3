@@ -474,6 +474,10 @@ impl TypeChecker {
                     // Generate a fresh type variable to represent it.
                     // This allows the code to type-check, with the actual type
                     // determined by unification with how the value is used.
+                    //
+                    // Note: This works correctly even in conditional branches because
+                    // branches are now inferred from the actual stack (not abstractly),
+                    // so row variables only appear when the word itself has polymorphic inputs.
                     let fresh_type = Type::Var(self.fresh_var(&format!("{}_{}", op, name)));
                     return Ok(fresh_type);
                 }
@@ -521,9 +525,17 @@ impl TypeChecker {
                 }
                 StackType::RowVar(name) => {
                     // Reached a row variable before position n
-                    // The type at position n is in the row variable
-                    // We need to express that we're extracting a value from the row
-                    // For now, generate fresh type variables
+                    // The type at position n is in the row variable.
+                    // Generate a fresh type variable to represent the moved value.
+                    //
+                    // Note: This preserves stack size correctly because we're moving
+                    // (not copying) a value. The row variable conceptually "loses"
+                    // an item which appears on top. Since we can't express "row minus one",
+                    // we generate a fresh type and trust unification to constrain it.
+                    //
+                    // This works correctly in conditional branches because branches are
+                    // now inferred from the actual stack (not abstractly), so row variables
+                    // only appear when the word itself has polymorphic inputs.
                     let fresh_type = Type::Var(self.fresh_var(&format!("roll_{}", name)));
 
                     // Reconstruct the stack with the rolled type on top
@@ -639,13 +651,11 @@ impl TypeChecker {
                         }
                     }
 
-                    // Type check the arm body
-                    let arm_effect = self.infer_statements(&arm.body)?;
-                    let (arm_result, arm_subst) = self.apply_effect(
-                        &arm_effect,
-                        arm_stack,
-                        &format!("match arm {}", variant_name),
-                    )?;
+                    // Type check the arm body directly from the actual stack
+                    // This is necessary for operations like `n roll` and `n pick` which need
+                    // to know the concrete stack types to determine if they can access position n
+                    let (arm_result, arm_subst) =
+                        self.infer_statements_from(&arm.body, &arm_stack)?;
 
                     combined_subst = combined_subst.compose(&arm_subst);
                     arm_results.push(arm_result);
@@ -724,15 +734,15 @@ impl TypeChecker {
 
                 let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
 
-                // Infer then branch
-                let then_effect = self.infer_statements(then_branch)?;
-                let (then_result, _then_subst) =
-                    self.apply_effect(&then_effect, stack_after_cond.clone(), "if then")?;
+                // Infer branches directly from the actual stack
+                // This is necessary for operations like `n roll` and `n pick` which need
+                // to know the concrete stack types to determine if they can access position n
+                let (then_result, then_subst) =
+                    self.infer_statements_from(then_branch, &stack_after_cond)?;
 
                 // Infer else branch (or use stack_after_cond if no else)
-                let (else_result, _else_subst) = if let Some(else_stmts) = else_branch {
-                    let else_effect = self.infer_statements(else_stmts)?;
-                    self.apply_effect(&else_effect, stack_after_cond, "if else")?
+                let (else_result, else_subst) = if let Some(else_stmts) = else_branch {
+                    self.infer_statements_from(else_stmts, &stack_after_cond)?
                 } else {
                     (stack_after_cond, Subst::empty())
                 };
@@ -753,8 +763,11 @@ impl TypeChecker {
                 // Apply branch unification to get the final result
                 let result = branch_subst.apply_stack(&then_result);
 
-                // Propagate condition substitution composed with branch substitution
-                let total_subst = cond_subst.compose(&branch_subst);
+                // Propagate all substitutions
+                let total_subst = cond_subst
+                    .compose(&then_subst)
+                    .compose(&else_subst)
+                    .compose(&branch_subst);
                 Ok((result, total_subst))
             }
 
@@ -2191,6 +2204,213 @@ mod tests {
         assert!(err.contains("chan"));
         assert!(err.contains("Get"));
         assert!(err.contains("Message"));
+    }
+
+    #[test]
+    fn test_roll_inside_conditional_with_concrete_stack() {
+        // Bug #93: n roll inside if/else should work when stack has enough concrete items
+        // : test ( Int Int Int Int -- Int Int Int Int )
+        //   dup 0 > if
+        //     3 roll    # Works: 4 concrete items available
+        //   else
+        //     rot rot   # Alternative that also works
+        //   then ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int),
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int),
+                )),
+                body: vec![
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(0),
+                    Statement::WordCall {
+                        name: ">".to_string(),
+                        span: None,
+                    },
+                    Statement::If {
+                        then_branch: vec![
+                            Statement::IntLiteral(3),
+                            Statement::WordCall {
+                                name: "roll".to_string(),
+                                span: None,
+                            },
+                        ],
+                        else_branch: Some(vec![
+                            Statement::WordCall {
+                                name: "rot".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "rot".to_string(),
+                                span: None,
+                            },
+                        ]),
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        // This should now work because both branches have 4 concrete items
+        match checker.check_program(&program) {
+            Ok(_) => {}
+            Err(e) => panic!("Type check failed: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_roll_inside_match_arm_with_concrete_stack() {
+        // Similar to bug #93 but for match arms: n roll inside match should work
+        // when stack has enough concrete items from the match context
+        use crate::ast::{MatchArm, Pattern, UnionDef, UnionVariant};
+
+        // Define a simple union: union Result = Ok | Err
+        let union_def = UnionDef {
+            name: "Result".to_string(),
+            variants: vec![
+                UnionVariant {
+                    name: "Ok".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+                UnionVariant {
+                    name: "Err".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+            ],
+            source: None,
+        };
+
+        // : test ( Int Int Int Int Result -- Int Int Int Int )
+        //   match
+        //     Ok => 3 roll
+        //     Err => rot rot
+        //   end ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![union_def],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Union("Result".to_string())),
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int),
+                )),
+                body: vec![Statement::Match {
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::Variant("Ok".to_string()),
+                            body: vec![
+                                Statement::IntLiteral(3),
+                                Statement::WordCall {
+                                    name: "roll".to_string(),
+                                    span: None,
+                                },
+                            ],
+                        },
+                        MatchArm {
+                            pattern: Pattern::Variant("Err".to_string()),
+                            body: vec![
+                                Statement::WordCall {
+                                    name: "rot".to_string(),
+                                    span: None,
+                                },
+                                Statement::WordCall {
+                                    name: "rot".to_string(),
+                                    span: None,
+                                },
+                            ],
+                        },
+                    ],
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        match checker.check_program(&program) {
+            Ok(_) => {}
+            Err(e) => panic!("Type check failed: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_roll_with_row_polymorphic_input() {
+        // roll reaching into row variable should work (needed for stdlib)
+        // : test ( ..a Int Int Int -- ..a Int Int Int ??? )
+        //   3 roll ;   # Reaches into ..a, generates fresh type
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: None, // No declared effect - polymorphic inference
+                body: vec![
+                    Statement::IntLiteral(3),
+                    Statement::WordCall {
+                        name: "roll".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        // This should succeed - roll into row variable is allowed for polymorphic words
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_pick_with_row_polymorphic_input() {
+        // pick reaching into row variable should work (needed for stdlib)
+        // : test ( ..a Int Int -- ..a Int Int ??? )
+        //   2 pick ;   # Reaches into ..a, generates fresh type
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: None, // No declared effect - polymorphic inference
+                body: vec![
+                    Statement::IntLiteral(2),
+                    Statement::WordCall {
+                        name: "pick".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        // This should succeed - pick into row variable is allowed for polymorphic words
+        assert!(checker.check_program(&program).is_ok());
     }
 
     #[test]

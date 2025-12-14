@@ -120,11 +120,11 @@ pub use tcp::{
 
 // OS operations (exported for LLVM linking)
 pub use os::{
-    patch_seq_current_dir as current_dir, patch_seq_getenv as getenv,
-    patch_seq_home_dir as home_dir, patch_seq_path_exists as path_exists,
-    patch_seq_path_filename as path_filename, patch_seq_path_is_dir as path_is_dir,
-    patch_seq_path_is_file as path_is_file, patch_seq_path_join as path_join,
-    patch_seq_path_parent as path_parent,
+    patch_seq_current_dir as current_dir, patch_seq_exit as exit, patch_seq_getenv as getenv,
+    patch_seq_home_dir as home_dir, patch_seq_os_arch as os_arch, patch_seq_os_name as os_name,
+    patch_seq_path_exists as path_exists, patch_seq_path_filename as path_filename,
+    patch_seq_path_is_dir as path_is_dir, patch_seq_path_is_file as path_is_file,
+    patch_seq_path_join as path_join, patch_seq_path_parent as path_parent,
 };
 
 // Variant operations (exported for LLVM linking)

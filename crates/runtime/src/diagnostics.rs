@@ -21,7 +21,7 @@
 //! waits for signals using signal-hook's iterator API, making all the I/O
 //! operations safe.
 
-use crate::scheduler::ACTIVE_STRANDS;
+use crate::scheduler::{ACTIVE_STRANDS, PEAK_STRANDS, TOTAL_COMPLETED, TOTAL_SPAWNED};
 use std::sync::Once;
 use std::sync::atomic::Ordering;
 
@@ -84,10 +84,29 @@ pub fn dump_diagnostics() {
     let _ = writeln!(out, "\n=== Seq Runtime Diagnostics ===");
     let _ = writeln!(out, "Timestamp: {:?}", std::time::SystemTime::now());
 
-    // Strand count (global atomic - accurate)
+    // Strand statistics (global atomics - accurate)
     let active = ACTIVE_STRANDS.load(Ordering::Relaxed);
+    let total_spawned = TOTAL_SPAWNED.load(Ordering::Relaxed);
+    let total_completed = TOTAL_COMPLETED.load(Ordering::Relaxed);
+    let peak = PEAK_STRANDS.load(Ordering::Relaxed);
+
     let _ = writeln!(out, "\n[Strands]");
-    let _ = writeln!(out, "  Active: {}", active);
+    let _ = writeln!(out, "  Active:    {}", active);
+    let _ = writeln!(out, "  Spawned:   {} (total)", total_spawned);
+    let _ = writeln!(out, "  Completed: {} (total)", total_completed);
+    let _ = writeln!(out, "  Peak:      {} (high-water mark)", peak);
+
+    // Calculate potential leak indicator
+    // If spawned > completed + active, some strands were lost (panic, etc.)
+    let expected_completed = total_spawned.saturating_sub(active as u64);
+    if total_completed < expected_completed {
+        let lost = expected_completed - total_completed;
+        let _ = writeln!(
+            out,
+            "  WARNING: {} strands may have been lost (panic/abort)",
+            lost
+        );
+    }
 
     // Channel stats (global registry - accurate if lock available)
     let _ = writeln!(out, "\n[Channels]");

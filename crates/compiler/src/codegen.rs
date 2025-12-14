@@ -113,6 +113,9 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("os.path-join", "patch_seq_path_join"),
         ("os.path-parent", "patch_seq_path_parent"),
         ("os.path-filename", "patch_seq_path_filename"),
+        ("os.exit", "patch_seq_exit"),
+        ("os.name", "patch_seq_os_name"),
+        ("os.arch", "patch_seq_os_arch"),
         // String operations
         ("string.concat", "patch_seq_string_concat"),
         ("string.length", "patch_seq_string_length"),
@@ -671,6 +674,9 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_path_join(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_path_parent(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_path_filename(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_exit(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_os_name(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_os_arch(ptr)").unwrap();
         writeln!(&mut ir, "; String operations").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
@@ -1002,6 +1008,9 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_path_join(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_path_parent(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_path_filename(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_exit(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_os_name(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_os_arch(ptr)").unwrap();
         writeln!(ir, "; String operations").unwrap();
         writeln!(ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();

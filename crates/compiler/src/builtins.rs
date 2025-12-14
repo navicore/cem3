@@ -751,6 +751,36 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // os.exit: ( ..a Int -- )
+    // Exit process with code (never returns)
+    sigs.insert(
+        "os.exit".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // os.name: ( ..a -- ..a String )
+    // Get OS name: "darwin", "linux", "windows", etc.
+    sigs.insert(
+        "os.name".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
+    // os.arch: ( ..a -- ..a String )
+    // Get CPU architecture: "x86_64", "aarch64", etc.
+    sigs.insert(
+        "os.arch".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::String),
+        ),
+    );
+
     // String operations
     // string.concat: ( ..a String String -- ..a String )
     // Concatenate two strings

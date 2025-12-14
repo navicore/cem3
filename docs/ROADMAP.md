@@ -8,6 +8,37 @@ Inspired by the Tokio ecosystem (tokio-console, tracing, metrics, tower), we asp
 
 ---
 
+## Recent Milestones
+
+### v0.9.0: Naming Convention Refactor ✅
+
+Established consistent naming scheme for all built-in operations:
+
+| Delimiter | Usage | Example |
+|-----------|-------|---------|
+| `.` (dot) | Module/namespace prefix | `io.write-line`, `tcp.listen`, `string.concat` |
+| `-` (hyphen) | Compound words within names | `home-dir`, `field-at`, `write-line` |
+| `->` (arrow) | Type conversions | `int->string`, `float->int` |
+
+See [MIGRATION-0.9.md](/MIGRATION-0.9.md) for the full migration guide.
+
+### OS Module ✅
+
+Full implementation of portable OS primitives:
+- Environment: `os.getenv`, `os.home-dir`, `os.current-dir`
+- Paths: `os.path-exists`, `os.path-is-file`, `os.path-is-dir`, `os.path-join`, `os.path-parent`, `os.path-filename`
+- Args: `args.count`, `args.at`
+
+### FFI Phase 1 & 2 ✅
+
+Foreign function interface for calling C libraries:
+- Manifest-based declarative bindings
+- String marshalling with ownership semantics
+- Out parameters and fixed value arguments
+- Security validation on linker flags
+
+---
+
 ## Runtime Observability
 
 ### Current: SIGQUIT Diagnostics
@@ -202,49 +233,49 @@ return = { type = "string", ownership = "caller_frees" }
 Provide portable OS interaction primitives as runtime built-ins, following the same pattern as TCP/HTTP (Rust implementation with C ABI exports).
 
 ```seq
-include std:os
-
 : get-history-path ( -- String )
-  "HOME" getenv if
-    "/.myapp_history" string-concat
+  "HOME" os.getenv if
+    "/.myapp_history" string.concat
   else
     drop "/tmp/.myapp_history"
   then
 ;
 ```
 
-### Phase 1: Environment & Paths (Priority)
+### Phase 1: Environment & Paths ✅ Complete
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `getenv` | `( String -- String Int )` | Get env var, returns value and 1 on success, "" and 0 on failure |
-| `home-dir` | `( -- String )` | User's home directory |
-| `current-dir` | `( -- String )` | Current working directory |
+| `os.getenv` | `( String -- String Int )` | Get env var, returns value and 1 on success, "" and 0 on failure |
+| `os.home-dir` | `( -- String Int )` | User's home directory |
+| `os.current-dir` | `( -- String Int )` | Current working directory |
 
-These unblock the persistent history path use case and are simple to implement.
-
-### Phase 2: File System
+### Phase 2: File System ✅ Complete
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `path-exists` | `( String -- Int )` | 1 if path exists, 0 otherwise |
-| `path-is-file` | `( String -- Int )` | 1 if regular file |
-| `path-is-dir` | `( String -- Int )` | 1 if directory |
+| `os.path-exists` | `( String -- Int )` | 1 if path exists, 0 otherwise |
+| `os.path-is-file` | `( String -- Int )` | 1 if regular file |
+| `os.path-is-dir` | `( String -- Int )` | 1 if directory |
+| `os.path-join` | `( String String -- String )` | Join two path components |
+| `os.path-parent` | `( String -- String Int )` | Parent directory |
+| `os.path-filename` | `( String -- String Int )` | Filename component |
 
-### Phase 3: Process & System
+### Phase 3: Process & System ✅ Complete
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `exit` | `( Int -- )` | Exit process with code |
-| `args` | `( -- ... Int )` | Push command line args and count |
-| `os-name` | `( -- String )` | "darwin", "linux", "windows" |
-| `arch` | `( -- String )` | "x86_64", "aarch64" |
+| `args.count` | `( -- Int )` | Number of command line args |
+| `args.at` | `( Int -- String )` | Get arg at index |
+| `os.exit` | `( Int -- )` | Exit process with code |
+| `os.name` | `( -- String )` | "darwin", "linux", "windows", "freebsd", etc. |
+| `os.arch` | `( -- String )` | "x86_64", "aarch64", "arm", etc. |
 
 ### Implementation Notes
 
 - Implemented in `crates/runtime/src/os.rs`
 - C ABI exports: `patch_seq_getenv`, `patch_seq_home_dir`, etc.
-- Compiler built-in recognition for `include std:os`
+- Direct builtins (no `include` required)
 - Cross-platform via Rust's `std::env` and `std::fs`
 
 ---

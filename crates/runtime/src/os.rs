@@ -278,3 +278,100 @@ pub unsafe extern "C" fn patch_seq_path_filename(stack: Stack) -> Stack {
         }
     }
 }
+
+/// Valid exit code range for Unix compatibility (only low 8 bits are meaningful)
+const EXIT_CODE_MIN: i64 = 0;
+const EXIT_CODE_MAX: i64 = 255;
+
+/// Exit the process with the given exit code
+///
+/// Stack effect: ( code -- )
+///
+/// Exit code must be in range 0-255 for Unix compatibility.
+/// This function does not return.
+///
+/// # Safety
+/// Stack must have an Int (exit code) on top.
+///
+/// Note: Returns `Stack` for LLVM ABI compatibility even though it never returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_exit(stack: Stack) -> Stack {
+    unsafe {
+        let (_stack, code_val) = pop(stack);
+        let code = match code_val {
+            Value::Int(n) => {
+                if !(EXIT_CODE_MIN..=EXIT_CODE_MAX).contains(&n) {
+                    panic!(
+                        "os.exit: exit code must be in range {}-{}, got {}",
+                        EXIT_CODE_MIN, EXIT_CODE_MAX, n
+                    );
+                }
+                n as i32
+            }
+            _ => panic!(
+                "os.exit: expected Int (exit code) on stack, got {:?}",
+                code_val
+            ),
+        };
+
+        std::process::exit(code);
+    }
+}
+
+/// Get the operating system name
+///
+/// Stack effect: ( -- name )
+///
+/// Returns one of: "darwin", "linux", "windows", "freebsd", "openbsd", "netbsd",
+/// or "unknown" for unrecognized platforms.
+///
+/// # Safety
+/// Stack pointer must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_os_name(stack: Stack) -> Stack {
+    let name = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "freebsd") {
+        "freebsd"
+    } else if cfg!(target_os = "openbsd") {
+        "openbsd"
+    } else if cfg!(target_os = "netbsd") {
+        "netbsd"
+    } else {
+        "unknown"
+    };
+
+    unsafe { push(stack, Value::String(global_string(name.to_owned()))) }
+}
+
+/// Get the CPU architecture
+///
+/// Stack effect: ( -- arch )
+///
+/// Returns one of: "x86_64", "aarch64", "arm", "x86", "riscv64",
+/// or "unknown" for unrecognized architectures.
+///
+/// # Safety
+/// Stack pointer must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_os_arch(stack: Stack) -> Stack {
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else if cfg!(target_arch = "arm") {
+        "arm"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "riscv64") {
+        "riscv64"
+    } else {
+        "unknown"
+    };
+
+    unsafe { push(stack, Value::String(global_string(arch.to_owned()))) }
+}

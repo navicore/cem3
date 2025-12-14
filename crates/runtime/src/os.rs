@@ -279,20 +279,35 @@ pub unsafe extern "C" fn patch_seq_path_filename(stack: Stack) -> Stack {
     }
 }
 
+/// Valid exit code range for Unix compatibility (only low 8 bits are meaningful)
+const EXIT_CODE_MIN: i64 = 0;
+const EXIT_CODE_MAX: i64 = 255;
+
 /// Exit the process with the given exit code
 ///
 /// Stack effect: ( code -- )
 ///
+/// Exit code must be in range 0-255 for Unix compatibility.
 /// This function does not return.
 ///
 /// # Safety
-/// Stack must have an Int (exit code) on top
+/// Stack must have an Int (exit code) on top.
+///
+/// Note: Returns `Stack` for LLVM ABI compatibility even though it never returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_exit(stack: Stack) -> Stack {
     unsafe {
         let (_stack, code_val) = pop(stack);
         let code = match code_val {
-            Value::Int(n) => n as i32,
+            Value::Int(n) => {
+                if !(EXIT_CODE_MIN..=EXIT_CODE_MAX).contains(&n) {
+                    panic!(
+                        "os.exit: exit code must be in range {}-{}, got {}",
+                        EXIT_CODE_MIN, EXIT_CODE_MAX, n
+                    );
+                }
+                n as i32
+            }
             _ => panic!(
                 "os.exit: expected Int (exit code) on stack, got {:?}",
                 code_val

@@ -21,11 +21,17 @@
 //! waits for signals using signal-hook's iterator API, making all the I/O
 //! operations safe.
 
-use crate::scheduler::ACTIVE_STRANDS;
+use crate::scheduler::{
+    ACTIVE_STRANDS, PEAK_STRANDS, TOTAL_COMPLETED, TOTAL_SPAWNED, strand_registry,
+};
 use std::sync::Once;
 use std::sync::atomic::Ordering;
 
 static SIGNAL_HANDLER_INIT: Once = Once::new();
+
+/// Maximum number of individual strands to display in diagnostics output
+/// to avoid overwhelming the output for programs with many strands
+const STRAND_DISPLAY_LIMIT: usize = 20;
 
 /// Install the SIGQUIT signal handler for diagnostics
 ///
@@ -84,10 +90,77 @@ pub fn dump_diagnostics() {
     let _ = writeln!(out, "\n=== Seq Runtime Diagnostics ===");
     let _ = writeln!(out, "Timestamp: {:?}", std::time::SystemTime::now());
 
-    // Strand count (global atomic - accurate)
+    // Strand statistics (global atomics - accurate)
     let active = ACTIVE_STRANDS.load(Ordering::Relaxed);
+    let total_spawned = TOTAL_SPAWNED.load(Ordering::Relaxed);
+    let total_completed = TOTAL_COMPLETED.load(Ordering::Relaxed);
+    let peak = PEAK_STRANDS.load(Ordering::Relaxed);
+
     let _ = writeln!(out, "\n[Strands]");
-    let _ = writeln!(out, "  Active: {}", active);
+    let _ = writeln!(out, "  Active:    {}", active);
+    let _ = writeln!(out, "  Spawned:   {} (total)", total_spawned);
+    let _ = writeln!(out, "  Completed: {} (total)", total_completed);
+    let _ = writeln!(out, "  Peak:      {} (high-water mark)", peak);
+
+    // Calculate potential leak indicator
+    // If spawned > completed + active, some strands were lost (panic, etc.)
+    let expected_completed = total_spawned.saturating_sub(active as u64);
+    if total_completed < expected_completed {
+        let lost = expected_completed - total_completed;
+        let _ = writeln!(
+            out,
+            "  WARNING: {} strands may have been lost (panic/abort)",
+            lost
+        );
+    }
+
+    // Active strand details from registry
+    let registry = strand_registry();
+    let overflow = registry.overflow_count.load(Ordering::Relaxed);
+
+    let _ = writeln!(out, "\n[Active Strand Details]");
+    let _ = writeln!(out, "  Registry capacity: {} slots", registry.capacity());
+    if overflow > 0 {
+        let _ = writeln!(
+            out,
+            "  WARNING: {} strands exceeded registry capacity (not tracked)",
+            overflow
+        );
+    }
+
+    // Get current time for duration calculation
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Collect and sort active strands by spawn time (oldest first)
+    let mut strands: Vec<_> = registry.active_strands().collect();
+    strands.sort_by_key(|(_, spawn_time)| *spawn_time);
+
+    if strands.is_empty() {
+        let _ = writeln!(out, "  (no active strands in registry)");
+    } else {
+        let _ = writeln!(out, "  {} strand(s) tracked:", strands.len());
+        for (idx, (strand_id, spawn_time)) in strands.iter().take(STRAND_DISPLAY_LIMIT).enumerate()
+        {
+            let duration = now.saturating_sub(*spawn_time);
+            let _ = writeln!(
+                out,
+                "    [{:2}] Strand #{:<8} running for {}s",
+                idx + 1,
+                strand_id,
+                duration
+            );
+        }
+        if strands.len() > STRAND_DISPLAY_LIMIT {
+            let _ = writeln!(
+                out,
+                "    ... and {} more strands",
+                strands.len() - STRAND_DISPLAY_LIMIT
+            );
+        }
+    }
 
     // Channel stats (global registry - accurate if lock available)
     let _ = writeln!(out, "\n[Channels]");

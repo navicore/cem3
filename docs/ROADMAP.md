@@ -55,22 +55,23 @@ The `kill -3` (SIGQUIT) feature reports:
   - Duration each strand has been running (helps detect stuck strands)
   - Configurable capacity via `SEQ_STRAND_REGISTRY_SIZE` (default: 1024)
   - Overflow tracking when registry is full
-- **Channel statistics**:
-  - Open channel count (global registry - accurate)
+- **Channel statistics** (per-channel visibility):
+  - Open channel count
+  - Queue depth per channel (sends - receives) for backpressure detection
+  - Lifetime send/receive counts per channel
+  - Backpressure warning (⚠️) when queue depth > 100
 
 Zero overhead until signaled. All counters use lock-free atomics.
 Registry uses CAS operations for registration/unregistration.
 
-### Near-term: Strand & Channel Visibility
+### Near-term: Strand Visibility
 
 **Strand lifecycle events** (opt-in):
 - Spawn/exit tracing with strand IDs
 - Parent-child relationships for debugging actor hierarchies
 - Optional compile-time flag to enable
 
-**Channel diagnostics**:
-- Queue depth visibility (backpressure detection)
-- Send/receive counts per channel
+**Advanced channel diagnostics**:
 - Blocked strand detection (who's waiting on what)
 
 ### Medium-term: Metrics & Tracing

@@ -271,7 +271,7 @@ include std:stack-utils
     # Stack: ( db stmt )
     "" collect-products
     # Stack after collect: ( db result-string )
-    dup "ERROR" string-equal if
+    dup "ERROR" string.equal? if
       drop "Error querying products"
     else
       "Products:\n" swap string.concat
@@ -336,7 +336,7 @@ include std:stack-utils
     # Stack: ( db stmt )
     "" collect-cart-items
     # Stack after collect: ( db result-string )
-    dup "ERROR" string-equal if
+    dup "ERROR" string.equal? if
       drop "Error querying cart"
     else
       dup string.length 0 = if
@@ -514,6 +514,7 @@ include std:stack-utils
   else
     # Check stock availability before proceeding
     2 pick check-stock-available if
+      drop  # drop extra db from 2 pick, now ( db total count )
       # Save values for later: total count
       over over  # ( db total count total count )
 
@@ -551,13 +552,13 @@ include std:stack-utils
           "Checkout failed: could not create order"
         then
       else
-        drop  # drop update result
-        2 pick "ROLLBACK" db-exec drop
+        drop  # drop extra db from 4 pick
+        4 pick "ROLLBACK" db-exec drop  # stack is ( db total count total count )
         drop drop drop drop  # clean up extra total count
         "Checkout failed: could not update stock"
       then
     else
-      drop drop
+      drop drop drop  # drop extra db + total + count
       "Checkout failed: insufficient stock for one or more items"
     then
   then
@@ -612,11 +613,11 @@ include std:stack-utils
             "Quantity must be positive" http-bad-request
           then
         else
-          drop drop drop drop
+          drop drop drop  # drop request, qty_int, product_int; keep db
           "Invalid product ID (must be a number)" http-bad-request
         then
       else
-        drop drop drop drop
+        drop drop drop  # drop request, product_str, qty_int; keep db
         "Invalid quantity (must be a number)" http-bad-request
       then
     then
@@ -650,14 +651,14 @@ include std:stack-utils
 : route ( Int String -- Int String )
   # Stack: ( db request -- db response )
   # Check method and path
-  dup http-request-method "GET" string-equal if
-    dup http-path-base "/products" string-equal if
+  dup http-request-method "GET" string.equal? if
+    dup http-path-base "/products" string.equal? if
       handle-get-products
     else
-      dup http-path-base "/cart" string-equal if
+      dup http-path-base "/cart" string.equal? if
         handle-get-cart
       else
-        dup http-path-base "/" string-equal if
+        dup http-path-base "/" string.equal? if
           drop
           "Shopping Cart API\n\nEndpoints:\n  GET  /products - List products\n  GET  /cart - View cart\n  POST /cart/add?product=ID&qty=N - Add to cart\n  POST /cart/remove?id=N - Remove from cart\n  POST /cart/checkout - Complete purchase" http-ok
         else
@@ -666,14 +667,14 @@ include std:stack-utils
       then
     then
   else
-    dup http-request-method "POST" string-equal if
-      dup http-path-base "/cart/add" string-equal if
+    dup http-request-method "POST" string.equal? if
+      dup http-path-base "/cart/add" string.equal? if
         handle-add-to-cart
       else
-        dup http-path-base "/cart/remove" string-equal if
+        dup http-path-base "/cart/remove" string.equal? if
           handle-remove-from-cart
         else
-          dup http-path-base "/cart/checkout" string-equal if
+          dup http-path-base "/cart/checkout" string.equal? if
             handle-checkout
           else
             drop "Not found" http-not-found
@@ -714,7 +715,8 @@ include std:stack-utils
 
 : worker ( Int -- )
   # Stack: ( channel -- )
-  receive  # get socket from channel
+  dup chan.receive  # keep channel ID, get socket
+  swap chan.close   # close the channel (no longer needed)
   handle-connection
 ;
 
@@ -723,7 +725,7 @@ include std:stack-utils
   dup tcp.accept
   # Stack: ( listener client )
 
-  make-channel
+  chan.make
   # Stack: ( listener client chan )
 
   dup [ worker ] spawn
@@ -734,7 +736,7 @@ include std:stack-utils
   # After drops: ( listener client chan )
 
   # Send client through channel
-  send
+  chan.send
   # Stack: ( listener )
 
   accept-loop

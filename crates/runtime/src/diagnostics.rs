@@ -21,6 +21,7 @@
 //! waits for signals using signal-hook's iterator API, making all the I/O
 //! operations safe.
 
+use crate::memory_stats::memory_registry;
 use crate::scheduler::{
     ACTIVE_STRANDS, PEAK_STRANDS, TOTAL_COMPLETED, TOTAL_SPAWNED, strand_registry,
 };
@@ -162,6 +163,37 @@ pub fn dump_diagnostics() {
         }
     }
 
+    // Memory statistics (cross-thread aggregation)
+    let _ = writeln!(out, "\n[Memory]");
+    let mem_stats = memory_registry().aggregate_stats();
+    let _ = writeln!(out, "  Tracked threads: {}", mem_stats.active_threads);
+    let _ = writeln!(
+        out,
+        "  Arena bytes:     {} (across all threads)",
+        format_bytes(mem_stats.total_arena_bytes)
+    );
+    let _ = writeln!(
+        out,
+        "  Pool nodes:      {} free / {} capacity",
+        mem_stats.total_pool_free, mem_stats.total_pool_capacity
+    );
+    let _ = writeln!(
+        out,
+        "  Pool allocs:     {} (lifetime total)",
+        mem_stats.total_pool_allocations
+    );
+    if mem_stats.overflow_count > 0 {
+        let _ = writeln!(
+            out,
+            "  WARNING: {} threads exceeded registry capacity (memory not tracked)",
+            mem_stats.overflow_count
+        );
+        let _ = writeln!(
+            out,
+            "           Consider increasing MAX_THREADS in memory_stats.rs (currently 64)"
+        );
+    }
+
     // Channel stats (global registry - accurate if lock available)
     let _ = writeln!(out, "\n[Channels]");
     match get_channel_count() {
@@ -181,6 +213,19 @@ pub fn dump_diagnostics() {
 fn get_channel_count() -> Option<usize> {
     use crate::channel::channel_count;
     channel_count()
+}
+
+/// Format bytes as human-readable string
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.2} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 #[cfg(test)]

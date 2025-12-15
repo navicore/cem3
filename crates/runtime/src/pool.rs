@@ -14,6 +14,7 @@
 //! - Nodes are only accessed by owning thread
 //! - Pool size bounded = predictable memory usage
 
+use crate::memory_stats::{get_or_register_slot, increment_pool_allocations, update_pool_stats};
 use crate::stack::StackNode;
 use crate::value::Value;
 use std::cell::RefCell;
@@ -162,6 +163,8 @@ pub struct PoolStats {
 // Thread-local storage for the pool
 thread_local! {
     static NODE_POOL: RefCell<NodePool> = {
+        // Register thread with memory stats registry once during initialization
+        get_or_register_slot();
         let mut pool = NodePool::new();
         // Pre-allocate nodes on first access
         pool.preallocate(INITIAL_POOL_SIZE);
@@ -173,8 +176,20 @@ thread_local! {
 ///
 /// Fast path: Reuse from pool (~10x faster than malloc)
 /// Slow path: Allocate from heap if pool empty
+///
+/// Thread registration happens once during NODE_POOL initialization,
+/// not on every allocation (keeping the fast path fast).
 pub fn pool_allocate(value: Value, next: *mut StackNode) -> *mut StackNode {
-    NODE_POOL.with(|pool| pool.borrow_mut().allocate(value, next))
+    NODE_POOL.with(|pool| {
+        let mut pool_ref = pool.borrow_mut();
+        let node = pool_ref.allocate(value, next);
+
+        // Update cross-thread memory stats
+        increment_pool_allocations();
+        update_pool_stats(pool_ref.count, pool_ref.capacity);
+
+        node
+    })
 }
 
 /// Free a StackNode back to the thread-local pool
@@ -187,7 +202,13 @@ pub fn pool_allocate(value: Value, next: *mut StackNode) -> *mut StackNode {
 /// - `node` must not have been previously freed
 /// - Caller must not use `node` after calling this function
 pub unsafe fn pool_free(node: *mut StackNode) {
-    NODE_POOL.with(|pool| unsafe { pool.borrow_mut().free(node) })
+    NODE_POOL.with(|pool| {
+        let mut pool_ref = pool.borrow_mut();
+        unsafe { pool_ref.free(node) };
+
+        // Update cross-thread memory stats
+        update_pool_stats(pool_ref.count, pool_ref.capacity);
+    })
 }
 
 /// Get pool statistics for the current thread

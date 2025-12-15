@@ -39,6 +39,7 @@
 //!
 //! See: `docs/ARENA_ALLOCATION_DESIGN.md` for full design rationale.
 
+use crate::memory_stats::{get_or_register_slot, update_arena_stats};
 use bumpalo::Bump;
 use std::cell::RefCell;
 
@@ -66,6 +67,9 @@ pub fn with_arena<F, R>(f: F) -> R
 where
     F: FnOnce(&Bump) -> R,
 {
+    // Ensure thread is registered with memory stats registry (fast no-op if already registered)
+    get_or_register_slot();
+
     ARENA.with(|arena| {
         let bump = arena.borrow();
         let result = f(&bump);
@@ -77,6 +81,9 @@ where
         ARENA_BYTES_ALLOCATED.with(|bytes| {
             *bytes.borrow_mut() = allocated;
         });
+
+        // Update cross-thread memory stats registry
+        update_arena_stats(allocated);
 
         // Auto-reset if threshold exceeded
         if should_reset() {
@@ -98,6 +105,8 @@ pub fn arena_reset() {
     ARENA_BYTES_ALLOCATED.with(|bytes| {
         *bytes.borrow_mut() = 0;
     });
+    // Update cross-thread memory stats registry
+    update_arena_stats(0);
 }
 
 /// Check if arena should be reset (exceeded threshold)

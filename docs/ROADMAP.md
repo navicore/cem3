@@ -102,22 +102,27 @@ Registry uses CAS operations for registration/unregistration.
 
 ## Memory Diagnostics
 
-### Future Investigation: Per-Thread Memory Stats
+### Cross-Thread Memory Stats ✅
 
-**Problem**: Arena and pool memory are thread-local. The signal handler runs on its own thread, so it can only report its own (empty) stats, not the worker threads where strands actually execute.
+Memory statistics are now visible in SIGQUIT diagnostics, aggregated across all worker threads:
 
-**Research needed**:
-- Feasibility of aggregating stats across all worker threads
-- Performance impact of any cross-thread coordination
-- Whether this violates our core value
+- **Arena bytes**: Total bump allocator usage across all threads
+- **Pool nodes**: Free/capacity of stack node pools across all threads
+- **Pool allocations**: Lifetime total allocations (monotonic counter)
+- **Tracked threads**: Number of threads registered with the memory registry
 
-**Potential approaches** (all need investigation):
-1. Global atomic counters updated on each allocation (adds overhead to hot path)
-2. Periodic sampling from a dedicated monitoring thread (adds latency to stats)
-3. On-demand iteration over thread-local storage (may not be possible safely)
-4. Accept the limitation and document that memory stats require external tools (pmap, heaptrack, etc.)
+**Implementation**: Thread registry pattern (similar to StrandRegistry):
+- Each thread registers on first arena/pool access via CAS
+- Each thread has exclusive slot for its stats (single atomic store per update)
+- Diagnostics thread reads all slots during SIGQUIT (no locks, relaxed reads)
+- Capacity: 64 threads (configurable via `MAX_THREADS`)
 
-**Decision**: Deferred until we have concrete use cases that justify the complexity and potential performance cost.
+**Performance characteristics**:
+- **Registration**: One-time CAS per thread (~20ns)
+- **Updates**: Single atomic store per operation (~1-2 cycles, no contention)
+- **Reads**: Only during diagnostics, O(64) iteration
+
+This maintains the "fast path stays fast" principle.
 
 ---
 

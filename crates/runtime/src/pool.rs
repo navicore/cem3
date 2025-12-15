@@ -14,6 +14,7 @@
 //! - Nodes are only accessed by owning thread
 //! - Pool size bounded = predictable memory usage
 
+use crate::memory_stats::{get_or_register_slot, increment_pool_allocations, update_pool_stats};
 use crate::stack::StackNode;
 use crate::value::Value;
 use std::cell::RefCell;
@@ -174,7 +175,19 @@ thread_local! {
 /// Fast path: Reuse from pool (~10x faster than malloc)
 /// Slow path: Allocate from heap if pool empty
 pub fn pool_allocate(value: Value, next: *mut StackNode) -> *mut StackNode {
-    NODE_POOL.with(|pool| pool.borrow_mut().allocate(value, next))
+    // Ensure thread is registered with memory stats registry
+    get_or_register_slot();
+
+    NODE_POOL.with(|pool| {
+        let mut pool_ref = pool.borrow_mut();
+        let node = pool_ref.allocate(value, next);
+
+        // Update cross-thread memory stats
+        increment_pool_allocations();
+        update_pool_stats(pool_ref.count, pool_ref.capacity);
+
+        node
+    })
 }
 
 /// Free a StackNode back to the thread-local pool
@@ -187,7 +200,13 @@ pub fn pool_allocate(value: Value, next: *mut StackNode) -> *mut StackNode {
 /// - `node` must not have been previously freed
 /// - Caller must not use `node` after calling this function
 pub unsafe fn pool_free(node: *mut StackNode) {
-    NODE_POOL.with(|pool| unsafe { pool.borrow_mut().free(node) })
+    NODE_POOL.with(|pool| {
+        let mut pool_ref = pool.borrow_mut();
+        unsafe { pool_ref.free(node) };
+
+        // Update cross-thread memory stats
+        update_pool_stats(pool_ref.count, pool_ref.capacity);
+    })
 }
 
 /// Get pool statistics for the current thread

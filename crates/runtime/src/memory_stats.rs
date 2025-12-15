@@ -215,16 +215,21 @@ pub struct ThreadMemoryStats {
     pub pool_allocations: u64,
 }
 
+/// Global counter for generating unique thread IDs
+/// Starts at 1 because 0 means "empty slot"
+static NEXT_THREAD_ID: AtomicU64 = AtomicU64::new(1);
+
+// Thread-local storage for this thread's unique ID
+thread_local! {
+    static THIS_THREAD_ID: u64 = NEXT_THREAD_ID.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Get a unique ID for the current thread
+///
+/// Uses a global atomic counter to guarantee uniqueness (no hash collisions).
+/// Thread IDs start at 1 and increment monotonically.
 fn current_thread_id() -> u64 {
-    // Use thread::current().id() which gives a unique ThreadId
-    // We convert to u64 via the Debug representation (hacky but stable)
-    use std::hash::{Hash, Hasher};
-    let thread_id = std::thread::current().id();
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    thread_id.hash(&mut hasher);
-    // Ensure non-zero (0 means empty slot)
-    hasher.finish().max(1)
+    THIS_THREAD_ID.with(|&id| id)
 }
 
 // Global registry instance
@@ -377,5 +382,71 @@ mod tests {
             assert!(our_stats.is_some());
         }
         // If slot is None, registry was full - that's OK for this test
+    }
+
+    #[test]
+    fn test_concurrent_registration() {
+        use std::thread;
+
+        // Spawn multiple threads that each register and update stats
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                thread::spawn(move || {
+                    let slot = get_or_register_slot();
+                    if slot.is_some() {
+                        // Each thread sets a unique arena value
+                        update_arena_stats(1000 * (i + 1));
+                        update_pool_stats(i * 10, 100);
+                        increment_pool_allocations();
+                    }
+                    slot.is_some()
+                })
+            })
+            .collect();
+
+        // Wait for all threads and count successful registrations
+        let mut registered_count = 0;
+        for h in handles {
+            if h.join().unwrap() {
+                registered_count += 1;
+            }
+        }
+
+        // Verify aggregate stats reflect the registrations
+        let stats = memory_registry().aggregate_stats();
+        // active_threads includes all threads that have registered (including test threads)
+        assert!(stats.active_threads >= registered_count);
+        // If any threads registered, we should have some pool allocations
+        if registered_count > 0 {
+            assert!(stats.total_pool_allocations >= registered_count as u64);
+        }
+    }
+
+    #[test]
+    fn test_thread_ids_are_unique() {
+        use std::collections::HashSet;
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let ids = Arc::new(Mutex::new(HashSet::new()));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let ids = Arc::clone(&ids);
+                thread::spawn(move || {
+                    let id = current_thread_id();
+                    ids.lock().unwrap().insert(id);
+                    id
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // All thread IDs should be unique
+        let unique_count = ids.lock().unwrap().len();
+        assert_eq!(unique_count, 8, "Thread IDs should be unique");
     }
 }

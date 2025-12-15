@@ -185,8 +185,12 @@ pub fn dump_diagnostics() {
     if mem_stats.overflow_count > 0 {
         let _ = writeln!(
             out,
-            "  WARNING: {} threads exceeded registry capacity (not tracked)",
+            "  WARNING: {} threads exceeded registry capacity (memory not tracked)",
             mem_stats.overflow_count
+        );
+        let _ = writeln!(
+            out,
+            "           Consider increasing MAX_THREADS in memory_stats.rs (currently 64)"
         );
     }
 

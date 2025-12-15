@@ -41,11 +41,22 @@ static CHANNEL_REGISTRY: Mutex<Option<HashMap<u64, ChannelPair>>> = Mutex::new(N
 /// Initialize the channel registry exactly once (lock-free after first call)
 static REGISTRY_INIT: Once = Once::new();
 
-/// A channel pair (sender and receiver)
+/// Per-channel statistics (wrapped in Arc for lock-free access)
+#[derive(Debug)]
+struct ChannelStatsInner {
+    /// Lifetime count of messages sent (monotonic)
+    send_count: AtomicU64,
+    /// Lifetime count of messages received (monotonic)
+    receive_count: AtomicU64,
+}
+
+/// A channel pair (sender and receiver) with statistics
 /// Receiver is Arc<Mutex<>> to allow access without holding global registry lock
+/// Stats are Arc<> to allow updating after releasing the registry lock
 struct ChannelPair {
     sender: mpsc::Sender<Value>,
     receiver: Arc<Mutex<mpsc::Receiver<Value>>>,
+    stats: Arc<ChannelStatsInner>,
 }
 
 /// Initialize the channel registry (lock-free after first call)
@@ -65,6 +76,53 @@ pub fn channel_count() -> Option<usize> {
     // Use try_lock to avoid blocking in signal handler context
     match CHANNEL_REGISTRY.try_lock() {
         Ok(guard) => guard.as_ref().map(|registry| registry.len()),
+        Err(_) => None, // Lock held, return None rather than block
+    }
+}
+
+/// Per-channel statistics for diagnostics
+#[derive(Debug, Clone)]
+pub struct ChannelStats {
+    /// Channel ID
+    pub id: u64,
+    /// Current queue depth (sends - receives)
+    pub queue_depth: u64,
+    /// Lifetime count of messages sent
+    pub send_count: u64,
+    /// Lifetime count of messages received
+    pub receive_count: u64,
+}
+
+/// Get per-channel statistics for all open channels (for diagnostics)
+///
+/// Returns None if the registry lock is held (to avoid blocking in signal handler).
+/// Returns an empty Vec if no channels are open.
+///
+/// Queue depth is computed as send_count - receive_count. Due to the lock-free
+/// nature of the counters, there may be brief inconsistencies (e.g., depth < 0
+/// is clamped to 0), but this is acceptable for monitoring purposes.
+pub fn channel_stats() -> Option<Vec<ChannelStats>> {
+    // Use try_lock to avoid blocking in signal handler context
+    match CHANNEL_REGISTRY.try_lock() {
+        Ok(guard) => {
+            guard.as_ref().map(|registry| {
+                registry
+                    .iter()
+                    .map(|(&id, pair)| {
+                        let send_count = pair.stats.send_count.load(Ordering::Relaxed);
+                        let receive_count = pair.stats.receive_count.load(Ordering::Relaxed);
+                        // Queue depth = sends - receives, clamped to 0
+                        let queue_depth = send_count.saturating_sub(receive_count);
+                        ChannelStats {
+                            id,
+                            queue_depth,
+                            send_count,
+                            receive_count,
+                        }
+                    })
+                    .collect()
+            })
+        }
         Err(_) => None, // Lock held, return None rather than block
     }
 }
@@ -102,6 +160,10 @@ pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
         ChannelPair {
             sender,
             receiver: Arc::new(Mutex::new(receiver)),
+            stats: Arc::new(ChannelStatsInner {
+                send_count: AtomicU64::new(0),
+                receive_count: AtomicU64::new(0),
+            }),
         },
     );
 
@@ -153,8 +215,9 @@ pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
         None => panic!("send: invalid channel ID {}", channel_id),
     };
 
-    // Clone the sender so we can use it outside the lock
+    // Clone the sender and stats so we can use them outside the lock
     let sender = pair.sender.clone();
+    let stats = Arc::clone(&pair.stats);
     drop(guard); // Release lock before potentially blocking
 
     // Clone the value before sending to ensure arena strings are promoted to global
@@ -165,6 +228,9 @@ pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
     // Send the value (may block if channel is full)
     // May's scheduler will handle the blocking cooperatively
     sender.send(global_value).expect("send: channel closed");
+
+    // Update stats after successful send
+    stats.send_count.fetch_add(1, Ordering::Relaxed);
 
     rest
 }
@@ -204,8 +270,8 @@ pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
         _ => panic!("receive: expected channel ID (Int) on stack"),
     };
 
-    // Get receiver Arc from registry (don't hold lock during recv!)
-    let receiver_arc = {
+    // Get receiver Arc and stats from registry (don't hold lock during recv!)
+    let (receiver_arc, stats) = {
         let guard = CHANNEL_REGISTRY
             .lock()
             .expect("receive: channel registry lock poisoned - strand panicked while holding lock");
@@ -219,7 +285,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
             None => panic!("receive: invalid channel ID {}", channel_id),
         };
 
-        Arc::clone(&pair.receiver)
+        (Arc::clone(&pair.receiver), Arc::clone(&pair.stats))
     }; // Registry lock released here!
 
     // Receive a value (cooperatively blocks the strand until available)
@@ -233,6 +299,9 @@ pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
         Ok(v) => v,
         Err(_) => panic!("receive: channel closed"),
     };
+
+    // Update stats after successful receive
+    stats.receive_count.fetch_add(1, Ordering::Relaxed);
 
     unsafe { push(rest, value) }
 }
@@ -313,8 +382,8 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
     // Pop value to send
     let (rest, value) = unsafe { pop(stack) };
 
-    // Get sender from registry
-    let sender = {
+    // Get sender and stats from registry
+    let (sender, stats) = {
         let guard = match CHANNEL_REGISTRY.lock() {
             Ok(g) => g,
             Err(_) => return unsafe { push(rest, Value::Int(0)) },
@@ -326,7 +395,7 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
         };
 
         match registry.get(&channel_id) {
-            Some(p) => p.sender.clone(),
+            Some(p) => (p.sender.clone(), Arc::clone(&p.stats)),
             None => return unsafe { push(rest, Value::Int(0)) },
         }
     };
@@ -336,7 +405,10 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
 
     // Send the value
     match sender.send(global_value) {
-        Ok(()) => unsafe { push(rest, Value::Int(1)) },
+        Ok(()) => {
+            stats.send_count.fetch_add(1, Ordering::Relaxed);
+            unsafe { push(rest, Value::Int(1)) }
+        }
         Err(_) => unsafe { push(rest, Value::Int(0)) },
     }
 }
@@ -368,8 +440,8 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
         _ => panic!("receive-safe: expected channel ID (Int) on stack"),
     };
 
-    // Get receiver Arc from registry
-    let receiver_arc = {
+    // Get receiver Arc and stats from registry
+    let (receiver_arc, stats) = {
         let guard = match CHANNEL_REGISTRY.lock() {
             Ok(g) => g,
             Err(_) => {
@@ -387,7 +459,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
         };
 
         match registry.get(&channel_id) {
-            Some(p) => Arc::clone(&p.receiver),
+            Some(p) => (Arc::clone(&p.receiver), Arc::clone(&p.stats)),
             None => {
                 let stack = unsafe { push(rest, Value::Int(0)) };
                 return unsafe { push(stack, Value::Int(0)) };
@@ -406,6 +478,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
 
     match receiver.recv() {
         Ok(value) => {
+            stats.receive_count.fetch_add(1, Ordering::Relaxed);
             let stack = unsafe { push(rest, value) };
             unsafe { push(stack, Value::Int(1)) }
         }
@@ -773,6 +846,67 @@ mod tests {
             assert_eq!(success, Value::Int(0));
             assert_eq!(value, Value::Int(0));
             assert!(stack.is_null());
+        }
+    }
+
+    #[test]
+    fn test_channel_stats() {
+        unsafe {
+            // Create a channel
+            let mut stack = std::ptr::null_mut();
+            stack = make_channel(stack);
+            let (_, channel_id_value) = pop(stack);
+            let channel_id = match &channel_id_value {
+                Value::Int(id) => *id as u64,
+                _ => panic!("Expected Int"),
+            };
+
+            // Initially, stats should show 0 sends and 0 receives
+            let stats = channel_stats().expect("Should get stats");
+            let our_channel = stats.iter().find(|s| s.id == channel_id);
+            assert!(our_channel.is_some(), "Our channel should be in stats");
+            let stat = our_channel.unwrap();
+            assert_eq!(stat.send_count, 0);
+            assert_eq!(stat.receive_count, 0);
+            assert_eq!(stat.queue_depth, 0);
+
+            // Send some values
+            for i in 1..=5 {
+                let mut stack = push(std::ptr::null_mut(), Value::Int(i));
+                stack = push(stack, channel_id_value.clone());
+                let _ = send(stack);
+            }
+
+            // Check stats after sends
+            let stats = channel_stats().expect("Should get stats");
+            let stat = stats.iter().find(|s| s.id == channel_id).unwrap();
+            assert_eq!(stat.send_count, 5);
+            assert_eq!(stat.receive_count, 0);
+            assert_eq!(stat.queue_depth, 5);
+
+            // Receive some values
+            for _ in 0..3 {
+                let mut stack = push(std::ptr::null_mut(), channel_id_value.clone());
+                stack = receive(stack);
+                let _ = pop(stack);
+            }
+
+            // Check stats after receives
+            let stats = channel_stats().expect("Should get stats");
+            let stat = stats.iter().find(|s| s.id == channel_id).unwrap();
+            assert_eq!(stat.send_count, 5);
+            assert_eq!(stat.receive_count, 3);
+            assert_eq!(stat.queue_depth, 2);
+
+            // Clean up - receive remaining and close
+            for _ in 0..2 {
+                let mut stack = push(std::ptr::null_mut(), channel_id_value.clone());
+                stack = receive(stack);
+                let _ = pop(stack);
+            }
+
+            let stack = push(std::ptr::null_mut(), channel_id_value);
+            let _ = close_channel(stack);
         }
     }
 }

@@ -39,6 +39,7 @@
 //!
 //! See: `docs/ARENA_ALLOCATION_DESIGN.md` for full design rationale.
 
+use crate::memory_stats::{get_or_register_slot, update_arena_stats};
 use bumpalo::Bump;
 use std::cell::RefCell;
 
@@ -47,7 +48,11 @@ const ARENA_RESET_THRESHOLD: usize = 10 * 1024 * 1024; // 10MB - reset when we e
 
 // Thread-local arena for value allocations
 thread_local! {
-    static ARENA: RefCell<Bump> = RefCell::new(Bump::new());
+    static ARENA: RefCell<Bump> = {
+        // Register thread with memory stats registry once during initialization
+        get_or_register_slot();
+        RefCell::new(Bump::new())
+    };
     static ARENA_BYTES_ALLOCATED: RefCell<usize> = const { RefCell::new(0) };
 }
 
@@ -66,6 +71,8 @@ pub fn with_arena<F, R>(f: F) -> R
 where
     F: FnOnce(&Bump) -> R,
 {
+    // Thread registration happens once during ARENA initialization,
+    // not on every arena access (keeping the fast path fast).
     ARENA.with(|arena| {
         let bump = arena.borrow();
         let result = f(&bump);
@@ -77,6 +84,9 @@ where
         ARENA_BYTES_ALLOCATED.with(|bytes| {
             *bytes.borrow_mut() = allocated;
         });
+
+        // Update cross-thread memory stats registry
+        update_arena_stats(allocated);
 
         // Auto-reset if threshold exceeded
         if should_reset() {
@@ -98,6 +108,8 @@ pub fn arena_reset() {
     ARENA_BYTES_ALLOCATED.with(|bytes| {
         *bytes.borrow_mut() = 0;
     });
+    // Update cross-thread memory stats registry
+    update_arena_stats(0);
 }
 
 /// Check if arena should be reset (exceeded threshold)

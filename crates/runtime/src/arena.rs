@@ -48,7 +48,11 @@ const ARENA_RESET_THRESHOLD: usize = 10 * 1024 * 1024; // 10MB - reset when we e
 
 // Thread-local arena for value allocations
 thread_local! {
-    static ARENA: RefCell<Bump> = RefCell::new(Bump::new());
+    static ARENA: RefCell<Bump> = {
+        // Register thread with memory stats registry once during initialization
+        get_or_register_slot();
+        RefCell::new(Bump::new())
+    };
     static ARENA_BYTES_ALLOCATED: RefCell<usize> = const { RefCell::new(0) };
 }
 
@@ -67,9 +71,8 @@ pub fn with_arena<F, R>(f: F) -> R
 where
     F: FnOnce(&Bump) -> R,
 {
-    // Ensure thread is registered with memory stats registry (fast no-op if already registered)
-    get_or_register_slot();
-
+    // Thread registration happens once during ARENA initialization,
+    // not on every arena access (keeping the fast path fast).
     ARENA.with(|arena| {
         let bump = arena.borrow();
         let result = f(&bump);

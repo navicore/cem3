@@ -163,6 +163,8 @@ pub struct PoolStats {
 // Thread-local storage for the pool
 thread_local! {
     static NODE_POOL: RefCell<NodePool> = {
+        // Register thread with memory stats registry once during initialization
+        get_or_register_slot();
         let mut pool = NodePool::new();
         // Pre-allocate nodes on first access
         pool.preallocate(INITIAL_POOL_SIZE);
@@ -174,10 +176,10 @@ thread_local! {
 ///
 /// Fast path: Reuse from pool (~10x faster than malloc)
 /// Slow path: Allocate from heap if pool empty
+///
+/// Thread registration happens once during NODE_POOL initialization,
+/// not on every allocation (keeping the fast path fast).
 pub fn pool_allocate(value: Value, next: *mut StackNode) -> *mut StackNode {
-    // Ensure thread is registered with memory stats registry
-    get_or_register_slot();
-
     NODE_POOL.with(|pool| {
         let mut pool_ref = pool.borrow_mut();
         let node = pool_ref.allocate(value, next);

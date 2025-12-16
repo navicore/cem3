@@ -307,6 +307,11 @@ impl Resolver {
     /// Paths can contain `..` to reference parent directories, but the resolved
     /// path must stay within the project root (main source file's directory).
     fn resolve_relative_path(&self, rel_path: &str, source_dir: &Path) -> Result<PathBuf, String> {
+        // Validate non-empty path
+        if rel_path.is_empty() {
+            return Err("Include path cannot be empty".to_string());
+        }
+
         // Cross-platform absolute path detection
         let rel_as_path = std::path::Path::new(rel_path);
         if rel_as_path.is_absolute() {
@@ -333,8 +338,7 @@ impl Resolver {
             .map_err(|e| format!("Failed to resolve include path '{}': {}", rel_path, e))?;
 
         // Use project root for containment check (falls back to source_dir if not set)
-        let source_dir_buf = source_dir.to_path_buf();
-        let root = self.project_root.as_ref().unwrap_or(&source_dir_buf);
+        let root = self.project_root.as_deref().unwrap_or(source_dir);
         let canonical_root = root
             .canonicalize()
             .map_err(|e| format!("Failed to resolve project root: {}", e))?;
@@ -755,6 +759,19 @@ mod tests {
             result.is_ok(),
             "Include with .. staying in project should work: {:?}",
             result.err()
+        );
+    }
+
+    #[test]
+    fn test_empty_include_path_rejected() {
+        let resolver = Resolver::new(None);
+        let include = Include::Relative("".to_string());
+        let result = resolver.resolve_include(&include, Path::new("."));
+
+        assert!(result.is_err(), "Empty include path should be rejected");
+        assert!(
+            result.unwrap_err().contains("cannot be empty"),
+            "Error should mention empty path"
         );
     }
 }

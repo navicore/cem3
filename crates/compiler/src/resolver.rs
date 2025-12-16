@@ -47,6 +47,9 @@ pub struct Resolver {
     stdlib_path: Option<PathBuf>,
     /// FFI libraries that were included
     ffi_includes: Vec<String>,
+    /// Project root directory (directory of the main source file)
+    /// All includes must resolve within this directory tree
+    project_root: Option<PathBuf>,
 }
 
 impl Resolver {
@@ -57,6 +60,7 @@ impl Resolver {
             included_embedded: HashSet::new(),
             stdlib_path,
             ffi_includes: Vec::new(),
+            project_root: None,
         }
     }
 
@@ -77,8 +81,12 @@ impl Resolver {
         // Mark this file as included
         self.included_files.insert(source_path.clone());
 
-        // Add source location to all words and unions in main program
+        // Set project root on first call (main source file's directory)
+        // All includes must resolve within this directory tree
         let source_dir = source_path.parent().unwrap_or(Path::new("."));
+        if self.project_root.is_none() {
+            self.project_root = Some(source_dir.to_path_buf());
+        }
         let mut all_words = Vec::new();
         let mut all_unions = Vec::new();
 
@@ -295,13 +303,13 @@ impl Resolver {
     }
 
     /// Resolve a relative include path to a file path
+    ///
+    /// Paths can contain `..` to reference parent directories, but the resolved
+    /// path must stay within the project root (main source file's directory).
     fn resolve_relative_path(&self, rel_path: &str, source_dir: &Path) -> Result<PathBuf, String> {
-        // Security: Early rejection of obviously malicious paths
-        if rel_path.contains("..") {
-            return Err(format!(
-                "Include path '{}' is invalid: paths cannot contain '..'",
-                rel_path
-            ));
+        // Validate non-empty path
+        if rel_path.is_empty() {
+            return Err("Include path cannot be empty".to_string());
         }
 
         // Cross-platform absolute path detection
@@ -322,18 +330,22 @@ impl Resolver {
             ));
         }
 
-        // Security: Verify resolved path is within source directory
+        // Security: Verify resolved path is within project root
         // This catches any bypass attempts (symlinks, encoded paths, etc.)
+        // while allowing legitimate cross-directory includes within the project
         let canonical_path = path
             .canonicalize()
             .map_err(|e| format!("Failed to resolve include path '{}': {}", rel_path, e))?;
-        let canonical_source = source_dir
-            .canonicalize()
-            .map_err(|e| format!("Failed to resolve source directory: {}", e))?;
 
-        if !canonical_path.starts_with(&canonical_source) {
+        // Use project root for containment check (falls back to source_dir if not set)
+        let root = self.project_root.as_deref().unwrap_or(source_dir);
+        let canonical_root = root
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve project root: {}", e))?;
+
+        if !canonical_path.starts_with(&canonical_root) {
             return Err(format!(
-                "Include path '{}' resolves outside the source directory",
+                "Include path '{}' resolves outside the project directory",
                 rel_path
             ));
         }
@@ -591,5 +603,175 @@ mod tests {
         let content2 = result2.unwrap();
         assert!(content2.words.is_empty());
         assert!(content2.unions.is_empty());
+    }
+
+    #[test]
+    fn test_cross_directory_include_allowed() {
+        // Test that ".." is allowed when the resolved path stays within the project root
+        use std::fs;
+        use tempfile::tempdir;
+
+        let temp = tempdir().unwrap();
+        let project_root = temp.path();
+
+        // Create directory structure:
+        // project_root/
+        //   src/
+        //     lib/
+        //       helper.seq
+        //   tests/
+        //     test_main.seq (wants to include ../src/lib/helper)
+        let src = project_root.join("src");
+        let src_lib = src.join("lib");
+        let tests = project_root.join("tests");
+        fs::create_dir_all(&src_lib).unwrap();
+        fs::create_dir_all(&tests).unwrap();
+
+        // Create helper.seq in src/lib
+        fs::write(src_lib.join("helper.seq"), ": helper ( -- Int ) 42 ;\n").unwrap();
+
+        // Set up resolver with project_root set to the temp directory
+        let mut resolver = Resolver::new(None);
+        resolver.project_root = Some(project_root.to_path_buf());
+
+        // Resolve from tests directory: include ../src/lib/helper
+        // This should work since the resolved path is within project_root
+        let include = Include::Relative("../src/lib/helper".to_string());
+        let result = resolver.resolve_include(&include, &tests);
+
+        assert!(
+            result.is_ok(),
+            "Cross-directory include should succeed: {:?}",
+            result.err()
+        );
+
+        match result.unwrap() {
+            ResolvedInclude::FilePath(path) => {
+                assert!(path.ends_with("helper.seq"));
+            }
+            ResolvedInclude::Embedded(_, _) => panic!("Expected file path, got embedded"),
+        }
+    }
+
+    #[test]
+    fn test_cross_directory_include_outside_project_rejected() {
+        // Test that ".." is rejected when it would escape the project root
+        use std::fs;
+        use tempfile::tempdir;
+
+        // Create a single temp directory with nested structure:
+        // temp/
+        //   outside/
+        //     secret.seq   <- this is outside the project
+        //   project/
+        //     src/         <- this is the project root
+        //       main.seq
+        let temp = tempdir().unwrap();
+        let outside = temp.path().join("outside");
+        let project_src = temp.path().join("project").join("src");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(&project_src).unwrap();
+
+        // Create a file outside the project
+        fs::write(outside.join("secret.seq"), ": secret ( -- ) ;\n").unwrap();
+
+        // Set up resolver with project_root set to project/src directory
+        let mut resolver = Resolver::new(None);
+        resolver.project_root = Some(project_src.clone());
+
+        // Try to include a file that is outside the project root
+        // From project/src, "../../outside/secret" escapes the project
+        let include = Include::Relative("../../outside/secret".to_string());
+        let result = resolver.resolve_include(&include, &project_src);
+
+        assert!(
+            result.is_err(),
+            "Include escaping project root should be rejected"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("outside"),
+            "Error should mention path escaping: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_project_root_set_on_first_resolve() {
+        // Verify that project_root is set when the first file is resolved
+        use std::fs;
+        use tempfile::tempdir;
+
+        let temp = tempdir().unwrap();
+        let project_root = temp.path();
+        let src = project_root.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("main.seq"), ": main ( -- ) ;\n").unwrap();
+
+        let mut resolver = Resolver::new(None);
+        assert!(
+            resolver.project_root.is_none(),
+            "project_root should start as None"
+        );
+
+        // Parse and resolve a file
+        let main_source = src.join("main.seq");
+        let source_code = fs::read_to_string(&main_source).unwrap();
+        let program = crate::parser::Parser::new(&source_code).parse().unwrap();
+        let _ = resolver.resolve(&main_source, program);
+
+        // project_root should now be set to the source file's directory
+        assert!(
+            resolver.project_root.is_some(),
+            "project_root should be set after first resolve"
+        );
+
+        let pr = resolver.project_root.as_ref().unwrap();
+        assert_eq!(
+            pr.canonicalize().unwrap(),
+            src.canonicalize().unwrap(),
+            "project_root should match the source file's directory"
+        );
+    }
+
+    #[test]
+    fn test_dotdot_within_same_directory_structure() {
+        // Test that "dir/../file" resolves correctly within the project
+        use std::fs;
+        use tempfile::tempdir;
+
+        let temp = tempdir().unwrap();
+        let project = temp.path();
+
+        // Create: project/a/b/c/ and project/a/target.seq
+        let deep = project.join("a").join("b").join("c");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(project.join("a").join("target.seq"), ": target ( -- ) ;\n").unwrap();
+
+        let mut resolver = Resolver::new(None);
+        resolver.project_root = Some(project.to_path_buf());
+
+        // From a/b/c, include ../../target should work
+        let include = Include::Relative("../../target".to_string());
+        let result = resolver.resolve_include(&include, &deep);
+
+        assert!(
+            result.is_ok(),
+            "Include with .. staying in project should work: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_empty_include_path_rejected() {
+        let resolver = Resolver::new(None);
+        let include = Include::Relative("".to_string());
+        let result = resolver.resolve_include(&include, Path::new("."));
+
+        assert!(result.is_err(), "Empty include path should be rejected");
+        assert!(
+            result.unwrap_err().contains("cannot be empty"),
+            "Error should mention empty path"
+        );
     }
 }

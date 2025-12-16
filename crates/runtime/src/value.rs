@@ -125,6 +125,16 @@ unsafe impl Sync for Value {}
 ///
 /// Fields are stored in a heap-allocated array, NOT linked via next pointers.
 /// This is the key difference from cem2, which used StackCell.next for field linking.
+///
+/// # Arc and Reference Cycles
+///
+/// Variants use `Arc<VariantData>` for O(1) cloning, which could theoretically
+/// create reference cycles. However, cycles are prevented by design:
+/// - VariantData.fields is immutable (no mutation after creation)
+/// - All variant operations create new variants rather than modifying existing ones
+/// - The Seq language has no mutation primitives for variant fields
+///
+/// This functional/immutable design ensures Arc reference counts always reach zero.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariantData {
     /// Tag identifies which variant constructor was used

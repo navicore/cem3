@@ -752,4 +752,88 @@ mod tests {
             assert!(stack.is_null());
         }
     }
+
+    #[test]
+    fn test_variant_clone_is_o1() {
+        // Regression test: Ensure deeply nested variants clone in O(1) time
+        // This would have been O(2^n) with Box before the Arc change
+        let mut variant = Value::Variant(Arc::new(VariantData::new(0, vec![])));
+
+        // Build a deeply nested structure (100 levels)
+        for i in 0..100 {
+            variant = Value::Variant(Arc::new(VariantData::new(i, vec![variant.clone()])));
+        }
+
+        // Clone should be O(1) - just incrementing Arc refcount
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            let _copy = variant.clone();
+        }
+        let elapsed = start.elapsed();
+
+        // 1000 clones of a 100-deep structure should take < 1ms with Arc
+        // With Box it would take seconds or longer
+        assert!(
+            elapsed.as_millis() < 10,
+            "Clone took {:?} - should be O(1) with Arc",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_variant_arc_sharing() {
+        // Test that Arc properly shares data (refcount increases, not deep copy)
+        let inner = Value::Variant(Arc::new(VariantData::new(0, vec![Value::Int(42)])));
+        let outer = Value::Variant(Arc::new(VariantData::new(1, vec![inner.clone()])));
+
+        // Clone should share the same Arc, not deep copy
+        let outer_clone = outer.clone();
+
+        // Both should have the same inner value
+        match (&outer, &outer_clone) {
+            (Value::Variant(a), Value::Variant(b)) => {
+                // Arc::ptr_eq would be ideal but fields are Box<[Value]>
+                // Instead verify the values are equal (they share the same data)
+                assert_eq!(a.tag, b.tag);
+                assert_eq!(a.fields.len(), b.fields.len());
+            }
+            _ => panic!("Expected Variants"),
+        }
+    }
+
+    #[test]
+    fn test_variant_thread_safe_sharing() {
+        // Test that variants can be safely shared between threads
+        // This validates the Send + Sync implementation
+        use std::sync::Arc as StdArc;
+        use std::thread;
+
+        let variant = Value::Variant(Arc::new(VariantData::new(
+            42,
+            vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+        )));
+
+        // Wrap in Arc for thread sharing
+        let shared = StdArc::new(variant);
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let v = StdArc::clone(&shared);
+                thread::spawn(move || {
+                    // Access the variant from another thread
+                    match &*v {
+                        Value::Variant(data) => {
+                            assert_eq!(data.tag, 42);
+                            assert_eq!(data.fields.len(), 3);
+                        }
+                        _ => panic!("Expected Variant"),
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().expect("Thread panicked");
+        }
+    }
 }

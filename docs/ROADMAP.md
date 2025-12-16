@@ -64,6 +64,36 @@ The `kill -3` (SIGQUIT) feature reports:
 Zero overhead until signaled. All counters use lock-free atomics.
 Registry uses CAS operations for registration/unregistration.
 
+### Current: Watchdog Timer ✅
+
+Automatic detection of stuck strands (infinite loops, runaway computation):
+
+**Configuration (Environment Variables)**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEQ_WATCHDOG_SECS` | `0` (disabled) | Threshold in seconds for "stuck" strand |
+| `SEQ_WATCHDOG_INTERVAL` | `5` | Check frequency in seconds |
+| `SEQ_WATCHDOG_ACTION` | `warn` | Action: `warn` (dump diagnostics) or `exit` (terminate) |
+
+**Example usage**:
+```bash
+# Enable watchdog with 30 second threshold, check every 10 seconds
+SEQ_WATCHDOG_SECS=30 SEQ_WATCHDOG_INTERVAL=10 ./my-program
+
+# Enable watchdog that exits on stuck strand
+SEQ_WATCHDOG_SECS=60 SEQ_WATCHDOG_ACTION=exit ./my-program
+```
+
+**Implementation**:
+- Dedicated thread scans strand registry periodically
+- Compares spawn timestamps against current time
+- On threshold exceeded: dumps diagnostics (SIGQUIT output)
+- Suppresses repeated warnings for the same stuck strand
+- Zero overhead on hot path (checking happens on separate thread)
+
+This piggybacks on the existing strand registry infrastructure.
+
 ### Near-term: Strand Visibility
 
 **Strand lifecycle events** (opt-in):

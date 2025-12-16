@@ -907,6 +907,7 @@ dependencies = [
  "clap_complete",
  "seq-runtime",
  "serde",
+ "tempfile",
  "toml",
 ]
 

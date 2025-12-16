@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+// Note: Arc is used for both Closure.env and Variant to enable O(1) cloning.
+// This is essential for functional programming with recursive data structures.
+
 /// MapKey: Hashable subset of Value for use as map keys
 ///
 /// Only types that can be meaningfully hashed are allowed as map keys:
@@ -68,7 +71,8 @@ pub enum Value {
     String(SeqString),
 
     /// Variant (sum type with tagged fields)
-    Variant(Box<VariantData>),
+    /// Uses Arc for O(1) cloning - essential for recursive data structures
+    Variant(Arc<VariantData>),
 
     /// Map (key-value dictionary with O(1) lookup)
     /// Keys must be hashable types (Int, String, Bool)
@@ -96,23 +100,41 @@ pub enum Value {
     },
 }
 
-// Safety: Value can be sent between strands (green threads)
+// Safety: Value can be sent and shared between strands (green threads)
+//
+// Send (safe to transfer ownership between threads):
 // - Int, Float, Bool are Copy types (trivially Send)
 // - String (SeqString) implements Send (clone to global on transfer)
-// - Variant contains Box<VariantData> which is Send because VariantData contains Send types
+// - Variant contains Arc<VariantData> which is Send when VariantData is Send+Sync
 // - Quotation stores function pointer as usize (Send-safe, no owned data)
-// - Closure: fn_ptr is usize (Send), env is Arc<[Value]>
-//   Arc<T> is Send when T: Send + Sync. Since we manually impl Send for Value,
-//   and Value contains no interior mutability, Arc<[Value]> is effectively Send.
-//   Arc is used instead of Box to enable TCO: no cleanup needed after tail calls.
+// - Closure: fn_ptr is usize (Send), env is Arc<[Value]> (Send when Value is Send+Sync)
 // - Map contains Box<HashMap> which is Send because keys and values are Send
-// This is required for channel communication between strands
+//
+// Sync (safe to share references between threads):
+// - Value has no interior mutability (no Cell, RefCell, Mutex, etc.)
+// - All operations on Value are read-only or create new values (functional semantics)
+// - Arc requires T: Send + Sync for full thread-safety
+//
+// This is required for:
+// - Channel communication between strands
+// - Arc-based sharing of Variants and Closure environments
 unsafe impl Send for Value {}
+unsafe impl Sync for Value {}
 
 /// VariantData: Composite values (sum types)
 ///
 /// Fields are stored in a heap-allocated array, NOT linked via next pointers.
 /// This is the key difference from cem2, which used StackCell.next for field linking.
+///
+/// # Arc and Reference Cycles
+///
+/// Variants use `Arc<VariantData>` for O(1) cloning, which could theoretically
+/// create reference cycles. However, cycles are prevented by design:
+/// - VariantData.fields is immutable (no mutation after creation)
+/// - All variant operations create new variants rather than modifying existing ones
+/// - The Seq language has no mutation primitives for variant fields
+///
+/// This functional/immutable design ensures Arc reference counts always reach zero.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariantData {
     /// Tag identifies which variant constructor was used

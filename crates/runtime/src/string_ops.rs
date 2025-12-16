@@ -13,6 +13,7 @@
 use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
+use std::sync::Arc;
 
 /// Split a string on a delimiter
 ///
@@ -42,7 +43,7 @@ pub unsafe extern "C" fn patch_seq_string_split(stack: Stack) -> Stack {
                 .collect();
 
             // Create a Variant with tag 0 and the split parts as fields
-            let variant = Value::Variant(Box::new(VariantData::new(0, fields)));
+            let variant = Value::Variant(Arc::new(VariantData::new(0, fields)));
 
             unsafe { push(stack, variant) }
         }

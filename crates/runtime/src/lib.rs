@@ -30,6 +30,7 @@ pub mod tcp;
 pub mod tcp_test;
 pub mod value;
 pub mod variant_ops;
+pub mod watchdog;
 
 // Re-export key types and functions
 pub use stack::{

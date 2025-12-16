@@ -35,6 +35,7 @@
 
 use crate::stack::{Stack, pop, push};
 use crate::value::{MapKey, Value, VariantData};
+use std::sync::Arc;
 
 /// Create an empty map
 ///
@@ -252,7 +253,7 @@ pub unsafe extern "C" fn patch_seq_map_keys(stack: Stack) -> Stack {
         };
 
         let keys: Vec<Value> = map.keys().map(|k| k.to_value()).collect();
-        let variant = Value::Variant(Box::new(VariantData::new(0, keys)));
+        let variant = Value::Variant(Arc::new(VariantData::new(0, keys)));
         push(stack, variant)
     }
 }
@@ -276,7 +277,7 @@ pub unsafe extern "C" fn patch_seq_map_values(stack: Stack) -> Stack {
         };
 
         let values: Vec<Value> = map.values().cloned().collect();
-        let variant = Value::Variant(Box::new(VariantData::new(0, values)));
+        let variant = Value::Variant(Arc::new(VariantData::new(0, values)));
         push(stack, variant)
     }
 }

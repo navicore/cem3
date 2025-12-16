@@ -37,7 +37,10 @@ include "lib/helpers"
 
 3. **Quoted string** - Path relative to the including file
    - No absolute paths allowed
+   - Paths can use `..` to reference parent directories
+   - All resolved paths must stay within the project root (main source file's directory)
    - Example: `include "lib/foo"` loads `./lib/foo.seq`
+   - Example: `include "../src/utils"` from a tests directory
 
 4. **Extension omitted** - Compiler adds `.seq` automatically
 
@@ -92,6 +95,18 @@ The compiler needs to know where stdlib lives. Options:
 - Relative to compiler binary
 
 For now: **compiled-in path** or path relative to compiler binary.
+
+### Security
+
+Include path resolution includes security measures to prevent directory traversal attacks:
+
+1. **Project Root Boundary** - The project root is set to the main source file's directory on first compilation. All included files must resolve within this directory tree.
+
+2. **Canonicalization** - Paths are canonicalized to resolve symlinks and normalize `..` segments. This catches bypass attempts using symlinks pointing outside the project.
+
+3. **Absolute Path Rejection** - Absolute paths are rejected to ensure all includes are project-relative.
+
+4. **Empty Path Validation** - Empty include paths are rejected with a clear error message.
 
 ## Future Extensions
 

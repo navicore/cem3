@@ -280,6 +280,9 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
 
         // Install SIGQUIT handler for runtime diagnostics (kill -3)
         crate::diagnostics::install_signal_handler();
+
+        // Install watchdog timer (if enabled via SEQ_WATCHDOG_SECS)
+        crate::watchdog::install_watchdog();
     });
 }
 

@@ -37,6 +37,7 @@ use crate::seqstring::global_string;
 use crate::value::{MapKey as RuntimeMapKey, Value, VariantData};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// Error during serialization/deserialization
 #[derive(Debug)]
@@ -205,7 +206,7 @@ impl TypedValue {
             }
             TypedValue::Variant { tag, fields } => {
                 let runtime_fields: Vec<Value> = fields.iter().map(|f| f.to_value()).collect();
-                Value::Variant(Box::new(VariantData::new(*tag, runtime_fields)))
+                Value::Variant(Arc::new(VariantData::new(*tag, runtime_fields)))
             }
         }
     }
@@ -357,7 +358,7 @@ mod tests {
     #[test]
     fn test_variant_roundtrip() {
         let data = VariantData::new(1, vec![Value::Int(100), Value::Bool(false)]);
-        let value = Value::Variant(Box::new(data));
+        let value = Value::Variant(Arc::new(data));
 
         let typed = TypedValue::from_value(&value).unwrap();
         let back = typed.to_value();

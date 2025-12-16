@@ -488,6 +488,7 @@ pub use patch_seq_tuck as tuck;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     /// Test helper: Create a stack with integer values
     fn make_stack(values: &[i64]) -> Stack {
@@ -891,8 +892,8 @@ mod tests {
         unsafe {
             // Create a Cons-like variant: Cons(42, Nil)
             // Tag 0 = Nil, Tag 1 = Cons
-            let nil = Value::Variant(Box::new(VariantData::new(0, vec![])));
-            let cons = Value::Variant(Box::new(VariantData::new(
+            let nil = Value::Variant(Arc::new(VariantData::new(0, vec![])));
+            let cons = Value::Variant(Arc::new(VariantData::new(
                 1,
                 vec![Value::Int(42), nil.clone()],
             )));
@@ -1344,10 +1345,10 @@ mod tests {
 
         unsafe {
             // Build deeply nested variant: Cons(1, Cons(2, Cons(3, Nil)))
-            let nil = Value::Variant(Box::new(VariantData::new(0, vec![])));
-            let cons3 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(3), nil])));
-            let cons2 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(2), cons3])));
-            let cons1 = Value::Variant(Box::new(VariantData::new(1, vec![Value::Int(1), cons2])));
+            let nil = Value::Variant(Arc::new(VariantData::new(0, vec![])));
+            let cons3 = Value::Variant(Arc::new(VariantData::new(1, vec![Value::Int(3), nil])));
+            let cons2 = Value::Variant(Arc::new(VariantData::new(1, vec![Value::Int(2), cons3])));
+            let cons1 = Value::Variant(Arc::new(VariantData::new(1, vec![Value::Int(1), cons2])));
 
             // Put on deep stack
             let mut stack = std::ptr::null_mut();

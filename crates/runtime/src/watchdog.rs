@@ -32,8 +32,8 @@
 
 use crate::diagnostics::dump_diagnostics;
 use crate::scheduler::strand_registry;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static WATCHDOG_INIT: Once = Once::new();
@@ -200,10 +200,7 @@ fn handle_stuck_strand(strand_id: u64, running_secs: u64, config: &WatchdogConfi
     match config.action {
         WatchdogAction::Warn => {
             if was_triggered {
-                let _ = writeln!(
-                    stderr,
-                    "    (strand still stuck, diagnostics suppressed)"
-                );
+                let _ = writeln!(stderr, "    (strand still stuck, diagnostics suppressed)");
             }
         }
         WatchdogAction::Exit => {

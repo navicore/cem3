@@ -33,11 +33,12 @@
 use crate::diagnostics::dump_diagnostics;
 use crate::scheduler::strand_registry;
 use std::sync::Once;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static WATCHDOG_INIT: Once = Once::new();
-static WATCHDOG_TRIGGERED: AtomicBool = AtomicBool::new(false);
+// Tracks which strand triggered the watchdog (0 = none yet)
+static WATCHDOG_TRIGGERED_STRAND: AtomicU64 = AtomicU64::new(0);
 
 /// Watchdog configuration
 #[derive(Debug, Clone)]
@@ -123,10 +124,12 @@ pub fn install_watchdog() {
             config.threshold_secs, config.interval_secs, config.action
         );
 
-        std::thread::Builder::new()
+        if let Err(e) = std::thread::Builder::new()
             .name("seq-watchdog".to_string())
             .spawn(move || watchdog_loop(config))
-            .ok();
+        {
+            eprintln!("[watchdog] WARNING: Failed to start watchdog thread: {}", e);
+        }
     });
 }
 
@@ -146,12 +149,13 @@ fn watchdog_loop(config: WatchdogConfig) {
 /// Check the strand registry for any strands exceeding the threshold
 ///
 /// Returns Some((strand_id, running_seconds)) for the longest-running stuck strand,
-/// or None if all strands are within threshold.
+/// or None if all strands are within threshold or system time is invalid.
 fn check_for_stuck_strands(threshold_secs: u64) -> Option<(u64, u64)> {
+    // Return None if system time is invalid (avoids false positives)
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .ok()
+        .map(|d| d.as_secs())?;
 
     let registry = strand_registry();
     let mut worst: Option<(u64, u64)> = None;
@@ -179,8 +183,9 @@ fn check_for_stuck_strands(threshold_secs: u64) -> Option<(u64, u64)> {
 
 /// Handle detection of a stuck strand
 fn handle_stuck_strand(strand_id: u64, running_secs: u64, config: &WatchdogConfig) {
-    // Avoid spamming if we keep detecting the same stuck strand
-    let was_triggered = WATCHDOG_TRIGGERED.swap(true, Ordering::SeqCst);
+    // Track which strand triggered the watchdog to detect new stuck strands
+    let prev_strand = WATCHDOG_TRIGGERED_STRAND.swap(strand_id, Ordering::Relaxed);
+    let is_new_strand = prev_strand != strand_id;
 
     use std::io::Write;
     let mut stderr = std::io::stderr().lock();
@@ -188,18 +193,18 @@ fn handle_stuck_strand(strand_id: u64, running_secs: u64, config: &WatchdogConfi
     let _ = writeln!(stderr);
     let _ = writeln!(
         stderr,
-        "⚠️  WATCHDOG: Strand #{} running for {}s (threshold: {}s)",
+        "WATCHDOG: Strand #{} running for {}s (threshold: {}s)",
         strand_id, running_secs, config.threshold_secs
     );
 
-    // Always dump diagnostics on first trigger
-    if !was_triggered {
+    // Dump diagnostics on first trigger OR when a different strand gets stuck
+    if prev_strand == 0 || is_new_strand {
         dump_diagnostics();
     }
 
     match config.action {
         WatchdogAction::Warn => {
-            if was_triggered {
+            if prev_strand != 0 && !is_new_strand {
                 let _ = writeln!(stderr, "    (strand still stuck, diagnostics suppressed)");
             }
         }
@@ -213,12 +218,16 @@ fn handle_stuck_strand(strand_id: u64, running_secs: u64, config: &WatchdogConfi
 /// Reset the watchdog triggered state (for testing)
 #[cfg(test)]
 pub fn reset_triggered() {
-    WATCHDOG_TRIGGERED.store(false, Ordering::SeqCst);
+    WATCHDOG_TRIGGERED_STRAND.store(0, Ordering::Relaxed);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serialize env var tests to avoid race conditions
+    static ENV_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_config_defaults() {
@@ -246,5 +255,117 @@ mod tests {
         // May or may not find strands depending on test execution order
         // Just verify it doesn't panic
         let _ = result;
+    }
+
+    // Helper to set env var (mutex must be held by caller)
+    unsafe fn set_env(key: &str, value: &str) {
+        // SAFETY: caller ensures mutex is held
+        unsafe { std::env::set_var(key, value) };
+    }
+
+    // Helper to restore env var (mutex must be held by caller)
+    unsafe fn restore_env(key: &str, orig: Option<String>) {
+        // SAFETY: caller ensures mutex is held
+        unsafe {
+            match orig {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_env_all_values() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Save original values
+        let orig_secs = std::env::var("SEQ_WATCHDOG_SECS").ok();
+        let orig_interval = std::env::var("SEQ_WATCHDOG_INTERVAL").ok();
+        let orig_action = std::env::var("SEQ_WATCHDOG_ACTION").ok();
+
+        // SAFETY: We hold the mutex, so no concurrent env var access
+        unsafe {
+            set_env("SEQ_WATCHDOG_SECS", "30");
+            set_env("SEQ_WATCHDOG_INTERVAL", "10");
+            set_env("SEQ_WATCHDOG_ACTION", "exit");
+        }
+
+        let config = WatchdogConfig::from_env();
+        assert_eq!(config.threshold_secs, 30);
+        assert_eq!(config.interval_secs, 10);
+        assert_eq!(config.action, WatchdogAction::Exit);
+        assert!(config.is_enabled());
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            restore_env("SEQ_WATCHDOG_SECS", orig_secs);
+            restore_env("SEQ_WATCHDOG_INTERVAL", orig_interval);
+            restore_env("SEQ_WATCHDOG_ACTION", orig_action);
+        }
+    }
+
+    #[test]
+    fn test_from_env_warn_action() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
+
+        let orig = std::env::var("SEQ_WATCHDOG_ACTION").ok();
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            set_env("SEQ_WATCHDOG_ACTION", "warn");
+        }
+
+        let config = WatchdogConfig::from_env();
+        assert_eq!(config.action, WatchdogAction::Warn);
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            restore_env("SEQ_WATCHDOG_ACTION", orig);
+        }
+    }
+
+    #[test]
+    fn test_from_env_invalid_values() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Save original values
+        let orig_secs = std::env::var("SEQ_WATCHDOG_SECS").ok();
+        let orig_interval = std::env::var("SEQ_WATCHDOG_INTERVAL").ok();
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            set_env("SEQ_WATCHDOG_SECS", "not_a_number");
+            set_env("SEQ_WATCHDOG_INTERVAL", "0"); // 0 should use default
+        }
+
+        let config = WatchdogConfig::from_env();
+        assert_eq!(config.threshold_secs, 0); // Default on parse failure
+        assert_eq!(config.interval_secs, 5); // Default when 0
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            restore_env("SEQ_WATCHDOG_SECS", orig_secs);
+            restore_env("SEQ_WATCHDOG_INTERVAL", orig_interval);
+        }
+    }
+
+    #[test]
+    fn test_from_env_unknown_action_defaults_to_warn() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
+
+        let orig = std::env::var("SEQ_WATCHDOG_ACTION").ok();
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            set_env("SEQ_WATCHDOG_ACTION", "unknown_action");
+        }
+
+        let config = WatchdogConfig::from_env();
+        assert_eq!(config.action, WatchdogAction::Warn);
+
+        // SAFETY: We hold the mutex
+        unsafe {
+            restore_env("SEQ_WATCHDOG_ACTION", orig);
+        }
     }
 }

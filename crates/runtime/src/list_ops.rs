@@ -21,6 +21,7 @@
 
 use crate::stack::{Stack, is_empty, pop, push};
 use crate::value::{Value, VariantData};
+use std::sync::Arc;
 
 /// Helper to drain and free any remaining stack nodes
 ///
@@ -111,7 +112,7 @@ pub unsafe extern "C" fn patch_seq_list_map(stack: Stack) -> Stack {
         }
 
         // Create new variant with same tag
-        let new_variant = Value::Variant(Box::new(VariantData::new(variant_data.tag, results)));
+        let new_variant = Value::Variant(Arc::new(VariantData::new(variant_data.tag, results)));
 
         push(stack, new_variant)
     }
@@ -178,7 +179,7 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
         }
 
         // Create new variant with same tag
-        let new_variant = Value::Variant(Box::new(VariantData::new(variant_data.tag, results)));
+        let new_variant = Value::Variant(Arc::new(VariantData::new(variant_data.tag, results)));
 
         push(stack, new_variant)
     }
@@ -395,7 +396,7 @@ mod tests {
     fn test_list_map_double() {
         unsafe {
             // Create list [1, 2, 3]
-            let list = Value::Variant(Box::new(VariantData::new(
+            let list = Value::Variant(Arc::new(VariantData::new(
                 0,
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
@@ -430,7 +431,7 @@ mod tests {
     fn test_list_filter_positive() {
         unsafe {
             // Create list [-1, 2, -3, 4, 0]
-            let list = Value::Variant(Box::new(VariantData::new(
+            let list = Value::Variant(Arc::new(VariantData::new(
                 0,
                 vec![
                     Value::Int(-1),
@@ -470,7 +471,7 @@ mod tests {
     fn test_list_fold_sum() {
         unsafe {
             // Create list [1, 2, 3, 4, 5]
-            let list = Value::Variant(Box::new(VariantData::new(
+            let list = Value::Variant(Arc::new(VariantData::new(
                 0,
                 vec![
                     Value::Int(1),
@@ -504,7 +505,7 @@ mod tests {
     fn test_list_fold_empty() {
         unsafe {
             // Create empty list
-            let list = Value::Variant(Box::new(VariantData::new(0, vec![])));
+            let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
@@ -528,7 +529,7 @@ mod tests {
     #[test]
     fn test_list_length() {
         unsafe {
-            let list = Value::Variant(Box::new(VariantData::new(
+            let list = Value::Variant(Arc::new(VariantData::new(
                 0,
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
@@ -546,7 +547,7 @@ mod tests {
     #[test]
     fn test_list_empty_true() {
         unsafe {
-            let list = Value::Variant(Box::new(VariantData::new(0, vec![])));
+            let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
@@ -561,7 +562,7 @@ mod tests {
     #[test]
     fn test_list_empty_false() {
         unsafe {
-            let list = Value::Variant(Box::new(VariantData::new(0, vec![Value::Int(1)])));
+            let list = Value::Variant(Arc::new(VariantData::new(0, vec![Value::Int(1)])));
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
@@ -576,7 +577,7 @@ mod tests {
     #[test]
     fn test_list_map_empty() {
         unsafe {
-            let list = Value::Variant(Box::new(VariantData::new(0, vec![])));
+            let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
             let stack = std::ptr::null_mut();
             let stack = push(stack, list);
@@ -605,7 +606,7 @@ mod tests {
     fn test_list_map_preserves_tag() {
         unsafe {
             // Create list with custom tag (e.g., 42)
-            let list = Value::Variant(Box::new(VariantData::new(
+            let list = Value::Variant(Arc::new(VariantData::new(
                 42,
                 vec![Value::Int(1), Value::Int(2)],
             )));
@@ -656,7 +657,7 @@ mod tests {
     fn test_list_map_with_closure() {
         unsafe {
             // Create list [1, 2, 3]
-            let list = Value::Variant(Box::new(VariantData::new(
+            let list = Value::Variant(Arc::new(VariantData::new(
                 0,
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));

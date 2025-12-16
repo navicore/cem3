@@ -28,3 +28,6 @@ toml = "0.8"
 [lib]
 name = "seqc"
 path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "3"

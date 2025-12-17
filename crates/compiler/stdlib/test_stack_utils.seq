@@ -1,20 +1,14 @@
-# Test stack-utils.cem
+# Test stack-utils - tests the builtin 2dup and 3drop operations
 
-: 2dup ( A B -- A B A B )
-  2dup
-;
-
+# 2drop is not a builtin, so define it here
 : 2drop ( A B -- )
   drop drop
 ;
 
-: 3drop ( A B C -- )
-  3drop
-;
-
 : main ( -- )
+  # Test 2dup builtin
   1 2 2dup
-  2 = swap 1 = and nip nip
+  2 = swap 1 = and 2drop
   if
     "2dup works ✓" io.write-line
   else

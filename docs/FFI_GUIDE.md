@@ -24,7 +24,7 @@ include ffi:libedit
 
 Build with:
 ```bash
-seqc myprogram.seq -o myprogram
+seqc build myprogram.seq -o myprogram
 ```
 
 ### External FFI: SQLite

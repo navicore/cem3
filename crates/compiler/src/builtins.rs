@@ -373,6 +373,33 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // 2dup: ( ..a T U -- ..a T U T U )
+    sigs.insert(
+        "2dup".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Var("U".to_string())),
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Var("U".to_string()))
+                .push(Type::Var("T".to_string()))
+                .push(Type::Var("U".to_string())),
+        ),
+    );
+
+    // 3drop: ( ..a T U V -- ..a )
+    sigs.insert(
+        "3drop".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("T".to_string()))
+                .push(Type::Var("U".to_string()))
+                .push(Type::Var("V".to_string())),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
     // pick: ( ..a T Int -- ..a T T )
     // Copies value at depth n to top of stack
     // pick(0) = dup, pick(1) = over, pick(2) = third value, etc.

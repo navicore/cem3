@@ -1,7 +1,7 @@
 # Test stack-utils.cem
 
 : 2dup ( A B -- A B A B )
-  over over
+  2dup
 ;
 
 : 2drop ( A B -- )
@@ -9,12 +9,12 @@
 ;
 
 : 3drop ( A B C -- )
-  drop drop drop
+  3drop
 ;
 
 : main ( -- )
   1 2 2dup
-  2 = swap 1 = and swap drop swap drop
+  2 = swap 1 = and nip nip
   if
     "2dup works ✓" io.write-line
   else

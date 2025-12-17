@@ -44,7 +44,7 @@
 
 # Duplicate top two values
 : 2dup ( A B -- A B A B )
-  over over
+  2dup
 ;
 
 # Drop top two values
@@ -54,5 +54,5 @@
 
 # Triple drop
 : 3drop ( A B C -- )
-  drop drop drop
+  3drop
 ;

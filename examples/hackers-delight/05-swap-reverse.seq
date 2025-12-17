@@ -6,8 +6,8 @@
 # a b -> b a
 : xor-swap ( Int Int -- Int Int )
   over bxor      # a (b^a)
-  swap over bxor # (b^a) (a^b^a) = (b^a) b
-  swap over bxor # b (b^a^b) = b a
+  tuck bxor      # (b^a) (a^b^a) = (b^a) b
+  tuck bxor      # b (b^a^b) = b a
 ;
 
 # Swap bytes in a 16-bit value

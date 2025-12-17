@@ -222,15 +222,15 @@
 #
 # Stack effect: ( str prefix -- suffix )
 #
-# Key insight: We use "over over" to make copies for the check, keeping
+# Key insight: We use "2dup" to make copies for the check, keeping
 # originals for the actual split.
 #
 : string-suffix-after ( String String -- String )
   # Stack: ( str prefix )
   # Example: ( "/echo/hello" "/echo/" )
 
-  over over string.starts-with if
-    # "over over" copied both values for the check:
+  2dup string.starts-with if
+    # "2dup" copied both values for the check:
     #   over:              ( str prefix str )
     #   over:              ( str prefix str prefix )
     #   string.starts-with: ( str prefix 1 )  -- true!

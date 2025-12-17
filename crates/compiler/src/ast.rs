@@ -345,6 +345,8 @@ impl Program {
             "rot",
             "nip",
             "tuck",
+            "2dup",
+            "3drop",
             "pick",
             "roll",
             // Boolean operations

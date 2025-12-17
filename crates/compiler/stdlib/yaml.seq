@@ -149,7 +149,7 @@
   else
   # Try as number
   dup string->float if
-    swap drop yaml-number
+    nip yaml-number
   else
     drop yaml-string
   then then then then then
@@ -196,7 +196,7 @@
   else
     # Found colon at position
     # Stack: str colonpos
-    over over yaml-key-part     # str colonpos key
+    2dup yaml-key-part     # str colonpos key
     rot rot yaml-value-part     # key valuestr
     yaml-parse-scalar           # key value
     swap yaml-string            # value keystr
@@ -248,7 +248,7 @@
       drop drop
     else
       # Parse the key-value pair
-      over over yaml-key-part     # obj line colonpos key
+      2dup yaml-key-part     # obj line colonpos key
       rot rot yaml-value-part     # obj key valuestr
       yaml-parse-scalar           # obj key value
       swap yaml-string            # obj value keystr
@@ -262,7 +262,7 @@
 # Stack: ( str newlinepos -- line rest )
 : yaml-split-at-newline ( ..rest String Int -- ..rest String String )
   # Stack: str nlpos
-  over over                            # str nlpos str nlpos
+  2dup                            # str nlpos str nlpos
   0 swap string.substring              # str nlpos line
   rot rot                              # line str nlpos
   1 add                                # line str afterpos
@@ -559,10 +559,6 @@
 # Parse a key-only line (starts a nested object)
 # Stack: ( obj line -- obj' remaining )
 : yaml-parse-key-only-line ( ..rest Variant String -- ..rest Variant String )
-  # Save obj below, work with line
-  swap                           # ( line obj )
-  swap                           # ( obj line )
-
   # Get key
   dup yaml-get-key               # ( obj line key )
 
@@ -597,7 +593,7 @@
   dup 0 < if
     drop drop ""               # invalid line, skip
   else
-    over over yaml-key-part    # obj line colonpos key
+    2dup yaml-key-part    # obj line colonpos key
     rot rot yaml-value-part    # obj key valuestr
     yaml-parse-scalar          # obj key value
     swap yaml-string swap      # obj key-str value

@@ -79,6 +79,8 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("rot", "patch_seq_rot"),
         ("nip", "patch_seq_nip"),
         ("tuck", "patch_seq_tuck"),
+        ("2dup", "patch_seq_2dup"),
+        ("3drop", "patch_seq_3drop"),
         ("drop", "patch_seq_drop_op"),
         ("pick", "patch_seq_pick_op"),
         ("roll", "patch_seq_roll"),
@@ -570,6 +572,8 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_rot(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_2dup(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_3drop(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
@@ -941,6 +945,8 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_rot(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_2dup(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_3drop(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();

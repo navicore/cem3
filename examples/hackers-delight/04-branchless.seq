@@ -33,7 +33,7 @@
 # Branchless min using the formula:
 # min(a, b) = b + ((a - b) & mask)  where mask = -1 if a < b, else 0
 : min-branchless ( Int Int -- Int )
-  over over subtract   # a b (a-b)
+  2dup subtract   # a b (a-b)
   dup 0 <              # a b diff (diff<0)?
   0 swap subtract      # a b diff mask
   band                 # a b (diff & mask)
@@ -44,7 +44,7 @@
 # Branchless max using the formula:
 # max(a, b) = a - ((a - b) & mask)  where mask = -1 if a < b, else 0
 : max-branchless ( Int Int -- Int )
-  over over subtract   # a b (a-b)
+  2dup subtract   # a b (a-b)
   dup 0 <              # a b diff (diff<0)?
   0 swap subtract      # a b diff mask
   band                 # a b (diff & mask)

@@ -1,21 +1,21 @@
 # Test simple if/then conditionals
 
 : test-if-true ( -- )
+  # When condition is true, body should execute
+  0  # counter starts at 0
   5 3 >
   if
-    "Greater!" io.write-line
+    drop 1  # replace 0 with 1
   then
+  1 test.assert-eq
 ;
 
 : test-if-false ( -- )
+  # When condition is false, body should not execute
+  0  # counter starts at 0
   3 5 >
   if
-    "This should not print" io.write-line
+    drop 1  # this should not run
   then
-  "After if" io.write-line
-;
-
-: main ( -- )
-  test-if-true
-  test-if-false
+  0 test.assert-eq
 ;

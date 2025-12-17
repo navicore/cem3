@@ -1,2 +1,0 @@
-TCO stress test: 100000 recursive calls ✓
-countdown(10) = 0 ✓

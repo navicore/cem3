@@ -1,3 +1,0 @@
-Testing file.slurp-safe:
-file.slurp-safe returns 0 for missing file PASS
-file.exists? finds this file PASS

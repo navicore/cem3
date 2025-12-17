@@ -1,7 +1,0 @@
-Testing chan.send-safe:
-chan.send-safe returns 1 on success PASS
-chan.send-safe returns 0 for invalid channel PASS
-Testing chan.receive-safe:
-chan.receive-safe returns 1 on success PASS
-chan.receive-safe gets correct value PASS
-chan.receive-safe returns 0 for invalid channel PASS

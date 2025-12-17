@@ -1381,6 +1381,111 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // Test framework operations
+    // test.init: ( ..a String -- ..a )
+    // Initialize test context with test name
+    sigs.insert(
+        "test.init".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.finish: ( ..a -- ..a )
+    // Finalize test and print results
+    sigs.insert(
+        "test.finish".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.has-failures: ( ..a -- ..a Int )
+    // Check if any assertions failed (1=yes, 0=no)
+    sigs.insert(
+        "test.has-failures".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // test.assert: ( ..a Int -- ..a )
+    // Assert value is truthy (non-zero)
+    sigs.insert(
+        "test.assert".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.assert-not: ( ..a Int -- ..a )
+    // Assert value is falsy (zero)
+    sigs.insert(
+        "test.assert-not".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.assert-eq: ( ..a Int Int -- ..a )
+    // Assert two integers are equal
+    sigs.insert(
+        "test.assert-eq".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::Int)
+                .push(Type::Int),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.assert-eq-str: ( ..a String String -- ..a )
+    // Assert two strings are equal
+    sigs.insert(
+        "test.assert-eq-str".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string())
+                .push(Type::String)
+                .push(Type::String),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.fail: ( ..a String -- ..a )
+    // Explicitly fail with message
+    sigs.insert(
+        "test.fail".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::String),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
+    // test.pass-count: ( ..a -- ..a Int )
+    // Get number of passed assertions
+    sigs.insert(
+        "test.pass-count".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
+    // test.fail-count: ( ..a -- ..a Int )
+    // Get number of failed assertions
+    sigs.insert(
+        "test.fail-count".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()).push(Type::Int),
+        ),
+    );
+
     sigs
 }
 

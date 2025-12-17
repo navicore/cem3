@@ -260,7 +260,9 @@ pub fn compile_file_with_config(
 
     // Generate LLVM IR with type information and external builtins
     let mut codegen = CodeGen::new();
-    let ir = codegen.codegen_program_with_ffi(&program, quotation_types, config, &ffi_bindings)?;
+    let ir = codegen
+        .codegen_program_with_ffi(&program, quotation_types, config, &ffi_bindings)
+        .map_err(|e| e.to_string())?;
 
     // Write IR to file
     let ir_path = output_path.with_extension("ll");
@@ -358,7 +360,9 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
     let quotation_types = type_checker.take_quotation_types();
 
     let mut codegen = CodeGen::new();
-    codegen.codegen_program_with_config(&program, quotation_types, config)
+    codegen
+        .codegen_program_with_config(&program, quotation_types, config)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

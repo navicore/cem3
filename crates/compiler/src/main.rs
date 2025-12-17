@@ -15,26 +15,7 @@ use std::process;
 #[command(about = "Seq compiler - compile .seq programs to executables", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
-
-    /// Input .seq source file (for default compile command)
-    #[arg(global = false)]
-    input: Option<PathBuf>,
-
-    /// Output executable path
-    #[arg(short, long)]
-    output: Option<PathBuf>,
-
-    /// Keep intermediate LLVM IR file (.ll)
-    #[arg(long)]
-    keep_ir: bool,
-
-    /// External FFI manifest file(s) to load
-    ///
-    /// Use this to provide custom FFI bindings without embedding them in the compiler.
-    /// Can be specified multiple times for multiple manifests.
-    #[arg(long = "ffi-manifest", value_name = "PATH")]
-    ffi_manifests: Vec<PathBuf>,
+    command: Commands,
 }
 
 #[derive(Subcommand)]
@@ -44,9 +25,9 @@ enum Commands {
         /// Input .seq source file
         input: PathBuf,
 
-        /// Output executable path
+        /// Output executable path (defaults to input filename without .seq extension)
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
 
         /// Keep intermediate LLVM IR file (.ll)
         #[arg(long)]
@@ -99,42 +80,35 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Build {
+        Commands::Build {
             input,
             output,
             keep_ir,
             ffi_manifests,
-        }) => {
+        } => {
+            let output = output.unwrap_or_else(|| {
+                // Default: input filename without .seq extension
+                let stem = input.file_stem().unwrap_or_default();
+                PathBuf::from(stem)
+            });
             run_build(&input, &output, keep_ir, &ffi_manifests);
         }
-        Some(Commands::Lint {
+        Commands::Lint {
             paths,
             config,
             errors_only,
-        }) => {
+        } => {
             run_lint(&paths, config.as_deref(), errors_only);
         }
-        Some(Commands::Completions { shell }) => {
+        Commands::Completions { shell } => {
             run_completions(shell);
         }
-        Some(Commands::Test {
+        Commands::Test {
             paths,
             filter,
             verbose,
-        }) => {
+        } => {
             run_test(&paths, filter, verbose);
-        }
-        None => {
-            // Backward compatibility: if no subcommand, treat as build
-            if let (Some(input), Some(output)) = (cli.input, cli.output) {
-                run_build(&input, &output, cli.keep_ir, &cli.ffi_manifests);
-            } else {
-                eprintln!("Error: Missing required arguments. Use --help for usage.");
-                eprintln!("  seqc <input> -o <output>       Compile a file");
-                eprintln!("  seqc build <input> -o <output> Compile a file");
-                eprintln!("  seqc lint <paths>...           Run lint checks");
-                process::exit(1);
-            }
         }
     }
 }

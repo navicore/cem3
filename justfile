@@ -63,7 +63,7 @@ build-examples: build
             output_name="${category}-${name}"
         fi
         echo "  Compiling $file..."
-        target/release/seqc "$file" -o "target/examples/$output_name"
+        target/release/seqc build "$file" -o "target/examples/$output_name"
     done
     echo "✅ Examples built in target/examples/"
     ls -lh target/examples/

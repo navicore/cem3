@@ -1,5 +1,0 @@
-PASS: variant.make-0
-PASS: variant.make-1
-PASS: variant.make-2
-PASS: variant.make-3
-PASS: variant.make-4

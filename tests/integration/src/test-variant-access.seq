@@ -16,27 +16,21 @@
   2 variant.field-at       # Get "hello"
 ;
 
-: main ( -- Int )
-  "Testing variant field access..." io.write-line
-  "" io.write-line
-
-  # Test extracting from HTTP request
+: test-extract-hello ( -- )
   "GET /echo/hello HTTP/1.1" extract-echo-message
-  "Extracted message: " swap string.concat io.write-line
-  "" io.write-line
+  "hello" string.equal? test.assert
+;
 
-  # Test with different message
+: test-extract-world ( -- )
   "GET /echo/world HTTP/1.1" extract-echo-message
-  "Extracted message: " swap string.concat io.write-line
-  "" io.write-line
+  "world" string.equal? test.assert
+;
 
-  # Test extracting different path segment
+: test-extract-user-id ( -- )
   "GET /api/users/123 HTTP/1.1"
   " " string.split
   1 variant.field-at      # Get "/api/users/123"
   "/" string.split
   3 variant.field-at      # Get "123"
-  "User ID: " swap string.concat io.write-line
-
-  0  # Return success
+  "123" string.equal? test.assert
 ;

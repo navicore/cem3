@@ -28,6 +28,7 @@ pub mod stack;
 pub mod string_ops;
 pub mod tcp;
 pub mod tcp_test;
+pub mod test;
 pub mod value;
 pub mod variant_ops;
 pub mod watchdog;
@@ -164,4 +165,14 @@ pub use map_ops::{
     patch_seq_map_keys as map_keys, patch_seq_map_remove as map_remove,
     patch_seq_map_set as map_set, patch_seq_map_size as map_size,
     patch_seq_map_values as map_values,
+};
+
+// Test framework operations (exported for LLVM linking)
+pub use test::{
+    patch_seq_test_assert as test_assert, patch_seq_test_assert_eq as test_assert_eq,
+    patch_seq_test_assert_eq_str as test_assert_eq_str,
+    patch_seq_test_assert_not as test_assert_not, patch_seq_test_fail as test_fail,
+    patch_seq_test_fail_count as test_fail_count, patch_seq_test_finish as test_finish,
+    patch_seq_test_has_failures as test_has_failures, patch_seq_test_init as test_init,
+    patch_seq_test_pass_count as test_pass_count,
 };

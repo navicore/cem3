@@ -24,93 +24,35 @@
   4 variant.make-4 ;
 
 : test-empty ( -- )
-  make-empty variant.tag 0 = if
-    "PASS: variant.make-0" io.write-line
-  else
-    "FAIL: variant.make-0" io.write-line
-  then
+  make-empty variant.tag 0 test.assert-eq
 ;
 
 : test-box ( -- )
   42 make-box
-  dup variant.tag 1 = if
-    0 variant.field-at 42 = if
-      "PASS: variant.make-1" io.write-line
-    else
-      "FAIL: variant.make-1 field" io.write-line
-    then
-  else
-    drop "FAIL: variant.make-1 tag" io.write-line
-  then
+  dup variant.tag 1 test.assert-eq
+  0 variant.field-at 42 test.assert-eq
 ;
 
 : test-pair ( -- )
   100 "hello" make-pair
-  dup variant.tag 2 = if
-    dup 0 variant.field-at 100 = if
-      1 variant.field-at "hello" string.equal? if
-        "PASS: variant.make-2" io.write-line
-      else
-        "FAIL: variant.make-2 field1" io.write-line
-      then
-    else
-      drop "FAIL: variant.make-2 field0" io.write-line
-    then
-  else
-    drop "FAIL: variant.make-2 tag" io.write-line
-  then
+  dup variant.tag 2 test.assert-eq
+  dup 0 variant.field-at 100 test.assert-eq
+  1 variant.field-at "hello" string.equal? test.assert
 ;
 
 : test-triple ( -- )
   1 2 3 make-triple
-  dup variant.tag 3 = if
-    dup 0 variant.field-at 1 = if
-      dup 1 variant.field-at 2 = if
-        2 variant.field-at 3 = if
-          "PASS: variant.make-3" io.write-line
-        else
-          "FAIL: variant.make-3 field2" io.write-line
-        then
-      else
-        drop "FAIL: variant.make-3 field1" io.write-line
-      then
-    else
-      drop "FAIL: variant.make-3 field0" io.write-line
-    then
-  else
-    drop "FAIL: variant.make-3 tag" io.write-line
-  then
+  dup variant.tag 3 test.assert-eq
+  dup 0 variant.field-at 1 test.assert-eq
+  dup 1 variant.field-at 2 test.assert-eq
+  2 variant.field-at 3 test.assert-eq
 ;
 
 : test-quad ( -- )
   10 20 30 40 make-quad
-  dup variant.tag 4 = if
-    dup 0 variant.field-at 10 = if
-      dup 1 variant.field-at 20 = if
-        dup 2 variant.field-at 30 = if
-          3 variant.field-at 40 = if
-            "PASS: variant.make-4" io.write-line
-          else
-            "FAIL: variant.make-4 field3" io.write-line
-          then
-        else
-          drop "FAIL: variant.make-4 field2" io.write-line
-        then
-      else
-        drop "FAIL: variant.make-4 field1" io.write-line
-      then
-    else
-      drop "FAIL: variant.make-4 field0" io.write-line
-    then
-  else
-    drop "FAIL: variant.make-4 tag" io.write-line
-  then
-;
-
-: main ( -- )
-  test-empty
-  test-box
-  test-pair
-  test-triple
-  test-quad
+  dup variant.tag 4 test.assert-eq
+  dup 0 variant.field-at 10 test.assert-eq
+  dup 1 variant.field-at 20 test.assert-eq
+  dup 2 variant.field-at 30 test.assert-eq
+  3 variant.field-at 40 test.assert-eq
 ;

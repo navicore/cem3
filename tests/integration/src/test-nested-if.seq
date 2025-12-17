@@ -1,45 +1,32 @@
 # Test nested conditionals
 
 : test-nested ( -- )
+  0  # result accumulator
   5 3 >
   if
-    "Outer: 5 > 3" io.write-line
+    1 add  # outer true
     10 10 =
     if
-      "Inner: 10 = 10" io.write-line
+      1 add  # inner true
     else
-      "Inner: 10 != 10" io.write-line
+      10 add  # inner false (shouldn't happen)
     then
   else
-    "Outer: 5 <= 3" io.write-line
+    100 add  # outer false (shouldn't happen)
   then
+  2 test.assert-eq  # should be 1+1=2
 ;
 
 : test-multiple-comparisons ( -- )
-  7 5 <
-  if
-    "7 < 5 (should not print)" io.write-line
-  then
+  # 7 < 5 is false
+  7 5 < test.assert-not
 
-  7 5 >=
-  if
-    "7 >= 5 (correct!)" io.write-line
-  then
+  # 7 >= 5 is true
+  7 5 >= test.assert
 
-  3 8 <=
-  if
-    "3 <= 8 (correct!)" io.write-line
-  then
+  # 3 <= 8 is true
+  3 8 <= test.assert
 
-  4 4 <>
-  if
-    "4 <> 4 (should not print)" io.write-line
-  else
-    "4 equals 4 (correct!)" io.write-line
-  then
-;
-
-: main ( -- )
-  test-nested
-  test-multiple-comparisons
+  # 4 <> 4 is false (they are equal)
+  4 4 <> test.assert-not
 ;

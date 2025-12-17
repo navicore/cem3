@@ -1,182 +1,79 @@
 # Test bitwise operations
 
 : test-band ( -- )
-  "Testing band (bitwise AND)..." io.write-line
-  0xFF 0x0F band 0x0F =
-  if "  PASS: 0xFF & 0x0F = 0x0F" io.write-line
-  else "  FAIL: band" io.write-line
-  then
+  0xFF 0x0F band 0x0F test.assert-eq
 ;
 
 : test-bor ( -- )
-  "Testing bor (bitwise OR)..." io.write-line
-  0xF0 0x0F bor 0xFF =
-  if "  PASS: 0xF0 | 0x0F = 0xFF" io.write-line
-  else "  FAIL: bor" io.write-line
-  then
+  0xF0 0x0F bor 0xFF test.assert-eq
 ;
 
 : test-bxor ( -- )
-  "Testing bxor (bitwise XOR)..." io.write-line
-  0xFF 0x0F bxor 0xF0 =
-  if "  PASS: 0xFF ^ 0x0F = 0xF0" io.write-line
-  else "  FAIL: bxor" io.write-line
-  then
+  0xFF 0x0F bxor 0xF0 test.assert-eq
 ;
 
 : test-bnot ( -- )
-  "Testing bnot (bitwise NOT)..." io.write-line
   # bnot of 0 should have all bits set (i.e., -1 in two's complement)
-  0 bnot -1 =
-  if "  PASS: ~0 = -1" io.write-line
-  else "  FAIL: bnot" io.write-line
-  then
+  0 bnot -1 test.assert-eq
 ;
 
 : test-shl ( -- )
-  "Testing shl (shift left)..." io.write-line
-  1 4 shl 16 =
-  if "  PASS: 1 << 4 = 16" io.write-line
-  else "  FAIL: shl" io.write-line
-  then
+  1 4 shl 16 test.assert-eq
 ;
 
 : test-shr ( -- )
-  "Testing shr (logical shift right)..." io.write-line
-  16 4 shr 1 =
-  if "  PASS: 16 >> 4 = 1" io.write-line
-  else "  FAIL: shr" io.write-line
-  then
+  16 4 shr 1 test.assert-eq
 ;
 
 : test-popcount ( -- )
-  "Testing popcount..." io.write-line
-  0xFF popcount 8 =
-  if "  PASS: popcount(0xFF) = 8" io.write-line
-  else "  FAIL: popcount" io.write-line
-  then
+  0xFF popcount 8 test.assert-eq
 ;
 
 : test-clz ( -- )
-  "Testing clz (count leading zeros)..." io.write-line
   # 1 has 63 leading zeros in a 64-bit int
-  1 clz 63 =
-  if "  PASS: clz(1) = 63" io.write-line
-  else "  FAIL: clz" io.write-line
-  then
+  1 clz 63 test.assert-eq
 ;
 
 : test-ctz ( -- )
-  "Testing ctz (count trailing zeros)..." io.write-line
   # 16 = 0b10000, has 4 trailing zeros
-  16 ctz 4 =
-  if "  PASS: ctz(16) = 4" io.write-line
-  else "  FAIL: ctz" io.write-line
-  then
+  16 ctz 4 test.assert-eq
 ;
 
 : test-int-bits ( -- )
-  "Testing int-bits..." io.write-line
-  int-bits 64 =
-  if "  PASS: int-bits = 64" io.write-line
-  else "  FAIL: int-bits" io.write-line
-  then
+  int-bits 64 test.assert-eq
 ;
 
 : test-hex-literals ( -- )
-  "Testing hex literals..." io.write-line
-  0xFF 255 =
-  if "  PASS: 0xFF = 255" io.write-line
-  else "  FAIL: hex literals" io.write-line
-  then
+  0xFF 255 test.assert-eq
 ;
 
 : test-binary-literals ( -- )
-  "Testing binary literals..." io.write-line
-  0b1010 10 =
-  if "  PASS: 0b1010 = 10" io.write-line
-  else "  FAIL: binary literals" io.write-line
-  then
+  0b1010 10 test.assert-eq
 ;
 
-# Edge case tests (from PR review)
-
 : test-shift-edge-cases ( -- )
-  "Testing shift edge cases..." io.write-line
   # Shift by 0
-  42 0 shl 42 =
-  if "  PASS: 42 << 0 = 42" io.write-line
-  else "  FAIL: shift by 0" io.write-line
-  then
+  42 0 shl 42 test.assert-eq
   # Shift by exactly 63 (last valid shift)
-  1 63 shl -9223372036854775808 =
-  if "  PASS: 1 << 63 = i64::MIN" io.write-line
-  else "  FAIL: shift by 63" io.write-line
-  then
+  1 63 shl -9223372036854775808 test.assert-eq
   # Shift by 64 (out of range, returns 0)
-  1 64 shl 0 =
-  if "  PASS: 1 << 64 = 0" io.write-line
-  else "  FAIL: shift by 64" io.write-line
-  then
+  1 64 shl 0 test.assert-eq
   # Shift by negative (out of range, returns 0)
-  1 -1 shl 0 =
-  if "  PASS: 1 << -1 = 0" io.write-line
-  else "  FAIL: shift by -1" io.write-line
-  then
+  1 -1 shl 0 test.assert-eq
   # Logical right shift of negative (fills with 0, not sign-extended)
-  -1 1 shr 9223372036854775807 =
-  if "  PASS: -1 >> 1 = i64::MAX (logical shift)" io.write-line
-  else "  FAIL: logical right shift of -1" io.write-line
-  then
+  -1 1 shr 9223372036854775807 test.assert-eq
 ;
 
 : test-clz-ctz-edge-cases ( -- )
-  "Testing clz/ctz edge cases..." io.write-line
   # clz(0) should be 64
-  0 clz 64 =
-  if "  PASS: clz(0) = 64" io.write-line
-  else "  FAIL: clz(0)" io.write-line
-  then
+  0 clz 64 test.assert-eq
   # ctz(0) should be 64
-  0 ctz 64 =
-  if "  PASS: ctz(0) = 64" io.write-line
-  else "  FAIL: ctz(0)" io.write-line
-  then
+  0 ctz 64 test.assert-eq
 ;
 
 : test-popcount-edge-cases ( -- )
-  "Testing popcount edge cases..." io.write-line
   # popcount(-1) = 64 (all bits set)
-  -1 popcount 64 =
-  if "  PASS: popcount(-1) = 64" io.write-line
-  else "  FAIL: popcount(-1)" io.write-line
-  then
+  -1 popcount 64 test.assert-eq
   # popcount(0) = 0
-  0 popcount 0 =
-  if "  PASS: popcount(0) = 0" io.write-line
-  else "  FAIL: popcount(0)" io.write-line
-  then
-;
-
-: main ( -- )
-  "Bitwise Operations Test Suite" io.write-line
-  "==============================" io.write-line
-  test-band
-  test-bor
-  test-bxor
-  test-bnot
-  test-shl
-  test-shr
-  test-popcount
-  test-clz
-  test-ctz
-  test-int-bits
-  test-hex-literals
-  test-binary-literals
-  "--- Edge Cases ---" io.write-line
-  test-shift-edge-cases
-  test-clz-ctz-edge-cases
-  test-popcount-edge-cases
-  "==============================" io.write-line
-  "All tests completed!" io.write-line
+  0 popcount 0 test.assert-eq
 ;

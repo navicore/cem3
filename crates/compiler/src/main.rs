@@ -78,6 +78,21 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+
+    /// Run tests in .seq files
+    Test {
+        /// Directories or files to test (defaults to current directory)
+        #[arg(default_value = ".")]
+        paths: Vec<PathBuf>,
+
+        /// Filter: only run tests matching this pattern
+        #[arg(short, long)]
+        filter: Option<String>,
+
+        /// Verbose output (show timing for each test)
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 fn main() {
@@ -101,6 +116,13 @@ fn main() {
         }
         Some(Commands::Completions { shell }) => {
             run_completions(shell);
+        }
+        Some(Commands::Test {
+            paths,
+            filter,
+            verbose,
+        }) => {
+            run_test(&paths, filter, verbose);
         }
         None => {
             // Backward compatibility: if no subcommand, treat as build
@@ -300,4 +322,20 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
         }
     }
     files
+}
+
+fn run_test(paths: &[PathBuf], filter: Option<String>, verbose: bool) {
+    use seqc::test_runner::TestRunner;
+
+    let runner = TestRunner::new(verbose, filter);
+    let summary = runner.run(paths);
+
+    runner.print_results(&summary);
+
+    if summary.failed > 0 {
+        process::exit(1);
+    } else if summary.total == 0 {
+        eprintln!("No tests found");
+        process::exit(2);
+    }
 }

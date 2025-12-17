@@ -1,75 +1,32 @@
 # Closure Capture Type Tests
 # Tests capture of Bool, Float, and Quotation types
 
-# Helper words that consume different types
-: use-int ( Int -- )
-  42 = if "PASS: captured int 42" io.write-line else "FAIL: captured int" io.write-line then
-;
-
-: use-string ( String -- )
-  "hello" string.equal? if "PASS: captured string hello" io.write-line else "FAIL: captured string" io.write-line then
-;
-
-: use-bool-true ( Int -- )
-  # Bool is represented as Int (0/1)
-  if "PASS: captured bool true" io.write-line else "FAIL: captured bool true" io.write-line then
-;
-
-: use-bool-false ( Int -- )
-  # Bool is represented as Int (0/1)
-  if "FAIL: captured bool false" io.write-line else "PASS: captured bool false" io.write-line then
-;
-
-: use-float ( Float -- )
-  1.0 f.> if "PASS: captured float > 1.0" io.write-line else "FAIL: captured float" io.write-line then
-;
-
-: use-quotation ( [Int -- Int] -- )
-  # Apply the captured quotation to 5 and check result
-  5 swap call 10 = if "PASS: captured quotation (doubled 5)" io.write-line else "FAIL: captured quotation" io.write-line then
-;
-
 # Test Int capture (already supported, baseline)
 : test-int-capture ( -- )
-  "Testing Int capture..." io.write-line
-  42 [ use-int ] call
+  42 [ 42 = ] call test.assert
 ;
 
 # Test String capture (already supported, baseline)
 : test-string-capture ( -- )
-  "Testing String capture..." io.write-line
-  "hello" [ use-string ] call
+  "hello" [ "hello" string.equal? ] call test.assert
 ;
 
 # Test Bool capture
 : test-bool-capture ( -- )
-  "Testing Bool capture..." io.write-line
-  true [ use-bool-true ] call
-  false [ use-bool-false ] call
+  # Capture true and verify it's true
+  true [ test.assert ] call
+  # Capture false and verify it's false
+  false [ not test.assert ] call
 ;
 
 # Test Float capture
 : test-float-capture ( -- )
-  "Testing Float capture..." io.write-line
-  1.234 [ use-float ] call
+  # Capture 1.234 and verify it's > 1.0
+  1.234 [ 1.0 f.> test.assert ] call
 ;
 
 # Test Quotation capture
 : test-quotation-capture ( -- )
-  "Testing Quotation capture..." io.write-line
-  [ 2 multiply ] [ use-quotation ] call
-;
-
-: main ( -- )
-  "=== Closure Capture Type Tests ===" io.write-line
-  "" io.write-line
-
-  test-int-capture
-  test-string-capture
-  test-bool-capture
-  test-float-capture
-  test-quotation-capture
-
-  "" io.write-line
-  "All capture type tests completed!" io.write-line
+  # Capture [2 multiply] and apply it to 5, expect 10
+  [ 2 multiply ] [ 5 swap call 10 = test.assert ] call
 ;

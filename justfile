@@ -150,6 +150,6 @@ test-critical:
 # Run integration tests (compile and run .seq programs)
 test-integration: build
     @echo "Running integration tests..."
-    ./tests/integration/run_tests.sh
+    ./target/release/seqc test tests/integration/src/
     @echo "✅ Integration tests passed!"
 

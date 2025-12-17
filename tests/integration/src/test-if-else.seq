@@ -1,34 +1,28 @@
 # Test if/else/then conditionals
 
 : test-if-else-true ( -- )
+  # When condition is true, true branch executes
   5 3 >
   if
-    "True branch" io.write-line
+    1
   else
-    "False branch" io.write-line
+    0
   then
+  1 test.assert-eq
 ;
 
 : test-if-else-false ( -- )
+  # When condition is false, else branch executes
   3 5 >
   if
-    "True branch" io.write-line
+    1
   else
-    "False branch" io.write-line
+    0
   then
+  0 test.assert-eq
 ;
 
 : test-equality ( -- )
-  5 5 =
-  if
-    "Numbers are equal" io.write-line
-  else
-    "Numbers are not equal" io.write-line
-  then
-;
-
-: main ( -- )
-  test-if-else-true
-  test-if-else-false
-  test-equality
+  5 5 = test.assert
+  5 3 = test.assert-not
 ;

@@ -1,3 +1,0 @@
-Testing spawn with closure...
-Spawned worker with captured value
-Hello from closure!

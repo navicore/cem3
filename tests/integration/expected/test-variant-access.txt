@@ -1,7 +1,0 @@
-Testing variant field access...
-
-Extracted message: hello
-
-Extracted message: world
-
-User ID: 123

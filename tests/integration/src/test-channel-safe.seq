@@ -1,48 +1,30 @@
 # Test chan.send-safe and chan.receive-safe error handling
 
-: print-result ( Int String -- )
-  swap if
-    " PASS" string.concat io.write-line
-  else
-    " FAIL" string.concat io.write-line
-  then
-;
-
 # Test chan.send-safe with valid channel
 : test-chan.send-safe-success ( -- )
   chan.make  # create channel, get ID
   42 swap chan.send-safe
-  "chan.send-safe returns 1 on success" print-result
+  test.assert
 ;
 
 # Test chan.send-safe with invalid channel ID
 : test-chan.send-safe-invalid ( -- )
   42 999999 chan.send-safe  # non-existent channel
-  not "chan.send-safe returns 0 for invalid channel" print-result
+  test.assert-not  # should return 0 (failure)
 ;
 
 # Test chan.receive-safe with valid channel
 : test-chan.receive-safe-success ( -- )
   chan.make  # create channel, get ID
-  dup 42 swap chan.send # chan.sendvalue
+  dup 42 swap chan.send # send value
   chan.receive-safe  # returns (value success_flag)
-  "chan.receive-safe returns 1 on success" print-result
-  42 = "chan.receive-safe gets correct value" print-result
+  test.assert  # success flag should be true
+  42 test.assert-eq  # value should be 42
 ;
 
 # Test chan.receive-safe with invalid channel ID
 : test-chan.receive-safe-invalid ( -- )
   999999 chan.receive-safe  # non-existent channel
-  not "chan.receive-safe returns 0 for invalid channel" print-result
+  test.assert-not  # should return 0 (failure)
   drop  # drop the placeholder value
-;
-
-: main ( -- )
-  "Testing chan.send-safe:" io.write-line
-  test-chan.send-safe-success
-  test-chan.send-safe-invalid
-
-  "Testing chan.receive-safe:" io.write-line
-  test-chan.receive-safe-success
-  test-chan.receive-safe-invalid
 ;

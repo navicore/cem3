@@ -1,29 +1,14 @@
 # Test file.slurp-safe error handling
 
-: print-result ( Int String -- )
-  swap if
-    " PASS" string.concat io.write-line
-  else
-    " FAIL" string.concat io.write-line
-  then
-;
-
 # Test reading a file that doesn't exist
 : test-not-found ( -- )
   "/nonexistent/path/to/file.txt" file.slurp-safe
-  not "file.slurp-safe returns 0 for missing file" print-result
+  test.assert-not  # should return 0 for missing file
   drop  # drop empty string
 ;
 
 # Test reading a file that exists (this file itself!)
 : test-exists ( -- )
-  # We'll use file.exists? first to verify
   "tests/integration/src/test-file-safe.seq" file.exists?
-  "file.exists? finds this file" print-result
-;
-
-: main ( -- )
-  "Testing file.slurp-safe:" io.write-line
-  test-not-found
-  test-exists
+  test.assert
 ;

@@ -187,6 +187,17 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("float->int", "patch_seq_float_to_int"),
         ("float->string", "patch_seq_float_to_string"),
         ("string->float", "patch_seq_string_to_float"),
+        // Test framework operations
+        ("test.init", "patch_seq_test_init"),
+        ("test.finish", "patch_seq_test_finish"),
+        ("test.has-failures", "patch_seq_test_has_failures"),
+        ("test.assert", "patch_seq_test_assert"),
+        ("test.assert-not", "patch_seq_test_assert_not"),
+        ("test.assert-eq", "patch_seq_test_assert_eq"),
+        ("test.assert-eq-str", "patch_seq_test_assert_eq_str"),
+        ("test.fail", "patch_seq_test_fail"),
+        ("test.pass-count", "patch_seq_test_pass_count"),
+        ("test.fail-count", "patch_seq_test_fail_count"),
     ])
 });
 
@@ -725,6 +736,17 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
+        writeln!(&mut ir, "; Test framework operations").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_init(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_finish(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_has_failures(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_not(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_eq(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_eq_str(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_fail(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_pass_count(ptr)").unwrap();
+        writeln!(&mut ir, "declare ptr @patch_seq_test_fail_count(ptr)").unwrap();
         writeln!(&mut ir, "; Helpers for conditionals").unwrap();
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
@@ -1059,6 +1081,17 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
+        writeln!(ir, "; Test framework operations").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_init(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_finish(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_has_failures(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_assert(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_assert_not(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_assert_eq(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_assert_eq_str(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_fail(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_pass_count(ptr)").unwrap();
+        writeln!(ir, "declare ptr @patch_seq_test_fail_count(ptr)").unwrap();
         writeln!(ir, "; Helpers for conditionals").unwrap();
         writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
         writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();

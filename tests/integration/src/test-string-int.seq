@@ -1,61 +1,37 @@
 # Test string->int and int->string conversions
 
-# Helper to print a test result (Int: 0=fail, non-zero=pass)
-: print-result ( Int String -- )
-  swap if
-    " PASS" string.concat io.write-line
-  else
-    " FAIL" string.concat io.write-line
-  then
-;
-
-# Test int->string conversion
 : test-int-to-string ( -- )
-  42 int->string "42" string.equal? "int->string 42" print-result
-  0 int->string "0" string.equal? "int->string 0" print-result
-  0 1 subtract int->string "-1" string.equal? "int->string -1" print-result
+  42 int->string "42" string.equal? test.assert
+  0 int->string "0" string.equal? test.assert
+  0 1 subtract int->string "-1" string.equal? test.assert
 ;
 
-# Test string->int success cases
 : test-string-to-int-success ( -- )
   "42" string->int
-  swap 42 = and "string->int 42" print-result
+  swap 42 = and test.assert
 
   "-7" string->int
-  swap 0 7 subtract = and "string->int -7" print-result
+  swap 0 7 subtract = and test.assert
 
   "  123  " string->int
-  swap 123 = and "string->int with whitespace" print-result
+  swap 123 = and test.assert
 
   "007" string->int
-  swap 7 = and "string->int leading zeros" print-result
+  swap 7 = and test.assert
 ;
 
-# Test string->int failure cases
 : test-string-to-int-failure ( -- )
+  # Invalid string returns (0, false)
   "not-a-number" string->int
-  not swap drop "string->int invalid returns 0" print-result
+  not swap drop test.assert
 
+  # Empty string returns (0, false)
   "" string->int
-  not swap drop "string->int empty returns 0" print-result
+  not swap drop test.assert
 ;
 
-# Round-trip test
 : test-roundtrip ( -- )
+  # int -> string -> int should round-trip
   12345 int->string string->int
-  swap 12345 = and "int->string->int roundtrip" print-result
-;
-
-: main ( -- )
-  "Testing int->string:" io.write-line
-  test-int-to-string
-
-  "Testing string->int (success):" io.write-line
-  test-string-to-int-success
-
-  "Testing string->int (failure):" io.write-line
-  test-string-to-int-failure
-
-  "Testing roundtrip:" io.write-line
-  test-roundtrip
+  swap 12345 = and test.assert
 ;

@@ -1,13 +1,245 @@
 //! Built-in word signatures for Seq
 //!
 //! Defines the stack effects for all runtime built-in operations.
+//!
+//! Uses declarative macros to minimize boilerplate. The `builtin!` macro
+//! supports a Forth-like notation: `(a Type1 Type2 -- a Type3)` where:
+//! - `a` is the row variable (representing "rest of stack")
+//! - Concrete types: `Int`, `String`, `Float`
+//! - Type variables: single uppercase letters like `T`, `U`, `V`
 
 use crate::types::{Effect, StackType, Type};
 use std::collections::HashMap;
 
+/// Convert a type token to a Type expression
+macro_rules! ty {
+    (Int) => {
+        Type::Int
+    };
+    (String) => {
+        Type::String
+    };
+    (Float) => {
+        Type::Float
+    };
+    // Single uppercase letter = type variable
+    (T) => {
+        Type::Var("T".to_string())
+    };
+    (U) => {
+        Type::Var("U".to_string())
+    };
+    (V) => {
+        Type::Var("V".to_string())
+    };
+    (W) => {
+        Type::Var("W".to_string())
+    };
+    (K) => {
+        Type::Var("K".to_string())
+    };
+    (M) => {
+        Type::Var("M".to_string())
+    };
+    (Q) => {
+        Type::Var("Q".to_string())
+    };
+    // Multi-char type variables (T1, T2, etc.)
+    (T1) => {
+        Type::Var("T1".to_string())
+    };
+    (T2) => {
+        Type::Var("T2".to_string())
+    };
+    (T3) => {
+        Type::Var("T3".to_string())
+    };
+    (T4) => {
+        Type::Var("T4".to_string())
+    };
+    (V2) => {
+        Type::Var("V2".to_string())
+    };
+    (M2) => {
+        Type::Var("M2".to_string())
+    };
+    (Acc) => {
+        Type::Var("Acc".to_string())
+    };
+}
+
+/// Build a stack type from row variable 'a' plus pushed types
+macro_rules! stack {
+    // Just the row variable
+    (a) => {
+        StackType::RowVar("a".to_string())
+    };
+    // Row variable with one type pushed
+    (a $t1:tt) => {
+        StackType::RowVar("a".to_string()).push(ty!($t1))
+    };
+    // Row variable with two types pushed
+    (a $t1:tt $t2:tt) => {
+        StackType::RowVar("a".to_string())
+            .push(ty!($t1))
+            .push(ty!($t2))
+    };
+    // Row variable with three types pushed
+    (a $t1:tt $t2:tt $t3:tt) => {
+        StackType::RowVar("a".to_string())
+            .push(ty!($t1))
+            .push(ty!($t2))
+            .push(ty!($t3))
+    };
+    // Row variable with four types pushed
+    (a $t1:tt $t2:tt $t3:tt $t4:tt) => {
+        StackType::RowVar("a".to_string())
+            .push(ty!($t1))
+            .push(ty!($t2))
+            .push(ty!($t3))
+            .push(ty!($t4))
+    };
+    // Row variable with five types pushed
+    (a $t1:tt $t2:tt $t3:tt $t4:tt $t5:tt) => {
+        StackType::RowVar("a".to_string())
+            .push(ty!($t1))
+            .push(ty!($t2))
+            .push(ty!($t3))
+            .push(ty!($t4))
+            .push(ty!($t5))
+    };
+    // Row variable 'b' (used in some signatures)
+    (b) => {
+        StackType::RowVar("b".to_string())
+    };
+    (b $t1:tt) => {
+        StackType::RowVar("b".to_string()).push(ty!($t1))
+    };
+    (b $t1:tt $t2:tt) => {
+        StackType::RowVar("b".to_string())
+            .push(ty!($t1))
+            .push(ty!($t2))
+    };
+}
+
+/// Define a builtin signature with Forth-like stack effect notation
+///
+/// Usage: `builtin!(sigs, "name", (a Type1 Type2 -- a Type3));`
+macro_rules! builtin {
+    // (a -- a)
+    ($sigs:ident, $name:expr, (a -- a)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a), stack!(a)));
+    };
+    // (a -- a T)
+    ($sigs:ident, $name:expr, (a -- a $o1:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a), stack!(a $o1)));
+    };
+    // (a -- a T U)
+    ($sigs:ident, $name:expr, (a -- a $o1:tt $o2:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a), stack!(a $o1 $o2)));
+    };
+    // (a T -- a)
+    ($sigs:ident, $name:expr, (a $i1:tt -- a)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1), stack!(a)));
+    };
+    // (a T -- a U)
+    ($sigs:ident, $name:expr, (a $i1:tt -- a $o1:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1), stack!(a $o1)));
+    };
+    // (a T -- a U V)
+    ($sigs:ident, $name:expr, (a $i1:tt -- a $o1:tt $o2:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1), stack!(a $o1 $o2)));
+    };
+    // (a T U -- a)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt -- a)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2), stack!(a)));
+    };
+    // (a T U -- a V)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt -- a $o1:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2), stack!(a $o1)));
+    };
+    // (a T U -- a V W)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt -- a $o1:tt $o2:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2), stack!(a $o1 $o2)));
+    };
+    // (a T U -- a V W X)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt -- a $o1:tt $o2:tt $o3:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2), stack!(a $o1 $o2 $o3)));
+    };
+    // (a T U -- a V W X Y)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt -- a $o1:tt $o2:tt $o3:tt $o4:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2), stack!(a $o1 $o2 $o3 $o4)));
+    };
+    // (a T U V -- a)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt $i3:tt -- a)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2 $i3), stack!(a)));
+    };
+    // (a T U V -- a W)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt $i3:tt -- a $o1:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2 $i3), stack!(a $o1)));
+    };
+    // (a T U V -- a W X)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt $i3:tt -- a $o1:tt $o2:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2 $i3), stack!(a $o1 $o2)));
+    };
+    // (a T U V -- a W X Y)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt $i3:tt -- a $o1:tt $o2:tt $o3:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2 $i3), stack!(a $o1 $o2 $o3)));
+    };
+    // (a T U V W -- a X)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt $i3:tt $i4:tt -- a $o1:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2 $i3 $i4), stack!(a $o1)));
+    };
+    // (a T U V W X -- a Y)
+    ($sigs:ident, $name:expr, (a $i1:tt $i2:tt $i3:tt $i4:tt $i5:tt -- a $o1:tt)) => {
+        $sigs.insert($name.to_string(), Effect::new(stack!(a $i1 $i2 $i3 $i4 $i5), stack!(a $o1)));
+    };
+}
+
+/// Define multiple builtins with the same signature
+/// Note: Can't use a generic macro due to tt repetition issues, so we use specific helpers
+macro_rules! builtins_int_int_to_int {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a Int Int -- a Int));
+        )+
+    };
+}
+
+macro_rules! builtins_int_to_int {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a Int -- a Int));
+        )+
+    };
+}
+
+macro_rules! builtins_string_to_string {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a String -- a String));
+        )+
+    };
+}
+
+macro_rules! builtins_float_float_to_float {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a Float Float -- a Float));
+        )+
+    };
+}
+
+macro_rules! builtins_float_float_to_int {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a Float Float -- a Int));
+        )+
+    };
+}
+
 /// Get the stack effect signature for a built-in word
 pub fn builtin_signature(name: &str) -> Option<Effect> {
-    // Build the map lazily
     let signatures = builtin_signatures();
     signatures.get(name).cloned()
 }
@@ -16,90 +248,30 @@ pub fn builtin_signature(name: &str) -> Option<Effect> {
 pub fn builtin_signatures() -> HashMap<String, Effect> {
     let mut sigs = HashMap::new();
 
-    // I/O operations with row polymorphism
-    sigs.insert(
-        "io.write-line".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String), // ( ..a String -- ..a )
-            StackType::RowVar("a".to_string()),
-        ),
-    );
+    // =========================================================================
+    // I/O Operations
+    // =========================================================================
 
-    sigs.insert(
-        "io.read-line".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()), // ( ..a -- ..a String )
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
+    builtin!(sigs, "io.write-line", (a String -- a));
+    builtin!(sigs, "io.read-line", (a -- a String));
+    builtin!(sigs, "io.read-line+", (a -- a String Int)); // Returns line + status
 
-    // io.read-line+: ( ..a -- ..a String Int )
-    // Returns line and status (1=success, 0=EOF)
-    // The + suffix indicates result pattern (value + status)
-    sigs.insert(
-        "io.read-line+".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Command-line Arguments
+    // =========================================================================
 
-    // Command-line argument operations
-    // args.count: ( ..a -- ..a Int ) returns number of arguments including program name
-    sigs.insert(
-        "args.count".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtin!(sigs, "args.count", (a -- a Int));
+    builtin!(sigs, "args.at", (a Int -- a String));
 
-    // args.at: ( ..a Int -- ..a String ) returns argument at index (0 = program name)
-    sigs.insert(
-        "args.at".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
+    // =========================================================================
+    // File Operations
+    // =========================================================================
 
-    // File operations
-    // file.slurp: ( ..a String -- ..a String ) reads entire file contents
-    sigs.insert(
-        "file.slurp".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
+    builtin!(sigs, "file.slurp", (a String -- a String));
+    builtin!(sigs, "file.slurp-safe", (a String -- a String Int));
+    builtin!(sigs, "file.exists?", (a String -- a Int));
 
-    // file.slurp-safe: ( ..a String -- ..a String Int )
-    // Reads entire file, returns (contents 1) on success or ("" 0) on failure
-    sigs.insert(
-        "file.slurp-safe".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
-
-    // file.exists?: ( ..a String -- ..a Int ) returns 1 if file exists, 0 otherwise
-    sigs.insert(
-        "file.exists?".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // file.for-each-line+: ( ..a String Quotation -- ..a String Int )
-    // Opens file, calls quotation with each line, closes file.
-    // Quotation has effect ( ..a String -- ..a ) - receives line, must consume it.
-    // Returns ("" 1) on success, ("error message" 0) on failure.
+    // file.for-each-line+: Complex quotation type - defined manually
     sigs.insert(
         "file.for-each-line+".to_string(),
         Effect::new(
@@ -115,424 +287,83 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    sigs.insert(
-        "int->string".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int), // ( ..a Int -- ..a String )
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
+    // =========================================================================
+    // Type Conversions
+    // =========================================================================
 
-    // Arithmetic operations ( ..a Int Int -- ..a Int )
-    for op in &["add", "subtract", "multiply", "divide"] {
-        sigs.insert(
-            op.to_string(),
-            Effect::new(
-                StackType::RowVar("a".to_string())
-                    .push(Type::Int)
-                    .push(Type::Int),
-                StackType::RowVar("a".to_string()).push(Type::Int),
-            ),
-        );
-    }
+    builtin!(sigs, "int->string", (a Int -- a String));
+    builtin!(sigs, "int->float", (a Int -- a Float));
+    builtin!(sigs, "float->int", (a Float -- a Int));
+    builtin!(sigs, "float->string", (a Float -- a String));
+    builtin!(sigs, "string->int", (a String -- a Int Int)); // value + success flag
+    builtin!(sigs, "string->float", (a String -- a Float Int)); // value + success flag
+    builtin!(sigs, "char->string", (a Int -- a String));
 
-    // Comparison operations ( ..a Int Int -- ..a Int )
-    // Note: Comparisons return Int (0 or 1), not Bool, for Forth compatibility
-    for op in &["=", "<", ">", "<=", ">=", "<>"] {
-        sigs.insert(
-            op.to_string(),
-            Effect::new(
-                StackType::RowVar("a".to_string())
-                    .push(Type::Int)
-                    .push(Type::Int),
-                StackType::RowVar("a".to_string()).push(Type::Int),
-            ),
-        );
-    }
+    // =========================================================================
+    // Integer Arithmetic ( a Int Int -- a Int )
+    // =========================================================================
 
-    // Boolean operations ( ..a Int Int -- ..a Int )
-    // Forth-style: 0 is false, non-zero is true
-    // and: ( a b -- result ) returns 1 if both non-zero, 0 otherwise
-    sigs.insert(
-        "and".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtins_int_int_to_int!(sigs, "add", "subtract", "multiply", "divide");
 
-    // or: ( a b -- result ) returns 1 if either non-zero, 0 otherwise
-    sigs.insert(
-        "or".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Integer Comparison ( a Int Int -- a Int )
+    // =========================================================================
 
-    // not: ( a -- result ) returns 1 if zero, 0 if non-zero
-    sigs.insert(
-        "not".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtins_int_int_to_int!(sigs, "=", "<", ">", "<=", ">=", "<>");
 
-    // Bitwise operations ( ..a Int Int -- ..a Int )
-    // band: bitwise AND
-    sigs.insert(
-        "band".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Boolean Operations
+    // =========================================================================
 
-    // bor: bitwise OR
-    sigs.insert(
-        "bor".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtins_int_int_to_int!(sigs, "and", "or");
+    builtin!(sigs, "not", (a Int -- a Int));
 
-    // bxor: bitwise XOR
-    sigs.insert(
-        "bxor".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Bitwise Operations
+    // =========================================================================
 
-    // bnot: bitwise NOT (one's complement)
-    sigs.insert(
-        "bnot".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtins_int_int_to_int!(sigs, "band", "bor", "bxor", "shl", "shr");
+    builtins_int_to_int!(sigs, "bnot", "popcount", "clz", "ctz");
+    builtin!(sigs, "int-bits", (a -- a Int));
 
-    // shl: shift left ( value count -- result )
-    sigs.insert(
-        "shl".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Stack Operations (Polymorphic)
+    // =========================================================================
 
-    // shr: logical shift right ( value count -- result )
-    sigs.insert(
-        "shr".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtin!(sigs, "dup", (a T -- a T T));
+    builtin!(sigs, "drop", (a T -- a));
+    builtin!(sigs, "swap", (a T U -- a U T));
+    builtin!(sigs, "over", (a T U -- a T U T));
+    builtin!(sigs, "rot", (a T U V -- a U V T));
+    builtin!(sigs, "nip", (a T U -- a U));
+    builtin!(sigs, "tuck", (a T U -- a U T U));
+    builtin!(sigs, "2dup", (a T U -- a T U T U));
+    builtin!(sigs, "3drop", (a T U V -- a));
 
-    // Bit counting operations
-    // popcount: count number of 1 bits
-    sigs.insert(
-        "popcount".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // pick and roll: Type approximations (see detailed comments below)
+    // pick: ( ..a T Int -- ..a T T ) - copies value at depth n to top
+    builtin!(sigs, "pick", (a T Int -- a T T));
+    // roll: ( ..a T Int -- ..a T ) - rotates n+1 items, bringing depth n to top
+    builtin!(sigs, "roll", (a T Int -- a T));
 
-    // clz: count leading zeros
-    sigs.insert(
-        "clz".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Channel Operations (CSP-style concurrency)
+    // =========================================================================
 
-    // ctz: count trailing zeros
-    sigs.insert(
-        "ctz".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtin!(sigs, "chan.make", (a -- a Int));
+    builtin!(sigs, "chan.send", (a T Int -- a));
+    builtin!(sigs, "chan.send-safe", (a T Int -- a Int));
+    builtin!(sigs, "chan.receive", (a Int -- a T));
+    builtin!(sigs, "chan.receive-safe", (a Int -- a T Int));
+    builtin!(sigs, "chan.close", (a Int -- a));
+    builtin!(sigs, "chan.yield", (a - -a));
 
-    // int-bits: push the bit width of Int (64)
-    sigs.insert(
-        "int-bits".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Quotation/Control Flow Operations
+    // =========================================================================
 
-    // Stack operations with row polymorphism
-    // dup: ( ..a T -- ..a T T )
-    sigs.insert(
-        "dup".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // drop: ( ..a T -- ..a )
-    sigs.insert(
-        "drop".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // swap: ( ..a T U -- ..a U T )
-    sigs.insert(
-        "swap".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // over: ( ..a T U -- ..a T U T )
-    sigs.insert(
-        "over".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // rot: ( ..a T U V -- ..a U V T )
-    sigs.insert(
-        "rot".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("V".to_string()))
-                .push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // nip: ( ..a T U -- ..a U )
-    sigs.insert(
-        "nip".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("U".to_string())),
-        ),
-    );
-
-    // tuck: ( ..a T U -- ..a U T U )
-    sigs.insert(
-        "tuck".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-        ),
-    );
-
-    // 2dup: ( ..a T U -- ..a T U T U )
-    sigs.insert(
-        "2dup".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string())),
-        ),
-    );
-
-    // 3drop: ( ..a T U V -- ..a )
-    sigs.insert(
-        "3drop".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("U".to_string()))
-                .push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // pick: ( ..a T Int -- ..a T T )
-    // Copies value at depth n to top of stack
-    // pick(0) = dup, pick(1) = over, pick(2) = third value, etc.
-    //
-    // TODO: This type signature is a known limitation of the current type system.
-    // The signature claims pick copies the top value T, but pick actually copies
-    // the value at depth n, which could be any type within the row variable ..a.
-    // For example:
-    //   - pick(0) on ( Int String -- ) copies the String (type T)
-    //   - pick(1) on ( Int String -- ) copies the Int (type U, not T)
-    //
-    // A proper signature would require dependent types or indexed row variables:
-    //   pick: ∀a, n. ( ..a[T_0, ..., T_n, ...] Int(n) -- ..a[T_0, ..., T_n, ...] T_n )
-    //
-    // The runtime validates stack depth at runtime (see pick_op in runtime/src/stack.rs),
-    // but the type system cannot statically verify the copied value's type matches
-    // how it's used. This is acceptable for now as pick is primarily used for
-    // building known-safe utilities (third, fourth, 3dup, etc.).
-    sigs.insert(
-        "pick".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Int),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // roll: ( ..a T_n ... T_1 T_0 Int(n) -- ..a T_(n-1) ... T_1 T_0 T_n )
-    // Rotates n+1 items, bringing the item at depth n to the top.
-    // roll(0) = no-op, roll(1) = swap, roll(2) = rot
-    //
-    // Like pick, the true type requires dependent types. The signature below
-    // is a simplified approximation that validates the depth parameter is Int
-    // and that the stack has at least one item to rotate.
-    //
-    // Runtime validates stack depth (see roll in runtime/src/stack.rs).
-    sigs.insert(
-        "roll".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // Channel operations with row polymorphism
-    // chan.make: ( ..a -- ..a Int )
-    // Returns channel ID as Int
-    sigs.insert(
-        "chan.make".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // chan.send: ( ..a T Int -- ..a )
-    // Takes value T and channel Int
-    sigs.insert(
-        "chan.send".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // chan.send-safe: ( ..a T Int -- ..a Int )
-    // Takes value T and channel Int, returns 1 on success, 0 on failure
-    sigs.insert(
-        "chan.send-safe".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // chan.receive: ( ..a Int -- ..a T )
-    // Takes channel Int, returns value T
-    sigs.insert(
-        "chan.receive".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // chan.receive-safe: ( ..a Int -- ..a T Int )
-    // Takes channel Int, returns (value, 1) on success or (0, 0) on failure
-    sigs.insert(
-        "chan.receive-safe".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T".to_string()))
-                .push(Type::Int),
-        ),
-    );
-
-    // chan.close: ( ..a Int -- ..a )
-    sigs.insert(
-        "chan.close".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // chan.yield: ( ..a -- ..a )
-    sigs.insert(
-        "chan.yield".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // Quotation operations
-    // call: ( ..a Callable -- ..b )
-    // Note: Accepts both Quotation and Closure types
-    // The actual effect depends on the quotation/closure's type,
-    // but we use ..a and ..b to indicate this is polymorphic
-    // A more precise type would require dependent types
-    //
-    // Using type variable Q to represent "something callable"
-    // This allows both Quotation and Closure to unify with Q
+    // call: Polymorphic - accepts Quotation or Closure
+    // Uses type variable Q to represent "something callable"
     sigs.insert(
         "call".to_string(),
         Effect::new(
@@ -541,8 +372,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // times: ( ..a Quotation Int -- ..a )
-    // Executes quotation n times. Quotation must have effect ( ..a -- ..a )
+    // cond: Multi-way conditional (variable arity)
+    sigs.insert(
+        "cond".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("b".to_string()),
+        ),
+    );
+
+    // times: ( a Quotation Int -- a ) where Quotation has effect ( a -- a )
     sigs.insert(
         "times".to_string(),
         Effect::new(
@@ -556,8 +395,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // while: ( ..a Quotation Quotation -- ..a )
-    // First quotation is condition ( ..a -- ..a Int ), second is body ( ..a -- ..a )
+    // while: ( a CondQuot BodyQuot -- a )
+    // CondQuot: ( a -- a Int ), BodyQuot: ( a -- a )
     sigs.insert(
         "while".to_string(),
         Effect::new(
@@ -574,9 +413,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // until: ( ..a Quotation Quotation -- ..a )
-    // First quotation is body ( ..a -- ..a ), second is condition ( ..a -- ..a Int )
-    // Executes body, then checks condition; repeats until condition is true
+    // until: ( a BodyQuot CondQuot -- a )
+    // BodyQuot: ( a -- a ), CondQuot: ( a -- a Int )
     sigs.insert(
         "until".to_string(),
         Effect::new(
@@ -593,10 +431,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // spawn: ( ..a Quotation[any] -- ..a Int )
-    // Spawns a quotation as a new strand, returns strand ID
-    // The quotation can have any effect because spawn copies the stack to the child
-    // and the parent's stack is unaffected by what the child does.
+    // spawn: ( a Quotation -- a Int ) - quotation can have any effect
     sigs.insert(
         "spawn".to_string(),
         Effect::new(
@@ -608,542 +443,86 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // cond: ( ..a -- ..b )
-    // Multi-way conditional combinator
-    // Actual stack effect: ( value [pred1] [body1] [pred2] [body2] ... [predN] [bodyN] count -- result )
-    // Each predicate quotation has effect: ( T -- T Int )
-    // Each body quotation has effect: ( T -- U )
-    // Note: Variable-arity makes precise typing difficult; using row polymorphism as approximation
-    sigs.insert(
-        "cond".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("b".to_string()),
-        ),
+    // =========================================================================
+    // TCP Operations
+    // =========================================================================
+
+    builtin!(sigs, "tcp.listen", (a Int -- a Int));
+    builtin!(sigs, "tcp.accept", (a Int -- a Int));
+    builtin!(sigs, "tcp.read", (a Int -- a String));
+    builtin!(sigs, "tcp.write", (a String Int -- a));
+    builtin!(sigs, "tcp.close", (a Int -- a));
+
+    // =========================================================================
+    // OS Operations
+    // =========================================================================
+
+    builtin!(sigs, "os.getenv", (a String -- a String Int));
+    builtin!(sigs, "os.home-dir", (a -- a String Int));
+    builtin!(sigs, "os.current-dir", (a -- a String Int));
+    builtin!(sigs, "os.path-exists", (a String -- a Int));
+    builtin!(sigs, "os.path-is-file", (a String -- a Int));
+    builtin!(sigs, "os.path-is-dir", (a String -- a Int));
+    builtin!(sigs, "os.path-join", (a String String -- a String));
+    builtin!(sigs, "os.path-parent", (a String -- a String Int));
+    builtin!(sigs, "os.path-filename", (a String -- a String Int));
+    builtin!(sigs, "os.exit", (a Int -- a)); // Never returns, but typed as identity
+    builtin!(sigs, "os.name", (a -- a String));
+    builtin!(sigs, "os.arch", (a -- a String));
+
+    // =========================================================================
+    // String Operations
+    // =========================================================================
+
+    builtin!(sigs, "string.concat", (a String String -- a String));
+    builtin!(sigs, "string.length", (a String -- a Int));
+    builtin!(sigs, "string.byte-length", (a String -- a Int));
+    builtin!(sigs, "string.char-at", (a String Int -- a Int));
+    builtin!(sigs, "string.substring", (a String Int Int -- a String));
+    builtin!(sigs, "string.find", (a String String -- a Int));
+    builtin!(sigs, "string.split", (a String String -- a V)); // Returns Variant (list)
+    builtin!(sigs, "string.contains", (a String String -- a Int));
+    builtin!(sigs, "string.starts-with", (a String String -- a Int));
+    builtin!(sigs, "string.empty?", (a String -- a Int));
+    builtin!(sigs, "string.equal?", (a String String -- a Int));
+
+    // String transformations
+    builtins_string_to_string!(
+        sigs,
+        "string.trim",
+        "string.chomp",
+        "string.to-upper",
+        "string.to-lower",
+        "string.json-escape"
     );
 
-    // TCP operations with row polymorphism
-    // tcp.listen: ( ..a Int -- ..a Int )
-    // Takes port number, returns listener ID
-    sigs.insert(
-        "tcp.listen".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Variant Operations
+    // =========================================================================
 
-    // tcp.accept: ( ..a Int -- ..a Int )
-    // Takes listener ID, returns client socket ID
-    sigs.insert(
-        "tcp.accept".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // tcp.read: ( ..a Int -- ..a String )
-    // Takes socket ID, returns data read as String
-    sigs.insert(
-        "tcp.read".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // tcp.write: ( ..a String Int -- ..a )
-    // Takes data String and socket ID, writes to socket
-    sigs.insert(
-        "tcp.write".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // tcp.close: ( ..a Int -- ..a )
-    // Takes socket ID, closes the socket
-    sigs.insert(
-        "tcp.close".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // OS operations
-    // os.getenv: ( ..a String -- ..a String Int )
-    // Get environment variable, returns value and success flag (1=found, 0=not found)
-    sigs.insert(
-        "os.getenv".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
-
-    // os.home-dir: ( ..a -- ..a String Int )
-    // Get user's home directory, returns path and success flag
-    sigs.insert(
-        "os.home-dir".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
-
-    // os.current-dir: ( ..a -- ..a String Int )
-    // Get current working directory, returns path and success flag
-    sigs.insert(
-        "os.current-dir".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
-
-    // os.path-exists: ( ..a String -- ..a Int )
-    // Check if path exists, returns 1 if exists, 0 otherwise
-    sigs.insert(
-        "os.path-exists".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // os.path-is-file: ( ..a String -- ..a Int )
-    // Check if path is a regular file, returns 1 if file, 0 otherwise
-    sigs.insert(
-        "os.path-is-file".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // os.path-is-dir: ( ..a String -- ..a Int )
-    // Check if path is a directory, returns 1 if directory, 0 otherwise
-    sigs.insert(
-        "os.path-is-dir".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // os.path-join: ( ..a String String -- ..a String )
-    // Join two path components
-    sigs.insert(
-        "os.path-join".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // os.path-parent: ( ..a String -- ..a String Int )
-    // Get parent directory, returns path and success flag
-    sigs.insert(
-        "os.path-parent".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
-
-    // os.path-filename: ( ..a String -- ..a String Int )
-    // Get filename component, returns filename and success flag
-    sigs.insert(
-        "os.path-filename".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-        ),
-    );
-
-    // os.exit: ( ..a Int -- )
-    // Exit process with code (never returns)
-    sigs.insert(
-        "os.exit".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // os.name: ( ..a -- ..a String )
-    // Get OS name: "darwin", "linux", "windows", etc.
-    sigs.insert(
-        "os.name".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // os.arch: ( ..a -- ..a String )
-    // Get CPU architecture: "x86_64", "aarch64", etc.
-    sigs.insert(
-        "os.arch".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // String operations
-    // string.concat: ( ..a String String -- ..a String )
-    // Concatenate two strings
-    sigs.insert(
-        "string.concat".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string.length: ( ..a String -- ..a Int )
-    // Get string length
-    sigs.insert(
-        "string.length".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.split: ( ..a String String -- ..a Variant )
-    // Split string by delimiter, returns a Variant containing the parts
-    sigs.insert(
-        "string.split".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
-
-    // string.contains: ( ..a String String -- ..a Int )
-    // Check if string contains substring (returns 0 or 1)
-    sigs.insert(
-        "string.contains".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.starts-with: ( ..a String String -- ..a Int )
-    // Check if string starts with prefix (returns 0 or 1)
-    sigs.insert(
-        "string.starts-with".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.empty?: ( ..a String -- ..a Int )
-    // Check if string is empty (returns 0 or 1)
-    sigs.insert(
-        "string.empty?".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.trim: ( ..a String -- ..a String )
-    // Trim whitespace from both ends
-    sigs.insert(
-        "string.trim".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string.chomp: ( ..a String -- ..a String )
-    // Remove trailing newline (\n or \r\n)
-    sigs.insert(
-        "string.chomp".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string.to-upper: ( ..a String -- ..a String )
-    // Convert to uppercase
-    sigs.insert(
-        "string.to-upper".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string.to-lower: ( ..a String -- ..a String )
-    // Convert to lowercase
-    sigs.insert(
-        "string.to-lower".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string.equal?: ( ..a String String -- ..a Int )
-    // Check if two strings are equal (returns 0 or 1)
-    sigs.insert(
-        "string.equal?".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.json-escape: ( ..a String -- ..a String )
-    // Escape special characters for JSON output
-    sigs.insert(
-        "string.json-escape".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string->int: ( ..a String -- ..a Int Int )
-    // Parse string to integer, returns value and success flag (1=ok, 0=fail)
-    sigs.insert(
-        "string->int".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-        ),
-    );
-
-    // string.byte-length: ( ..a String -- ..a Int )
-    // Get byte length (for HTTP Content-Length, buffer allocation)
-    sigs.insert(
-        "string.byte-length".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.char-at: ( ..a String Int -- ..a Int )
-    // Get Unicode code point at character index
-    sigs.insert(
-        "string.char-at".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // string.substring: ( ..a String Int Int -- ..a String )
-    // Extract substring by character indices (string, start, length)
-    sigs.insert(
-        "string.substring".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // char->string: ( ..a Int -- ..a String )
-    // Convert Unicode code point to single-character string
-    sigs.insert(
-        "char->string".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string.find: ( ..a String String -- ..a Int )
-    // Find first occurrence of substring, returns character index or -1
-    sigs.insert(
-        "string.find".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // Variant operations
-    // variant.field-count: ( ..a Variant -- ..a Int )
-    // Get number of fields in a variant
-    sigs.insert(
-        "variant.field-count".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // variant.tag: ( ..a Variant -- ..a Int )
-    // Get tag of a variant
-    sigs.insert(
-        "variant.tag".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // variant.field-at: ( ..a Variant Int -- ..a Value )
-    // Get field at index from variant
-    sigs.insert(
-        "variant.field-at".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
-        ),
-    );
+    builtin!(sigs, "variant.field-count", (a V -- a Int));
+    builtin!(sigs, "variant.tag", (a V -- a Int));
+    builtin!(sigs, "variant.field-at", (a V Int -- a T));
+    builtin!(sigs, "variant.append", (a V T -- a V2));
+    builtin!(sigs, "variant.last", (a V -- a T));
+    builtin!(sigs, "variant.init", (a V -- a V2));
 
     // Type-safe variant constructors with fixed arity
-    // These have proper type signatures that account for all consumed values
+    builtin!(sigs, "variant.make-0", (a Int -- a V));
+    builtin!(sigs, "variant.make-1", (a T1 Int -- a V));
+    builtin!(sigs, "variant.make-2", (a T1 T2 Int -- a V));
+    builtin!(sigs, "variant.make-3", (a T1 T2 T3 Int -- a V));
+    builtin!(sigs, "variant.make-4", (a T1 T2 T3 T4 Int -- a V));
 
-    // variant.make-0: ( ..a tag -- ..a Variant )
-    // Create a variant with 0 fields (just tag)
-    sigs.insert(
-        "variant.make-0".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int), // tag
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
+    // =========================================================================
+    // List Operations (Higher-order combinators for Variants)
+    // =========================================================================
 
-    // variant.make-1: ( ..a field1 tag -- ..a Variant )
-    // Create a variant with 1 field
-    sigs.insert(
-        "variant.make-1".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T1".to_string())) // field1
-                .push(Type::Int), // tag
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
+    builtin!(sigs, "list.length", (a V -- a Int));
+    builtin!(sigs, "list.empty?", (a V -- a Int));
 
-    // variant.make-2: ( ..a field1 field2 tag -- ..a Variant )
-    // Create a variant with 2 fields
-    sigs.insert(
-        "variant.make-2".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T1".to_string())) // field1
-                .push(Type::Var("T2".to_string())) // field2
-                .push(Type::Int), // tag
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
-
-    // variant.make-3: ( ..a field1 field2 field3 tag -- ..a Variant )
-    // Create a variant with 3 fields
-    sigs.insert(
-        "variant.make-3".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T1".to_string())) // field1
-                .push(Type::Var("T2".to_string())) // field2
-                .push(Type::Var("T3".to_string())) // field3
-                .push(Type::Int), // tag
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
-
-    // variant.make-4: ( ..a field1 field2 field3 field4 tag -- ..a Variant )
-    // Create a variant with 4 fields
-    sigs.insert(
-        "variant.make-4".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("T1".to_string())) // field1
-                .push(Type::Var("T2".to_string())) // field2
-                .push(Type::Var("T3".to_string())) // field3
-                .push(Type::Var("T4".to_string())) // field4
-                .push(Type::Int), // tag
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
-
-    // variant.append: ( ..a Variant Value -- ..a Variant' )
-    // Append a value to a variant, returning a new variant with the value added
-    // Functional style - original variant is not modified
-    sigs.insert(
-        "variant.append".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Var("T".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
-        ),
-    );
-
-    // variant.last: ( ..a Variant -- ..a Value )
-    // Get the last field from a variant (peek for stack-like usage)
-    sigs.insert(
-        "variant.last".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("T".to_string())),
-        ),
-    );
-
-    // variant.init: ( ..a Variant -- ..a Variant' )
-    // Get all but the last field from a variant (pop without returning value)
-    sigs.insert(
-        "variant.init".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
-        ),
-    );
-
-    // List operations (higher-order combinators for Variants used as lists)
-    // list.map: ( ..a Variant Quotation -- ..a Variant )
-    // Apply quotation to each element, return new variant with transformed elements
+    // list.map: ( a Variant Quotation -- a Variant )
+    // Quotation: ( b T -- b U )
     sigs.insert(
         "list.map".to_string(),
         Effect::new(
@@ -1157,8 +536,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // list.filter: ( ..a Variant Quotation -- ..a Variant )
-    // Keep elements where quotation returns non-zero
+    // list.filter: ( a Variant Quotation -- a Variant )
+    // Quotation: ( b T -- b Int )
     sigs.insert(
         "list.filter".to_string(),
         Effect::new(
@@ -1172,8 +551,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // list.fold: ( ..a Variant init Quotation -- ..a result )
-    // Fold over list with accumulator; quotation has effect ( acc elem -- acc' )
+    // list.fold: ( a Variant init Quotation -- a result )
+    // Quotation: ( b Acc T -- b Acc )
     sigs.insert(
         "list.fold".to_string(),
         Effect::new(
@@ -1190,8 +569,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // list.each: ( ..a Variant Quotation -- ..a )
-    // Apply quotation to each element for side effects only
+    // list.each: ( a Variant Quotation -- a )
+    // Quotation: ( b T -- b )
     sigs.insert(
         "list.each".to_string(),
         Effect::new(
@@ -1205,313 +584,47 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // list.length: ( ..a Variant -- ..a Int )
-    // Get number of elements in list (alias for variant.field-count)
-    sigs.insert(
-        "list.length".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Map Operations (Dictionary with O(1) lookup)
+    // =========================================================================
 
-    // list.empty?: ( ..a Variant -- ..a Int )
-    // Check if list has no elements (returns 1 if empty, 0 otherwise)
-    sigs.insert(
-        "list.empty?".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtin!(sigs, "map.make", (a -- a M));
+    builtin!(sigs, "map.get", (a M K -- a V));
+    builtin!(sigs, "map.get-safe", (a M K -- a V Int));
+    builtin!(sigs, "map.set", (a M K V -- a M2));
+    builtin!(sigs, "map.has?", (a M K -- a Int));
+    builtin!(sigs, "map.remove", (a M K -- a M2));
+    builtin!(sigs, "map.keys", (a M -- a V));
+    builtin!(sigs, "map.values", (a M -- a V));
+    builtin!(sigs, "map.size", (a M -- a Int));
+    builtin!(sigs, "map.empty?", (a M -- a Int));
 
-    // Map operations (dictionary/hash map with O(1) lookup)
-    // map.make: ( ..a -- ..a Map )
-    // Create an empty map
-    sigs.insert(
-        "map.make".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
-        ),
-    );
+    // =========================================================================
+    // Float Arithmetic ( a Float Float -- a Float )
+    // =========================================================================
 
-    // map.get: ( ..a Map key -- ..a value )
-    // Get value by key (panics if not found)
-    sigs.insert(
-        "map.get".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Var("K".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
+    builtins_float_float_to_float!(sigs, "f.add", "f.subtract", "f.multiply", "f.divide");
 
-    // map.get-safe: ( ..a Map key -- ..a value Int )
-    // Get value with success flag (1=found, 0=not found)
-    sigs.insert(
-        "map.get-safe".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Var("K".to_string())),
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Float Comparison ( a Float Float -- a Int )
+    // =========================================================================
 
-    // map.set: ( ..a Map key value -- ..a Map )
-    // Set key-value pair, returns new map
-    sigs.insert(
-        "map.set".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Var("K".to_string()))
-                .push(Type::Var("V".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("M2".to_string())),
-        ),
-    );
+    builtins_float_float_to_int!(sigs, "f.=", "f.<", "f.>", "f.<=", "f.>=", "f.<>");
 
-    // map.has?: ( ..a Map key -- ..a Int )
-    // Check if key exists (1=yes, 0=no)
-    sigs.insert(
-        "map.has?".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Var("K".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    // =========================================================================
+    // Test Framework
+    // =========================================================================
 
-    // map.remove: ( ..a Map key -- ..a Map )
-    // Remove key, returns new map
-    sigs.insert(
-        "map.remove".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Var("K".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("M2".to_string())),
-        ),
-    );
-
-    // map.keys: ( ..a Map -- ..a Variant )
-    // Get all keys as a list
-    sigs.insert(
-        "map.keys".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
-
-    // map.values: ( ..a Map -- ..a Variant )
-    // Get all values as a list
-    sigs.insert(
-        "map.values".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("V".to_string())),
-        ),
-    );
-
-    // map.size: ( ..a Map -- ..a Int )
-    // Get number of entries
-    sigs.insert(
-        "map.size".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // map.empty?: ( ..a Map -- ..a Int )
-    // Check if map is empty (1=yes, 0=no)
-    sigs.insert(
-        "map.empty?".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("M".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // Float arithmetic operations ( ..a Float Float -- ..a Float )
-    for op in &["f.add", "f.subtract", "f.multiply", "f.divide"] {
-        sigs.insert(
-            op.to_string(),
-            Effect::new(
-                StackType::RowVar("a".to_string())
-                    .push(Type::Float)
-                    .push(Type::Float),
-                StackType::RowVar("a".to_string()).push(Type::Float),
-            ),
-        );
-    }
-
-    // Float comparison operations ( ..a Float Float -- ..a Int )
-    // Comparisons return Int (0 or 1) like integer comparisons
-    for op in &["f.=", "f.<", "f.>", "f.<=", "f.>=", "f.<>"] {
-        sigs.insert(
-            op.to_string(),
-            Effect::new(
-                StackType::RowVar("a".to_string())
-                    .push(Type::Float)
-                    .push(Type::Float),
-                StackType::RowVar("a".to_string()).push(Type::Int),
-            ),
-        );
-    }
-
-    // int->float: ( ..a Int -- ..a Float )
-    // Convert integer to floating-point
-    sigs.insert(
-        "int->float".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()).push(Type::Float),
-        ),
-    );
-
-    // float->int: ( ..a Float -- ..a Int )
-    // Truncate floating-point to integer (toward zero)
-    sigs.insert(
-        "float->int".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Float),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // float->string: ( ..a Float -- ..a String )
-    // Convert floating-point to string representation
-    sigs.insert(
-        "float->string".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Float),
-            StackType::RowVar("a".to_string()).push(Type::String),
-        ),
-    );
-
-    // string->float: ( ..a String -- ..a Float Int )
-    // Parse string as float, returns value and success flag (1 on success, 0 on failure)
-    sigs.insert(
-        "string->float".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string())
-                .push(Type::Float)
-                .push(Type::Int),
-        ),
-    );
-
-    // Test framework operations
-    // test.init: ( ..a String -- ..a )
-    // Initialize test context with test name
-    sigs.insert(
-        "test.init".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.finish: ( ..a -- ..a )
-    // Finalize test and print results
-    sigs.insert(
-        "test.finish".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.has-failures: ( ..a -- ..a Int )
-    // Check if any assertions failed (1=yes, 0=no)
-    sigs.insert(
-        "test.has-failures".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // test.assert: ( ..a Int -- ..a )
-    // Assert value is truthy (non-zero)
-    sigs.insert(
-        "test.assert".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.assert-not: ( ..a Int -- ..a )
-    // Assert value is falsy (zero)
-    sigs.insert(
-        "test.assert-not".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.assert-eq: ( ..a Int Int -- ..a )
-    // Assert two integers are equal
-    sigs.insert(
-        "test.assert-eq".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Int)
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.assert-eq-str: ( ..a String String -- ..a )
-    // Assert two strings are equal
-    sigs.insert(
-        "test.assert-eq-str".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::String),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.fail: ( ..a String -- ..a )
-    // Explicitly fail with message
-    sigs.insert(
-        "test.fail".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::String),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // test.pass-count: ( ..a -- ..a Int )
-    // Get number of passed assertions
-    sigs.insert(
-        "test.pass-count".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
-
-    // test.fail-count: ( ..a -- ..a Int )
-    // Get number of failed assertions
-    sigs.insert(
-        "test.fail-count".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string()),
-            StackType::RowVar("a".to_string()).push(Type::Int),
-        ),
-    );
+    builtin!(sigs, "test.init", (a String -- a));
+    builtin!(sigs, "test.finish", (a - -a));
+    builtin!(sigs, "test.has-failures", (a -- a Int));
+    builtin!(sigs, "test.assert", (a Int -- a));
+    builtin!(sigs, "test.assert-not", (a Int -- a));
+    builtin!(sigs, "test.assert-eq", (a Int Int -- a));
+    builtin!(sigs, "test.assert-eq-str", (a String String -- a));
+    builtin!(sigs, "test.fail", (a String -- a));
+    builtin!(sigs, "test.pass-count", (a -- a Int));
+    builtin!(sigs, "test.fail-count", (a -- a Int));
 
     sigs
 }

@@ -43,8 +43,8 @@ cargo build --release
 
 **Compile and run a program:**
 ```bash
-seqc examples/hello-world.seq --output /tmp/hello
-/tmp/hello
+seqc build examples/hello-world.seq
+./hello-world
 ```
 
 **Check version:**
@@ -60,7 +60,7 @@ cargo test --all
 ## What Works
 
 **Core Language:**
-- Stack operations: `dup`, `drop`, `swap`, `over`, `rot`, `nip`, `tuck`, `pick`
+- Stack operations: `dup`, `drop`, `swap`, `over`, `rot`, `nip`, `tuck`, `pick`, `2dup`, `3drop`
 - Arithmetic: `+`, `-`, `*`, `/` with overflow checking
 - Bitwise: `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
 - Numeric literals: decimal, hex (`0xFF`), binary (`0b1010`)

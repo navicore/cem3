@@ -335,10 +335,10 @@ See `docs/LTO_INVESTIGATION.md` for the full analysis.
 
 ```bash
 # Compile a .seq file
-./target/release/seqc --output myprogram myprogram.seq
+./target/release/seqc build myprogram.seq -o myprogram
 
 # Keep IR for inspection
-./target/release/seqc --output myprogram myprogram.seq --keep-ir
+./target/release/seqc build myprogram.seq -o myprogram --keep-ir
 cat myprogram.ll
 ```
 
@@ -391,7 +391,7 @@ cargo clippy --all
 
 ```bash
 # Compile and run
-./target/release/seqc --output /tmp/prog myprogram.seq
+./target/release/seqc build myprogram.seq -o /tmp/prog
 /tmp/prog
 
 # With arguments

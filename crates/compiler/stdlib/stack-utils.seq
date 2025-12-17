@@ -11,16 +11,14 @@
 #     0
 #   ;
 #
-# ## Available Primitives
+# ## Available Builtins
 #
-# Seq provides these primitive stack operations:
-# - dup, drop, swap, over, rot, nip, tuck, pick
+# Seq provides these primitive stack operations as builtins:
+# - dup, drop, swap, over, rot, nip, tuck, pick, 2dup, 3drop
 #
 # ## Available Functions
 #
-# - 2dup: ( A B -- A B A B ) - Duplicate top two values
 # - 2drop: ( A B -- ) - Drop top two values
-# - 3drop: ( A B C -- ) - Drop top three values
 #
 # ## Advanced Operations (Require pick)
 #
@@ -42,17 +40,7 @@
 #   10 20 30 2 pick  # Stack: 10 20 30 10
 #
 
-# Duplicate top two values
-: 2dup ( A B -- A B A B )
-  2dup
-;
-
 # Drop top two values
 : 2drop ( A B -- )
   drop drop
-;
-
-# Triple drop
-: 3drop ( A B C -- )
-  3drop
 ;

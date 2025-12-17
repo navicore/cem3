@@ -25,6 +25,41 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
+/// Error type for code generation operations.
+///
+/// This allows proper error propagation using `?` for both logical errors
+/// (invalid programs, missing definitions) and formatting errors (write failures).
+#[derive(Debug)]
+pub enum CodeGenError {
+    /// A logical error in code generation (e.g., missing word definition)
+    Logic(String),
+    /// A formatting error when writing IR
+    Format(std::fmt::Error),
+}
+
+impl std::fmt::Display for CodeGenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CodeGenError::Logic(s) => write!(f, "{}", s),
+            CodeGenError::Format(e) => write!(f, "IR generation error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for CodeGenError {}
+
+impl From<String> for CodeGenError {
+    fn from(s: String) -> Self {
+        CodeGenError::Logic(s)
+    }
+}
+
+impl From<std::fmt::Error> for CodeGenError {
+    fn from(e: std::fmt::Error) -> Self {
+        CodeGenError::Format(e)
+    }
+}
+
 /// Sentinel value for unreachable predecessors in phi nodes.
 /// Used when a branch ends with a tail call (which emits ret directly).
 const UNREACHABLE_PREDECESSOR: &str = "unreachable";
@@ -333,12 +368,12 @@ impl CodeGen {
 
     /// Get the next quotation type (consumes it in DFS traversal order)
     /// Get the inferred type for a quotation by its ID
-    fn get_quotation_type(&self, id: usize) -> Result<&Type, String> {
+    fn get_quotation_type(&self, id: usize) -> Result<&Type, CodeGenError> {
         self.type_map.get(&id).ok_or_else(|| {
-            format!(
+            CodeGenError::Logic(format!(
                 "CodeGen: no type information for quotation ID {}. This is a compiler bug.",
                 id
-            )
+            ))
         })
     }
 
@@ -346,7 +381,10 @@ impl CodeGen {
     ///
     /// Returns (tag_index, field_count) for the variant
     /// Returns (tag_index, field_count, field_names)
-    fn find_variant_info(&self, variant_name: &str) -> Result<(usize, usize, Vec<String>), String> {
+    fn find_variant_info(
+        &self,
+        variant_name: &str,
+    ) -> Result<(usize, usize, Vec<String>), CodeGenError> {
         for union_def in &self.unions {
             for (tag_idx, variant) in union_def.variants.iter().enumerate() {
                 if variant.name == variant_name {
@@ -356,10 +394,10 @@ impl CodeGen {
                 }
             }
         }
-        Err(format!(
+        Err(CodeGenError::Logic(format!(
             "Unknown variant '{}' in match pattern. No union defines this variant.",
             variant_name
-        ))
+        )))
     }
 
     /// Find the union that contains a given variant
@@ -421,7 +459,7 @@ impl CodeGen {
     }
 
     /// Escape a string for LLVM IR string literals
-    fn escape_llvm_string(s: &str) -> String {
+    fn escape_llvm_string(s: &str) -> Result<String, std::fmt::Error> {
         let mut result = String::new();
         for ch in s.chars() {
             match ch {
@@ -434,36 +472,35 @@ impl CodeGen {
                 _ => {
                     // Non-printable: use hex escape
                     for byte in ch.to_string().as_bytes() {
-                        write!(&mut result, r"\{:02X}", byte).unwrap();
+                        write!(&mut result, r"\{:02X}", byte)?;
                     }
                 }
             }
         }
-        result
+        Ok(result)
     }
 
     /// Get or create a global string constant
-    fn get_string_global(&mut self, s: &str) -> String {
+    fn get_string_global(&mut self, s: &str) -> Result<String, CodeGenError> {
         if let Some(global_name) = self.string_constants.get(s) {
-            return global_name.clone();
+            return Ok(global_name.clone());
         }
 
         let global_name = format!("@.str.{}", self.string_counter);
         self.string_counter += 1;
 
-        let escaped = Self::escape_llvm_string(s);
+        let escaped = Self::escape_llvm_string(s)?;
         let len = s.len() + 1; // +1 for null terminator
 
         writeln!(
             &mut self.string_globals,
             "{} = private unnamed_addr constant [{} x i8] c\"{}\\00\"",
             global_name, len, escaped
-        )
-        .unwrap();
+        )?;
 
         self.string_constants
             .insert(s.to_string(), global_name.clone());
-        global_name
+        Ok(global_name)
     }
 
     /// Generate LLVM IR for entire program
@@ -471,7 +508,7 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         self.codegen_program_with_config(program, type_map, &CompilerConfig::default())
     }
 
@@ -484,7 +521,7 @@ impl CodeGen {
         program: &Program,
         type_map: HashMap<usize, Type>,
         config: &CompilerConfig,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         // Store type map for use during code generation
         self.type_map = type_map;
 
@@ -500,7 +537,7 @@ impl CodeGen {
 
         // Verify we have a main word
         if program.find_word("main").is_none() {
-            return Err("No main word defined".to_string());
+            return Err(CodeGenError::Logic("No main word defined".to_string()));
         }
 
         // Generate all user-defined words
@@ -515,262 +552,254 @@ impl CodeGen {
         let mut ir = String::new();
 
         // Target and type declarations
-        writeln!(&mut ir, "; ModuleID = 'main'").unwrap();
-        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple()).unwrap();
-        writeln!(&mut ir).unwrap();
+        writeln!(&mut ir, "; ModuleID = 'main'")?;
+        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
+        writeln!(&mut ir)?;
 
         // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
         // We define concrete size so LLVM can pass by value (required for Alpine/musl)
-        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)").unwrap();
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}").unwrap();
-        writeln!(&mut ir).unwrap();
+        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}")?;
+        writeln!(&mut ir)?;
 
         // String constants
         if !self.string_globals.is_empty() {
             ir.push_str(&self.string_globals);
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // Runtime function declarations
-        writeln!(&mut ir, "; Runtime function declarations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_int(ptr, i64)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_read_line_plus(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_multiply(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_divide(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_eq(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_lt(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_gt(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_lte(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_gte(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_neq(ptr)").unwrap();
-        writeln!(&mut ir, "; Boolean operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_and(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_or(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_not(ptr)").unwrap();
-        writeln!(&mut ir, "; Bitwise operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_band(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_bor(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_bxor(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_bnot(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_shl(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_shr(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_popcount(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_clz(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_ctz(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_int_bits(ptr)").unwrap();
-        writeln!(&mut ir, "; Stack operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_swap(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_over(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_rot(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_2dup(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_3drop(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
-        writeln!(&mut ir, "; Quotation operations").unwrap();
+        writeln!(&mut ir, "; Runtime function declarations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_multiply(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_divide(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_eq(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_lt(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_gt(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_lte(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_gte(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_neq(ptr)")?;
+        writeln!(&mut ir, "; Boolean operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_and(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_or(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_not(ptr)")?;
+        writeln!(&mut ir, "; Bitwise operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_band(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_bor(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_bxor(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_bnot(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_shl(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_shr(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_popcount(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_clz(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_ctz(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_int_bits(ptr)")?;
+        writeln!(&mut ir, "; Stack operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_swap(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_over(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_rot(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_2dup(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_3drop(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_pick_op(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_roll(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_push_value(ptr, %Value)")?;
+        writeln!(&mut ir, "; Quotation operations")?;
         writeln!(
             &mut ir,
             "declare ptr @patch_seq_push_quotation(ptr, i64, i64)"
-        )
-        .unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_call(ptr)").unwrap();
+        )?;
+        writeln!(&mut ir, "declare ptr @patch_seq_call(ptr)")?;
         // Phase 2 TCO helpers for quotation calls
-        writeln!(&mut ir, "declare i64 @patch_seq_peek_is_quotation(ptr)").unwrap();
-        writeln!(&mut ir, "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_times(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_while_loop(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_until_loop(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_spawn(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_cond(ptr)").unwrap();
-        writeln!(&mut ir, "; Closure operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_create_env(i32)").unwrap();
-        writeln!(&mut ir, "declare void @patch_seq_env_set(ptr, i32, %Value)").unwrap();
-        writeln!(&mut ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)").unwrap();
-        writeln!(&mut ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)").unwrap();
+        writeln!(&mut ir, "declare i64 @patch_seq_peek_is_quotation(ptr)")?;
+        writeln!(&mut ir, "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_times(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_while_loop(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_until_loop(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_spawn(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_cond(ptr)")?;
+        writeln!(&mut ir, "; Closure operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_create_env(i32)")?;
+        writeln!(&mut ir, "declare void @patch_seq_env_set(ptr, i32, %Value)")?;
+        writeln!(&mut ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)")?;
+        writeln!(&mut ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)")?;
         writeln!(
             &mut ir,
             "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)"
-        )
-        .unwrap();
+        )?;
         writeln!(
             &mut ir,
             "declare double @patch_seq_env_get_float(ptr, i64, i32)"
-        )
-        .unwrap();
+        )?;
         writeln!(
             &mut ir,
             "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)"
-        )
-        .unwrap();
+        )?;
         writeln!(
             &mut ir,
             "declare ptr @patch_seq_env_get_string(ptr, i64, i32)"
-        )
-        .unwrap();
+        )?;
         // Combined get+push for strings to avoid returning SeqString by value through FFI
         writeln!(
             &mut ir,
             "declare ptr @patch_seq_env_push_string(ptr, ptr, i64, i32)"
-        )
-        .unwrap();
-        writeln!(&mut ir, "declare %Value @patch_seq_make_closure(i64, ptr)").unwrap();
+        )?;
+        writeln!(&mut ir, "declare %Value @patch_seq_make_closure(i64, ptr)")?;
         writeln!(
             &mut ir,
             "declare ptr @patch_seq_push_closure(ptr, i64, i32)"
-        )
-        .unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_seqstring(ptr, ptr)").unwrap();
-        writeln!(&mut ir, "; Concurrency operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_send(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_send_safe(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive_safe(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)").unwrap();
-        writeln!(&mut ir, "; Scheduler operations").unwrap();
-        writeln!(&mut ir, "declare void @patch_seq_scheduler_init()").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_scheduler_run()").unwrap();
-        writeln!(&mut ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)").unwrap();
-        writeln!(&mut ir, "; Command-line argument operations").unwrap();
-        writeln!(&mut ir, "declare void @patch_seq_args_init(i32, ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_arg_count(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
-        writeln!(&mut ir, "; File operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp_safe(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
+        )?;
+        writeln!(&mut ir, "declare ptr @patch_seq_push_seqstring(ptr, ptr)")?;
+        writeln!(&mut ir, "; Concurrency operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_channel(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_send(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_send_safe(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
+        writeln!(&mut ir, "; Scheduler operations")?;
+        writeln!(&mut ir, "declare void @patch_seq_scheduler_init()")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_scheduler_run()")?;
+        writeln!(&mut ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)")?;
+        writeln!(&mut ir, "; Command-line argument operations")?;
+        writeln!(&mut ir, "declare void @patch_seq_args_init(i32, ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_arg_count(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)")?;
+        writeln!(&mut ir, "; File operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp_safe(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)")?;
         writeln!(
             &mut ir,
             "declare ptr @patch_seq_file_for_each_line_plus(ptr)"
-        )
-        .unwrap();
-        writeln!(&mut ir, "; List operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_list_map(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_list_filter(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_list_fold(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_list_each(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_list_length(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_list_empty(ptr)").unwrap();
-        writeln!(&mut ir, "; Map operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_map(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_get(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_get_safe(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_set(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_has(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_remove(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_keys(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_values(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_size(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_map_empty(ptr)").unwrap();
-        writeln!(&mut ir, "; TCP operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_tcp_read(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_tcp_write(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_tcp_close(ptr)").unwrap();
-        writeln!(&mut ir, "; OS operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_getenv(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_home_dir(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_current_dir(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_path_exists(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_path_is_file(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_path_is_dir(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_path_join(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_path_parent(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_path_filename(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_exit(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_os_name(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_os_arch(ptr)").unwrap();
-        writeln!(&mut ir, "; String operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_byte_length(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_char_at(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_substring(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_char_to_string(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_find(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_split(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_contains(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_starts_with(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_empty(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_chomp(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_equal(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_json_escape(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_to_int(ptr)").unwrap();
-        writeln!(&mut ir, "; Variant operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_variant_append(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_variant_last(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_variant_init(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_0(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_1(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_3(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_4(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)").unwrap();
-        writeln!(&mut ir, "; Float operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_subtract(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_multiply(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_divide(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_eq(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_lt(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_gt(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_lte(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_gte(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_f_neq(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_int_to_float(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
-        writeln!(&mut ir, "; Test framework operations").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_init(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_finish(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_has_failures(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_assert(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_not(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_eq(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_eq_str(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_fail(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_pass_count(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_test_fail_count(ptr)").unwrap();
-        writeln!(&mut ir, "; Helpers for conditionals").unwrap();
-        writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
-        writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
-        writeln!(&mut ir).unwrap();
+        )?;
+        writeln!(&mut ir, "; List operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_map(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_filter(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_fold(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_each(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_length(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_empty(ptr)")?;
+        writeln!(&mut ir, "; Map operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_map(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_get(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_get_safe(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_set(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_has(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_remove(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_keys(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_values(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_size(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_map_empty(ptr)")?;
+        writeln!(&mut ir, "; TCP operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_listen(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_accept(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_read(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_write(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_tcp_close(ptr)")?;
+        writeln!(&mut ir, "; OS operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_getenv(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_home_dir(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_current_dir(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_path_exists(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_path_is_file(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_path_is_dir(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_path_join(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_path_parent(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_path_filename(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_exit(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_os_name(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_os_arch(ptr)")?;
+        writeln!(&mut ir, "; String operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_concat(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_length(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_byte_length(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_char_at(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_substring(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_char_to_string(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_find(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_split(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_contains(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_starts_with(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_empty(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_trim(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_chomp(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_upper(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_lower(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_equal(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_json_escape(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_int(ptr)")?;
+        writeln!(&mut ir, "; Variant operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_field_at(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_append(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_last(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_variant_init(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_0(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_1(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_2(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_3(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_make_variant_4(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)")?;
+        writeln!(&mut ir, "; Float operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_subtract(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_multiply(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_divide(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_eq(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_lt(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_gt(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_lte(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_gte(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_f_neq(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_int_to_float(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_float_to_int(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_float_to_string(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_float(ptr)")?;
+        writeln!(&mut ir, "; Test framework operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_init(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_finish(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_has_failures(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_not(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_eq(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_assert_eq_str(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_fail(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_pass_count(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_test_fail_count(ptr)")?;
+        writeln!(&mut ir, "; Helpers for conditionals")?;
+        writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
+        writeln!(&mut ir)?;
 
         // External builtin declarations (from config)
         if !self.external_builtins.is_empty() {
-            writeln!(&mut ir, "; External builtin declarations").unwrap();
+            writeln!(&mut ir, "; External builtin declarations")?;
             for symbol in self.external_builtins.values() {
                 // All external builtins follow the standard stack convention: ptr -> ptr
-                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol).unwrap();
+                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol)?;
             }
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // Quotation functions (generated from quotation literals)
         if !self.quotation_functions.is_empty() {
-            writeln!(&mut ir, "; Quotation functions").unwrap();
+            writeln!(&mut ir, "; Quotation functions")?;
             ir.push_str(&self.quotation_functions);
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // User-defined words and main
@@ -788,7 +817,7 @@ impl CodeGen {
         type_map: HashMap<usize, Type>,
         config: &CompilerConfig,
         ffi_bindings: &FfiBindings,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         // Store FFI bindings
         self.ffi_bindings = ffi_bindings.clone();
 
@@ -810,7 +839,7 @@ impl CodeGen {
 
         // Verify we have a main word
         if program.find_word("main").is_none() {
-            return Err("No main word defined".to_string());
+            return Err(CodeGenError::Logic("No main word defined".to_string()));
         }
 
         // Generate all user-defined words
@@ -825,42 +854,40 @@ impl CodeGen {
         let mut ir = String::new();
 
         // Target and type declarations
-        writeln!(&mut ir, "; ModuleID = 'main'").unwrap();
-        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple()).unwrap();
-        writeln!(&mut ir).unwrap();
+        writeln!(&mut ir, "; ModuleID = 'main'")?;
+        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
+        writeln!(&mut ir)?;
 
         // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
-        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)").unwrap();
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}").unwrap();
-        writeln!(&mut ir).unwrap();
+        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}")?;
+        writeln!(&mut ir)?;
 
         // String constants
         if !self.string_globals.is_empty() {
             ir.push_str(&self.string_globals);
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // Runtime function declarations (same as codegen_program_with_config)
-        self.emit_runtime_declarations(&mut ir);
+        self.emit_runtime_declarations(&mut ir)?;
 
         // FFI C function declarations
         if !self.ffi_bindings.functions.is_empty() {
-            writeln!(&mut ir, "; FFI C function declarations").unwrap();
-            writeln!(&mut ir, "declare ptr @malloc(i64)").unwrap();
-            writeln!(&mut ir, "declare void @free(ptr)").unwrap();
-            writeln!(&mut ir, "declare i64 @strlen(ptr)").unwrap();
-            writeln!(&mut ir, "declare ptr @memcpy(ptr, ptr, i64)").unwrap();
+            writeln!(&mut ir, "; FFI C function declarations")?;
+            writeln!(&mut ir, "declare ptr @malloc(i64)")?;
+            writeln!(&mut ir, "declare void @free(ptr)")?;
+            writeln!(&mut ir, "declare i64 @strlen(ptr)")?;
+            writeln!(&mut ir, "declare ptr @memcpy(ptr, ptr, i64)")?;
             // Declare FFI string helpers from runtime
             writeln!(
                 &mut ir,
                 "declare ptr @patch_seq_string_to_cstring(ptr, ptr)"
-            )
-            .unwrap();
+            )?;
             writeln!(
                 &mut ir,
                 "declare ptr @patch_seq_cstring_to_string(ptr, ptr)"
-            )
-            .unwrap();
+            )?;
             for func in self.ffi_bindings.functions.values() {
                 let c_ret_type = ffi_return_type(&func.return_spec);
                 let c_args = ffi_c_args(&func.args);
@@ -868,33 +895,32 @@ impl CodeGen {
                     &mut ir,
                     "declare {} @{}({})",
                     c_ret_type, func.c_name, c_args
-                )
-                .unwrap();
+                )?;
             }
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // External builtin declarations (from config)
         if !self.external_builtins.is_empty() {
-            writeln!(&mut ir, "; External builtin declarations").unwrap();
+            writeln!(&mut ir, "; External builtin declarations")?;
             for symbol in self.external_builtins.values() {
-                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol).unwrap();
+                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol)?;
             }
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // FFI wrapper functions
         if !self.ffi_wrapper_code.is_empty() {
-            writeln!(&mut ir, "; FFI wrapper functions").unwrap();
+            writeln!(&mut ir, "; FFI wrapper functions")?;
             ir.push_str(&self.ffi_wrapper_code);
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // Quotation functions
         if !self.quotation_functions.is_empty() {
-            writeln!(&mut ir, "; Quotation functions").unwrap();
+            writeln!(&mut ir, "; Quotation functions")?;
             ir.push_str(&self.quotation_functions);
-            writeln!(&mut ir).unwrap();
+            writeln!(&mut ir)?;
         }
 
         // User-defined words and main
@@ -904,208 +930,207 @@ impl CodeGen {
     }
 
     /// Emit runtime function declarations
-    fn emit_runtime_declarations(&self, ir: &mut String) {
-        writeln!(ir, "; Runtime function declarations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_int(ptr, i64)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_string(ptr, ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_write_line(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_read_line(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_read_line_plus(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_int_to_string(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_add(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_subtract(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_multiply(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_divide(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_eq(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_lt(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_gt(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_lte(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_gte(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_neq(ptr)").unwrap();
-        writeln!(ir, "; Boolean operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_and(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_or(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_not(ptr)").unwrap();
-        writeln!(ir, "; Bitwise operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_band(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_bor(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_bxor(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_bnot(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_shl(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_shr(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_popcount(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_clz(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_ctz(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_int_bits(ptr)").unwrap();
-        writeln!(ir, "; Stack operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_dup(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_swap(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_over(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_rot(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_nip(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_tuck(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_2dup(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_3drop(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_pick_op(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_roll(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_value(ptr, %Value)").unwrap();
-        writeln!(ir, "; Quotation operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_quotation(ptr, i64, i64)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_call(ptr)").unwrap();
-        writeln!(ir, "declare i64 @patch_seq_peek_is_quotation(ptr)").unwrap();
-        writeln!(ir, "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_times(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_while_loop(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_until_loop(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_spawn(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_cond(ptr)").unwrap();
-        writeln!(ir, "; Closure operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_create_env(i32)").unwrap();
-        writeln!(ir, "declare void @patch_seq_env_set(ptr, i32, %Value)").unwrap();
-        writeln!(ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)").unwrap();
-        writeln!(ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)").unwrap();
-        writeln!(ir, "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)").unwrap();
-        writeln!(ir, "declare double @patch_seq_env_get_float(ptr, i64, i32)").unwrap();
+    fn emit_runtime_declarations(&self, ir: &mut String) -> Result<(), CodeGenError> {
+        writeln!(ir, "; Runtime function declarations")?;
+        writeln!(ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
+        writeln!(ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_write_line(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_read_line(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_int_to_string(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_add(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_subtract(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_multiply(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_divide(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_eq(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_lt(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_gt(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_lte(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_gte(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_neq(ptr)")?;
+        writeln!(ir, "; Boolean operations")?;
+        writeln!(ir, "declare ptr @patch_seq_and(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_or(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_not(ptr)")?;
+        writeln!(ir, "; Bitwise operations")?;
+        writeln!(ir, "declare ptr @patch_seq_band(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_bor(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_bxor(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_bnot(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_shl(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_shr(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_popcount(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_clz(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_ctz(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_int_bits(ptr)")?;
+        writeln!(ir, "; Stack operations")?;
+        writeln!(ir, "declare ptr @patch_seq_dup(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_swap(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_over(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_rot(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_nip(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_tuck(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_2dup(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_3drop(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_pick_op(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_roll(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_push_value(ptr, %Value)")?;
+        writeln!(ir, "; Quotation operations")?;
+        writeln!(ir, "declare ptr @patch_seq_push_quotation(ptr, i64, i64)")?;
+        writeln!(ir, "declare ptr @patch_seq_call(ptr)")?;
+        writeln!(ir, "declare i64 @patch_seq_peek_is_quotation(ptr)")?;
+        writeln!(ir, "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_times(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_while_loop(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_until_loop(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_spawn(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_cond(ptr)")?;
+        writeln!(ir, "; Closure operations")?;
+        writeln!(ir, "declare ptr @patch_seq_create_env(i32)")?;
+        writeln!(ir, "declare void @patch_seq_env_set(ptr, i32, %Value)")?;
+        writeln!(ir, "declare %Value @patch_seq_env_get(ptr, i64, i32)")?;
+        writeln!(ir, "declare i64 @patch_seq_env_get_int(ptr, i64, i32)")?;
+        writeln!(ir, "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)")?;
+        writeln!(ir, "declare double @patch_seq_env_get_float(ptr, i64, i32)")?;
         writeln!(
             ir,
             "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)"
-        )
-        .unwrap();
-        writeln!(ir, "declare ptr @patch_seq_env_get_string(ptr, i64, i32)").unwrap();
+        )?;
+        writeln!(ir, "declare ptr @patch_seq_env_get_string(ptr, i64, i32)")?;
         writeln!(
             ir,
             "declare ptr @patch_seq_env_push_string(ptr, ptr, i64, i32)"
-        )
-        .unwrap();
-        writeln!(ir, "declare %Value @patch_seq_make_closure(i64, ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_closure(ptr, i64, i32)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_seqstring(ptr, ptr)").unwrap();
-        writeln!(ir, "; Concurrency operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_channel(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_chan_send(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_chan_send_safe(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_chan_receive(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_chan_receive_safe(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_close_channel(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_yield_strand(ptr)").unwrap();
-        writeln!(ir, "; Scheduler operations").unwrap();
-        writeln!(ir, "declare void @patch_seq_scheduler_init()").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_scheduler_run()").unwrap();
-        writeln!(ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)").unwrap();
-        writeln!(ir, "; Command-line argument operations").unwrap();
-        writeln!(ir, "declare void @patch_seq_args_init(i32, ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_arg_count(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_arg_at(ptr)").unwrap();
-        writeln!(ir, "; File operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_file_slurp(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_file_slurp_safe(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_file_exists(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_file_for_each_line_plus(ptr)").unwrap();
-        writeln!(ir, "; List operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_list_map(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_list_filter(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_list_fold(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_list_each(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_list_length(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_list_empty(ptr)").unwrap();
-        writeln!(ir, "; Map operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_map(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_get(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_get_safe(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_set(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_has(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_remove(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_keys(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_values(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_size(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_map_empty(ptr)").unwrap();
-        writeln!(ir, "; TCP operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_tcp_listen(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_tcp_accept(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_tcp_read(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_tcp_write(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_tcp_close(ptr)").unwrap();
-        writeln!(ir, "; OS operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_getenv(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_home_dir(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_current_dir(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_path_exists(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_path_is_file(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_path_is_dir(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_path_join(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_path_parent(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_path_filename(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_exit(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_os_name(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_os_arch(ptr)").unwrap();
-        writeln!(ir, "; String operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_concat(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_length(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_byte_length(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_char_at(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_substring(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_char_to_string(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_find(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_split(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_contains(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_starts_with(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_empty(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_trim(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_chomp(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_to_upper(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_to_lower(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_equal(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_json_escape(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_to_int(ptr)").unwrap();
-        writeln!(ir, "; Variant operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_variant_field_count(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_variant_tag(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_variant_field_at(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_variant_append(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_variant_last(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_variant_init(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_variant_0(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_variant_1(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_variant_2(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_variant_3(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_make_variant_4(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)").unwrap();
-        writeln!(ir, "; Float operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_push_float(ptr, double)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_add(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_subtract(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_multiply(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_divide(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_eq(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_lt(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_gt(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_lte(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_gte(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_f_neq(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_int_to_float(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_float_to_int(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_float_to_string(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_string_to_float(ptr)").unwrap();
-        writeln!(ir, "; Test framework operations").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_init(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_finish(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_has_failures(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_assert(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_assert_not(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_assert_eq(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_assert_eq_str(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_fail(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_pass_count(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_test_fail_count(ptr)").unwrap();
-        writeln!(ir, "; Helpers for conditionals").unwrap();
-        writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)").unwrap();
-        writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)").unwrap();
-        writeln!(ir).unwrap();
+        )?;
+        writeln!(ir, "declare %Value @patch_seq_make_closure(i64, ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_push_closure(ptr, i64, i32)")?;
+        writeln!(ir, "declare ptr @patch_seq_push_seqstring(ptr, ptr)")?;
+        writeln!(ir, "; Concurrency operations")?;
+        writeln!(ir, "declare ptr @patch_seq_make_channel(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_chan_send(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_chan_send_safe(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_chan_receive(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_close_channel(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
+        writeln!(ir, "; Scheduler operations")?;
+        writeln!(ir, "declare void @patch_seq_scheduler_init()")?;
+        writeln!(ir, "declare ptr @patch_seq_scheduler_run()")?;
+        writeln!(ir, "declare i64 @patch_seq_strand_spawn(ptr, ptr)")?;
+        writeln!(ir, "; Command-line argument operations")?;
+        writeln!(ir, "declare void @patch_seq_args_init(i32, ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_arg_count(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_arg_at(ptr)")?;
+        writeln!(ir, "; File operations")?;
+        writeln!(ir, "declare ptr @patch_seq_file_slurp(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_file_slurp_safe(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_file_exists(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_file_for_each_line_plus(ptr)")?;
+        writeln!(ir, "; List operations")?;
+        writeln!(ir, "declare ptr @patch_seq_list_map(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_filter(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_fold(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_each(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_length(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_empty(ptr)")?;
+        writeln!(ir, "; Map operations")?;
+        writeln!(ir, "declare ptr @patch_seq_make_map(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_get(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_get_safe(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_set(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_has(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_remove(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_keys(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_values(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_size(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_map_empty(ptr)")?;
+        writeln!(ir, "; TCP operations")?;
+        writeln!(ir, "declare ptr @patch_seq_tcp_listen(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_tcp_accept(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_tcp_read(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_tcp_write(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_tcp_close(ptr)")?;
+        writeln!(ir, "; OS operations")?;
+        writeln!(ir, "declare ptr @patch_seq_getenv(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_home_dir(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_current_dir(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_path_exists(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_path_is_file(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_path_is_dir(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_path_join(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_path_parent(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_path_filename(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_exit(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_os_name(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_os_arch(ptr)")?;
+        writeln!(ir, "; String operations")?;
+        writeln!(ir, "declare ptr @patch_seq_string_concat(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_length(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_byte_length(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_char_at(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_substring(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_char_to_string(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_find(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_split(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_contains(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_starts_with(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_empty(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_trim(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_chomp(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_to_upper(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_to_lower(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_equal(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_json_escape(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_to_int(ptr)")?;
+        writeln!(ir, "; Variant operations")?;
+        writeln!(ir, "declare ptr @patch_seq_variant_field_count(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_variant_tag(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_variant_field_at(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_variant_append(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_variant_last(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_variant_init(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_make_variant_0(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_make_variant_1(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_make_variant_2(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_make_variant_3(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_make_variant_4(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)")?;
+        writeln!(ir, "; Float operations")?;
+        writeln!(ir, "declare ptr @patch_seq_push_float(ptr, double)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_add(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_subtract(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_multiply(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_divide(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_eq(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_lt(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_gt(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_lte(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_gte(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_f_neq(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_int_to_float(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_float_to_int(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_float_to_string(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_to_float(ptr)")?;
+        writeln!(ir, "; Test framework operations")?;
+        writeln!(ir, "declare ptr @patch_seq_test_init(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_finish(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_has_failures(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_assert(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_assert_not(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_assert_eq(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_assert_eq_str(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_fail(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_pass_count(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_test_fail_count(ptr)")?;
+        writeln!(ir, "; Helpers for conditionals")?;
+        writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
+        writeln!(ir)?;
+        Ok(())
     }
 
     /// Generate FFI wrapper functions
-    fn generate_ffi_wrappers(&mut self) -> Result<(), String> {
+    fn generate_ffi_wrappers(&mut self) -> Result<(), CodeGenError> {
         // Collect functions to avoid borrowing self.ffi_bindings while mutating self
         let funcs: Vec<_> = self.ffi_bindings.functions.values().cloned().collect();
         for func in funcs {
@@ -1123,16 +1148,18 @@ impl CodeGen {
     /// 4. Converts result back to Seq type
     /// 5. Pushes result onto Seq stack
     /// 6. Frees memory if needed (caller_frees)
-    fn generate_ffi_wrapper(&mut self, func: &crate::ffi::FfiFunctionInfo) -> Result<(), String> {
+    fn generate_ffi_wrapper(
+        &mut self,
+        func: &crate::ffi::FfiFunctionInfo,
+    ) -> Result<(), CodeGenError> {
         let wrapper_name = format!("seq_ffi_{}", mangle_name(&func.seq_name));
 
         writeln!(
             &mut self.ffi_wrapper_code,
             "define ptr @{}(ptr %stack) {{",
             wrapper_name
-        )
-        .unwrap();
-        writeln!(&mut self.ffi_wrapper_code, "entry:").unwrap();
+        )?;
+        writeln!(&mut self.ffi_wrapper_code, "entry:")?;
 
         let mut stack_var = "stack".to_string();
         let mut c_args: Vec<String> = Vec::new();
@@ -1147,18 +1174,17 @@ impl CodeGen {
                     FfiType::Ptr => "ptr",
                     FfiType::Int => "i64",
                     _ => {
-                        return Err(format!(
+                        return Err(CodeGenError::Logic(format!(
                             "Unsupported type {:?} for by_ref parameter",
                             arg.arg_type
-                        ));
+                        )));
                     }
                 };
                 writeln!(
                     &mut self.ffi_wrapper_code,
                     "  %{} = alloca {}",
                     alloca_var, llvm_type
-                )
-                .unwrap();
+                )?;
                 by_ref_vars.push((alloca_var, arg.arg_type.clone()));
             }
         }
@@ -1180,11 +1206,11 @@ impl CodeGen {
                                 c_args.push(format!("i64 {}", int_val));
                             }
                             Err(e) => {
-                                return Err(format!(
+                                return Err(CodeGenError::Logic(format!(
                                     "Invalid fixed value '{}' for argument {}: {}. \
                                      Expected 'null' or a 64-bit integer.",
                                     value, i, e
-                                ));
+                                )));
                             }
                         }
                     }
@@ -1207,14 +1233,12 @@ impl CodeGen {
                         &mut self.ffi_wrapper_code,
                         "  %{} = call ptr @patch_seq_string_to_cstring(ptr %{}, ptr null)",
                         cstr_var, stack_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
                         new_stack, stack_var
-                    )
-                    .unwrap();
+                    )?;
 
                     stack_var = new_stack;
                     c_args.push(format!("ptr %{}", cstr_var));
@@ -1229,14 +1253,12 @@ impl CodeGen {
                         &mut self.ffi_wrapper_code,
                         "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
                         int_var, stack_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
                         new_stack, stack_var
-                    )
-                    .unwrap();
+                    )?;
 
                     stack_var = new_stack;
                     c_args.push(format!("i64 %{}", int_var));
@@ -1251,29 +1273,26 @@ impl CodeGen {
                         &mut self.ffi_wrapper_code,
                         "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
                         int_var, stack_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = inttoptr i64 %{} to ptr",
                         ptr_var, int_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
                         new_stack, stack_var
-                    )
-                    .unwrap();
+                    )?;
 
                     stack_var = new_stack;
                     c_args.push(format!("ptr %{}", ptr_var));
                 }
                 _ => {
-                    return Err(format!(
+                    return Err(CodeGenError::Logic(format!(
                         "Unsupported FFI argument type {:?} with pass mode {:?}",
                         arg.arg_type, arg.pass
-                    ));
+                    )));
                 }
             }
         }
@@ -1296,15 +1315,13 @@ impl CodeGen {
                 &mut self.ffi_wrapper_code,
                 "  %c_result = call {} @{}({})",
                 c_ret_type, func.c_name, c_args_str
-            )
-            .unwrap();
+            )?;
         } else {
             writeln!(
                 &mut self.ffi_wrapper_code,
                 "  call {} @{}({})",
                 c_ret_type, func.c_name, c_args_str
-            )
-            .unwrap();
+            )?;
         }
 
         // Free C strings we allocated for arguments
@@ -1313,8 +1330,7 @@ impl CodeGen {
                 &mut self.ffi_wrapper_code,
                 "  call void @free(ptr %{})",
                 cstr_var
-            )
-            .unwrap();
+            )?;
         }
 
         // Push by_ref out parameter values onto stack (before return value)
@@ -1329,20 +1345,17 @@ impl CodeGen {
                         &mut self.ffi_wrapper_code,
                         "  %{} = load ptr, ptr %{}",
                         loaded_var, alloca_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = ptrtoint ptr %{} to i64",
                         int_var, loaded_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
                         new_stack, stack_var, int_var
-                    )
-                    .unwrap();
+                    )?;
                 }
                 FfiType::Int => {
                     let loaded_var = format!("{}_val", alloca_var);
@@ -1350,14 +1363,12 @@ impl CodeGen {
                         &mut self.ffi_wrapper_code,
                         "  %{} = load i64, ptr %{}",
                         loaded_var, alloca_var
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 %{})",
                         new_stack, stack_var, loaded_var
-                    )
-                    .unwrap();
+                    )?;
                 }
                 _ => {} // Other types not supported for by_ref
             }
@@ -1373,50 +1384,44 @@ impl CodeGen {
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %is_null = icmp eq ptr %c_result, null"
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  br i1 %is_null, label %null_case, label %valid_case"
-                    )
-                    .unwrap();
+                    )?;
 
-                    writeln!(&mut self.ffi_wrapper_code, "null_case:").unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "null_case:")?;
                     // Push empty string for NULL result
-                    let empty_str = self.get_string_global("");
+                    let empty_str = self.get_string_global("")?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %stack_null = call ptr @patch_seq_push_string(ptr %{}, ptr {})",
                         stack_var, empty_str
-                    )
-                    .unwrap();
-                    writeln!(&mut self.ffi_wrapper_code, "  br label %done").unwrap();
+                    )?;
+                    writeln!(&mut self.ffi_wrapper_code, "  br label %done")?;
 
-                    writeln!(&mut self.ffi_wrapper_code, "valid_case:").unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "valid_case:")?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %stack_with_result = call ptr @patch_seq_cstring_to_string(ptr %{}, ptr %c_result)",
                         stack_var
-                    )
-                    .unwrap();
+                    )?;
 
                     // Free if caller_frees
                     if return_spec.ownership == Ownership::CallerFrees {
                         writeln!(
                             &mut self.ffi_wrapper_code,
                             "  call void @free(ptr %c_result)"
-                        )
-                        .unwrap();
+                        )?;
                     }
-                    writeln!(&mut self.ffi_wrapper_code, "  br label %done").unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  br label %done")?;
 
-                    writeln!(&mut self.ffi_wrapper_code, "done:").unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "done:")?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %final_stack = phi ptr [ %stack_null, %null_case ], [ %stack_with_result, %valid_case ]"
-                    )
-                    .unwrap();
-                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %final_stack").unwrap();
+                    )?;
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %final_stack")?;
                 }
                 FfiType::Int => {
                     // Push int result
@@ -1424,41 +1429,38 @@ impl CodeGen {
                         &mut self.ffi_wrapper_code,
                         "  %stack_with_result = call ptr @patch_seq_push_int(ptr %{}, i64 %c_result)",
                         stack_var
-                    )
-                    .unwrap();
-                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result").unwrap();
+                    )?;
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result")?;
                 }
                 FfiType::Void => {
-                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %{}", stack_var).unwrap();
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %{}", stack_var)?;
                 }
                 FfiType::Ptr => {
                     // Push pointer as int
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %ptr_as_int = ptrtoint ptr %c_result to i64"
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         &mut self.ffi_wrapper_code,
                         "  %stack_with_result = call ptr @patch_seq_push_int(ptr %{}, i64 %ptr_as_int)",
                         stack_var
-                    )
-                    .unwrap();
-                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result").unwrap();
+                    )?;
+                    writeln!(&mut self.ffi_wrapper_code, "  ret ptr %stack_with_result")?;
                 }
             }
         } else {
-            writeln!(&mut self.ffi_wrapper_code, "  ret ptr %{}", stack_var).unwrap();
+            writeln!(&mut self.ffi_wrapper_code, "  ret ptr %{}", stack_var)?;
         }
 
-        writeln!(&mut self.ffi_wrapper_code, "}}").unwrap();
-        writeln!(&mut self.ffi_wrapper_code).unwrap();
+        writeln!(&mut self.ffi_wrapper_code, "}}")?;
+        writeln!(&mut self.ffi_wrapper_code)?;
 
         Ok(())
     }
 
     /// Generate code for a word definition
-    fn codegen_word(&mut self, word: &WordDef) -> Result<(), String> {
+    fn codegen_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
         // Also mangle special characters that aren't valid in LLVM IR identifiers
         let function_name = format!("seq_{}", mangle_name(&word.name));
@@ -1474,17 +1476,15 @@ impl CodeGen {
                 &mut self.output,
                 "define ptr @{}(ptr %stack) {{",
                 function_name
-            )
-            .unwrap();
+            )?;
         } else {
             writeln!(
                 &mut self.output,
                 "define tailcc ptr @{}(ptr %stack) {{",
                 function_name
-            )
-            .unwrap();
+            )?;
         }
-        writeln!(&mut self.output, "entry:").unwrap();
+        writeln!(&mut self.output, "entry:")?;
 
         let mut stack_var = "stack".to_string();
         let body_len = word.body.len();
@@ -1505,10 +1505,10 @@ impl CodeGen {
         if word.body.is_empty()
             || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
         {
-            writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+            writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
         }
-        writeln!(&mut self.output, "}}").unwrap();
-        writeln!(&mut self.output).unwrap();
+        writeln!(&mut self.output, "}}")?;
+        writeln!(&mut self.output)?;
 
         self.inside_main = false;
         Ok(())
@@ -1520,7 +1520,7 @@ impl CodeGen {
         &mut self,
         body: &[Statement],
         quot_type: &Type,
-    ) -> Result<QuotationFunctions, String> {
+    ) -> Result<QuotationFunctions, CodeGenError> {
         // Generate unique function names
         let base_name = format!("seq_quot_{}", self.quot_counter);
         self.quot_counter += 1;
@@ -1541,9 +1541,8 @@ impl CodeGen {
                     &mut self.output,
                     "define tailcc ptr @{}(ptr %stack) {{",
                     impl_name
-                )
-                .unwrap();
-                writeln!(&mut self.output, "entry:").unwrap();
+                )?;
+                writeln!(&mut self.output, "entry:")?;
 
                 let mut stack_var = "stack".to_string();
                 let body_len = body.len();
@@ -1563,10 +1562,10 @@ impl CodeGen {
                 if body.is_empty()
                     || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail)
                 {
-                    writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                    writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
                 }
-                writeln!(&mut self.output, "}}").unwrap();
-                writeln!(&mut self.output).unwrap();
+                writeln!(&mut self.output, "}}")?;
+                writeln!(&mut self.output)?;
 
                 // Now generate the wrapper function with C convention
                 // This is a thin wrapper that just calls the impl
@@ -1574,18 +1573,16 @@ impl CodeGen {
                     &mut self.output,
                     "define ptr @{}(ptr %stack) {{",
                     wrapper_name
-                )
-                .unwrap();
-                writeln!(&mut self.output, "entry:").unwrap();
+                )?;
+                writeln!(&mut self.output, "entry:")?;
                 writeln!(
                     &mut self.output,
                     "  %result = call tailcc ptr @{}(ptr %stack)",
                     impl_name
-                )
-                .unwrap();
-                writeln!(&mut self.output, "  ret ptr %result").unwrap();
-                writeln!(&mut self.output, "}}").unwrap();
-                writeln!(&mut self.output).unwrap();
+                )?;
+                writeln!(&mut self.output, "  ret ptr %result")?;
+                writeln!(&mut self.output, "}}")?;
+                writeln!(&mut self.output)?;
 
                 // Move generated functions to quotation_functions
                 self.quotation_functions.push_str(&self.output);
@@ -1607,9 +1604,8 @@ impl CodeGen {
                     &mut self.output,
                     "define ptr @{}(ptr %stack, ptr %env_data, i64 %env_len) {{",
                     base_name
-                )
-                .unwrap();
-                writeln!(&mut self.output, "entry:").unwrap();
+                )?;
+                writeln!(&mut self.output, "entry:")?;
 
                 // Push captured values onto the stack before executing body
                 // Captures are stored bottom-to-top, so push them in order
@@ -1634,10 +1630,10 @@ impl CodeGen {
                 if body.is_empty()
                     || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail)
                 {
-                    writeln!(&mut self.output, "  ret ptr %{}", stack_var).unwrap();
+                    writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
                 }
-                writeln!(&mut self.output, "}}").unwrap();
-                writeln!(&mut self.output).unwrap();
+                writeln!(&mut self.output, "}}")?;
+                writeln!(&mut self.output)?;
 
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
@@ -1652,10 +1648,10 @@ impl CodeGen {
                     impl_: base_name,
                 })
             }
-            _ => Err(format!(
+            _ => Err(CodeGenError::Logic(format!(
                 "CodeGen: expected Quotation or Closure type, got {:?}",
                 quot_type
-            )),
+            ))),
         }
     }
 
@@ -1673,7 +1669,7 @@ impl CodeGen {
         capture_type: &Type,
         index: usize,
         stack_var: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         // String captures use a combined get+push function to avoid returning
         // SeqString by value through FFI (causes crashes on Linux due to calling convention)
         if matches!(capture_type, Type::String) {
@@ -1682,8 +1678,7 @@ impl CodeGen {
                 &mut self.output,
                 "  %{} = call ptr @patch_seq_env_push_string(ptr %{}, ptr %env_data, i64 %env_len, i32 {})",
                 new_stack_var, stack_var, index
-            )
-            .unwrap();
+            )?;
             return Ok(new_stack_var);
         }
 
@@ -1705,23 +1700,27 @@ impl CodeGen {
                 "i64",
             ),
             Type::Closure { .. } => {
-                return Err("Closure captures are not yet supported. \
+                return Err(CodeGenError::Logic(
+                    "Closure captures are not yet supported. \
                      Closures capturing other closures require additional implementation. \
                      Supported capture types: Int, Bool, Float, String, Quotation."
-                    .to_string());
+                        .to_string(),
+                ));
             }
             Type::Var(name) if name.starts_with("Variant") => {
-                return Err("Variant captures are not yet supported. \
+                return Err(CodeGenError::Logic(
+                    "Variant captures are not yet supported. \
                      Capturing Variants in closures requires additional implementation. \
                      Supported capture types: Int, Bool, Float, String, Quotation."
-                    .to_string());
+                        .to_string(),
+                ));
             }
             _ => {
-                return Err(format!(
+                return Err(CodeGenError::Logic(format!(
                     "Unsupported capture type: {:?}. \
                      Supported capture types: Int, Bool, Float, String, Quotation.",
                     capture_type
-                ));
+                )));
             }
         };
 
@@ -1731,8 +1730,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call {} @{}(ptr %env_data, i64 %env_len, i32 {})",
             value_var, getter_type, getter, index
-        )
-        .unwrap();
+        )?;
 
         // Push value onto stack
         let new_stack_var = self.fresh_temp();
@@ -1740,8 +1738,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call ptr @{}(ptr %{}, {} %{})",
             new_stack_var, pusher, stack_var, pusher_type, value_var
-        )
-        .unwrap();
+        )?;
 
         Ok(new_stack_var)
     }
@@ -1757,7 +1754,7 @@ impl CodeGen {
         position: TailPosition,
         merge_block: &str,
         block_prefix: &str,
-    ) -> Result<BranchResult, String> {
+    ) -> Result<BranchResult, CodeGenError> {
         let mut stack_var = initial_stack.to_string();
         let len = statements.len();
         let mut emitted_tail_call = false;
@@ -1779,9 +1776,9 @@ impl CodeGen {
             UNREACHABLE_PREDECESSOR.to_string()
         } else {
             let pred = self.fresh_block(&format!("{}_end", block_prefix));
-            writeln!(&mut self.output, "  br label %{}", pred).unwrap();
-            writeln!(&mut self.output, "{}:", pred).unwrap();
-            writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+            writeln!(&mut self.output, "  br label %{}", pred)?;
+            writeln!(&mut self.output, "{}:", pred)?;
+            writeln!(&mut self.output, "  br label %{}", merge_block)?;
             pred
         };
 
@@ -1849,15 +1846,14 @@ impl CodeGen {
         &mut self,
         stack_var: &str,
         _result_var: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         // Check if top of stack is a quotation
         let is_quot_var = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call i64 @patch_seq_peek_is_quotation(ptr %{})",
             is_quot_var, stack_var
-        )
-        .unwrap();
+        )?;
 
         // Compare to 1 (true = quotation)
         let cmp_var = self.fresh_temp();
@@ -1865,8 +1861,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = icmp eq i64 %{}, 1",
             cmp_var, is_quot_var
-        )
-        .unwrap();
+        )?;
 
         // Create labels for branching
         let quot_block = self.fresh_block("call_quotation");
@@ -1876,18 +1871,16 @@ impl CodeGen {
             &mut self.output,
             "  br i1 %{}, label %{}, label %{}",
             cmp_var, quot_block, closure_block
-        )
-        .unwrap();
+        )?;
 
         // Quotation path: extract fn_ptr and musttail call
-        writeln!(&mut self.output, "{}:", quot_block).unwrap();
+        writeln!(&mut self.output, "{}:", quot_block)?;
         let fn_ptr_var = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call i64 @patch_seq_peek_quotation_fn_ptr(ptr %{})",
             fn_ptr_var, stack_var
-        )
-        .unwrap();
+        )?;
 
         // Pop the quotation from the stack
         let popped_stack = self.fresh_temp();
@@ -1895,8 +1888,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
             popped_stack, stack_var
-        )
-        .unwrap();
+        )?;
 
         // Convert i64 fn_ptr to function pointer type
         let fn_var = self.fresh_temp();
@@ -1904,8 +1896,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = inttoptr i64 %{} to ptr",
             fn_var, fn_ptr_var
-        )
-        .unwrap();
+        )?;
 
         // Tail call the quotation's impl function using musttail + tailcc
         // This is guaranteed TCO: caller is tailcc, quotation impl is tailcc
@@ -1914,21 +1905,19 @@ impl CodeGen {
             &mut self.output,
             "  %{} = musttail call tailcc ptr %{}(ptr %{})",
             quot_result, fn_var, popped_stack
-        )
-        .unwrap();
-        writeln!(&mut self.output, "  ret ptr %{}", quot_result).unwrap();
+        )?;
+        writeln!(&mut self.output, "  ret ptr %{}", quot_result)?;
 
         // Closure path: fall back to regular patch_seq_call
         // Use a fresh temp to ensure proper SSA numbering (must be >= quotation branch temps)
-        writeln!(&mut self.output, "{}:", closure_block).unwrap();
+        writeln!(&mut self.output, "{}:", closure_block)?;
         let closure_result = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_call(ptr %{})",
             closure_result, stack_var
-        )
-        .unwrap();
-        writeln!(&mut self.output, "  ret ptr %{}", closure_result).unwrap();
+        )?;
+        writeln!(&mut self.output, "  ret ptr %{}", closure_result)?;
 
         // Return a dummy value - both branches emit ret, so this won't be used
         Ok(closure_result)
@@ -1939,14 +1928,13 @@ impl CodeGen {
     // =========================================================================
 
     /// Generate code for an integer literal: ( -- n )
-    fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, String> {
+    fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, CodeGenError> {
         let result_var = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
             result_var, stack_var, n
-        )
-        .unwrap();
+        )?;
         Ok(result_var)
     }
 
@@ -1954,7 +1942,7 @@ impl CodeGen {
     ///
     /// Uses LLVM's hexadecimal floating point format for exact representation.
     /// Handles special values (NaN, Infinity) explicitly.
-    fn codegen_float_literal(&mut self, stack_var: &str, f: f64) -> Result<String, String> {
+    fn codegen_float_literal(&mut self, stack_var: &str, f: f64) -> Result<String, CodeGenError> {
         let result_var = self.fresh_temp();
         // Format float to ensure LLVM recognizes it as a double literal
         let float_str = if f.is_nan() {
@@ -1973,27 +1961,25 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
             result_var, stack_var, float_str
-        )
-        .unwrap();
+        )?;
         Ok(result_var)
     }
 
     /// Generate code for a boolean literal: ( -- b )
-    fn codegen_bool_literal(&mut self, stack_var: &str, b: bool) -> Result<String, String> {
+    fn codegen_bool_literal(&mut self, stack_var: &str, b: bool) -> Result<String, CodeGenError> {
         let result_var = self.fresh_temp();
         let val = if b { 1 } else { 0 };
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
             result_var, stack_var, val
-        )
-        .unwrap();
+        )?;
         Ok(result_var)
     }
 
     /// Generate code for a string literal: ( -- s )
-    fn codegen_string_literal(&mut self, stack_var: &str, s: &str) -> Result<String, String> {
-        let global = self.get_string_global(s);
+    fn codegen_string_literal(&mut self, stack_var: &str, s: &str) -> Result<String, CodeGenError> {
+        let global = self.get_string_global(s)?;
         let ptr_temp = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2001,15 +1987,13 @@ impl CodeGen {
             ptr_temp,
             s.len() + 1,
             global
-        )
-        .unwrap();
+        )?;
         let result_var = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_push_string(ptr %{}, ptr %{})",
             result_var, stack_var, ptr_temp
-        )
-        .unwrap();
+        )?;
         Ok(result_var)
     }
 
@@ -2022,7 +2006,7 @@ impl CodeGen {
         stack_var: &str,
         name: &str,
         position: TailPosition,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         let result_var = self.fresh_temp();
 
         // Phase 2 TCO: Special handling for `call` in tail position
@@ -2060,25 +2044,22 @@ impl CodeGen {
                 &mut self.output,
                 "  %{} = musttail call tailcc ptr @{}(ptr %{})",
                 result_var, function_name, stack_var
-            )
-            .unwrap();
-            writeln!(&mut self.output, "  ret ptr %{}", result_var).unwrap();
+            )?;
+            writeln!(&mut self.output, "  ret ptr %{}", result_var)?;
         } else if is_seq_word {
             // Non-tail call to user-defined word: must use tailcc calling convention
             writeln!(
                 &mut self.output,
                 "  %{} = call tailcc ptr @{}(ptr %{})",
                 result_var, function_name, stack_var
-            )
-            .unwrap();
+            )?;
         } else {
             // Call to builtin (C calling convention)
             writeln!(
                 &mut self.output,
                 "  %{} = call ptr @{}(ptr %{})",
                 result_var, function_name, stack_var
-            )
-            .unwrap();
+            )?;
         }
         Ok(result_var)
     }
@@ -2092,23 +2073,21 @@ impl CodeGen {
         then_branch: &[Statement],
         else_branch: Option<&Vec<Statement>>,
         position: TailPosition,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         // Peek the condition value, then pop to free the stack node
         let cond_temp = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
             cond_temp, stack_var
-        )
-        .unwrap();
+        )?;
 
         let popped_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
             popped_stack, stack_var
-        )
-        .unwrap();
+        )?;
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();
@@ -2116,8 +2095,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = icmp ne i64 %{}, 0",
             cmp_temp, cond_temp
-        )
-        .unwrap();
+        )?;
 
         // Generate unique block labels
         let then_block = self.fresh_block("if_then");
@@ -2128,11 +2106,10 @@ impl CodeGen {
             &mut self.output,
             "  br i1 %{}, label %{}, label %{}",
             cmp_temp, then_block, else_block
-        )
-        .unwrap();
+        )?;
 
         // Then branch
-        writeln!(&mut self.output, "{}:", then_block).unwrap();
+        writeln!(&mut self.output, "{}:", then_block)?;
         let then_result = self.codegen_branch(
             then_branch,
             &popped_stack,
@@ -2142,15 +2119,15 @@ impl CodeGen {
         )?;
 
         // Else branch
-        writeln!(&mut self.output, "{}:", else_block).unwrap();
+        writeln!(&mut self.output, "{}:", else_block)?;
         let else_result = if let Some(eb) = else_branch {
             self.codegen_branch(eb, &popped_stack, position, &merge_block, "if_else")?
         } else {
             // No else clause - emit landing block with unchanged stack
             let else_pred = self.fresh_block("if_else_end");
-            writeln!(&mut self.output, "  br label %{}", else_pred).unwrap();
-            writeln!(&mut self.output, "{}:", else_pred).unwrap();
-            writeln!(&mut self.output, "  br label %{}", merge_block).unwrap();
+            writeln!(&mut self.output, "  br label %{}", else_pred)?;
+            writeln!(&mut self.output, "{}:", else_pred)?;
+            writeln!(&mut self.output, "  br label %{}", merge_block)?;
             BranchResult {
                 stack_var: popped_stack.clone(),
                 emitted_tail_call: false,
@@ -2164,7 +2141,7 @@ impl CodeGen {
         }
 
         // Merge block with phi node
-        writeln!(&mut self.output, "{}:", merge_block).unwrap();
+        writeln!(&mut self.output, "{}:", merge_block)?;
         let result_var = self.fresh_temp();
 
         if then_result.emitted_tail_call {
@@ -2172,15 +2149,13 @@ impl CodeGen {
                 &mut self.output,
                 "  %{} = phi ptr [ %{}, %{} ]",
                 result_var, else_result.stack_var, else_result.predecessor
-            )
-            .unwrap();
+            )?;
         } else if else_result.emitted_tail_call {
             writeln!(
                 &mut self.output,
                 "  %{} = phi ptr [ %{}, %{} ]",
                 result_var, then_result.stack_var, then_result.predecessor
-            )
-            .unwrap();
+            )?;
         } else {
             writeln!(
                 &mut self.output,
@@ -2190,8 +2165,7 @@ impl CodeGen {
                 then_result.predecessor,
                 else_result.stack_var,
                 else_result.predecessor
-            )
-            .unwrap();
+            )?;
         }
 
         Ok(result_var)
@@ -2210,14 +2184,14 @@ impl CodeGen {
         stack_var: &str,
         arms: &[MatchArm],
         position: TailPosition,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         // Step 0: Check exhaustiveness
         if let Err((union_name, missing)) = self.check_match_exhaustiveness(arms) {
-            return Err(format!(
+            return Err(CodeGenError::Logic(format!(
                 "Non-exhaustive match on union '{}'. Missing variants: {}",
                 union_name,
                 missing.join(", ")
-            ));
+            )));
         }
 
         // Step 1: Duplicate the variant so we can get the tag without consuming it
@@ -2226,8 +2200,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call ptr @patch_seq_dup(ptr %{})",
             dup_stack, stack_var
-        )
-        .unwrap();
+        )?;
 
         // Step 2: Call variant-tag on the duplicate to get the tag as Int
         let tagged_stack = self.fresh_temp();
@@ -2235,8 +2208,7 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call ptr @patch_seq_variant_tag(ptr %{})",
             tagged_stack, dup_stack
-        )
-        .unwrap();
+        )?;
 
         // Step 3: Peek the tag value and pop it from stack
         let tag_value = self.fresh_temp();
@@ -2244,16 +2216,14 @@ impl CodeGen {
             &mut self.output,
             "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
             tag_value, tagged_stack
-        )
-        .unwrap();
+        )?;
 
         let popped_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
             popped_stack, tagged_stack
-        )
-        .unwrap();
+        )?;
 
         // Now popped_stack has just the original variant (dup'd copy tag was consumed)
 
@@ -2266,8 +2236,7 @@ impl CodeGen {
             &mut self.output,
             "  switch i64 %{}, label %{} [",
             tag_value, default_block
-        )
-        .unwrap();
+        )?;
 
         // Collect arm info: (block_name, tag, field_count, field_names)
         let mut arm_info: Vec<(String, usize, usize, Vec<String>)> = Vec::new();
@@ -2279,20 +2248,20 @@ impl CodeGen {
             };
             let (tag, field_count, field_names) = self.find_variant_info(variant_name)?;
             arm_info.push((block.clone(), tag, field_count, field_names));
-            write!(&mut self.output, " i64 {}, label %{}", tag, block).unwrap();
+            write!(&mut self.output, " i64 {}, label %{}", tag, block)?;
         }
-        writeln!(&mut self.output, " ]").unwrap();
+        writeln!(&mut self.output, " ]")?;
 
         // Step 5: Generate unreachable default block (should never reach)
-        writeln!(&mut self.output, "{}:", default_block).unwrap();
-        writeln!(&mut self.output, "  unreachable").unwrap();
+        writeln!(&mut self.output, "{}:", default_block)?;
+        writeln!(&mut self.output, "  unreachable")?;
 
         // Step 6: Generate each match arm
         let mut arm_results: Vec<BranchResult> = Vec::new();
         for (i, (arm, (block, _tag, field_count, field_names))) in
             arms.iter().zip(arm_info.iter()).enumerate()
         {
-            writeln!(&mut self.output, "{}:", block).unwrap();
+            writeln!(&mut self.output, "{}:", block)?;
 
             // Extract fields based on pattern type
             let unpacked_stack = match &arm.pattern {
@@ -2303,8 +2272,7 @@ impl CodeGen {
                         &mut self.output,
                         "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
                         result, popped_stack, field_count
-                    )
-                    .unwrap();
+                    )?;
                     result
                 }
                 Pattern::VariantWithBindings { bindings, .. } => {
@@ -2323,8 +2291,7 @@ impl CodeGen {
                             &mut self.output,
                             "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
                             drop_stack, popped_stack
-                        )
-                        .unwrap();
+                        )?;
                         drop_stack
                     } else {
                         let mut current_stack = popped_stack.to_string();
@@ -2344,24 +2311,21 @@ impl CodeGen {
                                     &mut self.output,
                                     "  %{} = call ptr @patch_seq_dup(ptr %{})",
                                     dup_stack, current_stack
-                                )
-                                .unwrap();
+                                )?;
 
                                 let idx_stack = self.fresh_temp();
                                 writeln!(
                                     &mut self.output,
                                     "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
                                     idx_stack, dup_stack, field_idx
-                                )
-                                .unwrap();
+                                )?;
 
                                 let field_stack = self.fresh_temp();
                                 writeln!(
                                     &mut self.output,
                                     "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
                                     field_stack, idx_stack
-                                )
-                                .unwrap();
+                                )?;
 
                                 // Swap to get variant back on top: ( field variant )
                                 let swap_stack = self.fresh_temp();
@@ -2369,8 +2333,7 @@ impl CodeGen {
                                     &mut self.output,
                                     "  %{} = call ptr @patch_seq_swap(ptr %{})",
                                     swap_stack, field_stack
-                                )
-                                .unwrap();
+                                )?;
 
                                 current_stack = swap_stack;
                             } else {
@@ -2380,16 +2343,14 @@ impl CodeGen {
                                     &mut self.output,
                                     "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
                                     idx_stack, current_stack, field_idx
-                                )
-                                .unwrap();
+                                )?;
 
                                 let field_stack = self.fresh_temp();
                                 writeln!(
                                     &mut self.output,
                                     "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
                                     field_stack, idx_stack
-                                )
-                                .unwrap();
+                                )?;
 
                                 current_stack = field_stack;
                             }
@@ -2420,7 +2381,7 @@ impl CodeGen {
             return Ok(arm_results[0].stack_var.clone());
         }
 
-        writeln!(&mut self.output, "{}:", merge_block).unwrap();
+        writeln!(&mut self.output, "{}:", merge_block)?;
         let result_var = self.fresh_temp();
 
         // Build phi node from non-tail-call branches
@@ -2432,7 +2393,9 @@ impl CodeGen {
 
         if phi_entries.is_empty() {
             // Shouldn't happen if not all_tail_calls
-            return Err("Match codegen: unexpected empty phi".to_string());
+            return Err(CodeGenError::Logic(
+                "Match codegen: unexpected empty phi".to_string(),
+            ));
         }
 
         writeln!(
@@ -2440,8 +2403,7 @@ impl CodeGen {
             "  %{} = phi ptr {}",
             result_var,
             phi_entries.join(", ")
-        )
-        .unwrap();
+        )?;
 
         Ok(result_var)
     }
@@ -2452,7 +2414,7 @@ impl CodeGen {
         stack_var: &str,
         id: usize,
         body: &[Statement],
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         let quot_type = self.get_quotation_type(id)?.clone();
         let fns = self.codegen_quotation(body, &quot_type)?;
 
@@ -2464,24 +2426,21 @@ impl CodeGen {
                     &mut self.output,
                     "  %{} = ptrtoint ptr @{} to i64",
                     wrapper_ptr_var, fns.wrapper
-                )
-                .unwrap();
+                )?;
 
                 let impl_ptr_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = ptrtoint ptr @{} to i64",
                     impl_ptr_var, fns.impl_
-                )
-                .unwrap();
+                )?;
 
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = call ptr @patch_seq_push_quotation(ptr %{}, i64 %{}, i64 %{})",
                     result_var, stack_var, wrapper_ptr_var, impl_ptr_var
-                )
-                .unwrap();
+                )?;
                 Ok(result_var)
             }
             Type::Closure { captures, .. } => {
@@ -2491,8 +2450,7 @@ impl CodeGen {
                     &mut self.output,
                     "  %{} = ptrtoint ptr @{} to i64",
                     fn_ptr_var, fns.wrapper
-                )
-                .unwrap();
+                )?;
 
                 let capture_count = i32::try_from(captures.len()).map_err(|_| {
                     format!(
@@ -2506,14 +2464,13 @@ impl CodeGen {
                     &mut self.output,
                     "  %{} = call ptr @patch_seq_push_closure(ptr %{}, i64 %{}, i32 {})",
                     result_var, stack_var, fn_ptr_var, capture_count
-                )
-                .unwrap();
+                )?;
                 Ok(result_var)
             }
-            _ => Err(format!(
+            _ => Err(CodeGenError::Logic(format!(
                 "CodeGen: expected Quotation or Closure type, got {:?}",
                 quot_type
-            )),
+            ))),
         }
     }
 
@@ -2530,7 +2487,7 @@ impl CodeGen {
         stack_var: &str,
         statement: &Statement,
         position: TailPosition,
-    ) -> Result<String, String> {
+    ) -> Result<String, CodeGenError> {
         match statement {
             Statement::IntLiteral(n) => self.codegen_int_literal(stack_var, *n),
             Statement::FloatLiteral(f) => self.codegen_float_literal(stack_var, *f),
@@ -2547,41 +2504,37 @@ impl CodeGen {
     }
 
     /// Generate main function that calls user's main word
-    fn codegen_main(&mut self) -> Result<(), String> {
+    fn codegen_main(&mut self) -> Result<(), CodeGenError> {
         writeln!(
             &mut self.output,
             "define i32 @main(i32 %argc, ptr %argv) {{"
-        )
-        .unwrap();
-        writeln!(&mut self.output, "entry:").unwrap();
+        )?;
+        writeln!(&mut self.output, "entry:")?;
 
         // Initialize command-line arguments (before scheduler so args are available)
         writeln!(
             &mut self.output,
             "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
-        )
-        .unwrap();
+        )?;
 
         // Initialize scheduler
-        writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()").unwrap();
+        writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()")?;
 
         // Spawn user's main function as the first strand
         // This ensures all code runs in coroutine context for non-blocking I/O
         writeln!(
             &mut self.output,
             "  %0 = call i64 @patch_seq_strand_spawn(ptr @seq_main, ptr null)"
-        )
-        .unwrap();
+        )?;
 
         // Wait for all spawned strands to complete (including main)
         writeln!(
             &mut self.output,
             "  %1 = call ptr @patch_seq_scheduler_run()"
-        )
-        .unwrap();
+        )?;
 
-        writeln!(&mut self.output, "  ret i32 0").unwrap();
-        writeln!(&mut self.output, "}}").unwrap();
+        writeln!(&mut self.output, "  ret i32 0")?;
+        writeln!(&mut self.output, "}}")?;
 
         Ok(())
     }
@@ -2729,10 +2682,10 @@ mod tests {
 
     #[test]
     fn test_escape_llvm_string() {
-        assert_eq!(CodeGen::escape_llvm_string("hello"), "hello");
-        assert_eq!(CodeGen::escape_llvm_string("a\nb"), r"a\0Ab");
-        assert_eq!(CodeGen::escape_llvm_string("a\tb"), r"a\09b");
-        assert_eq!(CodeGen::escape_llvm_string("a\"b"), r"a\22b");
+        assert_eq!(CodeGen::escape_llvm_string("hello").unwrap(), "hello");
+        assert_eq!(CodeGen::escape_llvm_string("a\nb").unwrap(), r"a\0Ab");
+        assert_eq!(CodeGen::escape_llvm_string("a\tb").unwrap(), r"a\09b");
+        assert_eq!(CodeGen::escape_llvm_string("a\"b").unwrap(), r"a\22b");
     }
 
     #[test]

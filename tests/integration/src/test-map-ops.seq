@@ -1,90 +1,69 @@
 # Test map operations
 
-: print-result ( Int String -- )
-  swap if
-    " PASS" string.concat io.write-line
-  else
-    " FAIL" string.concat io.write-line
-  then
-;
-
 # Test map.make and map.set
 : test-make-set ( -- )
   map.make
   "name" "Alice" map.set
   "age" 30 map.set
-  map.size 2 =
-  "map.make and map.set: size is 2" print-result
+  map.size 2 test.assert-eq
 ;
 
 # Test map.get
 : test-map.get ( -- )
   map.make
   "key" "value" map.set
-  "key" map.get "value" string.equal?
-  "map.get: retrieves correct value" print-result
+  "key" map.get "value" string.equal? test.assert
 ;
 
 # Test map.get-safe found
 : test-map.get-safe-found ( -- )
   map.make "x" 42 map.set
   "x" map.get-safe
-  "map.get-safe: returns 1 when found" print-result
-  42 =
-  "map.get-safe: returns correct value" print-result
+  test.assert  # success flag
+  42 test.assert-eq
 ;
 
 # Test map.get-safe not found
 : test-map.get-safe-not-found ( -- )
   map.make
   "missing" map.get-safe
-  not "map.get-safe: returns 0 when not found" print-result
+  test.assert-not  # returns 0 when not found
   drop  # drop placeholder value
 ;
 
 # Test map.has?
 : test-map-has ( -- )
   map.make "a" 1 map.set
-  dup "a" map.has?
-  "map.has?: returns 1 for existing key" print-result
-  "b" map.has? not
-  "map.has?: returns 0 for missing key" print-result
+  dup "a" map.has? test.assert
+  "b" map.has? test.assert-not
 ;
 
 # Test map.remove
 : test-map.remove ( -- )
   map.make "x" 1 map.set "y" 2 map.set
   "x" map.remove
-  dup "x" map.has? not
-  "map.remove: key is gone" print-result
-  "y" map.has?
-  "map.remove: other key remains" print-result
+  dup "x" map.has? test.assert-not
+  "y" map.has? test.assert
 ;
 
 # Test map.keys and map.values
 : test-keys-values ( -- )
   map.make "a" 1 map.set "b" 2 map.set
-  dup map.keys list.length 2 =
-  "map.keys: returns 2 keys" print-result
-  map.values list.length 2 =
-  "map.values: returns 2 values" print-result
+  dup map.keys list.length 2 test.assert-eq
+  map.values list.length 2 test.assert-eq
 ;
 
 # Test map.size
 : test-map.size ( -- )
-  map.make map.size 0 =
-  "map.size: empty map has size 0" print-result
+  map.make map.size 0 test.assert-eq
   map.make "a" 1 map.set "b" 2 map.set "c" 3 map.set
-  map.size 3 =
-  "map.size: returns correct count" print-result
+  map.size 3 test.assert-eq
 ;
 
 # Test map.empty?
 : test-map-empty ( -- )
-  map.make map.empty?
-  "map.empty?: returns 1 for empty map" print-result
-  map.make "k" "v" map.set map.empty? not
-  "map.empty?: returns 0 for non-empty map" print-result
+  map.make map.empty? test.assert
+  map.make "k" "v" map.set map.empty? test.assert-not
 ;
 
 # Test with integer keys
@@ -93,8 +72,7 @@
   1 "one" map.set
   2 "two" map.set
   3 "three" map.set
-  2 map.get "two" string.equal?
-  "integer keys: works correctly" print-result
+  2 map.get "two" string.equal? test.assert
 ;
 
 # Test with boolean keys
@@ -102,8 +80,7 @@
   map.make
   true "yes" map.set
   false "no" map.set
-  true map.get "yes" string.equal?
-  "boolean keys: works correctly" print-result
+  true map.get "yes" string.equal? test.assert
 ;
 
 # Test key overwrite behavior
@@ -111,10 +88,8 @@
   map.make
   "key" 100 map.set
   "key" 200 map.set
-  dup map.size 1 =
-  "key overwrite: size remains 1" print-result
-  "key" map.get 200 =
-  "key overwrite: value updated to 200" print-result
+  dup map.size 1 test.assert-eq
+  "key" map.get 200 test.assert-eq
 ;
 
 # Test mixed key types in same map
@@ -123,49 +98,5 @@
   "str" 1 map.set
   42 2 map.set
   true 3 map.set
-  map.size 3 =
-  "mixed key types: all three keys stored" print-result
-;
-
-: main ( -- Int )
-  "Testing map.make and map.set:" io.write-line
-  test-make-set
-
-  "Testing map.get:" io.write-line
-  test-map.get
-
-  "Testing map.get-safe (found):" io.write-line
-  test-map.get-safe-found
-
-  "Testing map.get-safe (not found):" io.write-line
-  test-map.get-safe-not-found
-
-  "Testing map.has?:" io.write-line
-  test-map-has
-
-  "Testing map.remove:" io.write-line
-  test-map.remove
-
-  "Testing map.keys and map.values:" io.write-line
-  test-keys-values
-
-  "Testing map.size:" io.write-line
-  test-map.size
-
-  "Testing map.empty?:" io.write-line
-  test-map-empty
-
-  "Testing integer keys:" io.write-line
-  test-int-keys
-
-  "Testing boolean keys:" io.write-line
-  test-bool-keys
-
-  "Testing key overwrite:" io.write-line
-  test-key-overwrite
-
-  "Testing mixed key types:" io.write-line
-  test-mixed-keys
-
-  0
+  map.size 3 test.assert-eq
 ;

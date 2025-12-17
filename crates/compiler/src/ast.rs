@@ -413,6 +413,17 @@ impl Program {
             "float->int",
             "float->string",
             "string->float",
+            // Test framework operations
+            "test.init",
+            "test.finish",
+            "test.has-failures",
+            "test.assert",
+            "test.assert-not",
+            "test.assert-eq",
+            "test.assert-eq-str",
+            "test.fail",
+            "test.pass-count",
+            "test.fail-count",
         ];
 
         for word in &self.words {

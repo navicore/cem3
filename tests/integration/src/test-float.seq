@@ -1,70 +1,38 @@
 # Float Support Integration Test
 
-: main ( -- Int )
-  # Basic arithmetic
-  1.5 2.5 f.add 4.0 f.= if
-    "PASS: f.add (1.5 + 2.5 = 4.0)" io.write-line
-  else
-    "FAIL: f.add" io.write-line
-  then
+: test-f-add ( -- )
+  1.5 2.5 f.add 4.0 f.= test.assert
+;
 
-  10.0 3.0 f.subtract 7.0 f.= if
-    "PASS: f.subtract (10.0 - 3.0 = 7.0)" io.write-line
-  else
-    "FAIL: f.subtract" io.write-line
-  then
+: test-f-subtract ( -- )
+  10.0 3.0 f.subtract 7.0 f.= test.assert
+;
 
-  2.5 4.0 f.multiply 10.0 f.= if
-    "PASS: f.multiply (2.5 * 4.0 = 10.0)" io.write-line
-  else
-    "FAIL: f.multiply" io.write-line
-  then
+: test-f-multiply ( -- )
+  2.5 4.0 f.multiply 10.0 f.= test.assert
+;
 
-  10.0 4.0 f.divide 2.5 f.= if
-    "PASS: f.divide (10.0 / 4.0 = 2.5)" io.write-line
-  else
-    "FAIL: f.divide" io.write-line
-  then
+: test-f-divide ( -- )
+  10.0 4.0 f.divide 2.5 f.= test.assert
+;
 
-  # Comparisons
-  1.5 2.5 f.< if
-    "PASS: f.< (1.5 < 2.5)" io.write-line
-  else
-    "FAIL: f.<" io.write-line
-  then
+: test-f-less-than ( -- )
+  1.5 2.5 f.< test.assert
+;
 
-  3.0 2.0 f.> if
-    "PASS: f.> (3.0 > 2.0)" io.write-line
-  else
-    "FAIL: f.>" io.write-line
-  then
+: test-f-greater-than ( -- )
+  3.0 2.0 f.> test.assert
+;
 
-  # Conversions
-  42 int->float 42.0 f.= if
-    "PASS: int->float (42 -> 42.0)" io.write-line
-  else
-    "FAIL: int->float" io.write-line
-  then
+: test-int-to-float ( -- )
+  42 int->float 42.0 f.= test.assert
+;
 
-  3.7 float->int 3 = if
-    "PASS: float->int truncates (3.7 -> 3)" io.write-line
-  else
-    "FAIL: float->int" io.write-line
-  then
+: test-float-to-int-truncates ( -- )
+  3.7 float->int 3 test.assert-eq
+;
 
-  # Scientific notation
-  1e3 1000.0 f.= if
-    "PASS: scientific notation (1e3 = 1000.0)" io.write-line
-  else
-    "FAIL: scientific notation" io.write-line
-  then
-
-  1.5e2 150.0 f.= if
-    "PASS: scientific notation (1.5e2 = 150.0)" io.write-line
-  else
-    "FAIL: scientific notation" io.write-line
-  then
-
-  "All float tests completed!" io.write-line
-  0
+: test-scientific-notation ( -- )
+  1e3 1000.0 f.= test.assert
+  1.5e2 150.0 f.= test.assert
 ;

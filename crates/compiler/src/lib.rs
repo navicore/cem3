@@ -26,6 +26,7 @@ pub mod lint;
 pub mod parser;
 pub mod resolver;
 pub mod stdlib_embed;
+pub mod test_runner;
 pub mod typechecker;
 pub mod types;
 pub mod unification;

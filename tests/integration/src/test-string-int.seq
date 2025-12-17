@@ -23,11 +23,11 @@
 : test-string-to-int-failure ( -- )
   # Invalid string returns (0, false)
   "not-a-number" string->int
-  not swap drop test.assert
+  not nip test.assert
 
   # Empty string returns (0, false)
   "" string->int
-  not swap drop test.assert
+  not nip test.assert
 ;
 
 : test-roundtrip ( -- )

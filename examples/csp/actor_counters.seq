@@ -152,8 +152,7 @@ union Message {
       # Add delta, forward to region immediately
       # Stack: ( parent my total delta )
       dup rot add            # ( parent my delta total+delta )
-      swap                   # ( parent my total' delta )
-      over                   # ( parent my total' delta total' )
+      tuck                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
       3 pick chan.send            # ( parent my total' ) - forwarded to region
       district-loop
@@ -197,8 +196,7 @@ union Message {
       # Add delta, forward to company immediately
       # Stack: ( parent my total delta )
       dup rot add            # ( parent my delta total+delta )
-      swap                   # ( parent my total' delta )
-      over                   # ( parent my total' delta total' )
+      tuck                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
       3 pick chan.send            # ( parent my total' ) - forwarded to company
       region-loop
@@ -296,7 +294,7 @@ union Message {
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
   [ region-actor ] spawn     # ( parent registry path chan chan parent strand-id )
-  drop drop drop             # ( parent registry path chan )
+  3drop             # ( parent registry path chan )
 
   dup                        # ( parent registry path chan chan )
   3 roll                     # ( parent path chan chan registry )
@@ -314,7 +312,7 @@ union Message {
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
   [ district-actor ] spawn   # ( parent registry path chan chan parent strand-id )
-  drop drop drop             # ( parent registry path chan )
+  3drop             # ( parent registry path chan )
 
   dup                        # ( parent registry path chan chan )
   3 roll                     # ( parent path chan chan registry )
@@ -386,7 +384,7 @@ union Message {
   dup                        # ( parent path registry chan chan )
   4 pick                     # ( parent path registry chan chan parent )
   [ store-actor ] spawn      # ( parent path registry chan chan parent strand-id )
-  drop drop drop             # ( parent path registry chan )
+  3drop             # ( parent path registry chan )
 
   # Now: ( parent path registry chan )
   # Need: ( registry path chan ) for map.set
@@ -443,8 +441,6 @@ union Message {
 : add-stores ( Variant Int String -- Variant )
   "/" string.concat                # ( registry district-chan prefix )
   stores-per-district              # ( registry district-chan prefix count )
-  rot                              # ( registry prefix count district-chan )
-  rot rot                          # ( registry district-chan prefix count )
   3 roll                           # ( district-chan prefix count registry )
   gen-stores-loop                  # ( registry' )
 ;
@@ -576,9 +572,9 @@ union Message {
   dup string.length         # ( str suffix suffix-len )
   rot dup string.length     # ( suffix suffix-len str str-len )
   rot                       # ( suffix str str-len suffix-len )
-  over over < if
+  2dup < if
     # suffix longer than string - can't match
-    drop drop drop drop 0
+    3drop drop 0
   else
     # Get the end of the string
     subtract                # ( suffix str offset )
@@ -734,7 +730,7 @@ union Message {
   # connection-handler takes top 2: ( registry client ), handles request
 
   # Parent cleanup: ( registry listener registry client strand-id )
-  drop drop drop            # ( registry listener )
+  3drop            # ( registry listener )
 
   accept-loop               # immediately accept next connection (TCO)
 ;

@@ -90,7 +90,7 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test build build-examples test-integration
+ci: fmt-check lint test build build-examples test-integration lint-seq
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
@@ -100,8 +100,15 @@ ci: fmt-check lint test build build-examples test-integration
     @echo "   - LSP server built ✓"
     @echo "   - Examples built ✓"
     @echo "   - Integration tests ✓"
+    @echo "   - Seq lint ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
+
+# Lint all Seq source files (strict mode for CI - warnings are errors)
+lint-seq: build
+    @echo "Linting Seq files..."
+    ./target/release/seqc lint --deny-warnings examples/ tests/ crates/compiler/stdlib/
+    @echo "✅ Seq lint passed!"
 
 # Install seq-lsp to ~/.local/bin (for neovim integration)
 install-lsp: build-lsp

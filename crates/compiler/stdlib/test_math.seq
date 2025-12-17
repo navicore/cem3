@@ -11,7 +11,7 @@
 
 # Maximum of two values
 : max ( Int Int -- Int )
-  over over > if
+  2dup > if
     drop
   else
     nip
@@ -20,7 +20,7 @@
 
 # Minimum of two values
 : min ( Int Int -- Int )
-  over over < if
+  2dup < if
     drop
   else
     nip
@@ -29,7 +29,7 @@
 
 # Modulo operation
 : mod ( Int Int -- Int )
-  over over
+  2dup
   divide
   multiply
   subtract
@@ -40,7 +40,7 @@
   dup 0 = if
     drop
   else
-    over over mod
+    2dup mod
     rot drop
     gcd
   then

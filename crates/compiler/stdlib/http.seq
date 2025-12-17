@@ -158,7 +158,7 @@
 # Example: "/echo/hello" "/echo/" -> "hello"
 : string-suffix-after ( String String -- String )
   # Stack: ( str prefix )
-  over over string.starts-with if
+  2dup string.starts-with if
     # String starts with prefix, extract suffix
     # Stack: ( str prefix )
 

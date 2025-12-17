@@ -51,6 +51,10 @@ enum Commands {
         /// Only show errors (not warnings or hints)
         #[arg(long)]
         errors_only: bool,
+
+        /// Treat warnings as errors (exit with failure if any warnings)
+        #[arg(long)]
+        deny_warnings: bool,
     },
 
     /// Generate shell completion scripts
@@ -97,8 +101,9 @@ fn main() {
             paths,
             config,
             errors_only,
+            deny_warnings,
         } => {
-            run_lint(&paths, config.as_deref(), errors_only);
+            run_lint(&paths, config.as_deref(), errors_only, deny_warnings);
         }
         Commands::Completions { shell } => {
             run_completions(shell);
@@ -144,7 +149,12 @@ fn run_build(input: &Path, output: &Path, keep_ir: bool, ffi_manifests: &[PathBu
     }
 }
 
-fn run_lint(paths: &[PathBuf], config_path: Option<&std::path::Path>, errors_only: bool) {
+fn run_lint(
+    paths: &[PathBuf],
+    config_path: Option<&std::path::Path>,
+    errors_only: bool,
+    deny_warnings: bool,
+) {
     use seqc::lint;
     use std::fs;
 
@@ -230,10 +240,14 @@ fn run_lint(paths: &[PathBuf], config_path: Option<&std::path::Path>, errors_onl
             files_checked
         );
         // Exit with error if there are any errors
-        if all_diagnostics
+        let has_errors = all_diagnostics
             .iter()
-            .any(|d| d.severity == lint::Severity::Error)
-        {
+            .any(|d| d.severity == lint::Severity::Error);
+        let has_warnings = all_diagnostics
+            .iter()
+            .any(|d| d.severity == lint::Severity::Warning);
+
+        if has_errors || (deny_warnings && has_warnings) {
             process::exit(1);
         }
     }

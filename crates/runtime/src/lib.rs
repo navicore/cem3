@@ -35,10 +35,10 @@ pub mod watchdog;
 
 // Re-export key types and functions
 pub use stack::{
-    Stack, StackNode, drop, is_empty, patch_seq_drop_op as drop_op, patch_seq_dup as dup,
-    patch_seq_nip as nip, patch_seq_over as over, patch_seq_pick_op as pick_op,
-    patch_seq_push_value as push_value, patch_seq_rot as rot, patch_seq_swap as swap,
-    patch_seq_tuck as tuck, peek, pick, pop, push,
+    Stack, StackNode, drop, is_empty, patch_seq_2dup as two_dup, patch_seq_3drop as three_drop,
+    patch_seq_drop_op as drop_op, patch_seq_dup as dup, patch_seq_nip as nip,
+    patch_seq_over as over, patch_seq_pick_op as pick_op, patch_seq_push_value as push_value,
+    patch_seq_rot as rot, patch_seq_swap as swap, patch_seq_tuck as tuck, peek, pick, pop, push,
 };
 pub use value::{MapKey, Value, VariantData};
 

@@ -507,7 +507,7 @@
 # Helper: 2dup equivalent ( a b -- a b a b )
 # Note: This is specifically typed for json parser state (String, Int)
 : json-2dup ( ..rest String Int -- ..rest String Int String Int )
-  over over
+  2dup
 ;
 
 # Check if position is at end of string
@@ -523,7 +523,7 @@
 # Get character code at position (non-destructive)
 # Stack: ( str pos -- str pos Int )
 : json-char-at ( ..rest String Int -- ..rest String Int Int )
-  over over string.char-at
+  2dup string.char-at
 ;
 
 # Advance position by n characters
@@ -706,24 +706,24 @@
   # Check for opening quote
   json-char-at 34 = if
     # Stack: str pos (at opening quote)
-    # Keep original str for later use
-    over                     # str pos str
+    # Keep original str and pos for later use
+    2dup                     # str pos str pos
 
     # startpos = pos + 1
-    over 1 add               # str pos str startpos
+    1 add                    # str pos str startpos
 
     # Create PState for scanning
-    over over make-pstate    # str pos str startpos PState
+    2dup make-pstate    # str pos str startpos PState
     pstate-scan-for-quote    # str pos str startpos PState closepos
 
     dup 0 < if
       # No closing quote - cleanup and fail
-      drop drop drop drop    # str pos
+      3drop drop    # str pos
       json-null 0
     else
       # Stack: str pos str startpos PState closepos
       # Drop PState, compute len = closepos - startpos
-      swap drop              # str pos str startpos closepos
+      nip                    # str pos str startpos closepos
       over subtract          # str pos str startpos len
 
       # Stack: str pos str startpos len
@@ -740,7 +740,7 @@
       # Stack: str pos JsonString
       # Save JsonString, scan original str from pos+1 for quote
       rot rot                # JsonString str pos
-      over over              # JsonString str pos str pos
+      2dup              # JsonString str pos str pos
       1 add make-pstate      # JsonString str pos PState(at startpos)
       pstate-scan-for-quote  # JsonString str pos PState closepos
       nip                    # JsonString str pos closepos (drop PState)
@@ -808,9 +808,9 @@
   rot drop                   # str startpos (discard old PState)
 
   # Scan for number end
-  over over make-pstate      # str startpos PState
+  2dup make-pstate      # str startpos PState
   pstate-find-number-end     # str startpos PState' endpos
-  swap drop                  # str startpos endpos
+  nip                        # str startpos endpos
 
   # Now we have str startpos endpos (3 items)
   # Need to produce: PState' numstr
@@ -922,7 +922,7 @@
   json-parse-value               # arr PState str' pos' elem success
   0 = if
     # Failed to parse element
-    drop drop drop               # arr PState
+    3drop               # arr PState
     swap                         # PState arr
     0
   else
@@ -1039,7 +1039,7 @@
     json-parse-string            # obj PState str' pos' JsonString success
     0 = if
       # Failed to parse key
-      drop drop drop             # obj PState
+      3drop             # obj PState
       swap                       # PState obj
       0
     else
@@ -1061,10 +1061,8 @@
         json-parse-value         # obj JsonString PState' str' pos' val success
         0 = if
           # Failed to parse value
-          drop drop drop         # obj JsonString PState'
+          3drop         # obj JsonString PState'
           rot drop               # PState' obj
-          swap                   # obj PState'
-          swap                   # PState' obj
           0
         else
           # Stack: obj JsonString PState' str' pos' val
@@ -1086,8 +1084,6 @@
       else
         # Missing colon
         rot drop                 # PState' obj
-        swap                     # obj PState'
-        swap                     # PState' obj
         0
       then
     then

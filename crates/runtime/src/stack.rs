@@ -217,6 +217,37 @@ pub unsafe extern "C" fn patch_seq_tuck(stack: Stack) -> Stack {
     unsafe { push(stack, b) }
 }
 
+/// Duplicate top two values: ( a b -- a b a b )
+///
+/// # Safety
+/// Stack must have at least two values
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_2dup(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "2dup: stack is empty");
+    let (rest, b) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "2dup: stack has only one value");
+    let (rest, a) = unsafe { pop(rest) };
+    let stack = unsafe { push(rest, a.clone()) };
+    let stack = unsafe { push(stack, b.clone()) };
+    let stack = unsafe { push(stack, a) };
+    unsafe { push(stack, b) }
+}
+
+/// Drop top three values: ( a b c -- )
+///
+/// # Safety
+/// Stack must have at least three values
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_3drop(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "3drop: stack is empty");
+    let (rest, _c) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "3drop: stack has only one value");
+    let (rest, _b) = unsafe { pop(rest) };
+    assert!(!rest.is_null(), "3drop: stack has only two values");
+    let (rest, _a) = unsafe { pop(rest) };
+    rest
+}
+
 /// Pick: Copy the nth value to the top (0-indexed from top)
 /// ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
 ///
@@ -474,6 +505,8 @@ pub unsafe fn clone_stack(stack: Stack) -> Stack {
 }
 
 // Public re-exports with short names for internal use
+pub use patch_seq_2dup as two_dup;
+pub use patch_seq_3drop as three_drop;
 pub use patch_seq_drop_op as drop_op;
 pub use patch_seq_dup as dup;
 pub use patch_seq_nip as nip;

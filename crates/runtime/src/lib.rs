@@ -26,6 +26,7 @@ pub mod seqstring;
 pub mod serialize;
 pub mod stack;
 pub mod string_ops;
+pub mod tagged_stack;
 pub mod tcp;
 pub mod tcp_test;
 pub mod test;

@@ -10,13 +10,16 @@ Benchmark suite comparing Seq strand performance against Go goroutines.
 ## Quick Start
 
 ```bash
-# Run all benchmarks
-./run.sh
+# Run all benchmarks (from project root)
+just bench
 
 # Run specific benchmark
-./run.sh skynet
-./run.sh pingpong
-./run.sh fanout
+just bench-skynet
+just bench-pingpong
+just bench-fanout
+
+# Or run directly from benchmarks directory
+cd benchmarks && ./run.sh
 ```
 
 ## Benchmarks

@@ -184,9 +184,12 @@ pub fn pool_allocate(value: Value, next: *mut StackNode) -> *mut StackNode {
         let mut pool_ref = pool.borrow_mut();
         let node = pool_ref.allocate(value, next);
 
-        // Update cross-thread memory stats
-        increment_pool_allocations();
-        update_pool_stats(pool_ref.count, pool_ref.capacity);
+        // Update cross-thread memory stats (skip in release for performance)
+        #[cfg(debug_assertions)]
+        {
+            increment_pool_allocations();
+            update_pool_stats(pool_ref.count, pool_ref.capacity);
+        }
 
         node
     })
@@ -206,7 +209,8 @@ pub unsafe fn pool_free(node: *mut StackNode) {
         let mut pool_ref = pool.borrow_mut();
         unsafe { pool_ref.free(node) };
 
-        // Update cross-thread memory stats
+        // Update cross-thread memory stats (skip in release for performance)
+        #[cfg(debug_assertions)]
         update_pool_stats(pool_ref.count, pool_ref.capacity);
     })
 }

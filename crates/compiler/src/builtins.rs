@@ -626,6 +626,11 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "test.pass-count", (a -- a Int));
     builtin!(sigs, "test.fail-count", (a -- a Int));
 
+    // Time operations
+    builtin!(sigs, "time.now", (a -- a Int));
+    builtin!(sigs, "time.nanos", (a -- a Int));
+    builtin!(sigs, "time.sleep-ms", (a Int -- a));
+
     sigs
 }
 

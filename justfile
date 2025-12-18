@@ -160,3 +160,23 @@ test-integration: build
     ./target/release/seqc test tests/integration/src/
     @echo "✅ Integration tests passed!"
 
+# Run all benchmarks (Seq vs Go comparison)
+bench: build
+    @echo "Running all benchmarks..."
+    cd benchmarks && ./run.sh
+
+# Run skynet benchmark (spawn overhead - 1M strands)
+bench-skynet: build
+    @echo "Running skynet benchmark..."
+    cd benchmarks && ./run.sh skynet
+
+# Run pingpong benchmark (channel latency - 1M messages)
+bench-pingpong: build
+    @echo "Running pingpong benchmark..."
+    cd benchmarks && ./run.sh pingpong
+
+# Run fanout benchmark (channel throughput - 100 workers, 1M messages)
+bench-fanout: build
+    @echo "Running fanout benchmark..."
+    cd benchmarks && ./run.sh fanout
+

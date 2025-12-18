@@ -474,8 +474,9 @@ pub unsafe extern "C" fn patch_seq_spawn_strand(entry: extern "C" fn(Stack) -> S
 /// # Safety
 /// Always safe to call from within a May coroutine.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_yield_strand() {
+pub unsafe extern "C" fn patch_seq_yield_strand(stack: Stack) -> Stack {
     coroutine::yield_now();
+    stack
 }
 
 /// Wait for all strands to complete

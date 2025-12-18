@@ -426,6 +426,10 @@ impl Program {
             "test.fail",
             "test.pass-count",
             "test.fail-count",
+            // Time operations
+            "time.now",
+            "time.nanos",
+            "time.sleep-ms",
         ];
 
         for word in &self.words {

@@ -1,12 +1,18 @@
 //! Channel operations for CSP-style concurrency
 //!
 //! Channels are the primary communication mechanism between strands.
-//! They use May's mpsc channels with cooperative blocking.
+//! They use May's MPMC channels with cooperative blocking.
 //!
 //! ## Non-Blocking Guarantee
 //!
 //! All channel operations (`send`, `receive`) cooperatively block using May's scheduler.
 //! They NEVER block OS threads - May handles scheduling other strands while waiting.
+//!
+//! ## Multi-Consumer Support
+//!
+//! Channels support multiple producers AND multiple consumers (MPMC). Multiple strands
+//! can receive from the same channel concurrently - each message is delivered to exactly
+//! one receiver (work-stealing semantics).
 //!
 //! ## Error Handling
 //!
@@ -26,7 +32,7 @@
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
-use may::sync::mpsc;
+use may::sync::mpmc;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -51,11 +57,11 @@ struct ChannelStatsInner {
 }
 
 /// A channel pair (sender and receiver) with statistics
-/// Receiver is Arc<Mutex<>> to allow access without holding global registry lock
+/// Both sender and receiver are cloneable (MPMC) - no mutex needed
 /// Stats are Arc<> to allow updating after releasing the registry lock
 struct ChannelPair {
-    sender: mpsc::Sender<Value>,
-    receiver: Arc<Mutex<mpsc::Receiver<Value>>>,
+    sender: mpmc::Sender<Value>,
+    receiver: mpmc::Receiver<Value>,
     stats: Arc<ChannelStatsInner>,
 }
 
@@ -139,10 +145,11 @@ pub fn channel_stats() -> Option<Vec<ChannelStats>> {
 pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
     init_registry();
 
-    // Create an unbounded channel
-    // May's mpsc::channel() creates coroutine-aware channels
+    // Create an unbounded MPMC channel
+    // May's mpmc::channel() creates coroutine-aware channels with multi-producer, multi-consumer
     // The recv() operation cooperatively blocks (yields) instead of blocking the OS thread
-    let (sender, receiver) = mpsc::channel();
+    // Both sender and receiver are Clone - no mutex needed for sharing
+    let (sender, receiver) = mpmc::channel();
 
     let channel_id = NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed);
 
@@ -159,7 +166,7 @@ pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
         channel_id,
         ChannelPair {
             sender,
-            receiver: Arc::new(Mutex::new(receiver)),
+            receiver,
             stats: Arc::new(ChannelStatsInner {
                 send_count: AtomicU64::new(0),
                 receive_count: AtomicU64::new(0),
@@ -242,15 +249,11 @@ pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
 /// Blocks the strand until a value is available.
 /// This is cooperative blocking - the strand yields and May handles scheduling.
 ///
-/// ## Multi-Consumer Limitation
+/// ## Multi-Consumer Support
 ///
-/// The receiver mutex is held during the blocking recv() operation. This means
-/// multiple strands calling receive() on the same channel will be serialized -
-/// only one can block in recv() at a time. While this prevents deadlocks with
-/// the global registry lock, it does reduce throughput with multiple consumers.
-///
-/// For high-performance multi-consumer scenarios, consider using multiple channels
-/// or implementing a work-stealing pattern.
+/// Multiple strands can receive from the same channel concurrently (MPMC).
+/// Each message is delivered to exactly one receiver (work-stealing semantics).
+/// No serialization - strands compete fairly for messages.
 ///
 /// # Safety
 /// Stack must have a channel ID (Int) on top
@@ -270,8 +273,9 @@ pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
         _ => panic!("receive: expected channel ID (Int) on stack"),
     };
 
-    // Get receiver Arc and stats from registry (don't hold lock during recv!)
-    let (receiver_arc, stats) = {
+    // Clone receiver and stats from registry (don't hold lock during recv!)
+    // MPMC receiver is Clone - no mutex needed
+    let (receiver, stats) = {
         let guard = CHANNEL_REGISTRY
             .lock()
             .expect("receive: channel registry lock poisoned - strand panicked while holding lock");
@@ -285,16 +289,12 @@ pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
             None => panic!("receive: invalid channel ID {}", channel_id),
         };
 
-        (Arc::clone(&pair.receiver), Arc::clone(&pair.stats))
+        (pair.receiver.clone(), Arc::clone(&pair.stats))
     }; // Registry lock released here!
 
     // Receive a value (cooperatively blocks the strand until available)
     // May's recv() yields to the scheduler, not blocking the OS thread
-    // We do NOT hold the global registry lock, avoiding deadlock
-    let receiver = receiver_arc.lock().expect(
-        "receive: receiver lock poisoned - strand panicked while receiving from this channel",
-    );
-
+    // Multiple strands can wait concurrently - MPMC handles synchronization
     let value = match receiver.recv() {
         Ok(v) => v,
         Err(_) => panic!("receive: channel closed"),
@@ -420,6 +420,11 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
 /// Returns (value, 1) on success, (0, 0) on failure (closed channel or invalid ID).
 /// Does not panic on errors - returns (0, 0) instead.
 ///
+/// ## Multi-Consumer Support
+///
+/// Multiple strands can receive from the same channel concurrently (MPMC).
+/// Each message is delivered to exactly one receiver (work-stealing semantics).
+///
 /// # Safety
 /// Stack must have a channel ID (Int) on top
 #[unsafe(no_mangle)]
@@ -440,8 +445,8 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
         _ => panic!("receive-safe: expected channel ID (Int) on stack"),
     };
 
-    // Get receiver Arc and stats from registry
-    let (receiver_arc, stats) = {
+    // Clone receiver and stats from registry (MPMC receiver is Clone)
+    let (receiver, stats) = {
         let guard = match CHANNEL_REGISTRY.lock() {
             Ok(g) => g,
             Err(_) => {
@@ -459,7 +464,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
         };
 
         match registry.get(&channel_id) {
-            Some(p) => (Arc::clone(&p.receiver), Arc::clone(&p.stats)),
+            Some(p) => (p.receiver.clone(), Arc::clone(&p.stats)),
             None => {
                 let stack = unsafe { push(rest, Value::Int(0)) };
                 return unsafe { push(stack, Value::Int(0)) };
@@ -467,15 +472,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
         }
     };
 
-    // Receive a value
-    let receiver = match receiver_arc.lock() {
-        Ok(r) => r,
-        Err(_) => {
-            let stack = unsafe { push(rest, Value::Int(0)) };
-            return unsafe { push(stack, Value::Int(0)) };
-        }
-    };
-
+    // Receive a value - MPMC handles concurrent receivers
     match receiver.recv() {
         Ok(value) => {
             stats.receive_count.fetch_add(1, Ordering::Relaxed);

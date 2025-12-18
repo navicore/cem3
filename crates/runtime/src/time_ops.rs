@@ -67,12 +67,7 @@ pub unsafe extern "C" fn patch_seq_time_now(stack: Stack) -> Stack {
 /// - `stack` must be a valid stack pointer (may be null for empty stack)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_time_nanos(stack: Stack) -> Stack {
-    let nanos = CLOCK_BASE.with(|base| {
-        base.elapsed()
-            .as_nanos()
-            .try_into()
-            .unwrap_or(i64::MAX)
-    });
+    let nanos = CLOCK_BASE.with(|base| base.elapsed().as_nanos().try_into().unwrap_or(i64::MAX));
     unsafe { push(stack, Value::Int(nanos)) }
 }
 

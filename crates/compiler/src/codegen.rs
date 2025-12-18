@@ -235,6 +235,10 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("test.fail", "patch_seq_test_fail"),
         ("test.pass-count", "patch_seq_test_pass_count"),
         ("test.fail-count", "patch_seq_test_fail_count"),
+        // Time operations
+        ("time.now", "patch_seq_time_now"),
+        ("time.nanos", "patch_seq_time_nanos"),
+        ("time.sleep-ms", "patch_seq_time_sleep_ms"),
     ])
 });
 
@@ -780,6 +784,10 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_test_fail(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_test_pass_count(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_test_fail_count(ptr)")?;
+        // Time operations
+        writeln!(&mut ir, "declare ptr @patch_seq_time_now(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_time_nanos(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_time_sleep_ms(ptr)")?;
         writeln!(&mut ir, "; Helpers for conditionals")?;
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
@@ -1122,6 +1130,10 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_test_fail(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_test_pass_count(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_test_fail_count(ptr)")?;
+        // Time operations
+        writeln!(ir, "declare ptr @patch_seq_time_now(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_time_nanos(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_time_sleep_ms(ptr)")?;
         writeln!(ir, "; Helpers for conditionals")?;
         writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)")?;

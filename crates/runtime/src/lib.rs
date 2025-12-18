@@ -29,6 +29,7 @@ pub mod string_ops;
 pub mod tcp;
 pub mod tcp_test;
 pub mod test;
+pub mod time_ops;
 pub mod value;
 pub mod variant_ops;
 pub mod watchdog;
@@ -175,4 +176,10 @@ pub use test::{
     patch_seq_test_fail_count as test_fail_count, patch_seq_test_finish as test_finish,
     patch_seq_test_has_failures as test_has_failures, patch_seq_test_init as test_init,
     patch_seq_test_pass_count as test_pass_count,
+};
+
+// Time operations (exported for LLVM linking)
+pub use time_ops::{
+    patch_seq_time_nanos as time_nanos, patch_seq_time_now as time_now,
+    patch_seq_time_sleep_ms as time_sleep_ms,
 };

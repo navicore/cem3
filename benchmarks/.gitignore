@@ -1,0 +1,22 @@
+# Compiled Seq binaries (same name as .seq file without extension)
+skynet/skynet
+pingpong/pingpong
+fanout/fanout
+
+# Compiled Go binaries
+*_go
+
+# Rust profiling binaries
+*_profile
+spawn_profile
+stack_clone_profile
+stack_ops_profile
+
+# Cargo target directories
+**/target/
+
+# Object files
+*.o
+
+# Cargo lock files for standalone benchmark crates (not needed)
+may_bench/Cargo.lock

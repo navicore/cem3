@@ -61,11 +61,18 @@ pub unsafe extern "C" fn patch_seq_time_now(stack: Stack) -> Stack {
 /// Uses a monotonic clock - values always increase, unaffected by system
 /// clock changes. Perfect for measuring elapsed time.
 ///
+/// Note: Saturates at i64::MAX (~292 years of uptime) to prevent overflow.
+///
 /// # Safety
 /// - `stack` must be a valid stack pointer (may be null for empty stack)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_time_nanos(stack: Stack) -> Stack {
-    let nanos = CLOCK_BASE.with(|base| base.elapsed().as_nanos() as i64);
+    let nanos = CLOCK_BASE.with(|base| {
+        base.elapsed()
+            .as_nanos()
+            .try_into()
+            .unwrap_or(i64::MAX)
+    });
     unsafe { push(stack, Value::Int(nanos)) }
 }
 

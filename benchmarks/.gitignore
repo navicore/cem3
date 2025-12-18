@@ -17,6 +17,3 @@ stack_ops_profile
 
 # Object files
 *.o
-
-# Cargo lock files for standalone benchmark crates (not needed)
-may_bench/Cargo.lock

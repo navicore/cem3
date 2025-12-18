@@ -230,9 +230,10 @@ pub fn strand_registry() -> &'static StrandRegistry {
     })
 }
 
-/// Default coroutine stack size: 1MB (0x100000 bytes)
-/// Can be overridden via SEQ_STACK_SIZE environment variable
-const DEFAULT_STACK_SIZE: usize = 0x100000;
+/// Default coroutine stack size: 128KB (0x20000 bytes)
+/// Reduced from 1MB for better spawn performance (~16% faster in benchmarks).
+/// Can be overridden via SEQ_STACK_SIZE environment variable.
+const DEFAULT_STACK_SIZE: usize = 0x20000;
 
 /// Parse stack size from an optional string value.
 /// Returns the parsed size, or DEFAULT_STACK_SIZE if the value is missing, zero, or invalid.

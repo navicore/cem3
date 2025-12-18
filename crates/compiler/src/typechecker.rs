@@ -570,6 +570,233 @@ impl TypeChecker {
         Ok(Effect::new(normalized_start, normalized_result))
     }
 
+    /// Infer the stack effect of a match expression
+    fn infer_match(
+        &self,
+        arms: &[crate::ast::MatchArm],
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst), String> {
+        if arms.is_empty() {
+            return Err("match expression must have at least one arm".to_string());
+        }
+
+        // Pop the matched value from the stack
+        let (stack_after_match, _matched_type) =
+            self.pop_type(&current_stack, "match expression")?;
+
+        // Track all arm results for unification
+        let mut arm_results: Vec<StackType> = Vec::new();
+        let mut combined_subst = Subst::empty();
+
+        for arm in arms {
+            // Get variant name from pattern
+            let variant_name = match &arm.pattern {
+                crate::ast::Pattern::Variant(name) => name.as_str(),
+                crate::ast::Pattern::VariantWithBindings { name, .. } => name.as_str(),
+            };
+
+            // Look up variant info
+            let (_union_name, variant_info) = self
+                .find_variant(variant_name)
+                .ok_or_else(|| format!("Unknown variant '{}' in match pattern", variant_name))?;
+
+            // Push fields onto the stack based on pattern type
+            let arm_stack = self.push_variant_fields(
+                &stack_after_match,
+                &arm.pattern,
+                variant_info,
+                variant_name,
+            )?;
+
+            // Type check the arm body directly from the actual stack
+            let (arm_result, arm_subst) = self.infer_statements_from(&arm.body, &arm_stack)?;
+
+            combined_subst = combined_subst.compose(&arm_subst);
+            arm_results.push(arm_result);
+        }
+
+        // Unify all arm results to ensure they're compatible
+        let mut final_result = arm_results[0].clone();
+        for (i, arm_result) in arm_results.iter().enumerate().skip(1) {
+            let arm_subst = unify_stacks(&final_result, arm_result).map_err(|e| {
+                format!(
+                    "match arms have incompatible stack effects:\n\
+                     \x20 arm 0 produces: {}\n\
+                     \x20 arm {} produces: {}\n\
+                     \x20 All match arms must produce the same stack shape.\n\
+                     \x20 Error: {}",
+                    final_result, i, arm_result, e
+                )
+            })?;
+            combined_subst = combined_subst.compose(&arm_subst);
+            final_result = arm_subst.apply_stack(&final_result);
+        }
+
+        Ok((final_result, combined_subst))
+    }
+
+    /// Push variant fields onto the stack based on the match pattern
+    fn push_variant_fields(
+        &self,
+        stack: &StackType,
+        pattern: &crate::ast::Pattern,
+        variant_info: &VariantInfo,
+        variant_name: &str,
+    ) -> Result<StackType, String> {
+        let mut arm_stack = stack.clone();
+        match pattern {
+            crate::ast::Pattern::Variant(_) => {
+                // Stack-based: push all fields in declaration order
+                for field in &variant_info.fields {
+                    arm_stack = arm_stack.push(field.field_type.clone());
+                }
+            }
+            crate::ast::Pattern::VariantWithBindings { bindings, .. } => {
+                // Named bindings: validate and push only bound fields
+                for binding in bindings {
+                    let field = variant_info
+                        .fields
+                        .iter()
+                        .find(|f| &f.name == binding)
+                        .ok_or_else(|| {
+                            let available: Vec<_> = variant_info
+                                .fields
+                                .iter()
+                                .map(|f| f.name.as_str())
+                                .collect();
+                            format!(
+                                "Unknown field '{}' in pattern for variant '{}'.\n\
+                                 Available fields: {}",
+                                binding,
+                                variant_name,
+                                available.join(", ")
+                            )
+                        })?;
+                    arm_stack = arm_stack.push(field.field_type.clone());
+                }
+            }
+        }
+        Ok(arm_stack)
+    }
+
+    /// Infer the stack effect of an if/else expression
+    fn infer_if(
+        &self,
+        then_branch: &[Statement],
+        else_branch: &Option<Vec<Statement>>,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst), String> {
+        // Pop condition (must be Int/Bool)
+        let (stack_after_cond, cond_type) = self.pop_type(&current_stack, "if condition")?;
+
+        // Condition must be Int (Forth-style: 0 = false, non-zero = true)
+        let cond_subst = unify_stacks(
+            &StackType::singleton(Type::Int),
+            &StackType::singleton(cond_type),
+        )
+        .map_err(|e| format!("if condition must be Int: {}", e))?;
+
+        let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
+
+        // Infer branches directly from the actual stack
+        let (then_result, then_subst) =
+            self.infer_statements_from(then_branch, &stack_after_cond)?;
+
+        // Infer else branch (or use stack_after_cond if no else)
+        let (else_result, else_subst) = if let Some(else_stmts) = else_branch {
+            self.infer_statements_from(else_stmts, &stack_after_cond)?
+        } else {
+            (stack_after_cond, Subst::empty())
+        };
+
+        // Both branches must produce compatible stacks
+        let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
+            format!(
+                "if/else branches have incompatible stack effects:\n\
+                 \x20 then branch produces: {}\n\
+                 \x20 else branch produces: {}\n\
+                 \x20 Both branches of an if/else must produce the same stack shape.\n\
+                 \x20 Hint: Make sure both branches push/pop the same number of values.\n\
+                 \x20 Error: {}",
+                then_result, else_result, e
+            )
+        })?;
+
+        // Apply branch unification to get the final result
+        let result = branch_subst.apply_stack(&then_result);
+
+        // Propagate all substitutions
+        let total_subst = cond_subst
+            .compose(&then_subst)
+            .compose(&else_subst)
+            .compose(&branch_subst);
+        Ok((result, total_subst))
+    }
+
+    /// Infer the stack effect of a quotation
+    fn infer_quotation(
+        &self,
+        id: usize,
+        body: &[Statement],
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst), String> {
+        // Infer the effect of the quotation body
+        let body_effect = self.infer_statements(body)?;
+
+        // Perform capture analysis
+        let quot_type = self.analyze_captures(&body_effect, &current_stack)?;
+
+        // Record this quotation's type in the type map (for CodeGen to use later)
+        self.quotation_types
+            .borrow_mut()
+            .insert(id, quot_type.clone());
+
+        // If this is a closure, we need to pop the captured values from the stack
+        let result_stack = match &quot_type {
+            Type::Quotation(_) => {
+                // Stateless - no captures, just push quotation onto stack
+                current_stack.push(quot_type)
+            }
+            Type::Closure { captures, .. } => {
+                // Pop captured values from stack, then push closure
+                let mut stack = current_stack.clone();
+                for _ in 0..captures.len() {
+                    let (new_stack, _value) = self.pop_type(&stack, "closure capture")?;
+                    stack = new_stack;
+                }
+                stack.push(quot_type)
+            }
+            _ => unreachable!("analyze_captures only returns Quotation or Closure"),
+        };
+
+        Ok((result_stack, Subst::empty()))
+    }
+
+    /// Infer the stack effect of a word call
+    fn infer_word_call(
+        &self,
+        name: &str,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst), String> {
+        // Look up word's effect
+        let effect = self
+            .lookup_word_effect(name)
+            .ok_or_else(|| format!("Unknown word: '{}'", name))?;
+
+        // Freshen the effect to avoid variable name clashes
+        let fresh_effect = self.freshen_effect(&effect);
+
+        // Special handling for spawn: auto-convert Quotation to Closure if needed
+        let adjusted_stack = if name == "spawn" {
+            self.adjust_stack_for_spawn(current_stack, &fresh_effect)?
+        } else {
+            current_stack
+        };
+
+        // Apply the freshened effect to current stack
+        self.apply_effect(&fresh_effect, adjusted_stack, name)
+    }
+
     /// Infer the resulting stack type after a statement
     /// Takes current stack, returns (new stack, substitution) after statement
     fn infer_statement(
@@ -578,246 +805,17 @@ impl TypeChecker {
         current_stack: StackType,
     ) -> Result<(StackType, Subst), String> {
         match statement {
-            Statement::IntLiteral(_) => {
-                // Push Int onto stack
-                Ok((current_stack.push(Type::Int), Subst::empty()))
-            }
-
-            Statement::Match { arms } => {
-                // Type checking for match expressions on union types
-                //
-                // 1. Pop the matched value (must be a union type or type variable)
-                // 2. For each arm, push the variant's fields onto the stack
-                // 3. Type check each arm's body
-                // 4. Unify all arm results
-
-                if arms.is_empty() {
-                    return Err("match expression must have at least one arm".to_string());
-                }
-
-                // Pop the matched value from the stack
-                let (stack_after_match, _matched_type) =
-                    self.pop_type(&current_stack, "match expression")?;
-
-                // Track all arm results for unification
-                let mut arm_results: Vec<StackType> = Vec::new();
-                let mut combined_subst = Subst::empty();
-
-                for arm in arms {
-                    // Get variant name from pattern
-                    let variant_name = match &arm.pattern {
-                        crate::ast::Pattern::Variant(name) => name.as_str(),
-                        crate::ast::Pattern::VariantWithBindings { name, .. } => name.as_str(),
-                    };
-
-                    // Look up variant info
-                    let (_union_name, variant_info) =
-                        self.find_variant(variant_name).ok_or_else(|| {
-                            format!("Unknown variant '{}' in match pattern", variant_name)
-                        })?;
-
-                    // Push fields onto the stack based on pattern type
-                    let mut arm_stack = stack_after_match.clone();
-                    match &arm.pattern {
-                        crate::ast::Pattern::Variant(_) => {
-                            // Stack-based: push all fields in declaration order
-                            for field in &variant_info.fields {
-                                arm_stack = arm_stack.push(field.field_type.clone());
-                            }
-                        }
-                        crate::ast::Pattern::VariantWithBindings { bindings, .. } => {
-                            // Named bindings: validate and push only bound fields
-                            for binding in bindings {
-                                let field = variant_info
-                                    .fields
-                                    .iter()
-                                    .find(|f| &f.name == binding)
-                                    .ok_or_else(|| {
-                                        let available: Vec<_> = variant_info
-                                            .fields
-                                            .iter()
-                                            .map(|f| f.name.as_str())
-                                            .collect();
-                                        format!(
-                                            "Unknown field '{}' in pattern for variant '{}'.\n\
-                                             Available fields: {}",
-                                            binding,
-                                            variant_name,
-                                            available.join(", ")
-                                        )
-                                    })?;
-                                arm_stack = arm_stack.push(field.field_type.clone());
-                            }
-                        }
-                    }
-
-                    // Type check the arm body directly from the actual stack
-                    // This is necessary for operations like `n roll` and `n pick` which need
-                    // to know the concrete stack types to determine if they can access position n
-                    let (arm_result, arm_subst) =
-                        self.infer_statements_from(&arm.body, &arm_stack)?;
-
-                    combined_subst = combined_subst.compose(&arm_subst);
-                    arm_results.push(arm_result);
-                }
-
-                // Unify all arm results to ensure they're compatible
-                let mut final_result = arm_results[0].clone();
-                for (i, arm_result) in arm_results.iter().enumerate().skip(1) {
-                    let arm_subst = unify_stacks(&final_result, arm_result).map_err(|e| {
-                        format!(
-                            "match arms have incompatible stack effects:\n\
-                             \x20 arm 0 produces: {}\n\
-                             \x20 arm {} produces: {}\n\
-                             \x20 All match arms must produce the same stack shape.\n\
-                             \x20 Error: {}",
-                            final_result, i, arm_result, e
-                        )
-                    })?;
-                    combined_subst = combined_subst.compose(&arm_subst);
-                    final_result = arm_subst.apply_stack(&final_result);
-                }
-
-                Ok((final_result, combined_subst))
-            }
-
-            Statement::BoolLiteral(_) => {
-                // Push Bool onto stack (currently represented as Int at runtime)
-                // But we track it as Int in the type system
-                Ok((current_stack.push(Type::Int), Subst::empty()))
-            }
-
-            Statement::StringLiteral(_) => {
-                // Push String onto stack
-                Ok((current_stack.push(Type::String), Subst::empty()))
-            }
-
-            Statement::FloatLiteral(_) => {
-                // Push Float onto stack
-                Ok((current_stack.push(Type::Float), Subst::empty()))
-            }
-
-            Statement::WordCall { name, .. } => {
-                // Look up word's effect
-                let effect = self
-                    .lookup_word_effect(name)
-                    .ok_or_else(|| format!("Unknown word: '{}'", name))?;
-
-                // Freshen the effect to avoid variable name clashes
-                let fresh_effect = self.freshen_effect(&effect);
-
-                // Special handling for spawn: auto-convert Quotation to Closure if needed
-                let adjusted_stack = if name == "spawn" {
-                    self.adjust_stack_for_spawn(current_stack, &fresh_effect)?
-                } else {
-                    current_stack
-                };
-
-                // Apply the freshened effect to current stack
-                self.apply_effect(&fresh_effect, adjusted_stack, name)
-            }
-
+            Statement::IntLiteral(_) => Ok((current_stack.push(Type::Int), Subst::empty())),
+            Statement::BoolLiteral(_) => Ok((current_stack.push(Type::Int), Subst::empty())),
+            Statement::StringLiteral(_) => Ok((current_stack.push(Type::String), Subst::empty())),
+            Statement::FloatLiteral(_) => Ok((current_stack.push(Type::Float), Subst::empty())),
+            Statement::Match { arms } => self.infer_match(arms, current_stack),
+            Statement::WordCall { name, .. } => self.infer_word_call(name, current_stack),
             Statement::If {
                 then_branch,
                 else_branch,
-            } => {
-                // Pop condition (must be Int/Bool)
-                let (stack_after_cond, cond_type) =
-                    self.pop_type(&current_stack, "if condition")?;
-
-                // Condition must be Int (Forth-style: 0 = false, non-zero = true)
-                let cond_subst = unify_stacks(
-                    &StackType::singleton(Type::Int),
-                    &StackType::singleton(cond_type),
-                )
-                .map_err(|e| format!("if condition must be Int: {}", e))?;
-
-                let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
-
-                // Infer branches directly from the actual stack
-                // This is necessary for operations like `n roll` and `n pick` which need
-                // to know the concrete stack types to determine if they can access position n
-                let (then_result, then_subst) =
-                    self.infer_statements_from(then_branch, &stack_after_cond)?;
-
-                // Infer else branch (or use stack_after_cond if no else)
-                let (else_result, else_subst) = if let Some(else_stmts) = else_branch {
-                    self.infer_statements_from(else_stmts, &stack_after_cond)?
-                } else {
-                    (stack_after_cond, Subst::empty())
-                };
-
-                // Both branches must produce compatible stacks
-                let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
-                    format!(
-                        "if/else branches have incompatible stack effects:\n\
-                         \x20 then branch produces: {}\n\
-                         \x20 else branch produces: {}\n\
-                         \x20 Both branches of an if/else must produce the same stack shape.\n\
-                         \x20 Hint: Make sure both branches push/pop the same number of values.\n\
-                         \x20 Error: {}",
-                        then_result, else_result, e
-                    )
-                })?;
-
-                // Apply branch unification to get the final result
-                let result = branch_subst.apply_stack(&then_result);
-
-                // Propagate all substitutions
-                let total_subst = cond_subst
-                    .compose(&then_subst)
-                    .compose(&else_subst)
-                    .compose(&branch_subst);
-                Ok((result, total_subst))
-            }
-
-            Statement::Quotation { id, body } => {
-                // Type checking for quotations with automatic capture analysis
-                //
-                // A quotation is a block of deferred code.
-                //
-                // For stateless quotations:
-                //   Example: [ 1 add ]
-                //   Body effect: ( -- Int )  (pushes 1, needs Int from call site, adds)
-                //   Type: Quotation([Int -- Int])
-                //
-                // For closures (automatic capture):
-                //   Example: 5 [ add ]
-                //   Body effect: ( Int Int -- Int )  (needs 2 Ints)
-                //   One Int will be captured from creation site
-                //   Type: Closure { effect: [Int -- Int], captures: [Int] }
-
-                // Infer the effect of the quotation body
-                let body_effect = self.infer_statements(body)?;
-
-                // Perform capture analysis
-                let quot_type = self.analyze_captures(&body_effect, &current_stack)?;
-
-                // Record this quotation's type in the type map (for CodeGen to use later)
-                self.quotation_types
-                    .borrow_mut()
-                    .insert(*id, quot_type.clone());
-
-                // If this is a closure, we need to pop the captured values from the stack
-                let result_stack = match &quot_type {
-                    Type::Quotation(_) => {
-                        // Stateless - no captures, just push quotation onto stack
-                        current_stack.push(quot_type)
-                    }
-                    Type::Closure { captures, .. } => {
-                        // Pop captured values from stack, then push closure
-                        let mut stack = current_stack.clone();
-                        for _ in 0..captures.len() {
-                            let (new_stack, _value) = self.pop_type(&stack, "closure capture")?;
-                            stack = new_stack;
-                        }
-                        stack.push(quot_type)
-                    }
-                    _ => unreachable!("analyze_captures only returns Quotation or Closure"),
-                };
-
-                Ok((result_stack, Subst::empty()))
-            }
+            } => self.infer_if(then_branch, else_branch, current_stack),
+            Statement::Quotation { id, body } => self.infer_quotation(*id, body, current_stack),
         }
     }
 

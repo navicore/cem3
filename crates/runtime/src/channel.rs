@@ -926,4 +926,143 @@ mod tests {
             let _ = close_channel(stack);
         }
     }
+
+    #[test]
+    fn test_mpmc_concurrent_receivers() {
+        // Verify that multiple receivers can receive from the same channel concurrently
+        // and that messages are distributed (not duplicated)
+        unsafe {
+            use std::sync::atomic::{AtomicI64, Ordering};
+
+            const NUM_MESSAGES: i64 = 100;
+            const NUM_RECEIVERS: usize = 4;
+
+            // Shared counters for each receiver
+            static RECEIVER_COUNTS: [AtomicI64; 4] = [
+                AtomicI64::new(0),
+                AtomicI64::new(0),
+                AtomicI64::new(0),
+                AtomicI64::new(0),
+            ];
+            static CHANNEL_ID: AtomicI64 = AtomicI64::new(0);
+
+            // Reset counters
+            for counter in &RECEIVER_COUNTS {
+                counter.store(0, Ordering::SeqCst);
+            }
+
+            // Create channel
+            let mut stack = std::ptr::null_mut();
+            stack = make_channel(stack);
+            let (_, channel_id_value) = pop(stack);
+            let channel_id = match channel_id_value {
+                Value::Int(id) => id,
+                _ => panic!("Expected Int"),
+            };
+            CHANNEL_ID.store(channel_id, Ordering::SeqCst);
+
+            // Receiver strand factory
+            fn make_receiver(receiver_idx: usize) -> extern "C" fn(Stack) -> Stack {
+                match receiver_idx {
+                    0 => receiver_0,
+                    1 => receiver_1,
+                    2 => receiver_2,
+                    3 => receiver_3,
+                    _ => panic!("Invalid receiver index"),
+                }
+            }
+
+            extern "C" fn receiver_0(stack: Stack) -> Stack {
+                receive_loop(0, stack)
+            }
+            extern "C" fn receiver_1(stack: Stack) -> Stack {
+                receive_loop(1, stack)
+            }
+            extern "C" fn receiver_2(stack: Stack) -> Stack {
+                receive_loop(2, stack)
+            }
+            extern "C" fn receiver_3(stack: Stack) -> Stack {
+                receive_loop(3, stack)
+            }
+
+            fn receive_loop(idx: usize, _stack: Stack) -> Stack {
+                unsafe {
+                    let chan_id = CHANNEL_ID.load(Ordering::SeqCst);
+                    loop {
+                        let mut stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+                        stack = receive_safe(stack);
+                        let (stack, success) = pop(stack);
+                        let (_, value) = pop(stack);
+
+                        match (success, value) {
+                            (Value::Int(1), Value::Int(v)) => {
+                                if v < 0 {
+                                    // Sentinel - exit
+                                    break;
+                                }
+                                RECEIVER_COUNTS[idx].fetch_add(1, Ordering::SeqCst);
+                            }
+                            _ => break, // Channel closed or error
+                        }
+                        may::coroutine::yield_now();
+                    }
+                    std::ptr::null_mut()
+                }
+            }
+
+            // Spawn receivers
+            for i in 0..NUM_RECEIVERS {
+                crate::scheduler::spawn_strand(make_receiver(i));
+            }
+
+            // Give receivers time to start
+            std::thread::sleep(std::time::Duration::from_millis(10));
+
+            // Send messages
+            for i in 0..NUM_MESSAGES {
+                let mut stack = push(std::ptr::null_mut(), Value::Int(i));
+                stack = push(stack, Value::Int(channel_id));
+                let _ = send(stack);
+            }
+
+            // Send sentinels to stop receivers
+            for _ in 0..NUM_RECEIVERS {
+                let mut stack = push(std::ptr::null_mut(), Value::Int(-1));
+                stack = push(stack, Value::Int(channel_id));
+                let _ = send(stack);
+            }
+
+            // Wait for all strands
+            crate::scheduler::wait_all_strands();
+
+            // Verify: total received should equal messages sent
+            let total_received: i64 = RECEIVER_COUNTS
+                .iter()
+                .map(|c| c.load(Ordering::SeqCst))
+                .sum();
+
+            assert_eq!(
+                total_received, NUM_MESSAGES,
+                "Total received ({}) should equal messages sent ({})",
+                total_received, NUM_MESSAGES
+            );
+
+            // Verify: messages were distributed (not all to one receiver)
+            // At least 2 receivers should have received messages
+            let active_receivers = RECEIVER_COUNTS
+                .iter()
+                .filter(|c| c.load(Ordering::SeqCst) > 0)
+                .count();
+
+            assert!(
+                active_receivers >= 2,
+                "Messages should be distributed across receivers, but only {} received any",
+                active_receivers
+            );
+
+            // Clean up
+            let stack = push(std::ptr::null_mut(), Value::Int(channel_id));
+            let _ = close_channel(stack);
+        }
+    }
 }

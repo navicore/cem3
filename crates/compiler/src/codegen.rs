@@ -1144,7 +1144,11 @@ impl CodeGen {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Allocate storage for a by_ref out parameter
-    fn write_ffi_by_ref_alloca(&mut self, i: usize, ffi_type: &FfiType) -> Result<String, CodeGenError> {
+    fn write_ffi_by_ref_alloca(
+        &mut self,
+        i: usize,
+        ffi_type: &FfiType,
+    ) -> Result<String, CodeGenError> {
         let alloca_var = format!("out_param_{}", i);
         let llvm_type = match ffi_type {
             FfiType::Ptr => "ptr",
@@ -1175,13 +1179,16 @@ impl CodeGen {
         if let Some(ref value) = arg.value {
             return match value.as_str() {
                 "null" | "NULL" => Ok(("ptr null".to_string(), None)),
-                _ => value.parse::<i64>()
+                _ => value
+                    .parse::<i64>()
                     .map(|int_val| (format!("i64 {}", int_val), None))
-                    .map_err(|e| CodeGenError::Logic(format!(
-                        "Invalid fixed value '{}' for argument {}: {}. \
+                    .map_err(|e| {
+                        CodeGenError::Logic(format!(
+                            "Invalid fixed value '{}' for argument {}: {}. \
                          Expected 'null' or a 64-bit integer.",
-                        value, i, e
-                    ))),
+                            value, i, e
+                        ))
+                    }),
             };
         }
 
@@ -1190,12 +1197,8 @@ impl CodeGen {
                 // by_ref args don't pop from stack - just reference the alloca
                 Ok((format!("ptr %out_param_{}", i), None))
             }
-            (FfiType::String, PassMode::CString) => {
-                self.write_ffi_pop_cstring(i, stack_var)
-            }
-            (FfiType::Int, _) => {
-                self.write_ffi_pop_int(i, stack_var).map(|s| (s, None))
-            }
+            (FfiType::String, PassMode::CString) => self.write_ffi_pop_cstring(i, stack_var),
+            (FfiType::Int, _) => self.write_ffi_pop_int(i, stack_var).map(|s| (s, None)),
             (FfiType::Ptr, PassMode::Ptr) => {
                 self.write_ffi_pop_ptr(i, stack_var).map(|s| (s, None))
             }
@@ -1207,7 +1210,11 @@ impl CodeGen {
     }
 
     /// Pop a C string argument from the stack - returns (c_arg, cstr_var_to_free)
-    fn write_ffi_pop_cstring(&mut self, i: usize, stack_var: &mut String) -> Result<(String, Option<String>), CodeGenError> {
+    fn write_ffi_pop_cstring(
+        &mut self,
+        i: usize,
+        stack_var: &mut String,
+    ) -> Result<(String, Option<String>), CodeGenError> {
         let cstr_var = format!("cstr_{}", i);
         let new_stack = format!("stack_after_pop_{}", i);
 
@@ -1227,7 +1234,11 @@ impl CodeGen {
     }
 
     /// Pop an integer argument from the stack
-    fn write_ffi_pop_int(&mut self, i: usize, stack_var: &mut String) -> Result<String, CodeGenError> {
+    fn write_ffi_pop_int(
+        &mut self,
+        i: usize,
+        stack_var: &mut String,
+    ) -> Result<String, CodeGenError> {
         let int_var = format!("int_{}", i);
         let new_stack = format!("stack_after_pop_{}", i);
 
@@ -1247,7 +1258,11 @@ impl CodeGen {
     }
 
     /// Pop a pointer argument from the stack
-    fn write_ffi_pop_ptr(&mut self, i: usize, stack_var: &mut String) -> Result<String, CodeGenError> {
+    fn write_ffi_pop_ptr(
+        &mut self,
+        i: usize,
+        stack_var: &mut String,
+    ) -> Result<String, CodeGenError> {
         let int_var = format!("ptr_int_{}", i);
         let ptr_var = format!("ptr_{}", i);
         let new_stack = format!("stack_after_pop_{}", i);
@@ -1497,7 +1512,10 @@ impl CodeGen {
         // Handle return value
         if let Some(ref return_spec) = func.return_spec {
             if return_spec.return_type == FfiType::String {
-                self.write_ffi_return_string(&stack_var, return_spec.ownership == Ownership::CallerFrees)?;
+                self.write_ffi_return_string(
+                    &stack_var,
+                    return_spec.ownership == Ownership::CallerFrees,
+                )?;
             } else {
                 self.write_ffi_return_simple(&return_spec.return_type, &stack_var)?;
             }

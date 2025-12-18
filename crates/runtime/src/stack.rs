@@ -80,6 +80,25 @@ pub unsafe fn pop_two(stack: Stack, op_name: &str) -> (Stack, Value, Value) {
     (rest, a, b)
 }
 
+/// Pop three values from the stack (for ternary operations like rot)
+///
+/// Returns the rest of the stack and three values in order from bottom to top.
+///
+/// # Safety
+/// Stack must have at least three values
+///
+/// # Returns
+/// (remaining_stack, a, b, c) where stack was: ... a b c (c on top)
+pub unsafe fn pop_three(stack: Stack, op_name: &str) -> (Stack, Value, Value, Value) {
+    assert!(!stack.is_null(), "{}: stack is empty", op_name);
+    let (rest, c) = unsafe { pop(stack) };
+    assert!(!rest.is_null(), "{}: need at least two values", op_name);
+    let (rest, b) = unsafe { pop(rest) };
+    assert!(!rest.is_null(), "{}: need at least three values", op_name);
+    let (rest, a) = unsafe { pop(rest) };
+    (rest, a, b, c)
+}
+
 /// Check if the stack is empty
 pub fn is_empty(stack: Stack) -> bool {
     stack.is_null()
@@ -150,10 +169,7 @@ pub unsafe extern "C" fn patch_seq_push_value(stack: Stack, value: Value) -> Sta
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_swap(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "swap: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "swap: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
+    let (rest, a, b) = unsafe { pop_two(stack, "swap") };
     let stack = unsafe { push(rest, b) };
     unsafe { push(stack, a) }
 }
@@ -164,11 +180,9 @@ pub unsafe extern "C" fn patch_seq_swap(stack: Stack) -> Stack {
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_over(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "over: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "over: stack has only one value");
-    let a = unsafe { (*rest).value.clone() };
-    let stack = unsafe { push(rest, b) };
+    let (rest, a, b) = unsafe { pop_two(stack, "over") };
+    let stack = unsafe { push(rest, a.clone()) };
+    let stack = unsafe { push(stack, b) };
     unsafe { push(stack, a) }
 }
 
@@ -178,12 +192,7 @@ pub unsafe extern "C" fn patch_seq_over(stack: Stack) -> Stack {
 /// Stack must have at least three values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_rot(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "rot: stack is empty");
-    let (rest, c) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "rot: stack has only one value");
-    let (rest, b) = unsafe { pop(rest) };
-    assert!(!rest.is_null(), "rot: stack has only two values");
-    let (rest, a) = unsafe { pop(rest) };
+    let (rest, a, b, c) = unsafe { pop_three(stack, "rot") };
     let stack = unsafe { push(rest, b) };
     let stack = unsafe { push(stack, c) };
     unsafe { push(stack, a) }
@@ -195,10 +204,7 @@ pub unsafe extern "C" fn patch_seq_rot(stack: Stack) -> Stack {
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_nip(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "nip: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "nip: stack has only one value");
-    let (rest, _a) = unsafe { pop(rest) };
+    let (rest, _a, b) = unsafe { pop_two(stack, "nip") };
     unsafe { push(rest, b) }
 }
 
@@ -208,10 +214,7 @@ pub unsafe extern "C" fn patch_seq_nip(stack: Stack) -> Stack {
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_tuck(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "tuck: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "tuck: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
+    let (rest, a, b) = unsafe { pop_two(stack, "tuck") };
     let stack = unsafe { push(rest, b.clone()) };
     let stack = unsafe { push(stack, a) };
     unsafe { push(stack, b) }
@@ -223,10 +226,7 @@ pub unsafe extern "C" fn patch_seq_tuck(stack: Stack) -> Stack {
 /// Stack must have at least two values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_2dup(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "2dup: stack is empty");
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "2dup: stack has only one value");
-    let (rest, a) = unsafe { pop(rest) };
+    let (rest, a, b) = unsafe { pop_two(stack, "2dup") };
     let stack = unsafe { push(rest, a.clone()) };
     let stack = unsafe { push(stack, b.clone()) };
     let stack = unsafe { push(stack, a) };
@@ -239,12 +239,7 @@ pub unsafe extern "C" fn patch_seq_2dup(stack: Stack) -> Stack {
 /// Stack must have at least three values
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_3drop(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "3drop: stack is empty");
-    let (rest, _c) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "3drop: stack has only one value");
-    let (rest, _b) = unsafe { pop(rest) };
-    assert!(!rest.is_null(), "3drop: stack has only two values");
-    let (rest, _a) = unsafe { pop(rest) };
+    let (rest, _a, _b, _c) = unsafe { pop_three(stack, "3drop") };
     rest
 }
 

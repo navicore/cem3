@@ -359,7 +359,8 @@ impl CodeGen {
             ffi_wrapper_code: String::new(),
             // Tagged stack infrastructure is ready but disabled until all
             // primitive operations are inlined. Mixing tagged stack with
-            // FFI operations that expect linked-list stack causes crashes.
+            // FFI operations that expect linked-list stack causes pointer
+            // arithmetic issues (32-byte Value vs 8-byte TaggedValue).
             use_tagged_stack: false,
         }
     }
@@ -2422,9 +2423,470 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
+            // Comparison operations - result is tagged bool (0=false, 1=true)
+            // =  (equal)
+            "=" => self.codegen_inline_comparison(stack_var, "eq"),
+
+            // <> (not equal)
+            "<>" => self.codegen_inline_comparison(stack_var, "ne"),
+
+            // < (less than)
+            "<" => self.codegen_inline_comparison(stack_var, "slt"),
+
+            // > (greater than)
+            ">" => self.codegen_inline_comparison(stack_var, "sgt"),
+
+            // <= (less than or equal)
+            "<=" => self.codegen_inline_comparison(stack_var, "sle"),
+
+            // >= (greater than or equal)
+            ">=" => self.codegen_inline_comparison(stack_var, "sge"),
+
+            // Boolean operations
+            // and: ( a b -- a&&b )
+            "and" => {
+                // Both values are tagged bools (1 or 3)
+                // AND: if both are non-zero (as untagged), result is true
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                let tagged_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    tagged_a, ptr_a
+                )?;
+                let tagged_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    tagged_b, ptr_b
+                )?;
+
+                // Untag to get 0 or 1
+                let val_a = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
+                let val_b = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+
+                // AND the values
+                let and_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = and i64 %{}, %{}",
+                    and_result, val_a, val_b
+                )?;
+
+                // Convert to 0 or 1 (in case values were > 1)
+                let bool_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp ne i64 %{}, 0",
+                    bool_result, and_result
+                )?;
+                let zext = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = zext i1 %{} to i64",
+                    zext, bool_result
+                )?;
+
+                // Tag result
+                let shifted = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
+                let tagged_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = or i64 %{}, 1",
+                    tagged_result, shifted
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    tagged_result, ptr_a
+                )?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // or: ( a b -- a||b )
+            "or" => {
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                let tagged_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    tagged_a, ptr_a
+                )?;
+                let tagged_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    tagged_b, ptr_b
+                )?;
+
+                let val_a = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
+                let val_b = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+
+                let or_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = or i64 %{}, %{}",
+                    or_result, val_a, val_b
+                )?;
+
+                let bool_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp ne i64 %{}, 0",
+                    bool_result, or_result
+                )?;
+                let zext = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = zext i1 %{} to i64",
+                    zext, bool_result
+                )?;
+
+                let shifted = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
+                let tagged_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = or i64 %{}, 1",
+                    tagged_result, shifted
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    tagged_result, ptr_a
+                )?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // not: ( a -- !a )
+            "not" => {
+                let top_ptr = self.fresh_temp();
+                let tagged_val = self.fresh_temp();
+                let val = self.fresh_temp();
+                let is_zero = self.fresh_temp();
+                let zext = self.fresh_temp();
+                let shifted = self.fresh_temp();
+                let tagged_result = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    top_ptr, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    tagged_val, top_ptr
+                )?;
+                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val, tagged_val)?;
+
+                // not: if val == 0, result is 1; else result is 0
+                writeln!(&mut self.output, "  %{} = icmp eq i64 %{}, 0", is_zero, val)?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = zext i1 %{} to i64",
+                    zext, is_zero
+                )?;
+
+                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = or i64 %{}, 1",
+                    tagged_result, shifted
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    tagged_result, top_ptr
+                )?;
+                // SP unchanged
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // More stack operations
+            // rot: ( a b c -- b c a )
+            "rot" => {
+                let ptr_c = self.fresh_temp();
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let val_c = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    ptr_c, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -3",
+                    ptr_a, stack_var
+                )?;
+
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_c, ptr_c)?;
+
+                // Rotate: a goes to top, b goes to a's position, c goes to b's position
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_c, ptr_b)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_a, ptr_c)?;
+
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // nip: ( a b -- b )
+            "nip" => {
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // tuck: ( a b -- b a b )
+            "tuck" => {
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+
+                // Result: b a b (a's slot gets b, b's slot gets a, new slot gets b)
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_a, ptr_b)?;
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    val_b, stack_var
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // 2dup: ( a b -- a b a b )
+            "2dup" => {
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let new_ptr = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
+                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+
+                // Push a, then b
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    val_a, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    new_ptr, stack_var
+                )?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, new_ptr)?;
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 2",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // 3drop: ( a b c -- )
+            "3drop" => {
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 -3",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
             // Not an inline-able operation
             _ => Ok(None),
         }
+    }
+
+    /// Generate inline code for comparison operations.
+    /// Returns tagged bool (1 for false, 3 for true).
+    fn codegen_inline_comparison(
+        &mut self,
+        stack_var: &str,
+        icmp_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        let ptr_b = self.fresh_temp();
+        let ptr_a = self.fresh_temp();
+        let tagged_a = self.fresh_temp();
+        let tagged_b = self.fresh_temp();
+        let val_a = self.fresh_temp();
+        let val_b = self.fresh_temp();
+        let cmp_result = self.fresh_temp();
+        let zext = self.fresh_temp();
+        let shifted = self.fresh_temp();
+        let tagged_result = self.fresh_temp();
+        let result_var = self.fresh_temp();
+
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            tagged_a, ptr_a
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            tagged_b, ptr_b
+        )?;
+
+        // Untag to get actual values for comparison
+        writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
+        writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+
+        // Compare
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp {} i64 %{}, %{}",
+            cmp_result, icmp_op, val_a, val_b
+        )?;
+
+        // Convert i1 to i64
+        writeln!(
+            &mut self.output,
+            "  %{} = zext i1 %{} to i64",
+            zext, cmp_result
+        )?;
+
+        // Tag result: (result << 1) | 1
+        writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = or i64 %{}, 1",
+            tagged_result, shifted
+        )?;
+
+        // Store result and decrement SP
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            tagged_result, ptr_a
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
     }
 
     /// Generate inline code for binary arithmetic (add/subtract).

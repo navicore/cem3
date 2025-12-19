@@ -1,48 +1,93 @@
 //! Tagged Stack Implementation
 //!
-//! A contiguous array of 64-bit tagged values for high-performance stack operations.
+//! A contiguous array of 32-byte values for high-performance stack operations.
+//! The 32-byte size matches the LLVM `%Value = type { i64, i64, i64, i64 }` layout,
+//! enabling interoperability between inline IR and FFI operations.
 //!
-//! ## Tagged Value Representation
+//! ## Stack Value Layout (32 bytes)
 //!
 //! ```text
-//! 64-bit tagged value:
 //! ┌─────────────────────────────────────────────────────────────────┐
-//! │ Bit 0 (tag) │ Bits 1-63 (payload)                               │
-//! ├─────────────┼───────────────────────────────────────────────────┤
-//! │     1       │ 63-bit signed integer (value << 1)                │
-//! │     0       │ Pointer to HeapObject (8-byte aligned)            │
-//! └─────────────┴───────────────────────────────────────────────────┘
+//! │  slot0 (8 bytes)  │  slot1  │  slot2  │  slot3  │
+//! ├───────────────────┼─────────┼─────────┼─────────┤
+//! │ Tag + inline data │  data   │  data   │  data   │
+//! └─────────────────────────────────────────────────────────────────┘
+//!
+//! For integers (most common):
+//! - slot0 = (value << 1) | 1  (tagged integer, low bit = 1)
+//! - slot1, slot2, slot3 = unused (can be garbage)
+//!
+//! For other types (strings, floats, etc.):
+//! - slot0 = type tag (low bit = 0 indicates non-integer)
+//! - slot1-3 = type-specific data or pointer
 //! ```
-//!
-//! ## Examples
-//!
-//! - Integer `42` → `0x55` (42 << 1 | 1 = 85)
-//! - Integer `-1` → `0xFFFFFFFFFFFFFFFF` (-1 << 1 | 1)
-//! - Heap pointer → `0x00007f8a12340000` (aligned, low bit = 0)
 //!
 //! ## Stack Layout
 //!
 //! ```text
-//! Stack: contiguous array of u64
-//! ┌───────┬───────┬───────┬───────┬─────────┐
-//! │  v0   │  v1   │  v2   │  v3   │  ...    │
-//! └───────┴───────┴───────┴───────┴─────────┘
-//!                                 ↑ SP
+//! Stack: contiguous array of 32-byte StackValue slots
+//! ┌──────────┬──────────┬──────────┬──────────┬─────────┐
+//! │   v0     │   v1     │   v2     │   v3     │  ...    │
+//! │ (32 B)   │ (32 B)   │ (32 B)   │ (32 B)   │         │
+//! └──────────┴──────────┴──────────┴──────────┴─────────┘
+//!                                              ↑ SP
 //!
 //! - Grows upward
 //! - SP points to next free slot
 //! - Push: store at SP, increment SP
 //! - Pop: decrement SP, load from SP
 //! ```
+//!
+//! ## Performance Considerations
+//!
+//! The 32-byte size enables:
+//! - Direct compatibility with existing FFI functions
+//! - No conversion overhead when calling runtime functions
+//! - Cache-line friendly (2 values per 64-byte cache line)
+//!
+//! For integer-heavy code, inline IR can use just slot0 and ignore the rest.
 
 use std::alloc::{Layout, alloc, dealloc, realloc};
 use std::ptr;
 
-/// A 64-bit tagged value.
+/// A 32-byte stack value, layout-compatible with LLVM's %Value type.
 ///
-/// The low bit indicates the type:
-/// - 1: Integer (63-bit signed, stored as value << 1 | 1)
-/// - 0: Heap pointer (8-byte aligned pointer to HeapObject)
+/// This matches `%Value = type { i64, i64, i64, i64 }` in the generated IR.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct StackValue {
+    /// First slot: for integers, contains (value << 1) | 1
+    /// For other types, contains type tag (low bit = 0)
+    pub slot0: u64,
+    /// Second slot: type-specific data
+    pub slot1: u64,
+    /// Third slot: type-specific data
+    pub slot2: u64,
+    /// Fourth slot: type-specific data
+    pub slot3: u64,
+}
+
+impl std::fmt::Debug for StackValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if is_tagged_int(self.slot0) {
+            write!(f, "Int({})", untag_int(self.slot0))
+        } else {
+            write!(
+                f,
+                "StackValue {{ slot0: 0x{:x}, slot1: 0x{:x}, slot2: 0x{:x}, slot3: 0x{:x} }}",
+                self.slot0, self.slot1, self.slot2, self.slot3
+            )
+        }
+    }
+}
+
+/// Size of StackValue in bytes (should be 32)
+pub const STACK_VALUE_SIZE: usize = std::mem::size_of::<StackValue>();
+
+// Compile-time assertion that StackValue is 32 bytes
+const _: () = assert!(STACK_VALUE_SIZE == 32, "StackValue must be 32 bytes");
+
+/// Legacy type alias for backward compatibility
 pub type TaggedValue = u64;
 
 /// Tag bit mask
@@ -172,17 +217,19 @@ pub struct QuotationObject {
     pub impl_ptr: usize,
 }
 
-/// Default stack capacity (number of tagged values)
+/// Default stack capacity (number of stack values)
 pub const DEFAULT_STACK_CAPACITY: usize = 4096;
 
 /// Stack state for the tagged value stack
 ///
 /// This struct is passed to/from runtime functions and represents
 /// the complete state of a strand's value stack.
+///
+/// Uses 32-byte StackValue slots for FFI compatibility.
 #[repr(C)]
 pub struct TaggedStack {
-    /// Pointer to the base of the stack array
-    pub base: *mut TaggedValue,
+    /// Pointer to the base of the stack array (array of StackValue)
+    pub base: *mut StackValue,
     /// Current stack pointer (index into array, points to next free slot)
     pub sp: usize,
     /// Total capacity of the stack (number of slots)
@@ -192,8 +239,8 @@ pub struct TaggedStack {
 impl TaggedStack {
     /// Create a new tagged stack with the given capacity
     pub fn new(capacity: usize) -> Self {
-        let layout = Layout::array::<TaggedValue>(capacity).expect("stack layout overflow");
-        let base = unsafe { alloc(layout) as *mut TaggedValue };
+        let layout = Layout::array::<StackValue>(capacity).expect("stack layout overflow");
+        let base = unsafe { alloc(layout) as *mut StackValue };
         if base.is_null() {
             panic!("Failed to allocate tagged stack");
         }
@@ -233,11 +280,11 @@ impl TaggedStack {
     /// Doubles capacity by default, or grows to `min_capacity` if larger.
     pub fn grow(&mut self, min_capacity: usize) {
         let new_capacity = (self.capacity * 2).max(min_capacity);
-        let old_layout = Layout::array::<TaggedValue>(self.capacity).expect("old layout overflow");
-        let new_layout = Layout::array::<TaggedValue>(new_capacity).expect("new layout overflow");
+        let old_layout = Layout::array::<StackValue>(self.capacity).expect("old layout overflow");
+        let new_layout = Layout::array::<StackValue>(new_capacity).expect("new layout overflow");
 
         let new_base = unsafe {
-            realloc(self.base as *mut u8, old_layout, new_layout.size()) as *mut TaggedValue
+            realloc(self.base as *mut u8, old_layout, new_layout.size()) as *mut StackValue
         };
 
         if new_base.is_null() {
@@ -251,11 +298,11 @@ impl TaggedStack {
         self.capacity = new_capacity;
     }
 
-    /// Push a tagged value onto the stack
+    /// Push a StackValue onto the stack
     ///
     /// Grows the stack if necessary.
     #[inline]
-    pub fn push(&mut self, val: TaggedValue) {
+    pub fn push(&mut self, val: StackValue) {
         if self.sp >= self.capacity {
             self.grow(self.capacity + 1);
         }
@@ -265,11 +312,11 @@ impl TaggedStack {
         self.sp += 1;
     }
 
-    /// Pop a tagged value from the stack
+    /// Pop a StackValue from the stack
     ///
     /// Panics if the stack is empty.
     #[inline]
-    pub fn pop(&mut self) -> TaggedValue {
+    pub fn pop(&mut self) -> StackValue {
         assert!(self.sp > 0, "pop: stack is empty");
         self.sp -= 1;
         unsafe { *self.base.add(self.sp) }
@@ -279,7 +326,7 @@ impl TaggedStack {
     ///
     /// Panics if the stack is empty.
     #[inline]
-    pub fn peek(&self) -> TaggedValue {
+    pub fn peek(&self) -> StackValue {
         assert!(self.sp > 0, "peek: stack is empty");
         unsafe { *self.base.add(self.sp - 1) }
     }
@@ -287,15 +334,21 @@ impl TaggedStack {
     /// Get a pointer to the current stack pointer position
     ///
     /// This is used by generated code for inline stack operations.
+    /// Returns pointer to next free StackValue slot.
     #[inline(always)]
-    pub fn sp_ptr(&self) -> *mut TaggedValue {
+    pub fn sp_ptr(&self) -> *mut StackValue {
         unsafe { self.base.add(self.sp) }
     }
 
     /// Push an integer value
     #[inline]
     pub fn push_int(&mut self, val: i64) {
-        self.push(tag_int(val));
+        self.push(StackValue {
+            slot0: tag_int(val),
+            slot1: 0,
+            slot2: 0,
+            slot3: 0,
+        });
     }
 
     /// Pop and return an integer value
@@ -305,10 +358,10 @@ impl TaggedStack {
     pub fn pop_int(&mut self) -> i64 {
         let val = self.pop();
         assert!(
-            is_tagged_int(val),
+            is_tagged_int(val.slot0),
             "pop_int: expected integer, got heap object"
         );
-        untag_int(val)
+        untag_int(val.slot0)
     }
 
     /// Clone this stack (for spawn)
@@ -316,8 +369,8 @@ impl TaggedStack {
     /// Creates a deep copy. For heap objects, increments reference counts.
     pub fn clone_stack(&self) -> Self {
         // Allocate new stack array directly
-        let layout = Layout::array::<TaggedValue>(self.capacity).expect("layout overflow");
-        let new_base = unsafe { alloc(layout) as *mut TaggedValue };
+        let layout = Layout::array::<StackValue>(self.capacity).expect("layout overflow");
+        let new_base = unsafe { alloc(layout) as *mut StackValue };
         if new_base.is_null() {
             panic!("Failed to allocate cloned stack");
         }
@@ -329,7 +382,7 @@ impl TaggedStack {
 
         // Increment refcounts for heap objects
         for i in 0..self.sp {
-            let val = unsafe { *self.base.add(i) };
+            let val = unsafe { (*self.base.add(i)).slot0 };
             if is_tagged_heap(val) && val != 0 {
                 let obj = untag_heap_ptr(val);
                 unsafe {
@@ -355,7 +408,7 @@ impl Drop for TaggedStack {
     fn drop(&mut self) {
         // Decrement refcounts for all heap objects
         for i in 0..self.sp {
-            let val = unsafe { *self.base.add(i) };
+            let val = unsafe { (*self.base.add(i)).slot0 };
             if is_tagged_heap(val) && val != 0 {
                 let obj = untag_heap_ptr(val);
                 unsafe {
@@ -375,7 +428,7 @@ impl Drop for TaggedStack {
 
         // Free the stack array
         if !self.base.is_null() {
-            let layout = Layout::array::<TaggedValue>(self.capacity).expect("layout overflow");
+            let layout = Layout::array::<StackValue>(self.capacity).expect("layout overflow");
             unsafe {
                 dealloc(self.base as *mut u8, layout);
             }
@@ -432,11 +485,12 @@ pub unsafe extern "C" fn seq_stack_grow(stack: *mut TaggedStack, min_capacity: u
 /// Get the base pointer of a tagged stack
 ///
 /// This is used by generated code to get the array base.
+/// Returns a pointer to the first StackValue slot (32 bytes each).
 ///
 /// # Safety
 /// `stack` must be a valid pointer to a TaggedStack.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn seq_stack_base(stack: *mut TaggedStack) -> *mut TaggedValue {
+pub unsafe extern "C" fn seq_stack_base(stack: *mut TaggedStack) -> *mut StackValue {
     assert!(!stack.is_null(), "seq_stack_base: null stack");
     unsafe { (*stack).base }
 }
@@ -744,7 +798,7 @@ mod tests {
         let mut stack = TaggedStack::new(16);
         stack.push_int(42);
 
-        assert_eq!(untag_int(stack.peek()), 42);
+        assert_eq!(untag_int(stack.peek().slot0), 42);
         assert_eq!(stack.depth(), 1); // Still there
 
         assert_eq!(stack.pop_int(), 42);
@@ -867,7 +921,12 @@ mod tests {
 
         // Push a float (heap object)
         let float_obj = seq_alloc_float(2.5);
-        stack.push(tag_heap_ptr(float_obj));
+        stack.push(StackValue {
+            slot0: tag_heap_ptr(float_obj),
+            slot1: 0,
+            slot2: 0,
+            slot3: 0,
+        });
 
         // Push another integer
         stack.push_int(100);
@@ -878,9 +937,9 @@ mod tests {
         assert_eq!(stack.pop_int(), 100);
 
         let val = stack.pop();
-        assert!(is_tagged_heap(val));
+        assert!(is_tagged_heap(val.slot0));
         unsafe {
-            assert_eq!(seq_get_float(untag_heap_ptr(val)), 2.5);
+            assert_eq!(seq_get_float(untag_heap_ptr(val.slot0)), 2.5);
         }
 
         assert_eq!(stack.pop_int(), 42);
@@ -890,5 +949,12 @@ mod tests {
         unsafe {
             seq_free_heap_object(float_obj);
         }
+    }
+
+    #[test]
+    fn test_stack_value_size() {
+        // Verify StackValue is 32 bytes, matching LLVM's %Value type
+        assert_eq!(std::mem::size_of::<StackValue>(), 32);
+        assert_eq!(STACK_VALUE_SIZE, 32);
     }
 }

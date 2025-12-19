@@ -1,34 +1,33 @@
 //! Tagged Stack Implementation
 //!
-//! A contiguous array of 32-byte values for high-performance stack operations.
-//! The 32-byte size matches the LLVM `%Value = type { i64, i64, i64, i64 }` layout,
-//! enabling interoperability between inline IR and FFI operations.
+//! A contiguous array of 40-byte values for high-performance stack operations.
+//! The 40-byte size matches Rust's `Value` enum with `#[repr(C)]` and the LLVM
+//! `%Value = type { i64, i64, i64, i64, i64 }` layout, enabling interoperability
+//! between inline IR and FFI operations.
 //!
-//! ## Stack Value Layout (32 bytes)
+//! ## Stack Value Layout (40 bytes)
 //!
 //! ```text
-//! ┌─────────────────────────────────────────────────────────────────┐
-//! │  slot0 (8 bytes)  │  slot1  │  slot2  │  slot3  │
-//! ├───────────────────┼─────────┼─────────┼─────────┤
-//! │ Tag + inline data │  data   │  data   │  data   │
-//! └─────────────────────────────────────────────────────────────────┘
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  slot0 (8 bytes)  │  slot1  │  slot2  │  slot3  │  slot4  │
+//! ├───────────────────┼─────────┼─────────┼─────────┼─────────┤
+//! │   Discriminant    │ Payload │  data   │  data   │  data   │
+//! └─────────────────────────────────────────────────────────────────────────────┘
 //!
-//! For integers (most common):
-//! - slot0 = (value << 1) | 1  (tagged integer, low bit = 1)
-//! - slot1, slot2, slot3 = unused (can be garbage)
-//!
-//! For other types (strings, floats, etc.):
-//! - slot0 = type tag (low bit = 0 indicates non-integer)
-//! - slot1-3 = type-specific data or pointer
+//! Value discriminants:
+//! - 0 = Int:   slot1 contains i64 value
+//! - 1 = Float: slot1 contains f64 bits
+//! - 2 = Bool:  slot1 contains 0 or 1
+//! - 3 = String, 4 = Variant, 5 = Map, 6 = Quotation, 7 = Closure
 //! ```
 //!
 //! ## Stack Layout
 //!
 //! ```text
-//! Stack: contiguous array of 32-byte StackValue slots
+//! Stack: contiguous array of 40-byte StackValue slots
 //! ┌──────────┬──────────┬──────────┬──────────┬─────────┐
 //! │   v0     │   v1     │   v2     │   v3     │  ...    │
-//! │ (32 B)   │ (32 B)   │ (32 B)   │ (32 B)   │         │
+//! │ (40 B)   │ (40 B)   │ (40 B)   │ (40 B)   │         │
 //! └──────────┴──────────┴──────────┴──────────┴─────────┘
 //!                                              ↑ SP
 //!
@@ -40,52 +39,56 @@
 //!
 //! ## Performance Considerations
 //!
-//! The 32-byte size enables:
-//! - Direct compatibility with existing FFI functions
+//! The 40-byte size enables:
+//! - Direct compatibility with Rust's Value enum (#[repr(C)])
 //! - No conversion overhead when calling runtime functions
-//! - Cache-line friendly (2 values per 64-byte cache line)
-//!
-//! For integer-heavy code, inline IR can use just slot0 and ignore the rest.
+//! - Simple inline integer/boolean operations in compiled code
 
 use std::alloc::{Layout, alloc, dealloc, realloc};
 use std::ptr;
 
-/// A 32-byte stack value, layout-compatible with LLVM's %Value type.
+/// A 40-byte stack value, layout-compatible with LLVM's %Value type.
 ///
-/// This matches `%Value = type { i64, i64, i64, i64 }` in the generated IR.
+/// This matches `%Value = type { i64, i64, i64, i64, i64 }` in the generated IR.
+/// The size matches Rust's Value enum with #[repr(C)].
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct StackValue {
-    /// First slot: for integers, contains (value << 1) | 1
-    /// For other types, contains type tag (low bit = 0)
+    /// First slot: discriminant (0=Int, 1=Float, 2=Bool, 3=String, etc.)
     pub slot0: u64,
-    /// Second slot: type-specific data
+    /// Second slot: primary payload (i64 value for Int, bool for Bool, etc.)
     pub slot1: u64,
     /// Third slot: type-specific data
     pub slot2: u64,
     /// Fourth slot: type-specific data
     pub slot3: u64,
+    /// Fifth slot: type-specific data (for largest variant)
+    pub slot4: u64,
 }
 
 impl std::fmt::Debug for StackValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if is_tagged_int(self.slot0) {
-            write!(f, "Int({})", untag_int(self.slot0))
+        // Discriminant 0 = Int
+        if self.slot0 == 0 {
+            write!(f, "Int({})", self.slot1 as i64)
+        } else if self.slot0 == 2 {
+            // Discriminant 2 = Bool
+            write!(f, "Bool({})", self.slot1 != 0)
         } else {
             write!(
                 f,
-                "StackValue {{ slot0: 0x{:x}, slot1: 0x{:x}, slot2: 0x{:x}, slot3: 0x{:x} }}",
-                self.slot0, self.slot1, self.slot2, self.slot3
+                "StackValue {{ slot0: 0x{:x}, slot1: 0x{:x}, slot2: 0x{:x}, slot3: 0x{:x}, slot4: 0x{:x} }}",
+                self.slot0, self.slot1, self.slot2, self.slot3, self.slot4
             )
         }
     }
 }
 
-/// Size of StackValue in bytes (should be 32)
+/// Size of StackValue in bytes (should be 40)
 pub const STACK_VALUE_SIZE: usize = std::mem::size_of::<StackValue>();
 
-// Compile-time assertion that StackValue is 32 bytes
-const _: () = assert!(STACK_VALUE_SIZE == 32, "StackValue must be 32 bytes");
+// Compile-time assertion that StackValue is 40 bytes
+const _: () = assert!(STACK_VALUE_SIZE == 40, "StackValue must be 40 bytes");
 
 /// Legacy type alias for backward compatibility
 pub type TaggedValue = u64;
@@ -340,14 +343,16 @@ impl TaggedStack {
         unsafe { self.base.add(self.sp) }
     }
 
-    /// Push an integer value
+    /// Push an integer value using Value::Int layout
+    /// slot0 = 0 (Int discriminant), slot1 = value
     #[inline]
     pub fn push_int(&mut self, val: i64) {
         self.push(StackValue {
-            slot0: tag_int(val),
-            slot1: 0,
+            slot0: 0, // Int discriminant
+            slot1: val as u64,
             slot2: 0,
             slot3: 0,
+            slot4: 0,
         });
     }
 
@@ -358,10 +363,11 @@ impl TaggedStack {
     pub fn pop_int(&mut self) -> i64 {
         let val = self.pop();
         assert!(
-            is_tagged_int(val.slot0),
-            "pop_int: expected integer, got heap object"
+            val.slot0 == 0,
+            "pop_int: expected Int (discriminant 0), got discriminant {}",
+            val.slot0
         );
-        untag_int(val.slot0)
+        val.slot1 as i64
     }
 
     /// Clone this stack (for spawn)
@@ -798,7 +804,10 @@ mod tests {
         let mut stack = TaggedStack::new(16);
         stack.push_int(42);
 
-        assert_eq!(untag_int(stack.peek().slot0), 42);
+        // With Value layout: slot0 = discriminant (0 for Int), slot1 = value
+        let peeked = stack.peek();
+        assert_eq!(peeked.slot0, 0); // Int discriminant
+        assert_eq!(peeked.slot1 as i64, 42); // Value in slot1
         assert_eq!(stack.depth(), 1); // Still there
 
         assert_eq!(stack.pop_int(), 42);
@@ -926,6 +935,7 @@ mod tests {
             slot1: 0,
             slot2: 0,
             slot3: 0,
+            slot4: 0,
         });
 
         // Push another integer
@@ -953,8 +963,9 @@ mod tests {
 
     #[test]
     fn test_stack_value_size() {
-        // Verify StackValue is 32 bytes, matching LLVM's %Value type
-        assert_eq!(std::mem::size_of::<StackValue>(), 32);
-        assert_eq!(STACK_VALUE_SIZE, 32);
+        // Verify StackValue is 40 bytes, matching LLVM's %Value type
+        // (5 x i64 = 5 x 8 = 40 bytes, compatible with Rust's Value with #[repr(C)])
+        assert_eq!(std::mem::size_of::<StackValue>(), 40);
+        assert_eq!(STACK_VALUE_SIZE, 40);
     }
 }

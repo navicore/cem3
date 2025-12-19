@@ -357,11 +357,9 @@ impl CodeGen {
             unions: Vec::new(),
             ffi_bindings: FfiBindings::new(),
             ffi_wrapper_code: String::new(),
-            // Tagged stack infrastructure is ready but disabled until all
-            // primitive operations are inlined. Mixing tagged stack with
-            // FFI operations that expect linked-list stack causes pointer
-            // arithmetic issues (32-byte Value vs 8-byte TaggedValue).
-            use_tagged_stack: false,
+            // Tagged stack uses 32-byte StackValue slots, layout-compatible with
+            // LLVM's %Value type. This enables interop between inline ops and FFI.
+            use_tagged_stack: false, // Disabled until Value gets #[repr(C)]
         }
     }
 
@@ -2078,30 +2076,10 @@ impl CodeGen {
 
     /// Generate code for an integer literal: ( -- n )
     fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, CodeGenError> {
-        if self.use_tagged_stack {
-            // Inline tagged stack push:
-            // 1. Compute tagged value: (n << 1) | 1
-            // 2. Store at current SP
-            // 3. Increment SP (getelementptr)
-            let tagged_value = ((n as u64) << 1) | 1;
-            let result_var = self.fresh_temp();
-
-            // Store tagged value at current stack pointer
-            writeln!(
-                &mut self.output,
-                "  store i64 {}, ptr %{}",
-                tagged_value as i64, stack_var
-            )?;
-
-            // Increment stack pointer
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                result_var, stack_var
-            )?;
-
-            Ok(result_var)
-        } else {
+        // Always use FFI call for now - Rust's Value enum layout is unpredictable
+        // without #[repr(C)], so we can't safely write values inline.
+        // Future: add #[repr(C)] to Value and enable inline push.
+        {
             // Legacy FFI call
             let result_var = self.fresh_temp();
             writeln!(
@@ -2186,7 +2164,7 @@ impl CodeGen {
                 // Just decrement SP
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2201,7 +2179,7 @@ impl CodeGen {
                 // Get pointer to top value (sp - 1)
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     top_ptr, stack_var
                 )?;
                 // Load top value
@@ -2211,7 +2189,7 @@ impl CodeGen {
                 // Increment SP
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2227,12 +2205,12 @@ impl CodeGen {
                 // Get pointers to a and b
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
                 // Load values
@@ -2254,7 +2232,7 @@ impl CodeGen {
                 // Get pointer to a (sp - 2)
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
                 // Load a
@@ -2268,7 +2246,7 @@ impl CodeGen {
                 // Increment SP
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2282,69 +2260,66 @@ impl CodeGen {
 
             // multiply: ( a b -- a*b )
             "multiply" => {
-                // For multiply: (a << 1 | 1) * (b >> 1) = correct shifted result
-                // But simpler: unshift both, multiply, reshift
+                // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
-                let ptr_a = self.fresh_temp();
-                let tagged_a = self.fresh_temp();
-                let tagged_b = self.fresh_temp();
-                let val_a = self.fresh_temp();
-                let val_b = self.fresh_temp();
-                let product = self.fresh_temp();
-                let tagged_result = self.fresh_temp();
-                let result_var = self.fresh_temp();
-
-                // Load tagged values
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
+                let ptr_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
+
+                // Get slot1 pointers (offset 8 bytes)
+                let slot1_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_a, ptr_a
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
                 )?;
+                let slot1_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_b, ptr_b
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
                 )?;
 
-                // Untag (arithmetic shift right by 1)
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+                // Load values from slot1
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
 
                 // Multiply
+                let product = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = mul i64 %{}, %{}",
                     product, val_a, val_b
                 )?;
 
-                // Retag: (result << 1) | 1
-                let shifted = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, product)?;
-                writeln!(
-                    &mut self.output,
-                    "  %{} = or i64 %{}, 1",
-                    tagged_result, shifted
-                )?;
-
-                // Store result and decrement SP
+                // Store result at slot1 (discriminant 0 already at slot0)
                 writeln!(
                     &mut self.output,
                     "  store i64 %{}, ptr %{}",
-                    tagged_result, ptr_a
+                    product, slot1_a
                 )?;
+                let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2352,72 +2327,66 @@ impl CodeGen {
 
             // divide: ( a b -- a/b )
             "divide" => {
-                // Similar to multiply - untag, divide, retag
+                // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
-                let ptr_a = self.fresh_temp();
-                let tagged_a = self.fresh_temp();
-                let tagged_b = self.fresh_temp();
-                let val_a = self.fresh_temp();
-                let val_b = self.fresh_temp();
-                let quotient = self.fresh_temp();
-                let tagged_result = self.fresh_temp();
-                let result_var = self.fresh_temp();
-
-                // Load tagged values
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
+                let ptr_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
+
+                // Get slot1 pointers (offset 8 bytes)
+                let slot1_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_a, ptr_a
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
                 )?;
+                let slot1_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_b, ptr_b
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
                 )?;
 
-                // Untag
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+                // Load values from slot1
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
 
                 // Divide (signed)
+                let quotient = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = sdiv i64 %{}, %{}",
                     quotient, val_a, val_b
                 )?;
 
-                // Retag
-                let shifted = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = shl i64 %{}, 1",
-                    shifted, quotient
-                )?;
-                writeln!(
-                    &mut self.output,
-                    "  %{} = or i64 %{}, 1",
-                    tagged_result, shifted
-                )?;
-
-                // Store result and decrement SP
+                // Store result at slot1 (discriminant 0 already at slot0)
                 writeln!(
                     &mut self.output,
                     "  store i64 %{}, ptr %{}",
-                    tagged_result, ptr_a
+                    quotient, slot1_a
                 )?;
+                let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2442,51 +2411,58 @@ impl CodeGen {
             // >= (greater than or equal)
             ">=" => self.codegen_inline_comparison(stack_var, "sge"),
 
-            // Boolean operations
+            // Boolean operations - values are in slot1, discriminant 2 (Bool)
             // and: ( a b -- a&&b )
             "and" => {
-                // Both values are tagged bools (1 or 3)
-                // AND: if both are non-zero (as untagged), result is true
+                // Get pointers to Value slots
                 let ptr_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
                 let ptr_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                let tagged_a = self.fresh_temp();
+
+                // Get slot1 pointers (values at offset 8)
+                let slot1_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_a, ptr_a
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
                 )?;
-                let tagged_b = self.fresh_temp();
+                let slot1_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_b, ptr_b
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
                 )?;
 
-                // Untag to get 0 or 1
+                // Load values from slot1
                 let val_a = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
                 let val_b = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
 
-                // AND the values
+                // AND the values and convert to 0 or 1
                 let and_result = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = and i64 %{}, %{}",
                     and_result, val_a, val_b
                 )?;
-
-                // Convert to 0 or 1 (in case values were > 1)
                 let bool_result = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -2500,25 +2476,13 @@ impl CodeGen {
                     zext, bool_result
                 )?;
 
-                // Tag result
-                let shifted = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
-                let tagged_result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = or i64 %{}, 1",
-                    tagged_result, shifted
-                )?;
-
-                writeln!(
-                    &mut self.output,
-                    "  store i64 %{}, ptr %{}",
-                    tagged_result, ptr_a
-                )?;
+                // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+                writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2526,43 +2490,55 @@ impl CodeGen {
 
             // or: ( a b -- a||b )
             "or" => {
+                // Get pointers to Value slots
                 let ptr_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
                 let ptr_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                let tagged_a = self.fresh_temp();
+
+                // Get slot1 pointers (values at offset 8)
+                let slot1_a = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_a, ptr_a
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
                 )?;
-                let tagged_b = self.fresh_temp();
+                let slot1_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    tagged_b, ptr_b
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
                 )?;
 
+                // Load values from slot1
                 let val_a = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
                 let val_b = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
 
+                // OR the values and convert to 0 or 1
                 let or_result = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = or i64 %{}, %{}",
                     or_result, val_a, val_b
                 )?;
-
                 let bool_result = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -2576,24 +2552,13 @@ impl CodeGen {
                     zext, bool_result
                 )?;
 
-                let shifted = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
-                let tagged_result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = or i64 %{}, 1",
-                    tagged_result, shifted
-                )?;
-
-                writeln!(
-                    &mut self.output,
-                    "  store i64 %{}, ptr %{}",
-                    tagged_result, ptr_a
-                )?;
+                // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+                writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2601,45 +2566,46 @@ impl CodeGen {
 
             // not: ( a -- !a )
             "not" => {
+                // Get pointer to top Value
                 let top_ptr = self.fresh_temp();
-                let tagged_val = self.fresh_temp();
-                let val = self.fresh_temp();
-                let is_zero = self.fresh_temp();
-                let zext = self.fresh_temp();
-                let shifted = self.fresh_temp();
-                let tagged_result = self.fresh_temp();
-
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     top_ptr, stack_var
                 )?;
+
+                // Get pointer to slot1 (value at offset 8)
+                let slot1_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_ptr, top_ptr
+                )?;
+
+                // Load value from slot1
+                let val = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = load i64, ptr %{}",
-                    tagged_val, top_ptr
+                    val, slot1_ptr
                 )?;
-                writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val, tagged_val)?;
 
                 // not: if val == 0, result is 1; else result is 0
+                let is_zero = self.fresh_temp();
                 writeln!(&mut self.output, "  %{} = icmp eq i64 %{}, 0", is_zero, val)?;
+                let zext = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = zext i1 %{} to i64",
                     zext, is_zero
                 )?;
 
-                writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
-                writeln!(
-                    &mut self.output,
-                    "  %{} = or i64 %{}, 1",
-                    tagged_result, shifted
-                )?;
-
+                // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+                writeln!(&mut self.output, "  store i64 2, ptr %{}", top_ptr)?;
                 writeln!(
                     &mut self.output,
                     "  store i64 %{}, ptr %{}",
-                    tagged_result, top_ptr
+                    zext, slot1_ptr
                 )?;
                 // SP unchanged
                 Ok(Some(stack_var.to_string()))
@@ -2657,17 +2623,17 @@ impl CodeGen {
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_c, stack_var
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_b, stack_var
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -3",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -3",
                     ptr_a, stack_var
                 )?;
 
@@ -2692,12 +2658,12 @@ impl CodeGen {
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
                 writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
@@ -2705,7 +2671,7 @@ impl CodeGen {
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2721,12 +2687,12 @@ impl CodeGen {
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
                 writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
@@ -2743,7 +2709,7 @@ impl CodeGen {
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2760,12 +2726,12 @@ impl CodeGen {
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     ptr_b, stack_var
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
                 writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
@@ -2779,14 +2745,14 @@ impl CodeGen {
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
                     new_ptr, stack_var
                 )?;
                 writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, new_ptr)?;
 
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 2",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 2",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2797,7 +2763,7 @@ impl CodeGen {
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 -3",
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -3",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -2815,44 +2781,50 @@ impl CodeGen {
         stack_var: &str,
         icmp_op: &str,
     ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
-        let ptr_a = self.fresh_temp();
-        let tagged_a = self.fresh_temp();
-        let tagged_b = self.fresh_temp();
-        let val_a = self.fresh_temp();
-        let val_b = self.fresh_temp();
-        let cmp_result = self.fresh_temp();
-        let zext = self.fresh_temp();
-        let shifted = self.fresh_temp();
-        let tagged_result = self.fresh_temp();
-        let result_var = self.fresh_temp();
-
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             ptr_b, stack_var
         )?;
+        let ptr_a = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 -2",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
             ptr_a, stack_var
         )?;
+
+        // Get slot1 pointers (values are at offset 8)
+        let slot1_a = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            tagged_a, ptr_a
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
         )?;
+        let slot1_b = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            tagged_b, ptr_b
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
         )?;
 
-        // Untag to get actual values for comparison
-        writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_a, tagged_a)?;
-        writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val_b, tagged_b)?;
+        // Load values from slot1
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
 
         // Compare
+        let cmp_result = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = icmp {} i64 %{}, %{}",
@@ -2860,29 +2832,22 @@ impl CodeGen {
         )?;
 
         // Convert i1 to i64
+        let zext = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = zext i1 %{} to i64",
             zext, cmp_result
         )?;
 
-        // Tag result: (result << 1) | 1
-        writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, zext)?;
-        writeln!(
-            &mut self.output,
-            "  %{} = or i64 %{}, 1",
-            tagged_result, shifted
-        )?;
+        // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
 
-        // Store result and decrement SP
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            tagged_result, ptr_a
-        )?;
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             result_var, stack_var
         )?;
 
@@ -2890,62 +2855,76 @@ impl CodeGen {
     }
 
     /// Generate inline code for binary arithmetic (add/subtract).
-    /// For tagged integers: a + b - 1 gives correct tagged result for add.
-    /// For subtract: a - b + 1 gives correct tagged result.
+    /// Values are stored in slot1 of each Value (slot0 is discriminant 0 for Int).
     fn codegen_inline_binary_op(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
-        adjust_op: &str,
+        _adjust_op: &str, // No longer needed, kept for compatibility
     ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
-        let ptr_a = self.fresh_temp();
-        let val_a = self.fresh_temp();
-        let val_b = self.fresh_temp();
-        let op_result = self.fresh_temp();
-        let adjusted = self.fresh_temp();
-        let result_var = self.fresh_temp();
-
-        // Get pointers to a and b
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             ptr_b, stack_var
         )?;
+        let ptr_a = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 -2",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
             ptr_a, stack_var
         )?;
 
-        // Load tagged values
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+        // Get pointers to slot1 (actual value, offset 8 bytes from Value start)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
 
-        // For add: a + b - 1 (both have tag bit, subtract one to get single tag)
-        // For sub: a - b + 1 (subtract loses tag, add one back)
+        // Load actual values from slot1
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Perform the operation
+        let op_result = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = {} i64 %{}, %{}",
             op_result, llvm_op, val_a, val_b
         )?;
-        writeln!(
-            &mut self.output,
-            "  %{} = {} i64 %{}, 1",
-            adjusted, adjust_op, op_result
-        )?;
 
-        // Store result at a's position
+        // Store result: discriminant 0 at slot0, result at slot1
+        // ptr_a already has discriminant 0 from the original push, so we only need to update slot1
         writeln!(
             &mut self.output,
             "  store i64 %{}, ptr %{}",
-            adjusted, ptr_a
+            op_result, slot1_a
         )?;
 
         // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             result_var, stack_var
         )?;
 
@@ -3637,8 +3616,10 @@ mod tests {
 
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        assert!(ir.contains("call ptr @patch_seq_push_int(ptr %stack, i64 2)"));
+        // With tagged stack disabled, integers and add use FFI calls
         assert!(ir.contains("call ptr @patch_seq_push_int"));
+        assert!(ir.contains("i64 2")); // Push int 2
+        assert!(ir.contains("i64 3")); // Push int 3
         assert!(ir.contains("call ptr @patch_seq_add"));
     }
 

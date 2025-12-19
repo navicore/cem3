@@ -357,9 +357,18 @@ impl CodeGen {
             unions: Vec::new(),
             ffi_bindings: FfiBindings::new(),
             ffi_wrapper_code: String::new(),
-            // Tagged stack uses 32-byte StackValue slots, layout-compatible with
-            // LLVM's %Value type. This enables interop between inline ops and FFI.
-            use_tagged_stack: false, // Disabled until Value gets #[repr(C)]
+            // Tagged stack uses 40-byte StackValue slots, layout-compatible with
+            // LLVM's %Value type (with #[repr(C)]). This enables interop between inline ops and FFI.
+            //
+            // DISABLED: Current FFI functions (patch_seq_*) use the linked-list Stack type,
+            // which is incompatible with the array-based TaggedStack. To enable:
+            // 1. Create TaggedStack-compatible FFI functions that work with raw pointers
+            // 2. Or inline ALL operations (not just push_int and arithmetic)
+            // 3. Or convert between Stack types at FFI boundaries (expensive)
+            //
+            // The inline push_int and arithmetic operations ARE implemented and work correctly.
+            // The blocker is FFI calls like int_to_string, write_line, etc.
+            use_tagged_stack: false,
         }
     }
 
@@ -575,10 +584,10 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
+        // Value type (Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload)
         // We define concrete size so LLVM can pass by value (required for Alpine/musl)
-        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}")?;
+        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
         // String constants
@@ -893,9 +902,9 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
-        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}")?;
+        // Value type (Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload)
+        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
         // String constants
@@ -2076,11 +2085,36 @@ impl CodeGen {
 
     /// Generate code for an integer literal: ( -- n )
     fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, CodeGenError> {
-        // Always use FFI call for now - Rust's Value enum layout is unpredictable
-        // without #[repr(C)], so we can't safely write values inline.
-        // Future: add #[repr(C)] to Value and enable inline push.
-        {
-            // Legacy FFI call
+        if self.use_tagged_stack {
+            // Inline push: Write Value directly to stack
+            // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+            // stack_var points to where the next value should go
+
+            // Store discriminant 0 (Int) at slot0
+            writeln!(&mut self.output, "  store i64 0, ptr %{}", stack_var)?;
+
+            // Get pointer to slot1 (offset 8 bytes = 1 i64)
+            let slot1_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_ptr, stack_var
+            )?;
+
+            // Store value at slot1
+            writeln!(&mut self.output, "  store i64 {}, ptr %{}", n, slot1_ptr)?;
+
+            // Return pointer to next Value slot
+            let result_var = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                result_var, stack_var
+            )?;
+
+            Ok(result_var)
+        } else {
+            // Legacy FFI call (for non-tagged-stack mode)
             let result_var = self.fresh_temp();
             writeln!(
                 &mut self.output,

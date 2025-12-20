@@ -146,6 +146,11 @@ pub struct CompilerConfig {
     /// in the source code. Use this to provide custom FFI bindings without
     /// embedding them in the compiler.
     pub ffi_manifest_paths: Vec<PathBuf>,
+
+    /// Pure inline test mode: bypass scheduler, return top of stack as exit code.
+    /// Only supports inline operations (integers, arithmetic, stack ops).
+    /// Used for testing and benchmarking pure computation without FFI overhead.
+    pub pure_inline_test: bool,
 }
 
 impl CompilerConfig {

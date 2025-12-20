@@ -259,7 +259,11 @@ pub fn compile_file_with_config(
     let quotation_types = type_checker.take_quotation_types();
 
     // Generate LLVM IR with type information and external builtins
-    let mut codegen = CodeGen::new();
+    let mut codegen = if config.pure_inline_test {
+        CodeGen::new_pure_inline_test()
+    } else {
+        CodeGen::new()
+    };
     let ir = codegen
         .codegen_program_with_ffi(&program, quotation_types, config, &ffi_bindings)
         .map_err(|e| e.to_string())?;

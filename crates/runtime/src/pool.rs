@@ -14,7 +14,9 @@
 //! - Nodes are only accessed by owning thread
 //! - Pool size bounded = predictable memory usage
 
-use crate::memory_stats::{get_or_register_slot, increment_pool_allocations, update_pool_stats};
+use crate::memory_stats::get_or_register_slot;
+#[cfg(debug_assertions)]
+use crate::memory_stats::{increment_pool_allocations, update_pool_stats};
 use crate::stack::StackNode;
 use crate::value::Value;
 use std::cell::RefCell;

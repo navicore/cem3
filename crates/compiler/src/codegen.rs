@@ -336,6 +336,9 @@ pub struct CodeGen {
     /// When true, generates inline LLVM IR for integer operations instead of FFI calls.
     /// This provides ~10-50x speedup for integer-heavy workloads.
     use_tagged_stack: bool,
+    /// Pure inline test mode: bypasses scheduler, returns top of stack as exit code.
+    /// Used for testing pure integer programs without FFI dependencies.
+    pure_inline_test: bool,
 }
 
 impl CodeGen {
@@ -369,7 +372,19 @@ impl CodeGen {
             // The inline push_int and arithmetic operations ARE implemented and work correctly.
             // The blocker is FFI calls like int_to_string, write_line, etc.
             use_tagged_stack: false,
+            pure_inline_test: false,
         }
+    }
+
+    /// Create a CodeGen for pure inline testing.
+    /// Enables tagged stack and bypasses the scheduler, returning top of stack as exit code.
+    /// Only supports operations that are fully inlined (integers, arithmetic, stack ops).
+    #[allow(dead_code)]
+    pub fn new_pure_inline_test() -> Self {
+        let mut cg = Self::new();
+        cg.use_tagged_stack = true;
+        cg.pure_inline_test = true;
+        cg
     }
 
     /// Create a CodeGen with tagged stack disabled (for testing/fallback)
@@ -1617,8 +1632,9 @@ impl CodeGen {
         }
         writeln!(&mut self.output, "entry:")?;
 
-        // For main with tagged stack: allocate the stack and get base pointer
-        let mut stack_var = if is_main && self.use_tagged_stack {
+        // For main with tagged stack (non-pure-inline): allocate the stack and get base pointer
+        // In pure_inline_test mode, main() allocates the stack, so seq_main just uses %stack
+        let mut stack_var = if is_main && self.use_tagged_stack && !self.pure_inline_test {
             // Allocate tagged stack
             writeln!(
                 &mut self.output,
@@ -1651,8 +1667,8 @@ impl CodeGen {
         if word.body.is_empty()
             || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
         {
-            // For main with tagged stack: free the stack before returning
-            if is_main && self.use_tagged_stack {
+            if is_main && self.use_tagged_stack && !self.pure_inline_test {
+                // Normal tagged stack mode: free the stack before returning
                 writeln!(
                     &mut self.output,
                     "  call void @seq_stack_free(ptr %tagged_stack)"
@@ -1660,6 +1676,7 @@ impl CodeGen {
                 // Return null since we've freed the stack
                 writeln!(&mut self.output, "  ret ptr null")?;
             } else {
+                // Return the final stack pointer (used by main to read result)
                 writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
             }
         }
@@ -2216,10 +2233,18 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     top_ptr, stack_var
                 )?;
-                // Load top value
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val, top_ptr)?;
+                // Load full Value (40 bytes)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val, top_ptr
+                )?;
                 // Store at current SP
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val, stack_var)?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val, stack_var
+                )?;
                 // Increment SP
                 writeln!(
                     &mut self.output,
@@ -2247,12 +2272,28 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                // Load values
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+                // Load full Values (40 bytes each)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
                 // Store swapped
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_a, ptr_b)?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_b
+                )?;
                 // SP unchanged
                 Ok(Some(stack_var.to_string()))
             }
@@ -2269,12 +2310,16 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                // Load a
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
+                // Load full Value (40 bytes)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
                 // Store at current SP
                 writeln!(
                     &mut self.output,
-                    "  store i64 %{}, ptr %{}",
+                    "  store %Value %{}, ptr %{}",
                     val_a, stack_var
                 )?;
                 // Increment SP
@@ -2671,14 +2716,39 @@ impl CodeGen {
                     ptr_a, stack_var
                 )?;
 
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_c, ptr_c)?;
+                // Load full Values (40 bytes each)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_c, ptr_c
+                )?;
 
                 // Rotate: a goes to top, b goes to a's position, c goes to b's position
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_c, ptr_b)?;
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_a, ptr_c)?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_c, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_c
+                )?;
 
                 Ok(Some(stack_var.to_string()))
             }
@@ -2700,8 +2770,17 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
+                // Load full Value
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
 
                 writeln!(
                     &mut self.output,
@@ -2729,15 +2808,32 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
-
-                // Result: b a b (a's slot gets b, b's slot gets a, new slot gets b)
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, ptr_a)?;
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_a, ptr_b)?;
+                // Load full Values
                 writeln!(
                     &mut self.output,
-                    "  store i64 %{}, ptr %{}",
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+
+                // Result: b a b (a's slot gets b, b's slot gets a, new slot gets b)
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
                     val_b, stack_var
                 )?;
 
@@ -2768,13 +2864,22 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, ptr_a)?;
-                writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, ptr_b)?;
+                // Load full Values
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
 
                 // Push a, then b
                 writeln!(
                     &mut self.output,
-                    "  store i64 %{}, ptr %{}",
+                    "  store %Value %{}, ptr %{}",
                     val_a, stack_var
                 )?;
                 writeln!(
@@ -2782,7 +2887,11 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 1",
                     new_ptr, stack_var
                 )?;
-                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val_b, new_ptr)?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, new_ptr
+                )?;
 
                 writeln!(
                     &mut self.output,
@@ -3486,29 +3595,76 @@ impl CodeGen {
         )?;
         writeln!(&mut self.output, "entry:")?;
 
-        // Initialize command-line arguments (before scheduler so args are available)
-        writeln!(
-            &mut self.output,
-            "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
-        )?;
+        if self.pure_inline_test {
+            // Pure inline test mode: no scheduler, just run the code directly
+            // and return the top of stack as exit code.
+            //
+            // This mode is for testing pure integer programs that use only
+            // inlined operations (push_int, arithmetic, stack ops).
 
-        // Initialize scheduler
-        writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()")?;
+            // Allocate tagged stack
+            writeln!(
+                &mut self.output,
+                "  %tagged_stack = call ptr @seq_stack_new_default()"
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %stack_base = call ptr @seq_stack_base(ptr %tagged_stack)"
+            )?;
 
-        // Spawn user's main function as the first strand
-        // This ensures all code runs in coroutine context for non-blocking I/O
-        writeln!(
-            &mut self.output,
-            "  %0 = call i64 @patch_seq_strand_spawn(ptr @seq_main, ptr null)"
-        )?;
+            // Call seq_main which returns the final stack pointer
+            writeln!(
+                &mut self.output,
+                "  %final_sp = call ptr @seq_main(ptr %stack_base)"
+            )?;
 
-        // Wait for all spawned strands to complete (including main)
-        writeln!(
-            &mut self.output,
-            "  %1 = call ptr @patch_seq_scheduler_run()"
-        )?;
+            // Read top of stack value (at sp - 1, slot1 contains the int value)
+            writeln!(
+                &mut self.output,
+                "  %top_ptr = getelementptr %Value, ptr %final_sp, i64 -1"
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %val_ptr = getelementptr i64, ptr %top_ptr, i64 1"
+            )?;
+            writeln!(&mut self.output, "  %result = load i64, ptr %val_ptr")?;
 
-        writeln!(&mut self.output, "  ret i32 0")?;
+            // Free the stack
+            writeln!(
+                &mut self.output,
+                "  call void @seq_stack_free(ptr %tagged_stack)"
+            )?;
+
+            // Return result as exit code (truncate to i32)
+            writeln!(&mut self.output, "  %exit_code = trunc i64 %result to i32")?;
+            writeln!(&mut self.output, "  ret i32 %exit_code")?;
+        } else {
+            // Normal mode: use scheduler for concurrency support
+
+            // Initialize command-line arguments (before scheduler so args are available)
+            writeln!(
+                &mut self.output,
+                "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
+            )?;
+
+            // Initialize scheduler
+            writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()")?;
+
+            // Spawn user's main function as the first strand
+            // This ensures all code runs in coroutine context for non-blocking I/O
+            writeln!(
+                &mut self.output,
+                "  %0 = call i64 @patch_seq_strand_spawn(ptr @seq_main, ptr null)"
+            )?;
+
+            // Wait for all spawned strands to complete (including main)
+            writeln!(
+                &mut self.output,
+                "  %1 = call ptr @patch_seq_scheduler_run()"
+            )?;
+
+            writeln!(&mut self.output, "  ret i32 0")?;
+        }
         writeln!(&mut self.output, "}}")?;
 
         Ok(())
@@ -3655,6 +3811,53 @@ mod tests {
         assert!(ir.contains("i64 2")); // Push int 2
         assert!(ir.contains("i64 3")); // Push int 3
         assert!(ir.contains("call ptr @patch_seq_add"));
+    }
+
+    #[test]
+    fn test_pure_inline_test_mode() {
+        let mut codegen = CodeGen::new_pure_inline_test();
+
+        // Simple program: 5 3 add (should return 8)
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::IntLiteral(5),
+                    Statement::IntLiteral(3),
+                    Statement::WordCall {
+                        name: "add".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+
+        // Pure inline test mode should:
+        // 1. NOT CALL the scheduler (declarations are ok, calls are not)
+        assert!(!ir.contains("call void @patch_seq_scheduler_init"));
+        assert!(!ir.contains("call i64 @patch_seq_strand_spawn"));
+
+        // 2. Have main allocate tagged stack and call seq_main directly
+        assert!(ir.contains("call ptr @seq_stack_new_default()"));
+        assert!(ir.contains("call ptr @seq_main(ptr %stack_base)"));
+
+        // 3. Read result from stack and return as exit code
+        assert!(ir.contains("trunc i64 %result to i32"));
+        assert!(ir.contains("ret i32 %exit_code"));
+
+        // 4. Use inline push (store i64 0, not call patch_seq_push_int)
+        assert!(!ir.contains("call ptr @patch_seq_push_int"));
+        assert!(ir.contains("store i64 0, ptr %stack")); // Int discriminant
+
+        // 5. Use inline add (add i64, not call patch_seq_add)
+        assert!(!ir.contains("call ptr @patch_seq_add"));
+        assert!(ir.contains("add i64"));
     }
 
     #[test]

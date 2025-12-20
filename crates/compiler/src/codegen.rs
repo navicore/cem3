@@ -644,6 +644,10 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_clz(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_ctz(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_int_bits(ptr)")?;
+        // LLVM intrinsics for bit counting (used by inline codegen)
+        writeln!(&mut ir, "declare i64 @llvm.ctpop.i64(i64)")?;
+        writeln!(&mut ir, "declare i64 @llvm.ctlz.i64(i64, i1)")?;
+        writeln!(&mut ir, "declare i64 @llvm.cttz.i64(i64, i1)")?;
         writeln!(&mut ir, "; Stack operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -1022,6 +1026,10 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_clz(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_ctz(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_int_bits(ptr)")?;
+        // LLVM intrinsics for bit counting (used by inline codegen)
+        writeln!(ir, "declare i64 @llvm.ctpop.i64(i64)")?;
+        writeln!(ir, "declare i64 @llvm.ctlz.i64(i64, i1)")?;
+        writeln!(ir, "declare i64 @llvm.cttz.i64(i64, i1)")?;
         writeln!(ir, "; Stack operations")?;
         writeln!(ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -2765,6 +2773,71 @@ impl CodeGen {
                 Ok(Some(stack_var.to_string()))
             }
 
+            // Bitwise operations - operate on Int values (discriminant 0)
+            // band: ( a b -- a&b ) bitwise AND
+            "band" => self.codegen_inline_int_bitwise_binary(stack_var, "and"),
+
+            // bor: ( a b -- a|b ) bitwise OR
+            "bor" => self.codegen_inline_int_bitwise_binary(stack_var, "or"),
+
+            // bxor: ( a b -- a^b ) bitwise XOR
+            "bxor" => self.codegen_inline_int_bitwise_binary(stack_var, "xor"),
+
+            // shl: ( a b -- a<<b ) shift left
+            "shl" => self.codegen_inline_int_bitwise_binary(stack_var, "shl"),
+
+            // shr: ( a b -- a>>b ) arithmetic shift right
+            "shr" => self.codegen_inline_int_bitwise_binary(stack_var, "ashr"),
+
+            // bnot: ( a -- ~a ) bitwise NOT
+            "bnot" => {
+                // Get pointer to top Value
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, stack_var
+                )?;
+
+                // Get pointer to slot1 (value at offset 8)
+                let slot1_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_ptr, top_ptr
+                )?;
+
+                // Load value from slot1
+                let val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val, slot1_ptr
+                )?;
+
+                // Bitwise NOT: XOR with -1 (all 1s)
+                let not_result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = xor i64 %{}, -1", not_result, val)?;
+
+                // Store result (discriminant stays 0 for Int)
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    not_result, slot1_ptr
+                )?;
+                // SP unchanged
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // popcount: ( a -- count ) count number of 1 bits
+            "popcount" => self.codegen_inline_int_unary_intrinsic(stack_var, "llvm.ctpop.i64"),
+
+            // clz: ( a -- count ) count leading zeros
+            "clz" => self.codegen_inline_int_unary_intrinsic(stack_var, "llvm.ctlz.i64"),
+
+            // ctz: ( a -- count ) count trailing zeros
+            "ctz" => self.codegen_inline_int_unary_intrinsic(stack_var, "llvm.cttz.i64"),
+
             // More stack operations
             // rot: ( a b c -- b c a )
             "rot" => {
@@ -3338,6 +3411,140 @@ impl CodeGen {
         )?;
 
         Ok(Some(result_var))
+    }
+
+    /// Generate inline code for integer bitwise binary operations.
+    /// Returns tagged int (discriminant 0).
+    fn codegen_inline_int_bitwise_binary(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str, // "and", "or", "xor", "shl", "ashr"
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Perform the bitwise operation
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            op_result, llvm_op, val_a, val_b
+        )?;
+
+        // Store result (discriminant stays 0 for Int, just update slot1)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for integer unary intrinsic operations.
+    /// Used for popcount, clz, ctz which use LLVM intrinsics.
+    fn codegen_inline_int_unary_intrinsic(
+        &mut self,
+        stack_var: &str,
+        intrinsic: &str, // "llvm.ctpop.i64", "llvm.ctlz.i64", "llvm.cttz.i64"
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointer to top Value
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+
+        // Get pointer to slot1 (value at offset 8)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+
+        // Load value from slot1
+        let val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val, slot1_ptr
+        )?;
+
+        // Call the intrinsic
+        let result = self.fresh_temp();
+        if intrinsic == "llvm.ctpop.i64" {
+            writeln!(
+                &mut self.output,
+                "  %{} = call i64 @{}(i64 %{})",
+                result, intrinsic, val
+            )?;
+        } else {
+            // clz and ctz have a second parameter: is_poison_on_zero (false)
+            writeln!(
+                &mut self.output,
+                "  %{} = call i64 @{}(i64 %{}, i1 false)",
+                result, intrinsic, val
+            )?;
+        }
+
+        // Store result (discriminant stays 0 for Int)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            result, slot1_ptr
+        )?;
+
+        // SP unchanged
+        Ok(Some(stack_var.to_string()))
     }
 
     /// Generate inline code for `while` loop: [cond] [body] while

@@ -1649,18 +1649,9 @@ impl CodeGen {
         } else {
             "stack".to_string()
         };
-        let body_len = word.body.len();
 
-        // Generate code for each statement
-        // The last statement is in tail position
-        for (i, statement) in word.body.iter().enumerate() {
-            let position = if i == body_len - 1 {
-                TailPosition::Tail
-            } else {
-                TailPosition::NonTail
-            };
-            stack_var = self.codegen_statement(&stack_var, statement, position)?;
-        }
+        // Generate code for all statements with pattern detection for inline loops
+        stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
 
         // Only emit ret if the last statement wasn't a tail call
         // (tail calls emit their own ret)
@@ -3349,6 +3340,405 @@ impl CodeGen {
         Ok(Some(result_var))
     }
 
+    /// Generate inline code for `while` loop: [cond] [body] while
+    ///
+    /// LLVM structure:
+    /// ```text
+    /// while_cond:
+    ///   <execute cond_body>
+    ///   %cond = load condition from stack
+    ///   %sp = pop condition
+    ///   br i1 %cond, label %while_body, label %while_end
+    /// while_body:
+    ///   <execute loop_body>
+    ///   br label %while_cond
+    /// while_end:
+    ///   ...
+    /// ```
+    fn codegen_inline_while(
+        &mut self,
+        stack_var: &str,
+        cond_body: &[Statement],
+        loop_body: &[Statement],
+    ) -> Result<String, CodeGenError> {
+        let cond_block = self.fresh_block("while_cond");
+        let body_block = self.fresh_block("while_body");
+        let end_block = self.fresh_block("while_end");
+
+        // Use named variables for phi nodes to avoid SSA ordering issues
+        let loop_stack_phi = format!("{}_stack", cond_block);
+        let loop_stack_next = format!("{}_stack_next", cond_block);
+
+        // Jump to condition check
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for stack pointer at loop entry
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, body_block
+        )?;
+
+        // Execute condition body
+        let cond_stack = self.codegen_statements(cond_body, &loop_stack_phi, false)?;
+
+        // Inline peek and pop for condition
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, cond_stack
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, cond_stack
+        )?;
+
+        // Branch on condition
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cond_bool, cond_val
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &popped_stack, false)?;
+
+        // Create landing block for phi node
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+
+        // Store result for phi and loop back
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i8, ptr %{}, i64 0",
+            loop_stack_next, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(popped_stack)
+    }
+
+    /// Generate inline code for `until` loop: [cond] [body] until
+    ///
+    /// Like while but executes body first, then checks condition.
+    /// Continues until condition is TRUE (opposite of while).
+    fn codegen_inline_until(
+        &mut self,
+        stack_var: &str,
+        cond_body: &[Statement],
+        loop_body: &[Statement],
+    ) -> Result<String, CodeGenError> {
+        let body_block = self.fresh_block("until_body");
+        let cond_block = self.fresh_block("until_cond");
+        let end_block = self.fresh_block("until_end");
+
+        // Use named variables for phi nodes to avoid SSA ordering issues
+        let loop_stack_phi = format!("{}_stack", body_block);
+        let loop_stack_next = format!("{}_stack_next", body_block);
+
+        // Jump to body (do-while style)
+        writeln!(&mut self.output, "  br label %{}", body_block)?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Phi for stack pointer at loop entry
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, cond_block
+        )?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack_phi, false)?;
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Execute condition body
+        let cond_stack = self.codegen_statements(cond_body, &body_end_stack, false)?;
+
+        // Inline peek and pop for condition
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, cond_stack
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, cond_stack
+        )?;
+
+        // Create landing block for phi
+        let cond_end_block = format!("{}_end", cond_block);
+        writeln!(&mut self.output, "  br label %{}", cond_end_block)?;
+        writeln!(&mut self.output, "{}:", cond_end_block)?;
+
+        // Store result for phi
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i8, ptr %{}, i64 0",
+            loop_stack_next, popped_stack
+        )?;
+
+        // Branch: if condition is TRUE, exit; if FALSE, continue loop
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cond_bool, cond_val
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, end_block, body_block
+        )?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(popped_stack)
+    }
+
+    /// Generate inline code for `times` loop: n [body] times
+    ///
+    /// Pops count from stack, executes body that many times.
+    #[allow(dead_code)] // Reserved for future dynamic count support
+    fn codegen_inline_times(
+        &mut self,
+        stack_var: &str,
+        loop_body: &[Statement],
+    ) -> Result<String, CodeGenError> {
+        let cond_block = self.fresh_block("times_cond");
+        let body_block = self.fresh_block("times_body");
+        let end_block = self.fresh_block("times_end");
+
+        // Pop count from stack (it was pushed before the quotation)
+        // Actually, the quotation is at top, count is below it
+        // But in our pattern, we detected [body] times, so count is already on stack
+        // We need to pop the count that's on the stack
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let count_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            count_val, slot1_ptr
+        )?;
+        let init_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            init_stack, stack_var
+        )?;
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for counter and stack
+        let counter = self.fresh_temp();
+        let loop_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = phi i64 [ %{}, %entry ], [ %{}_next, %{}_end ]",
+            counter, count_val, counter, body_block
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}_body_end, %{}_end ]",
+            loop_stack, init_stack, body_block, body_block
+        )?;
+
+        // Check if counter > 0
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sgt i64 %{}, 0",
+            cond_bool, counter
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack, false)?;
+
+        // Create landing block
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+
+        // Decrement counter and store for phi
+        writeln!(
+            &mut self.output,
+            "  %{}_next = sub i64 %{}, 1",
+            counter, counter
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{}_body_end = getelementptr i8, ptr %{}, i64 0",
+            body_block, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(loop_stack)
+    }
+
+    /// Generate inline code for `times` loop with literal count: [body] n times
+    ///
+    /// The count is known at compile time, so we don't need to pop it from stack.
+    fn codegen_inline_times_literal(
+        &mut self,
+        stack_var: &str,
+        loop_body: &[Statement],
+        count: i64,
+    ) -> Result<String, CodeGenError> {
+        // If count is 0 or negative, skip the loop entirely
+        if count <= 0 {
+            return Ok(stack_var.to_string());
+        }
+
+        let cond_block = self.fresh_block("times_cond");
+        let body_block = self.fresh_block("times_body");
+        let end_block = self.fresh_block("times_end");
+
+        // Use named variables for phi nodes to avoid SSA ordering issues
+        let counter_phi = format!("{}_counter", cond_block);
+        let counter_next = format!("{}_counter_next", cond_block);
+        let loop_stack_phi = format!("{}_stack", cond_block);
+        let loop_stack_next = format!("{}_stack_next", cond_block);
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for counter and stack
+        writeln!(
+            &mut self.output,
+            "  %{} = phi i64 [ {}, %entry ], [ %{}, %{}_end ]",
+            counter_phi, count, counter_next, body_block
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, body_block
+        )?;
+
+        // Check if counter > 0
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sgt i64 %{}, 0",
+            cond_bool, counter_phi
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack_phi, false)?;
+
+        // Create landing block
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+
+        // Decrement counter and create stack alias for phi
+        writeln!(
+            &mut self.output,
+            "  %{} = sub i64 %{}, 1",
+            counter_next, counter_phi
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i8, ptr %{}, i64 0",
+            loop_stack_next, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(loop_stack_phi)
+    }
+
     /// Generate code for a word call
     ///
     /// Handles builtin functions, external builtins, and user-defined words.
@@ -3875,6 +4265,87 @@ impl CodeGen {
     // =========================================================================
     // Main Statement Dispatcher
     // =========================================================================
+
+    /// Generate code for a sequence of statements with pattern detection.
+    ///
+    /// Detects patterns like `[cond] [body] while` and emits inline loops
+    /// instead of quotation push + FFI call.
+    ///
+    /// Returns the final stack variable name.
+    fn codegen_statements(
+        &mut self,
+        statements: &[Statement],
+        initial_stack_var: &str,
+        last_is_tail: bool,
+    ) -> Result<String, CodeGenError> {
+        let mut stack_var = initial_stack_var.to_string();
+        let len = statements.len();
+        let mut i = 0;
+
+        while i < len {
+            let is_last = i == len - 1;
+            let position = if is_last && last_is_tail {
+                TailPosition::Tail
+            } else {
+                TailPosition::NonTail
+            };
+
+            // Pattern: [cond] [body] while  or  [body] [cond] until
+            // Stack order: first quotation pushed is below second
+            // For while: condition is pushed first, body second → [cond] [body] while
+            // For until: body is pushed first, condition second → [body] [cond] until
+            if self.use_tagged_stack
+                && i + 2 < len
+                && let (
+                    Statement::Quotation {
+                        body: first_quot, ..
+                    },
+                    Statement::Quotation {
+                        body: second_quot, ..
+                    },
+                    Statement::WordCall { name, .. },
+                ) = (&statements[i], &statements[i + 1], &statements[i + 2])
+            {
+                if name == "while" {
+                    // while: [cond] [body] - first is cond, second is body
+                    stack_var = self.codegen_inline_while(&stack_var, first_quot, second_quot)?;
+                    i += 3;
+                    continue;
+                }
+                if name == "until" {
+                    // until: [body] [cond] - first is body, second is cond
+                    stack_var = self.codegen_inline_until(&stack_var, second_quot, first_quot)?;
+                    i += 3;
+                    continue;
+                }
+            }
+
+            // Pattern: [body] count times
+            // Stack order: quotation pushed first, then count, then times called
+            // Statement pattern: Quotation, IntLiteral, WordCall("times")
+            if self.use_tagged_stack
+                && i + 2 < len
+                && let (
+                    Statement::Quotation {
+                        body: loop_body, ..
+                    },
+                    Statement::IntLiteral(count),
+                    Statement::WordCall { name, .. },
+                ) = (&statements[i], &statements[i + 1], &statements[i + 2])
+                && name == "times"
+            {
+                stack_var = self.codegen_inline_times_literal(&stack_var, loop_body, *count)?;
+                i += 3;
+                continue;
+            }
+
+            // Regular statement processing
+            stack_var = self.codegen_statement(&stack_var, &statements[i], position)?;
+            i += 1;
+        }
+
+        Ok(stack_var)
+    }
 
     /// Generate code for a single statement
     ///

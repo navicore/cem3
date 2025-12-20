@@ -3433,20 +3433,59 @@ impl CodeGen {
         else_branch: Option<&Vec<Statement>>,
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
-        // Peek the condition value, then pop to free the stack node
-        let cond_temp = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
-            cond_temp, stack_var
-        )?;
+        // Peek the condition value, then pop
+        let (cond_temp, popped_stack) = if self.use_tagged_stack {
+            // Inline: get pointer to top Value (at SP-1)
+            let top_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                top_ptr, stack_var
+            )?;
 
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
-            popped_stack, stack_var
-        )?;
+            // Get pointer to slot1 (value at offset 8)
+            let slot1_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_ptr, top_ptr
+            )?;
+
+            // Load condition value from slot1
+            let cond_temp = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = load i64, ptr %{}",
+                cond_temp, slot1_ptr
+            )?;
+
+            // Pop: SP = SP - 1
+            let popped_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                popped_stack, stack_var
+            )?;
+
+            (cond_temp, popped_stack)
+        } else {
+            // Legacy FFI path
+            let cond_temp = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
+                cond_temp, stack_var
+            )?;
+
+            let popped_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                popped_stack, stack_var
+            )?;
+
+            (cond_temp, popped_stack)
+        };
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();

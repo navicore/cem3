@@ -2147,26 +2147,63 @@ impl CodeGen {
     /// Uses LLVM's hexadecimal floating point format for exact representation.
     /// Handles special values (NaN, Infinity) explicitly.
     fn codegen_float_literal(&mut self, stack_var: &str, f: f64) -> Result<String, CodeGenError> {
-        let result_var = self.fresh_temp();
-        // Format float to ensure LLVM recognizes it as a double literal
-        let float_str = if f.is_nan() {
-            "0x7FF8000000000000".to_string() // NaN
-        } else if f.is_infinite() {
-            if f.is_sign_positive() {
-                "0x7FF0000000000000".to_string() // +Infinity
-            } else {
-                "0xFFF0000000000000".to_string() // -Infinity
-            }
+        // Format float bits as hex for LLVM
+        let float_bits = f.to_bits();
+
+        if self.use_tagged_stack {
+            // Inline push: Write Value directly to stack
+            // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+            // Float discriminant = 1 (Int=0, Float=1, Bool=2)
+
+            // Store discriminant 1 (Float) at slot0
+            writeln!(&mut self.output, "  store i64 1, ptr %{}", stack_var)?;
+
+            // Get pointer to slot1 (offset 8 bytes = 1 i64)
+            let slot1_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_ptr, stack_var
+            )?;
+
+            // Store float bits as i64 at slot1
+            writeln!(
+                &mut self.output,
+                "  store i64 {}, ptr %{}",
+                float_bits, slot1_ptr
+            )?;
+
+            // Return pointer to next Value slot
+            let result_var = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                result_var, stack_var
+            )?;
+
+            Ok(result_var)
         } else {
-            // Use LLVM's hexadecimal floating point format for exact representation
-            format!("0x{:016X}", f.to_bits())
-        };
-        writeln!(
-            &mut self.output,
-            "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
-            result_var, stack_var, float_str
-        )?;
-        Ok(result_var)
+            // Legacy FFI call (for non-tagged-stack mode)
+            let result_var = self.fresh_temp();
+            // Format for LLVM double literal
+            let float_str = if f.is_nan() {
+                "0x7FF8000000000000".to_string() // NaN
+            } else if f.is_infinite() {
+                if f.is_sign_positive() {
+                    "0x7FF0000000000000".to_string() // +Infinity
+                } else {
+                    "0xFFF0000000000000".to_string() // -Infinity
+                }
+            } else {
+                format!("0x{:016X}", float_bits)
+            };
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
+                result_var, stack_var, float_str
+            )?;
+            Ok(result_var)
+        }
     }
 
     /// Generate code for a boolean literal: ( -- b )
@@ -2521,6 +2558,21 @@ impl CodeGen {
 
             // >= (greater than or equal)
             ">=" => self.codegen_inline_comparison(stack_var, "sge"),
+
+            // Float arithmetic operations
+            // Values are stored as f64 bits in slot1, discriminant 1 (Float)
+            "f.add" => self.codegen_inline_float_binary_op(stack_var, "fadd"),
+            "f.subtract" => self.codegen_inline_float_binary_op(stack_var, "fsub"),
+            "f.multiply" => self.codegen_inline_float_binary_op(stack_var, "fmul"),
+            "f.divide" => self.codegen_inline_float_binary_op(stack_var, "fdiv"),
+
+            // Float comparison operations - result is tagged bool
+            "f.=" => self.codegen_inline_float_comparison(stack_var, "oeq"),
+            "f.<>" => self.codegen_inline_float_comparison(stack_var, "one"),
+            "f.<" => self.codegen_inline_float_comparison(stack_var, "olt"),
+            "f.>" => self.codegen_inline_float_comparison(stack_var, "ogt"),
+            "f.<=" => self.codegen_inline_float_comparison(stack_var, "ole"),
+            "f.>=" => self.codegen_inline_float_comparison(stack_var, "oge"),
 
             // Boolean operations - values are in slot1, discriminant 2 (Bool)
             // and: ( a b -- a&&b )
@@ -3094,6 +3146,197 @@ impl CodeGen {
             "  store i64 %{}, ptr %{}",
             op_result, slot1_a
         )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for float binary operations (f.add, f.subtract, etc.)
+    /// Values are stored as f64 bits in slot1, discriminant 1 (Float).
+    fn codegen_inline_float_binary_op(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1 as i64 (raw bits)
+        let bits_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_a, slot1_a
+        )?;
+        let bits_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_b, slot1_b
+        )?;
+
+        // Bitcast to double
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_a, bits_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_b, bits_b
+        )?;
+
+        // Perform the float operation
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} double %{}, %{}",
+            op_result, llvm_op, val_a, val_b
+        )?;
+
+        // Bitcast result back to i64
+        let result_bits = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast double %{} to i64",
+            result_bits, op_result
+        )?;
+
+        // Store result at slot1 (discriminant 1 already at slot0)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            result_bits, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for float comparison operations.
+    /// Returns tagged bool (discriminant 2, value 0 or 1).
+    fn codegen_inline_float_comparison(
+        &mut self,
+        stack_var: &str,
+        fcmp_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1 as i64 (raw bits)
+        let bits_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_a, slot1_a
+        )?;
+        let bits_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_b, slot1_b
+        )?;
+
+        // Bitcast to double
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_a, bits_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_b, bits_b
+        )?;
+
+        // Compare using fcmp
+        let cmp_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = fcmp {} double %{}, %{}",
+            cmp_result, fcmp_op, val_a, val_b
+        )?;
+
+        // Convert i1 to i64
+        let zext = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = zext i1 %{} to i64",
+            zext, cmp_result
+        )?;
+
+        // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
 
         // SP = SP - 1 (consumed b)
         let result_var = self.fresh_temp();

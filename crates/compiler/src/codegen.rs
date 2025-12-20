@@ -648,6 +648,11 @@ impl CodeGen {
         writeln!(&mut ir, "declare i64 @llvm.ctpop.i64(i64)")?;
         writeln!(&mut ir, "declare i64 @llvm.ctlz.i64(i64, i1)")?;
         writeln!(&mut ir, "declare i64 @llvm.cttz.i64(i64, i1)")?;
+        // LLVM intrinsic for memmove (used by roll)
+        writeln!(
+            &mut ir,
+            "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)"
+        )?;
         writeln!(&mut ir, "; Stack operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -1030,6 +1035,11 @@ impl CodeGen {
         writeln!(ir, "declare i64 @llvm.ctpop.i64(i64)")?;
         writeln!(ir, "declare i64 @llvm.ctlz.i64(i64, i1)")?;
         writeln!(ir, "declare i64 @llvm.cttz.i64(i64, i1)")?;
+        // LLVM intrinsic for memmove (used by roll)
+        writeln!(
+            ir,
+            "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)"
+        )?;
         writeln!(ir, "; Stack operations")?;
         writeln!(ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -3058,6 +3068,170 @@ impl CodeGen {
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
+            }
+
+            // pick: ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
+            // Copy the nth item (0-indexed from below n) to top
+            "pick" => {
+                // Get pointer to n (top of stack)
+                let n_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    n_ptr, stack_var
+                )?;
+
+                // Load n from slot1
+                let n_slot1 = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    n_slot1, n_ptr
+                )?;
+                let n_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    n_val, n_slot1
+                )?;
+
+                // Calculate offset: -(n + 2) from stack_var
+                // After popping n, x0 is at -1, x1 at -2, xn at -(n+1)
+                // But we're indexing from stack_var, so xn is at -(n+2)
+                let offset = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = add i64 %{}, 2", offset, n_val)?;
+                let neg_offset = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = sub i64 0, %{}",
+                    neg_offset, offset
+                )?;
+
+                // Get pointer to the item to copy
+                let src_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
+                    src_ptr, stack_var, neg_offset
+                )?;
+
+                // Load the value
+                let picked_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    picked_val, src_ptr
+                )?;
+
+                // Store at position where n was (replacing n with the picked value)
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    picked_val, n_ptr
+                )?;
+
+                // SP unchanged (we replaced n with the picked value)
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // roll: ( ... xn xn-1 ... x1 x0 n -- ... xn-1 ... x1 x0 xn )
+            // Move the nth item to top, shifting others down
+            "roll" => {
+                // Get pointer to n (top of stack)
+                let n_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    n_ptr, stack_var
+                )?;
+
+                // Load n from slot1
+                let n_slot1 = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    n_slot1, n_ptr
+                )?;
+                let n_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    n_val, n_slot1
+                )?;
+
+                // Pop n first - new SP is stack_var - 1
+                let popped_sp = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    popped_sp, stack_var
+                )?;
+
+                // Calculate offset to the item to roll: -(n + 1) from popped_sp
+                let offset = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = add i64 %{}, 1", offset, n_val)?;
+                let neg_offset = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = sub i64 0, %{}",
+                    neg_offset, offset
+                )?;
+
+                // Get pointer to the item to roll (xn)
+                let src_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
+                    src_ptr, popped_sp, neg_offset
+                )?;
+
+                // Load the value to roll
+                let rolled_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    rolled_val, src_ptr
+                )?;
+
+                // Use memmove to shift items down (from src+1 to src, n items)
+                // memmove(dest, src, size) - dest is src_ptr, src is src_ptr+1
+                let src_plus_one = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    src_plus_one, src_ptr
+                )?;
+
+                // Size in bytes = n * 40 (sizeof %Value)
+                let size_bytes = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = mul i64 %{}, 40",
+                    size_bytes, n_val
+                )?;
+
+                // Call memmove
+                writeln!(
+                    &mut self.output,
+                    "  call void @llvm.memmove.p0.p0.i64(ptr %{}, ptr %{}, i64 %{}, i1 false)",
+                    src_ptr, src_plus_one, size_bytes
+                )?;
+
+                // Store rolled value at top (popped_sp - 1, which is where x0 was)
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, popped_sp
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    rolled_val, top_ptr
+                )?;
+
+                // SP = popped_sp (we removed n, rolled doesn't change count)
+                Ok(Some(popped_sp))
             }
 
             // Not an inline-able operation

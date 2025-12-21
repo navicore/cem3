@@ -15,6 +15,8 @@ install:
     cargo install --path crates/compiler
     @echo "Installing the lsp server..."
     cargo install --path crates/lsp
+    @echo "Installing the repl..."
+    cargo install --path crates/repl
 
 # Build the Rust runtime as static library
 build-runtime:

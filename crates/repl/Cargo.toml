@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
-seq-compiler = { path = "../compiler", version = "=0.11.0" }
+seq-compiler = { path = "../compiler", version = "=0.12.0" }
 clap = { version = "4.5", features = ["derive"] }
 rustyline = "15"
 tempfile = "3"

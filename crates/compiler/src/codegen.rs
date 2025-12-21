@@ -2782,11 +2782,11 @@ impl CodeGen {
             // bxor: ( a b -- a^b ) bitwise XOR
             "bxor" => self.codegen_inline_int_bitwise_binary(stack_var, "xor"),
 
-            // shl: ( a b -- a<<b ) shift left
-            "shl" => self.codegen_inline_int_bitwise_binary(stack_var, "shl"),
+            // shl: ( a b -- a<<b ) shift left, returns 0 for shift >= 64 or negative
+            "shl" => self.codegen_inline_shift(stack_var, true),
 
-            // shr: ( a b -- a>>b ) arithmetic shift right
-            "shr" => self.codegen_inline_int_bitwise_binary(stack_var, "ashr"),
+            // shr: ( a b -- a>>b ) logical shift right, returns 0 for shift >= 64 or negative
+            "shr" => self.codegen_inline_shift(stack_var, false),
 
             // bnot: ( a -- ~a ) bitwise NOT
             "bnot" => {
@@ -3252,8 +3252,9 @@ impl CodeGen {
             zext, cmp_result
         )?;
 
-        // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
-        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+        // Store result as Value::Int (discriminant 0 at slot0, value at slot1)
+        // Comparison results are Forth-style: 0 for false, 1 for true
+        writeln!(&mut self.output, "  store i64 0, ptr %{}", ptr_a)?;
         writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
 
         // SP = SP - 1 (consumed b)
@@ -3520,8 +3521,9 @@ impl CodeGen {
             zext, cmp_result
         )?;
 
-        // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
-        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+        // Store result as Value::Int (discriminant 0 at slot0, value at slot1)
+        // Comparison results are Forth-style: 0 for false, 1 for true
+        writeln!(&mut self.output, "  store i64 0, ptr %{}", ptr_a)?;
         writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
 
         // SP = SP - 1 (consumed b)
@@ -3590,6 +3592,123 @@ impl CodeGen {
             &mut self.output,
             "  %{} = {} i64 %{}, %{}",
             op_result, llvm_op, val_a, val_b
+        )?;
+
+        // Store result (discriminant stays 0 for Int, just update slot1)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for shift operations with proper edge case handling.
+    /// Matches runtime behavior: returns 0 for negative shift or shift >= 64.
+    /// For shr, uses logical (not arithmetic) shift to match runtime.
+    fn codegen_inline_shift(
+        &mut self,
+        stack_var: &str,
+        is_left: bool, // true for shl, false for shr
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots (b = shift count, a = value to shift)
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1 (val_a = value to shift, val_b = shift count)
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Check if shift count is negative
+        let is_neg = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp slt i64 %{}, 0",
+            is_neg, val_b
+        )?;
+
+        // Check if shift count >= 64
+        let is_overflow = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sge i64 %{}, 64",
+            is_overflow, val_b
+        )?;
+
+        // Combine: is_invalid = is_neg OR is_overflow
+        let is_invalid = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = or i1 %{}, %{}",
+            is_invalid, is_neg, is_overflow
+        )?;
+
+        // Use a safe shift count (clamped to 0 if invalid) to avoid LLVM UB
+        let safe_count = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = select i1 %{}, i64 0, i64 %{}",
+            safe_count, is_invalid, val_b
+        )?;
+
+        // Perform the shift operation with safe count
+        let shift_result = self.fresh_temp();
+        let op = if is_left { "shl" } else { "lshr" };
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            shift_result, op, val_a, safe_count
+        )?;
+
+        // Select final result: 0 if invalid, otherwise shift_result
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = select i1 %{}, i64 0, i64 %{}",
+            op_result, is_invalid, shift_result
         )?;
 
         // Store result (discriminant stays 0 for Int, just update slot1)

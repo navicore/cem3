@@ -628,6 +628,8 @@ impl CodeGen {
             &mut ir,
             "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)"
         )?;
+        // LLVM intrinsic for trap (used by division-by-zero check)
+        writeln!(&mut ir, "declare void @llvm.trap() noreturn nounwind")?;
         writeln!(&mut ir, "; Stack operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -1015,6 +1017,8 @@ impl CodeGen {
             ir,
             "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)"
         )?;
+        // LLVM intrinsic for trap (used by division-by-zero check)
+        writeln!(ir, "declare void @llvm.trap() noreturn nounwind")?;
         writeln!(ir, "; Stack operations")?;
         writeln!(ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -2406,6 +2410,7 @@ impl CodeGen {
             }
 
             // divide: ( a b -- a/b )
+            // Matches runtime behavior: panic on zero, wrapping for i64::MIN/-1
             "divide" => {
                 // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
@@ -2449,19 +2454,83 @@ impl CodeGen {
                     val_b, slot1_b
                 )?;
 
-                // Divide (signed)
+                // Check for division by zero
+                let is_zero = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, 0",
+                    is_zero, val_b
+                )?;
+
+                // Check for overflow case: i64::MIN / -1
+                let is_min = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, -9223372036854775808",
+                    is_min, val_a
+                )?;
+                let is_neg_one = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, -1",
+                    is_neg_one, val_b
+                )?;
+                let is_overflow = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = and i1 %{}, %{}",
+                    is_overflow, is_min, is_neg_one
+                )?;
+
+                // Use safe divisor: if zero use 1, if overflow case use 1
+                let safe_divisor = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = select i1 %{}, i64 1, i64 %{}",
+                    safe_divisor, is_zero, val_b
+                )?;
+                let final_divisor = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = select i1 %{}, i64 1, i64 %{}",
+                    final_divisor, is_overflow, safe_divisor
+                )?;
+
+                // Divide (signed) with safe divisor
                 let quotient = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = sdiv i64 %{}, %{}",
-                    quotient, val_a, val_b
+                    quotient, val_a, final_divisor
                 )?;
+
+                // For overflow case: result should be i64::MIN (wrapping behavior)
+                // For zero case: we'll trap below, but use 0 as placeholder
+                let safe_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = select i1 %{}, i64 -9223372036854775808, i64 %{}",
+                    safe_result, is_overflow, quotient
+                )?;
+
+                // Trap on division by zero (call llvm.trap)
+                let ok_label = self.fresh_block("div_ok");
+                let trap_label = self.fresh_block("div_trap");
+                writeln!(
+                    &mut self.output,
+                    "  br i1 %{}, label %{}, label %{}",
+                    is_zero, trap_label, ok_label
+                )?;
+                writeln!(&mut self.output, "{}:", trap_label)?;
+                writeln!(&mut self.output, "  call void @llvm.trap()")?;
+                writeln!(&mut self.output, "  unreachable")?;
+                writeln!(&mut self.output, "{}:", ok_label)?;
 
                 // Store result at slot1 (discriminant 0 already at slot0)
                 writeln!(
                     &mut self.output,
                     "  store i64 %{}, ptr %{}",
-                    quotient, slot1_a
+                    safe_result, slot1_a
                 )?;
                 let result_var = self.fresh_temp();
                 writeln!(

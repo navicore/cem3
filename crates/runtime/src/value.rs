@@ -179,16 +179,20 @@ mod tests {
         println!("size_of::<Value>() = {}", size_of::<Value>());
         println!("align_of::<Value>() = {}", align_of::<Value>());
 
-        // Verify Value is a reasonable size (should be around 40-48 bytes with #[repr(C)])
-        // The exact size depends on the largest variant (String with SeqString)
-        assert!(
-            size_of::<Value>() <= 64,
-            "Value size {} is unexpectedly large",
-            size_of::<Value>()
+        // Verify Value is exactly 40 bytes to match StackValue layout
+        // This is critical for FFI correctness between LLVM IR and Rust
+        use crate::tagged_stack::StackValue;
+        assert_eq!(
+            size_of::<Value>(),
+            size_of::<StackValue>(),
+            "Value ({} bytes) must match StackValue ({} bytes) for FFI compatibility",
+            size_of::<Value>(),
+            size_of::<StackValue>()
         );
-        assert!(
-            size_of::<Value>() >= 32,
-            "Value size {} is unexpectedly small",
+        assert_eq!(
+            size_of::<Value>(),
+            40,
+            "Value must be exactly 40 bytes, got {}",
             size_of::<Value>()
         );
 

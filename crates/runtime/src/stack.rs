@@ -168,7 +168,16 @@ pub unsafe extern "C" fn patch_seq_clone_value(src: *const StackValue, dst: *mut
     }
 }
 
-/// Clone a StackValue, incrementing refcounts for heap types
+/// Clone a StackValue, handling reference counting for heap types.
+///
+/// # Cloning Strategy by Type
+/// - **Int, Float, Bool, Quotation**: Bitwise copy (no heap allocation)
+/// - **String**: Deep copy to a new global (refcounted) string. This is necessary
+///   because the source may be an arena-allocated string that would become invalid
+///   when the arena resets. Global strings are heap-allocated with Arc refcounting.
+/// - **Variant**: Arc refcount increment (O(1), shares underlying data)
+/// - **Map**: Deep clone of the HashMap and all contained values
+/// - **Closure**: Deep clone of the Arc<[Value]> environment
 ///
 /// # Safety
 /// The StackValue must contain valid data for its discriminant.
@@ -178,7 +187,7 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
         match sv.slot0 {
             DISC_INT | DISC_FLOAT | DISC_BOOL | DISC_QUOTATION => *sv,
             DISC_STRING => {
-                // Clone by creating a new global string from the content
+                // Deep copy: arena strings may become invalid, so always create a global string
                 let ptr = sv.slot1 as *const u8;
                 let len = sv.slot2 as usize;
                 debug_assert!(!ptr.is_null(), "String pointer is null");
@@ -596,15 +605,38 @@ pub unsafe extern "C" fn patch_seq_3drop(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least n+1 values (plus the index value).
+///
+/// # Panics
+/// - If the top value is not an Int
+/// - If n is negative
+/// - If n exceeds the current stack depth
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
     unsafe {
         // Get n from top of stack
         let (sp, n_val) = pop(stack);
-        let n = match n_val {
-            Value::Int(i) => i as usize,
+        let n_raw = match n_val {
+            Value::Int(i) => i,
             _ => panic!("pick: expected Int"),
         };
+
+        // Bounds check: n must be non-negative
+        if n_raw < 0 {
+            panic!("pick: index cannot be negative (got {})", n_raw);
+        }
+        let n = n_raw as usize;
+
+        // Check stack depth to prevent out-of-bounds access
+        let base = get_stack_base();
+        let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
+        if n >= depth {
+            panic!(
+                "pick: index {} exceeds stack depth {} (need at least {} values)",
+                n,
+                depth,
+                n + 1
+            );
+        }
 
         // Get the value at depth n (0 = top after popping n)
         let sv = *sp.sub(n + 1);
@@ -618,15 +650,26 @@ pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have at least n+1 values (plus the index value).
+///
+/// # Panics
+/// - If the top value is not an Int
+/// - If n is negative
+/// - If n exceeds the current stack depth
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
     unsafe {
         // Get n from top of stack
         let (sp, n_val) = pop(stack);
-        let n = match n_val {
-            Value::Int(i) => i as usize,
+        let n_raw = match n_val {
+            Value::Int(i) => i,
             _ => panic!("roll: expected Int"),
         };
+
+        // Bounds check: n must be non-negative
+        if n_raw < 0 {
+            panic!("roll: index cannot be negative (got {})", n_raw);
+        }
+        let n = n_raw as usize;
 
         if n == 0 {
             return sp;
@@ -636,6 +679,18 @@ pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
         }
         if n == 2 {
             return patch_seq_rot(sp);
+        }
+
+        // Check stack depth to prevent out-of-bounds access
+        let base = get_stack_base();
+        let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
+        if n >= depth {
+            panic!(
+                "roll: index {} exceeds stack depth {} (need at least {} values)",
+                n,
+                depth,
+                n + 1
+            );
         }
 
         // General case: save item at depth n, shift others, put saved at top

@@ -6,8 +6,8 @@ row polymorphism, and green-thread concurrency.
 ## Core Design Principles
 
 1. **Values are independent of stack structure** - A value can be duplicated,
-   shuffled, or stored without corruption. The stack is just a linked list of
-   pointers to values.
+   shuffled, or stored without corruption. The stack is a contiguous array of
+   40-byte tagged values.
 
 2. **Functional style** - Operations produce new values rather than mutating.
    `array-with` returns a new array, it doesn't modify the original.
@@ -44,7 +44,7 @@ seq/
 │   │   ├── args.rs         # Command-line argument access
 │   │   ├── scheduler.rs    # May coroutine scheduler
 │   │   ├── arena.rs        # Arena allocation for temporaries
-│   │   └── pool.rs         # Stack node pooling
+│   │   └── tagged_stack.rs # Contiguous 40-byte tagged value stack
 │   └── tests/
 ├── lsp/                # Rust - seq-lsp language server
 │   └── src/
@@ -65,11 +65,16 @@ seq/
 Values are defined in `runtime/src/value.rs`:
 
 ```rust
+#[repr(C)]
 pub enum Value {
-    Int(i64),
-    Float(f64),
-    String(SeqString),           // Reference-counted string
-    Variant(Box<VariantData>),   // Tagged union with N fields
+    Int(i64),                    // Discriminant 0
+    Float(f64),                  // Discriminant 1
+    Bool(bool),                  // Discriminant 2
+    String(SeqString),           // Discriminant 3 - reference-counted
+    Variant(Arc<VariantData>),   // Discriminant 4 - Arc for O(1) cloning
+    Map(Box<HashMap<...>>),      // Discriminant 5 - key-value dictionary
+    Quotation { wrapper, impl_ },// Discriminant 6 - function pointers
+    Closure { fn_ptr, env },     // Discriminant 7 - function + captured values
 }
 
 pub struct VariantData {
@@ -78,16 +83,34 @@ pub struct VariantData {
 }
 ```
 
+Value is exactly 40 bytes with 8-byte alignment, matching the stack entry size.
+
 ## Stack Model
 
-The stack is a singly-linked list of nodes:
+The stack is a contiguous array of 40-byte tagged values (`StackValue`):
 
 ```rust
-pub struct StackNode {
-    pub value: Value,
-    pub next: Stack,  // *mut StackNode
+#[repr(C)]
+pub struct StackValue {
+    pub slot0: u64,  // Discriminant (type tag)
+    pub slot1: u64,  // Payload slot 1
+    pub slot2: u64,  // Payload slot 2
+    pub slot3: u64,  // Payload slot 3
+    pub slot4: u64,  // Payload slot 4
+}
+
+pub struct TaggedStack {
+    base: *mut StackValue,  // Heap-allocated array
+    sp: usize,              // Stack pointer (next free slot)
+    capacity: usize,        // Current allocation size
 }
 ```
+
+This design enables:
+- **Inline LLVM IR operations** - Integer arithmetic, comparisons, and boolean ops
+  execute directly in generated code without FFI calls
+- **Cache-friendly layout** - Contiguous memory access patterns
+- **O(1) stack operations** - No linked-list traversal or allocation per push/pop
 
 Key operations:
 - `push(stack, value) -> stack'` - Add value to top
@@ -263,23 +286,9 @@ See `runtime/src/io.rs` for the implementation.
 
 ## Memory Management
 
-Seq's stack-based execution creates unique memory allocation patterns that
-don't fit well with general-purpose allocators. Every `push` allocates a node,
-every `pop` frees one. Standard malloc/free would dominate execution time.
-
-### Stack Node Pooling
-
-**Problem:** A tight loop doing `dup drop` thousands of times would spend more
-time in malloc/free than doing actual work.
-
-**Solution:** Thread-local free list of pre-allocated `StackNode`s.
-
-- Fast path (~10ns): Pop node from free list, return node to free list
-- Slow path (~100ns): Fall back to malloc/free when pool exhausted
-- Bounded size (1024 nodes max) prevents unbounded memory growth
-- Pre-allocate 256 nodes on first use to amortize startup cost
-
-See `runtime/src/pool.rs` for implementation.
+The tagged stack design eliminates per-operation allocation overhead. The stack
+is a single contiguous array that grows/shrinks by adjusting the stack pointer.
+Heap types (String, Variant, Closure) use reference counting for correct cleanup.
 
 ### Arena Allocation
 
@@ -313,18 +322,22 @@ See `runtime/src/arena.rs` for implementation.
 This hybrid approach gives us arena speed for the common case (local string
 manipulation) and correctness for cross-strand communication.
 
-### LTO Investigation
+### Inline LLVM IR vs FFI
 
-We investigated Link-Time Optimization to inline runtime functions into
-Seq-generated code. While technically possible (requires matching LLVM versions
-and function attributes), it doesn't help performance because:
+The tagged stack design enables inline code generation for performance-critical
+operations. Integer arithmetic, comparisons, and boolean operations execute
+directly in generated LLVM IR without FFI calls to the runtime:
 
-- Pool allocation logic is complex and cannot be simplified by inlining
-- LLVM cannot fold constants across stack operations (`1 2 add` cannot become `3`)
-- Aggressive inlining actually increases code size and register pressure
+```llvm
+; Example: inline integer add
+%a = load i64, ptr %slot1_ptr
+%b = load i64, ptr %slot1_ptr.1
+%result = add i64 %a, %b
+store i64 %result, ptr %slot1_ptr
+```
 
-The current design with pooled allocation and separate runtime is appropriate.
-See `docs/LTO_INVESTIGATION.md` for the full analysis.
+Complex operations (string handling, variants, closures) still call into the
+Rust runtime for memory safety and code maintainability.
 
 ## Compilation Pipeline
 

@@ -3191,7 +3191,7 @@ impl CodeGen {
     }
 
     /// Generate inline code for comparison operations.
-    /// Returns tagged bool (1 for false, 3 for true).
+    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
     fn codegen_inline_comparison(
         &mut self,
         stack_var: &str,
@@ -3446,7 +3446,7 @@ impl CodeGen {
     }
 
     /// Generate inline code for float comparison operations.
-    /// Returns tagged bool (discriminant 2, value 0 or 1).
+    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
     fn codegen_inline_float_comparison(
         &mut self,
         stack_var: &str,

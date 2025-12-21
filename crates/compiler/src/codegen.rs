@@ -361,17 +361,9 @@ impl CodeGen {
             ffi_bindings: FfiBindings::new(),
             ffi_wrapper_code: String::new(),
             // Tagged stack uses 40-byte StackValue slots, layout-compatible with
-            // LLVM's %Value type (with #[repr(C)]). This enables interop between inline ops and FFI.
-            //
-            // DISABLED: Current FFI functions (patch_seq_*) use the linked-list Stack type,
-            // which is incompatible with the array-based TaggedStack. To enable:
-            // 1. Create TaggedStack-compatible FFI functions that work with raw pointers
-            // 2. Or inline ALL operations (not just push_int and arithmetic)
-            // 3. Or convert between Stack types at FFI boundaries (expensive)
-            //
-            // The inline push_int and arithmetic operations ARE implemented and work correctly.
-            // The blocker is FFI calls like int_to_string, write_line, etc.
-            use_tagged_stack: false,
+            // LLVM's %Value type (with #[repr(C)]). FFI functions now work with
+            // *mut StackValue directly, so tagged stack is fully functional.
+            use_tagged_stack: true,
             pure_inline_test: false,
         }
     }
@@ -660,6 +652,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_over(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_rot(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)")?;
+        writeln!(&mut ir, "declare void @patch_seq_clone_value(ptr, ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_2dup(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_3drop(ptr)")?;
@@ -850,6 +843,7 @@ impl CodeGen {
             writeln!(&mut ir, "declare i64 @seq_stack_sp(ptr)")?;
             writeln!(&mut ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
             writeln!(&mut ir, "declare void @seq_stack_grow(ptr, i64)")?;
+            writeln!(&mut ir, "declare void @patch_seq_set_stack_base(ptr)")?;
             writeln!(&mut ir)?;
         }
 
@@ -1047,6 +1041,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_over(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_rot(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_nip(ptr)")?;
+        writeln!(ir, "declare void @patch_seq_clone_value(ptr, ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_tuck(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_2dup(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_3drop(ptr)")?;
@@ -1217,6 +1212,7 @@ impl CodeGen {
             writeln!(ir, "declare i64 @seq_stack_sp(ptr)")?;
             writeln!(ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
             writeln!(ir, "declare void @seq_stack_grow(ptr, i64)")?;
+            writeln!(ir, "declare void @patch_seq_set_stack_base(ptr)")?;
             writeln!(ir)?;
         }
 
@@ -1662,6 +1658,11 @@ impl CodeGen {
             writeln!(
                 &mut self.output,
                 "  %stack_base = call ptr @seq_stack_base(ptr %tagged_stack)"
+            )?;
+            // Set thread-local stack base for clone_stack (needed by spawn)
+            writeln!(
+                &mut self.output,
+                "  call void @patch_seq_set_stack_base(ptr %stack_base)"
             )?;
             "stack_base".to_string()
         } else {
@@ -2288,21 +2289,21 @@ impl CodeGen {
     ) -> Result<Option<String>, CodeGenError> {
         match name {
             // drop: ( a -- )
+            // Must call runtime to properly drop heap values
             "drop" => {
                 let result_var = self.fresh_temp();
-                // Just decrement SP
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
             }
 
             // dup: ( a -- a a )
+            // Uses patch_seq_clone_value to properly clone heap values
             "dup" => {
                 let top_ptr = self.fresh_temp();
-                let val = self.fresh_temp();
                 let result_var = self.fresh_temp();
 
                 // Get pointer to top value (sp - 1)
@@ -2311,17 +2312,11 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     top_ptr, stack_var
                 )?;
-                // Load full Value (40 bytes)
+                // Clone the value from top_ptr to stack_var (current SP)
                 writeln!(
                     &mut self.output,
-                    "  %{} = load %Value, ptr %{}",
-                    val, top_ptr
-                )?;
-                // Store at current SP
-                writeln!(
-                    &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    val, stack_var
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    top_ptr, stack_var
                 )?;
                 // Increment SP
                 writeln!(
@@ -2377,9 +2372,9 @@ impl CodeGen {
             }
 
             // over: ( a b -- a b a )
+            // Uses patch_seq_clone_value to properly clone heap values
             "over" => {
                 let ptr_a = self.fresh_temp();
-                let val_a = self.fresh_temp();
                 let result_var = self.fresh_temp();
 
                 // Get pointer to a (sp - 2)
@@ -2388,17 +2383,11 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                // Load full Value (40 bytes)
+                // Clone the value from ptr_a to stack_var (current SP)
                 writeln!(
                     &mut self.output,
-                    "  %{} = load %Value, ptr %{}",
-                    val_a, ptr_a
-                )?;
-                // Store at current SP
-                writeln!(
-                    &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    val_a, stack_var
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_a, stack_var
                 )?;
                 // Increment SP
                 writeln!(
@@ -2912,43 +2901,19 @@ impl CodeGen {
             }
 
             // nip: ( a b -- b )
+            // Must call runtime to properly drop the removed value
             "nip" => {
-                let ptr_b = self.fresh_temp();
-                let ptr_a = self.fresh_temp();
-                let val_b = self.fresh_temp();
                 let result_var = self.fresh_temp();
-
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-                    ptr_b, stack_var
-                )?;
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-                    ptr_a, stack_var
-                )?;
-                // Load full Value
-                writeln!(
-                    &mut self.output,
-                    "  %{} = load %Value, ptr %{}",
-                    val_b, ptr_b
-                )?;
-                writeln!(
-                    &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    val_b, ptr_a
-                )?;
-
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    "  %{} = call ptr @patch_seq_nip(ptr %{})",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
             }
 
             // tuck: ( a b -- b a b )
+            // Uses patch_seq_clone_value to properly clone heap values
             "tuck" => {
                 let ptr_b = self.fresh_temp();
                 let ptr_a = self.fresh_temp();
@@ -2977,8 +2942,14 @@ impl CodeGen {
                     "  %{} = load %Value, ptr %{}",
                     val_b, ptr_b
                 )?;
+                // Clone b to the new top position
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_b, stack_var
+                )?;
 
-                // Result: b a b (a's slot gets b, b's slot gets a, new slot gets b)
+                // Result: b a b (a's slot gets b, b's slot gets a, new slot gets b_clone)
                 writeln!(
                     &mut self.output,
                     "  store %Value %{}, ptr %{}",
@@ -2988,11 +2959,6 @@ impl CodeGen {
                     &mut self.output,
                     "  store %Value %{}, ptr %{}",
                     val_a, ptr_b
-                )?;
-                writeln!(
-                    &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    val_b, stack_var
                 )?;
 
                 writeln!(
@@ -3004,11 +2970,10 @@ impl CodeGen {
             }
 
             // 2dup: ( a b -- a b a b )
+            // Uses patch_seq_clone_value to properly clone heap values
             "2dup" => {
                 let ptr_b = self.fresh_temp();
                 let ptr_a = self.fresh_temp();
-                let val_a = self.fresh_temp();
-                let val_b = self.fresh_temp();
                 let new_ptr = self.fresh_temp();
                 let result_var = self.fresh_temp();
 
@@ -3022,24 +2987,13 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -2",
                     ptr_a, stack_var
                 )?;
-                // Load full Values
+                // Clone a to stack_var
                 writeln!(
                     &mut self.output,
-                    "  %{} = load %Value, ptr %{}",
-                    val_a, ptr_a
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_a, stack_var
                 )?;
-                writeln!(
-                    &mut self.output,
-                    "  %{} = load %Value, ptr %{}",
-                    val_b, ptr_b
-                )?;
-
-                // Push a, then b
-                writeln!(
-                    &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    val_a, stack_var
-                )?;
+                // Clone b to stack_var + 1
                 writeln!(
                     &mut self.output,
                     "  %{} = getelementptr %Value, ptr %{}, i64 1",
@@ -3047,8 +3001,8 @@ impl CodeGen {
                 )?;
                 writeln!(
                     &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    val_b, new_ptr
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_b, new_ptr
                 )?;
 
                 writeln!(
@@ -3060,11 +3014,12 @@ impl CodeGen {
             }
 
             // 3drop: ( a b c -- )
+            // Must call runtime to properly drop heap values
             "3drop" => {
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -3",
+                    "  %{} = call ptr @patch_seq_3drop(ptr %{})",
                     result_var, stack_var
                 )?;
                 Ok(Some(result_var))
@@ -3072,6 +3027,7 @@ impl CodeGen {
 
             // pick: ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
             // Copy the nth item (0-indexed from below n) to top
+            // Uses patch_seq_clone_value to properly clone heap values
             "pick" => {
                 // Get pointer to n (top of stack)
                 let n_ptr = self.fresh_temp();
@@ -3115,19 +3071,11 @@ impl CodeGen {
                     src_ptr, stack_var, neg_offset
                 )?;
 
-                // Load the value
-                let picked_val = self.fresh_temp();
+                // Clone the value from src_ptr to n_ptr (replacing n with the picked value)
                 writeln!(
                     &mut self.output,
-                    "  %{} = load %Value, ptr %{}",
-                    picked_val, src_ptr
-                )?;
-
-                // Store at position where n was (replacing n with the picked value)
-                writeln!(
-                    &mut self.output,
-                    "  store %Value %{}, ptr %{}",
-                    picked_val, n_ptr
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    src_ptr, n_ptr
                 )?;
 
                 // SP unchanged (we replaced n with the picked value)
@@ -4950,7 +4898,8 @@ mod tests {
 
     #[test]
     fn test_codegen_arithmetic() {
-        let mut codegen = CodeGen::new();
+        // Use legacy codegen (tagged stack disabled) to test FFI-based arithmetic
+        let mut codegen = CodeGen::new_legacy();
 
         let program = Program {
             includes: vec![],

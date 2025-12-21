@@ -116,7 +116,7 @@ pub use patch_seq_args_init as args_init;
 mod tests {
     use super::*;
     use crate::stack::pop;
-    use std::ptr;
+    use crate::tagged_stack::StackValue;
 
     #[test]
     fn test_arg_count_no_init() {
@@ -124,7 +124,9 @@ mod tests {
         // Note: Can't really test this in isolation since OnceLock is global
         // This test mainly verifies the function doesn't crash
         unsafe {
-            let stack = ptr::null_mut();
+            // Allocate a small stack buffer
+            let mut buffer: [StackValue; 16] = std::mem::zeroed();
+            let stack = buffer.as_mut_ptr();
             let stack = patch_seq_arg_count(stack);
             let (_, value) = pop(stack);
             // Could be 0 or whatever was set by previous test

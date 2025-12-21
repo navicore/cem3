@@ -269,16 +269,15 @@ mod tests {
         let path = temp_file.path().to_str().unwrap().to_string();
 
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String(path.into()));
             let stack = patch_seq_file_slurp(stack);
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             match value {
                 Value::String(s) => assert_eq!(s.as_str().trim(), "Hello, file!"),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -288,26 +287,24 @@ mod tests {
         let path = temp_file.path().to_str().unwrap().to_string();
 
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String(path.into()));
             let stack = patch_seq_file_exists(stack);
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(value, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_file_exists_false() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String("/nonexistent/path/to/file.txt".into()));
             let stack = patch_seq_file_exists(stack);
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(value, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -318,16 +315,15 @@ mod tests {
         let path = temp_file.path().to_str().unwrap().to_string();
 
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String(path.into()));
             let stack = patch_seq_file_slurp(stack);
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             match value {
                 Value::String(s) => assert_eq!(s.as_str(), "Hello, 世界! 🌍"),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -337,16 +333,15 @@ mod tests {
         let path = temp_file.path().to_str().unwrap().to_string();
 
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String(path.into()));
             let stack = patch_seq_file_slurp(stack);
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             match value {
                 Value::String(s) => assert_eq!(s.as_str(), ""),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -357,36 +352,34 @@ mod tests {
         let path = temp_file.path().to_str().unwrap().to_string();
 
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String(path.into()));
             let stack = patch_seq_file_slurp_safe(stack);
 
             let (stack, success) = pop(stack);
-            let (stack, contents) = pop(stack);
+            let (_stack, contents) = pop(stack);
             assert_eq!(success, Value::Int(1));
             match contents {
                 Value::String(s) => assert_eq!(s.as_str().trim(), "Safe read!"),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_file_slurp_safe_not_found() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String("/nonexistent/path/to/file.txt".into()));
             let stack = patch_seq_file_slurp_safe(stack);
 
             let (stack, success) = pop(stack);
-            let (stack, contents) = pop(stack);
+            let (_stack, contents) = pop(stack);
             assert_eq!(success, Value::Int(0));
             match contents {
                 Value::String(s) => assert_eq!(s.as_str(), ""),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -396,18 +389,17 @@ mod tests {
         let path = temp_file.path().to_str().unwrap().to_string();
 
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String(path.into()));
             let stack = patch_seq_file_slurp_safe(stack);
 
             let (stack, success) = pop(stack);
-            let (stack, contents) = pop(stack);
+            let (_stack, contents) = pop(stack);
             assert_eq!(success, Value::Int(1)); // Empty file is still success
             match contents {
                 Value::String(s) => assert_eq!(s.as_str(), ""),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 }

@@ -342,22 +342,21 @@ mod tests {
     #[test]
     fn test_make_map() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Map(m) => assert!(m.is_empty()),
                 _ => panic!("Expected Map"),
             }
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_set_and_get() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::String("name".into()));
             let stack = push(stack, Value::String("Alice".into()));
@@ -367,19 +366,18 @@ mod tests {
             let stack = push(stack, Value::String("name".into()));
             let stack = map_get(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "Alice"),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_set_with_int_key() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::Int(42));
             let stack = push(stack, Value::String("answer".into()));
@@ -388,19 +386,18 @@ mod tests {
             let stack = push(stack, Value::Int(42));
             let stack = map_get(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "answer"),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_has() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::String("key".into()));
             let stack = push(stack, Value::Int(100));
@@ -416,16 +413,15 @@ mod tests {
             // Check non-existing key (map is still on stack)
             let stack = push(stack, Value::String("missing".into()));
             let stack = map_has(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_remove() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::String("a".into()));
             let stack = push(stack, Value::Int(1));
@@ -448,16 +444,15 @@ mod tests {
             // Check "b" is still there (map is still on stack)
             let stack = push(stack, Value::String("b".into()));
             let stack = map_has(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_size() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
             // Empty map
@@ -475,16 +470,15 @@ mod tests {
             let stack = map_set(stack);
 
             let stack = map_size(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(2));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_empty() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
             let stack = map_empty(stack);
@@ -498,16 +492,15 @@ mod tests {
             let stack = map_set(stack);
 
             let stack = map_empty(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_keys_and_values() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::String("x".into()));
             let stack = push(stack, Value::Int(10));
@@ -530,7 +523,7 @@ mod tests {
 
             // Get values
             let stack = map_values(stack);
-            let (stack, values_result) = pop(stack);
+            let (_stack, values_result) = pop(stack);
             match values_result {
                 Value::Variant(v) => {
                     assert_eq!(v.fields.len(), 2);
@@ -538,14 +531,13 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_get_safe_found() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::String("key".into()));
             let stack = push(stack, Value::Int(42));
@@ -555,33 +547,31 @@ mod tests {
             let stack = map_get_safe(stack);
 
             let (stack, flag) = pop(stack);
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(flag, Value::Int(1));
             assert_eq!(value, Value::Int(42));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_get_safe_not_found() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
             let stack = push(stack, Value::String("missing".into()));
             let stack = map_get_safe(stack);
 
             let (stack, flag) = pop(stack);
-            let (stack, _value) = pop(stack); // placeholder
+            let (_stack, _value) = pop(stack); // placeholder
             assert_eq!(flag, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_map_with_bool_key() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
             let stack = push(stack, Value::Bool(true));
             let stack = push(stack, Value::String("yes".into()));
@@ -592,12 +582,11 @@ mod tests {
 
             let stack = push(stack, Value::Bool(true));
             let stack = map_get(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "yes"),
                 _ => panic!("Expected String"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -605,7 +594,7 @@ mod tests {
     fn test_map_key_overwrite() {
         // Test that map-set with existing key overwrites the value
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
             // Set initial value
@@ -627,9 +616,8 @@ mod tests {
             // Verify value was updated
             let stack = push(stack, Value::String("key".into()));
             let stack = map_get(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(200));
-            assert!(stack.is_null());
         }
     }
 
@@ -637,7 +625,7 @@ mod tests {
     fn test_map_mixed_key_types() {
         // Test that a single map can have different key types
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
             // Add string key
@@ -682,12 +670,11 @@ mod tests {
 
             let stack = push(stack, Value::Bool(true));
             let stack = map_get(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "yes"),
                 _ => panic!("Expected String for bool key"),
             }
-            assert!(stack.is_null());
         }
     }
 }

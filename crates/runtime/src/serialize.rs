@@ -46,6 +46,8 @@ pub enum SerializeError {
     QuotationNotSerializable,
     /// Cannot serialize closures
     ClosureNotSerializable,
+    /// Cannot serialize channels (runtime state)
+    ChannelNotSerializable,
     /// Bincode encoding/decoding error (preserves original error for debugging)
     BincodeError(Box<bincode::Error>),
     /// Invalid data structure
@@ -62,6 +64,9 @@ impl std::fmt::Display for SerializeError {
             }
             SerializeError::ClosureNotSerializable => {
                 write!(f, "Closures cannot be serialized - code is not data")
+            }
+            SerializeError::ChannelNotSerializable => {
+                write!(f, "Channels cannot be serialized - runtime state")
             }
             SerializeError::BincodeError(e) => write!(f, "Bincode error: {}", e),
             SerializeError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
@@ -184,6 +189,7 @@ impl TypedValue {
             }
             Value::Quotation { .. } => Err(SerializeError::QuotationNotSerializable),
             Value::Closure { .. } => Err(SerializeError::ClosureNotSerializable),
+            Value::Channel(_) => Err(SerializeError::ChannelNotSerializable),
         }
     }
 

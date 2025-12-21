@@ -655,6 +655,7 @@ dependencies = [
  "cfg-if",
  "core_affinity",
  "crossbeam",
+ "fastrand",
  "generator",
  "libc",
  "log",

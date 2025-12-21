@@ -62,8 +62,8 @@ Results from a MacBook Pro M-series:
 | Skynet | 4779ms | 170ms | 28x |
 
 **Notes:**
-- Seq pingpong and fanout performance are within 2.5x of Go - excellent for a young language
-- Skynet is slower due to the tree recursion pattern and large number of spawns (needs optimization)
+- Seq pingpong and fanout are within 1.5x of Go - excellent for message-passing workloads
+- Skynet is slower due to spawn overhead (see below)
 
 ## Interpreting Results
 
@@ -78,6 +78,23 @@ Results from a MacBook Pro M-series:
 - **Skynet:** Tests raw spawn overhead. Go's runtime is highly optimized for this.
 - **Ping-Pong:** Tests channel ops in isolation. Should be comparable.
 - **Fan-Out:** Tests scheduler fairness under contention. MPMC channels enable concurrent receives.
+
+### Spawn Overhead vs Message Passing
+
+Skynet results are **not representative of real actor system performance**. Here's why:
+
+| Benchmark | Pattern | Seq System Time | vs Go |
+|-----------|---------|-----------------|-------|
+| Pingpong | 2 strands, 1M messages | 3ms (1%) | 1.2x slower |
+| Skynet | 100k strands, minimal work | 18,000ms (300%) | 35x slower |
+
+**Root cause:** May's coroutine library uses mmap/munmap syscalls with guard pages for each strand stack. Go uses segmented stacks with minimal syscalls.
+
+**Practical implications:**
+- **Long-lived actors:** Spawn once, message forever → syscall cost amortized → competitive with Go
+- **Spawn-heavy patterns:** Pay full syscall cost per strand → 30x+ overhead
+
+**For actor systems:** If you spawn 1M actors at startup (one-time ~60s cost), then send millions of messages, performance will be competitive with Go. Skynet is a synthetic benchmark that specifically stress-tests spawn overhead.
 
 ## Technical Notes
 
@@ -103,6 +120,32 @@ The fanout benchmark uses sentinel values (-1) to signal workers to stop, rather
 # Build and run Go benchmark manually
 cd skynet && go build -o skynet_go skynet.go && ./skynet_go
 ```
+
+## Runtime Tuning
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEQ_STACK_SIZE` | 131072 (128KB) | Coroutine stack size in bytes |
+| `SEQ_POOL_CAPACITY` | 10000 | Coroutine pool size (reduces allocations) |
+
+### Cargo Features
+
+The `seq-runtime` crate has a `diagnostics` feature (enabled by default):
+
+```toml
+# Disable diagnostics for maximum performance
+[dependencies]
+seq-runtime = { version = "...", default-features = false }
+```
+
+When disabled:
+- No strand registry overhead (O(n) scans on spawn/complete)
+- No SIGQUIT signal handler
+- No `SystemTime::now()` syscalls per spawn
+
+Note: In benchmarks, the diagnostics overhead is negligible compared to spawn syscall overhead.
 
 ## Adding New Benchmarks
 

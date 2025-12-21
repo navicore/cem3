@@ -1,6 +1,7 @@
 //! seqr - Watch-style REPL for Seq
 //!
 //! A REPL that works by compiling expressions to a file and running.
+//! Stack persists across lines - build up values incrementally.
 //! Supports file watching for external editor integration.
 //!
 //! Usage:
@@ -9,10 +10,11 @@
 //!
 //! Commands:
 //!   :quit, :q               # Exit
+//!   :pop                    # Remove last expression (undo)
+//!   :clear                  # Clear the session (reset stack)
+//!   :show                   # Show current file contents
 //!   :edit                   # Open file in $EDITOR
 //!   :run                    # Manually recompile and run
-//!   :clear                  # Clear the session (reset file)
-//!   :show                   # Show current file contents
 //!   :help                   # Show help
 
 use clap::Parser as ClapParser;
@@ -183,6 +185,12 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                         clear_session(seq_file, &last_write);
                         println!("Session cleared.");
                     }
+                    ":pop" => {
+                        if pop_last_expression(seq_file, &last_write) {
+                            // Show the new stack state
+                            compile_and_run(seq_file);
+                        }
+                    }
                     ":show" => {
                         show_file_contents(seq_file);
                     }
@@ -297,7 +305,7 @@ fn add_definition(seq_file: &Path, def: &str, last_write: &Arc<AtomicU64>) -> bo
     true
 }
 
-/// Try an expression: replace current, compile, rollback on failure
+/// Try an expression: append to main, compile, rollback on failure
 fn try_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) {
     // Save current content for rollback
     let original = match fs::read_to_string(seq_file) {
@@ -308,8 +316,8 @@ fn try_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) {
         }
     };
 
-    // Replace the current expression (not append)
-    if !set_current_expression(seq_file, expr, last_write) {
+    // Append the expression (stack persists across lines)
+    if !append_expression(seq_file, expr, last_write) {
         return;
     }
 
@@ -339,8 +347,8 @@ fn try_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) {
     }
 }
 
-/// Set the current expression (replaces any previous current expression)
-fn set_current_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) -> bool {
+/// Append an expression to main (stack persists across lines)
+fn append_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) -> bool {
     let content = match fs::read_to_string(seq_file) {
         Ok(c) => c,
         Err(e) => {
@@ -349,16 +357,49 @@ fn set_current_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU6
         }
     };
 
-    // Find ": main"
-    let main_pos = match content.find(": main") {
+    // Find "stack.dump" which marks the end of user code
+    let dump_pos = match content.find("  stack.dump") {
         Some(p) => p,
         None => {
-            eprintln!("Error: Malformed session file (no main)");
+            eprintln!("Error: Malformed session file (no stack.dump)");
             return false;
         }
     };
 
-    // Find the newline after ": main ( -- )"
+    // Insert new expression before stack.dump
+    let mut new_content = String::new();
+    new_content.push_str(&content[..dump_pos]);
+    new_content.push_str("  ");
+    new_content.push_str(expr);
+    new_content.push('\n');
+    new_content.push_str(&content[dump_pos..]);
+
+    if let Err(e) = fs::write(seq_file, new_content) {
+        eprintln!("Error writing file: {}", e);
+        return false;
+    }
+    last_write.store(now_ms(), Ordering::Relaxed);
+    true
+}
+
+/// Remove the last expression from main (undo last line)
+fn pop_last_expression(seq_file: &Path, last_write: &Arc<AtomicU64>) -> bool {
+    let content = match fs::read_to_string(seq_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading file: {}", e);
+            return false;
+        }
+    };
+
+    // Find ": main ( -- )" line end
+    let main_pos = match content.find(": main") {
+        Some(p) => p,
+        None => {
+            eprintln!("Error: Malformed session file");
+            return false;
+        }
+    };
     let main_line_end = match content[main_pos..].find('\n') {
         Some(p) => main_pos + p + 1,
         None => {
@@ -367,21 +408,51 @@ fn set_current_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU6
         }
     };
 
-    // Find "stack.dump" which marks the end of user code
-    let dump_pos = match content[main_line_end..].find("stack.dump") {
-        Some(p) => main_line_end + p,
+    // Find "  stack.dump"
+    let dump_pos = match content.find("  stack.dump") {
+        Some(p) => p,
         None => {
-            eprintln!("Error: Malformed session file (no stack.dump)");
+            eprintln!("Error: Malformed session file");
             return false;
         }
     };
 
-    // Build new content: everything before main body + new expression + stack.dump + rest
+    // Get the expressions section
+    let expr_section = &content[main_line_end..dump_pos];
+
+    // Find the last expression line
+    let lines: Vec<&str> = expr_section.lines().collect();
+    if lines.is_empty() || lines.iter().all(|l| l.trim().is_empty()) {
+        println!("Nothing to pop.");
+        return false;
+    }
+
+    // Find last non-empty line index
+    let mut last_expr_idx = None;
+    for (i, line) in lines.iter().enumerate().rev() {
+        if !line.trim().is_empty() {
+            last_expr_idx = Some(i);
+            break;
+        }
+    }
+
+    let last_expr_idx = match last_expr_idx {
+        Some(i) => i,
+        None => {
+            println!("Nothing to pop.");
+            return false;
+        }
+    };
+
+    // Rebuild without the last expression
     let mut new_content = String::new();
     new_content.push_str(&content[..main_line_end]);
-    new_content.push_str("  ");
-    new_content.push_str(expr);
-    new_content.push('\n');
+    for (i, line) in lines.iter().enumerate() {
+        if i != last_expr_idx {
+            new_content.push_str(line);
+            new_content.push('\n');
+        }
+    }
     new_content.push_str(&content[dump_pos..]);
 
     if let Err(e) = fs::write(seq_file, new_content) {
@@ -509,29 +580,33 @@ fn print_help() {
         r#"
 Seq REPL Commands:
   :quit, :q     Exit the REPL
+  :pop          Remove last expression (undo)
+  :clear        Clear the session (reset stack and expressions)
+  :show         Show current file contents
   :edit         Open file in $EDITOR
   :run          Manually recompile and run
-  :clear        Clear the session (reset to template)
-  :show         Show current file contents
   :help         Show this help
 
 Usage:
   - Type expressions to evaluate them (stack is shown automatically)
-  - Each expression replaces the previous one
+  - Stack persists across lines - build up values incrementally
   - Define words with ": name ( sig ) ... ;" - these persist in the session
-  - The stack is displayed after each expression and then cleared
+  - Use :pop to undo the last expression
+  - Use :clear to start fresh
 
 Examples:
-  seqr> 1 2 add
+  seqr> 1 2
+  [1, 2]
+  seqr> add
   [3]
-  seqr> 5 dup multiply
-  [25]
+  seqr> 5
+  [3, 5]
+  seqr> :pop
+  [3]
   seqr> : square ( Int -- Int ) dup multiply ;
   Defined.
-  seqr> 7 square
-  [49]
-  seqr> 1 2 3
-  [1, 2, 3]
+  seqr> square
+  [9]
 "#
     );
 }

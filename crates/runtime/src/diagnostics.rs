@@ -20,6 +20,14 @@
 //! directly from a signal handler. Instead, we spawn a dedicated thread that
 //! waits for signals using signal-hook's iterator API, making all the I/O
 //! operations safe.
+//!
+//! ## Feature Flag
+//!
+//! This module is only compiled when the `diagnostics` feature is enabled (default).
+//! Disable it for benchmarks to eliminate SystemTime::now() syscalls and strand
+//! registry overhead on every spawn.
+
+#![cfg(feature = "diagnostics")]
 
 use crate::memory_stats::memory_registry;
 use crate::scheduler::{

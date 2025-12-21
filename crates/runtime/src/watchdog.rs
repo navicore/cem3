@@ -29,6 +29,13 @@
 //!
 //! This piggybacks on the existing strand registry infrastructure, requiring
 //! no additional tracking overhead on the hot path.
+//!
+//! ## Feature Flag
+//!
+//! This module requires the `diagnostics` feature (enabled by default).
+//! When disabled, the watchdog is not compiled.
+
+#![cfg(feature = "diagnostics")]
 
 use crate::diagnostics::dump_diagnostics;
 use crate::scheduler::strand_registry;

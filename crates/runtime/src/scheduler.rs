@@ -66,7 +66,7 @@ pub static PEAK_STRANDS: AtomicUsize = AtomicUsize::new(0);
 static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 
 // =============================================================================
-// Lock-Free Strand Registry
+// Lock-Free Strand Registry (only when diagnostics feature is enabled)
 // =============================================================================
 //
 // A fixed-size array of slots for tracking active strands without locks.
@@ -84,10 +84,15 @@ static NEXT_STRAND_ID: AtomicU64 = AtomicU64::new(1);
 //
 // The registry size can be configured via SEQ_STRAND_REGISTRY_SIZE env var.
 // Default is 1024 slots, which is sufficient for most applications.
+//
+// When the "diagnostics" feature is disabled, the registry is not compiled,
+// eliminating the SystemTime::now() syscall and O(n) scans on every spawn.
 
+#[cfg(feature = "diagnostics")]
 /// Default strand registry size (number of trackable concurrent strands)
 const DEFAULT_REGISTRY_SIZE: usize = 1024;
 
+#[cfg(feature = "diagnostics")]
 /// A slot in the strand registry
 ///
 /// Uses two atomics to store strand info without locks.
@@ -99,6 +104,7 @@ pub struct StrandSlot {
     pub spawn_time: AtomicU64,
 }
 
+#[cfg(feature = "diagnostics")]
 impl StrandSlot {
     const fn new() -> Self {
         Self {
@@ -108,6 +114,7 @@ impl StrandSlot {
     }
 }
 
+#[cfg(feature = "diagnostics")]
 /// Lock-free strand registry
 ///
 /// Provides O(n) registration (scan for free slot) and O(n) unregistration.
@@ -121,6 +128,7 @@ pub struct StrandRegistry {
     pub overflow_count: AtomicU64,
 }
 
+#[cfg(feature = "diagnostics")]
 impl StrandRegistry {
     /// Create a new registry with the given capacity
     fn new(capacity: usize) -> Self {
@@ -217,9 +225,11 @@ impl StrandRegistry {
 }
 
 // Global strand registry (lazy initialized)
+#[cfg(feature = "diagnostics")]
 static STRAND_REGISTRY: std::sync::OnceLock<StrandRegistry> = std::sync::OnceLock::new();
 
 /// Get or initialize the global strand registry
+#[cfg(feature = "diagnostics")]
 pub fn strand_registry() -> &'static StrandRegistry {
     STRAND_REGISTRY.get_or_init(|| {
         let size = std::env::var("SEQ_STRAND_REGISTRY_SIZE")
@@ -280,9 +290,11 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
         may::config().set_stack_size(stack_size);
 
         // Install SIGQUIT handler for runtime diagnostics (kill -3)
+        #[cfg(feature = "diagnostics")]
         crate::diagnostics::install_signal_handler();
 
         // Install watchdog timer (if enabled via SEQ_WATCHDOG_SECS)
+        #[cfg(feature = "diagnostics")]
         crate::watchdog::install_watchdog();
     });
 }
@@ -389,6 +401,7 @@ pub unsafe extern "C" fn patch_seq_strand_spawn_with_base(
 
     // Register strand in the registry (for diagnostics visibility)
     // If registry is full, strand still runs but isn't tracked
+    #[cfg(feature = "diagnostics")]
     let _ = strand_registry().register(strand_id);
 
     // Function pointers are already Send, no wrapper needed
@@ -429,6 +442,7 @@ pub unsafe extern "C" fn patch_seq_strand_spawn_with_base(
             free_stack(final_stack);
 
             // Unregister strand from registry (uses captured strand_id)
+            #[cfg(feature = "diagnostics")]
             strand_registry().unregister(strand_id);
 
             // Decrement active strand counter first, then track completion
@@ -900,6 +914,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "diagnostics")]
     fn test_strand_registry_basic() {
         let registry = StrandRegistry::new(10);
 
@@ -922,6 +937,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "diagnostics")]
     fn test_strand_registry_overflow() {
         let registry = StrandRegistry::new(3); // Small capacity
 
@@ -940,6 +956,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "diagnostics")]
     fn test_strand_registry_slot_reuse() {
         let registry = StrandRegistry::new(3);
 
@@ -957,6 +974,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "diagnostics")]
     fn test_strand_registry_concurrent_stress() {
         use std::sync::Arc;
         use std::thread;

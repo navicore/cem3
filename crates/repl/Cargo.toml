@@ -1,0 +1,22 @@
+[package]
+name = "seq-repl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Watch-style REPL for the Seq programming language"
+repository = "https://github.com/navicore/patch-seq"
+keywords = ["repl", "language", "seq"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "seqr"
+path = "src/main.rs"
+
+[dependencies]
+seq-compiler = { path = "../compiler" }
+clap = { version = "4.5", features = ["derive"] }
+rustyline = "15"
+tempfile = "3"
+notify = "8"
+dirs = "6"

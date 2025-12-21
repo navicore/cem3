@@ -631,6 +631,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "time.nanos", (a -- a Int));
     builtin!(sigs, "time.sleep-ms", (a Int -- a));
 
+    // Stack introspection (for REPL)
+    // stack.dump prints all values and clears the stack
+    sigs.insert(
+        "stack.dump".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()), // Consumes any stack
+            StackType::RowVar("b".to_string()), // Returns empty stack (different row var)
+        ),
+    );
+
     sigs
 }
 

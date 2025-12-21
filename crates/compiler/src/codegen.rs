@@ -239,6 +239,8 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("time.now", "patch_seq_time_now"),
         ("time.nanos", "patch_seq_time_nanos"),
         ("time.sleep-ms", "patch_seq_time_sleep_ms"),
+        // Stack introspection
+        ("stack.dump", "patch_seq_stack_dump"),
     ])
 });
 
@@ -814,6 +816,8 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_time_now(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_time_nanos(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_time_sleep_ms(ptr)")?;
+        // Stack introspection (for REPL)
+        writeln!(&mut ir, "declare ptr @patch_seq_stack_dump(ptr)")?;
         writeln!(&mut ir, "; Helpers for conditionals")?;
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
@@ -1183,6 +1187,8 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_time_now(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_time_nanos(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_time_sleep_ms(ptr)")?;
+        // Stack introspection (for REPL)
+        writeln!(ir, "declare ptr @patch_seq_stack_dump(ptr)")?;
         writeln!(ir, "; Helpers for conditionals")?;
         writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)")?;

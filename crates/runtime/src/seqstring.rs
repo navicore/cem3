@@ -64,6 +64,38 @@ impl SeqString {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+
+    /// Consume self and return raw parts for storage in StackValue
+    ///
+    /// Returns (ptr, len, capacity, global)
+    ///
+    /// # Safety
+    /// The caller must either reconstruct using `from_raw_parts` or
+    /// properly handle drop (for global strings only).
+    pub fn into_raw_parts(self) -> (*const u8, usize, usize, bool) {
+        let parts = (self.ptr, self.len, self.capacity, self.global);
+        std::mem::forget(self); // Don't run Drop
+        parts
+    }
+
+    /// Reconstruct SeqString from raw parts
+    ///
+    /// # Safety
+    /// The parts must have come from `into_raw_parts` on a valid SeqString,
+    /// or be a new valid allocation matching the ptr/len/capacity/global invariants.
+    pub unsafe fn from_raw_parts(
+        ptr: *const u8,
+        len: usize,
+        capacity: usize,
+        global: bool,
+    ) -> Self {
+        SeqString {
+            ptr,
+            len,
+            capacity,
+            global,
+        }
+    }
 }
 
 impl Clone for SeqString {

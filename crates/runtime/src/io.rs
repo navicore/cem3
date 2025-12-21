@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_write_line() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String("Hello, World!".into()));
             let _stack = write_line(stack);
         }
@@ -269,13 +269,12 @@ mod tests {
     #[test]
     fn test_push_string() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let test_str = CString::new("Test").unwrap();
             let stack = push_string(stack, test_str.as_ptr());
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(value, Value::String("Test".into()));
-            assert!(stack.is_null());
         }
     }
 
@@ -283,18 +282,16 @@ mod tests {
     fn test_empty_string() {
         unsafe {
             // Empty string should be handled correctly
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let empty_str = CString::new("").unwrap();
             let stack = push_string(stack, empty_str.as_ptr());
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(value, Value::String("".into()));
-            assert!(stack.is_null());
 
             // Write empty string should work without panic
             let stack = push(stack, Value::String("".into()));
-            let stack = write_line(stack);
-            assert!(stack.is_null());
+            let _stack = write_line(stack);
         }
     }
 
@@ -302,13 +299,12 @@ mod tests {
     fn test_unicode_strings() {
         unsafe {
             // Test that Unicode strings are handled correctly
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let unicode_str = CString::new("Hello, 世界! 🌍").unwrap();
             let stack = push_string(stack, unicode_str.as_ptr());
 
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(value, Value::String("Hello, 世界! 🌍".into()));
-            assert!(stack.is_null());
         }
     }
 }

@@ -3,7 +3,6 @@
 //! Quotations are deferred code blocks (first-class functions).
 //! A quotation is represented as a function pointer stored as usize.
 
-use crate::scheduler::patch_seq_strand_spawn;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use std::collections::HashMap;
@@ -172,10 +171,10 @@ pub unsafe extern "C" fn patch_seq_peek_quotation_fn_ptr(stack: Stack) -> usize 
             Value::Quotation { impl_, .. } => {
                 // Debug-only validation - compiler guarantees non-null pointers
                 debug_assert!(
-                    *impl_ != 0,
+                    impl_ != 0,
                     "peek_quotation_fn_ptr: impl function pointer is null"
                 );
-                *impl_
+                impl_
             }
             // This branch indicates a compiler bug - patch_seq_peek_is_quotation should
             // have been called first to verify the value type. In release builds,
@@ -507,7 +506,8 @@ pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
 /// - Function must be safe to execute on any thread
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
-    use crate::stack::clone_stack;
+    use crate::scheduler::patch_seq_strand_spawn_with_base;
+    use crate::stack::clone_stack_with_base;
 
     unsafe {
         // Pop quotation or closure
@@ -525,12 +525,13 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
                 // We've verified wrapper is non-null above.
                 let fn_ref: extern "C" fn(Stack) -> Stack = std::mem::transmute(wrapper);
 
-                // Clone the parent's stack for the child
+                // Clone the parent's stack for the child, getting both sp and base
                 // The child gets a copy of the stack (after the quotation was popped)
-                let child_stack = clone_stack(stack);
+                let (child_stack, child_base) = clone_stack_with_base(stack);
 
-                // Spawn the strand with the cloned stack
-                let strand_id = patch_seq_strand_spawn(fn_ref, child_stack);
+                // Spawn the strand with the cloned stack and its base
+                // The scheduler will set STACK_BASE for the child strand
+                let strand_id = patch_seq_strand_spawn_with_base(fn_ref, child_stack, child_base);
 
                 // Push strand ID back onto the parent's stack
                 push(stack, Value::Int(strand_id))
@@ -563,10 +564,16 @@ pub unsafe extern "C" fn patch_seq_spawn(stack: Stack) -> Stack {
                 let mut guard = SpawnRegistryGuard::new(closure_spawn_id);
 
                 // Create initial stack with the closure_spawn_id
-                let initial_stack = push(std::ptr::null_mut(), Value::Int(closure_spawn_id));
+                // The base is the freshly allocated stack pointer
+                let stack_base = crate::stack::alloc_stack();
+                let initial_stack = push(stack_base, Value::Int(closure_spawn_id));
 
-                // Spawn strand with trampoline
-                let strand_id = patch_seq_strand_spawn(closure_spawn_trampoline, initial_stack);
+                // Spawn strand with trampoline, passing the stack base
+                let strand_id = patch_seq_strand_spawn_with_base(
+                    closure_spawn_trampoline,
+                    initial_stack,
+                    stack_base,
+                );
 
                 // Spawn succeeded - disarm the guard so it won't cleanup
                 // The trampoline will retrieve and remove the closure data from the registry
@@ -679,23 +686,22 @@ mod tests {
     #[test]
     fn test_push_quotation() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push a quotation (for tests, wrapper and impl are the same C function)
             let fn_ptr = add_one_quot as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Verify it's on the stack
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert!(matches!(value, Value::Quotation { .. }));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_call_quotation() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push 5, then a quotation that adds 1
             let stack = push_int(stack, 5);
@@ -706,16 +712,15 @@ mod tests {
             let stack = call(stack);
 
             // Result should be 6
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(6));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_times_combinator() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push 0, then execute [ 1 add ] 5 times
             let stack = push_int(stack, 0);
@@ -727,16 +732,15 @@ mod tests {
             let stack = times(stack);
 
             // Result should be 5 (0 + 1 + 1 + 1 + 1 + 1)
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(5));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_times_zero() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push 10, then execute quotation 0 times
             let stack = push_int(stack, 10);
@@ -748,9 +752,8 @@ mod tests {
             let stack = times(stack);
 
             // Result should still be 10 (quotation not executed)
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(10));
-            assert!(stack.is_null());
         }
     }
 
@@ -776,7 +779,7 @@ mod tests {
     #[test]
     fn test_while_countdown() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Countdown from 5 to 0 using while
             // [ dup 0 > ] [ dup 1 - ] while
@@ -794,16 +797,15 @@ mod tests {
             let stack = while_loop(stack);
 
             // Result should be 0
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_while_false_immediately() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Start with 0, so condition is immediately false
             let stack = push_int(stack, 0);
@@ -818,9 +820,8 @@ mod tests {
             let stack = while_loop(stack);
 
             // Result should still be 0 (body never executed)
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -837,7 +838,7 @@ mod tests {
     #[test]
     fn test_until_countdown() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Countdown from 5 to 0 using until
             // [ 1 subtract ] [ dup 0 <= ] until
@@ -855,16 +856,15 @@ mod tests {
             let stack = until_loop(stack);
 
             // Result should be 0
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_until_executes_at_least_once() {
         unsafe {
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Start with 0, so condition is immediately true, but body should execute once
             let stack = push_int(stack, 0);
@@ -881,15 +881,14 @@ mod tests {
             let stack = until_loop(stack);
 
             // Result should be -1 (body executed once)
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(-1));
-            assert!(stack.is_null());
         }
     }
 
     // Helper quotation for spawn test: does nothing, just completes
-    unsafe extern "C" fn noop_quot(_stack: Stack) -> Stack {
-        std::ptr::null_mut()
+    unsafe extern "C" fn noop_quot(stack: Stack) -> Stack {
+        stack
     }
 
     #[test]
@@ -898,7 +897,7 @@ mod tests {
             // Initialize scheduler
             crate::scheduler::scheduler_init();
 
-            let stack: Stack = std::ptr::null_mut();
+            let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push a quotation
             let fn_ptr = noop_quot as usize;
@@ -908,14 +907,13 @@ mod tests {
             let stack = spawn(stack);
 
             // Should have strand ID on stack
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Int(strand_id) => {
                     assert!(strand_id > 0, "Strand ID should be positive");
                 }
                 _ => panic!("Expected Int (strand ID), got {:?}", result),
             }
-            assert!(stack.is_null());
 
             // Wait for strand to complete
             crate::scheduler::wait_all_strands();

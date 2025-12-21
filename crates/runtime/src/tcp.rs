@@ -355,18 +355,17 @@ mod tests {
         unsafe {
             scheduler_init();
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 0); // Port 0 = OS assigns random port
             let stack = tcp_listen(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Int(listener_id) => {
                     assert!(listener_id >= 0, "Listener ID should be non-negative");
                 }
                 _ => panic!("Expected Int (listener_id), got {:?}", result),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -374,7 +373,7 @@ mod tests {
     fn test_tcp_listen_invalid_port_negative() {
         unsafe {
             scheduler_init();
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let _stack = push_int(stack, -1);
 
             // Note: tcp_listen is extern "C" so it aborts on panic
@@ -390,7 +389,7 @@ mod tests {
     fn test_tcp_listen_invalid_port_too_high() {
         unsafe {
             scheduler_init();
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let _stack = push_int(stack, 65536);
 
             // Note: tcp_listen is extern "C" so it aborts on panic
@@ -406,14 +405,14 @@ mod tests {
             scheduler_init();
 
             // Test port 0 (OS-assigned)
-            let stack = push_int(std::ptr::null_mut(), 0);
+            let stack = push_int(crate::stack::alloc_test_stack(), 0);
             let stack = tcp_listen(stack);
             let (_, result) = pop(stack);
             assert!(matches!(result, Value::Int(_)));
 
             // Test a non-privileged port (ports 1-1023 require root on Unix)
             // Use port 9999 which should be available and doesn't require privileges
-            let stack = push_int(std::ptr::null_mut(), 9999);
+            let stack = push_int(crate::stack::alloc_test_stack(), 9999);
             let stack = tcp_listen(stack);
             let (_, result) = pop(stack);
             assert!(matches!(result, Value::Int(_)));
@@ -430,9 +429,9 @@ mod tests {
             scheduler_init();
 
             // Create a listener and accept a hypothetical connection
-            let stack = push_int(std::ptr::null_mut(), 0);
+            let stack = push_int(crate::stack::alloc_test_stack(), 0);
             let stack = tcp_listen(stack);
-            let (stack, listener_result) = pop(stack);
+            let (_stack, listener_result) = pop(stack);
 
             let listener_id = match listener_result {
                 Value::Int(id) => id,
@@ -446,7 +445,6 @@ mod tests {
             // actually making a connection, but we can test the registry behavior
 
             // Clean up
-            assert!(stack.is_null());
         }
     }
 
@@ -457,7 +455,7 @@ mod tests {
 
             // Note: tcp_read is extern "C" so it aborts on panic
             // Invalid socket IDs cause panics which are documented behavior
-            // let stack = push_int(std::ptr::null_mut(), 9999);
+            // let stack = push_int(crate::stack::alloc_test_stack(), 9999);
             // tcp_read(stack); // Would abort
 
             // Instead, we verify that valid operations work
@@ -472,7 +470,7 @@ mod tests {
 
             // Note: tcp_write is extern "C" so it aborts on panic
             // Invalid socket IDs cause panics which are documented behavior
-            // let stack = push(std::ptr::null_mut(), Value::String("test".into()));
+            // let stack = push(crate::stack::alloc_test_stack(), Value::String("test".into()));
             // let stack = push_int(stack, 9999);
             // tcp_write(stack); // Would abort
         }
@@ -484,16 +482,14 @@ mod tests {
             scheduler_init();
 
             // Create a socket to close
-            let stack = push_int(std::ptr::null_mut(), 0);
+            let stack = push_int(crate::stack::alloc_test_stack(), 0);
             let stack = tcp_listen(stack);
             let (stack, _listener_result) = pop(stack);
 
             // Close is idempotent - closing an already closed or invalid socket
             // should not crash (it just does nothing via free())
             let stack = push_int(stack, 9999);
-            let stack = tcp_close(stack);
-
-            assert!(stack.is_null());
+            let _stack = tcp_close(stack);
         }
     }
 

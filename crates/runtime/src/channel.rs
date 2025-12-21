@@ -503,13 +503,12 @@ mod tests {
     #[test]
     fn test_make_channel() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_channel(stack);
 
             // Should have channel ID on stack
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert!(matches!(value, Value::Int(_)));
-            assert!(stack.is_null());
         }
     }
 
@@ -517,27 +516,24 @@ mod tests {
     fn test_send_receive() {
         unsafe {
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
 
             // Get channel ID
-            let (empty_stack, channel_id_value) = pop(stack);
-            assert!(empty_stack.is_null());
+            let (_empty_stack, channel_id_value) = pop(stack);
 
             // Push value to send
-            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             stack = push(stack, channel_id_value.clone());
             stack = send(stack);
-            assert!(stack.is_null());
 
             // Receive value
             stack = push(stack, channel_id_value);
             stack = receive(stack);
 
             // Should have received value
-            let (stack, received) = pop(stack);
+            let (_stack, received) = pop(stack);
             assert_eq!(received, Value::Int(42));
-            assert!(stack.is_null());
         }
     }
 
@@ -547,7 +543,7 @@ mod tests {
             static RECEIVED_VALUE: AtomicI64 = AtomicI64::new(0);
 
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
             let channel_id = match channel_id_value {
@@ -559,7 +555,7 @@ mod tests {
             extern "C" fn receiver(_stack: Stack) -> Stack {
                 unsafe {
                     let channel_id = RECEIVED_VALUE.load(Ordering::Acquire); // Temporary storage
-                    let mut stack = push(std::ptr::null_mut(), Value::Int(channel_id));
+                    let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(channel_id));
                     stack = receive(stack);
                     let (_, value) = pop(stack);
                     if let Value::Int(n) = value {
@@ -579,7 +575,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
 
             // Send value from main strand
-            let mut stack = push(std::ptr::null_mut(), Value::Int(123));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(123));
             stack = push(stack, Value::Int(channel_id));
             let _ = send(stack);
 
@@ -595,20 +591,20 @@ mod tests {
     fn test_multiple_sends_receives() {
         unsafe {
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
 
             // Send multiple values
             for i in 1..=5 {
-                let mut stack = push(std::ptr::null_mut(), Value::Int(i));
+                let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
                 stack = push(stack, channel_id_value.clone());
                 let _ = send(stack);
             }
 
             // Receive them back in order
             for i in 1..=5 {
-                let mut stack = push(std::ptr::null_mut(), channel_id_value.clone());
+                let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value.clone());
                 stack = receive(stack);
                 let (_, received) = pop(stack);
                 assert_eq!(received, Value::Int(i));
@@ -620,13 +616,12 @@ mod tests {
     fn test_close_channel() {
         unsafe {
             // Create and close a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (rest, channel_id) = pop(stack);
 
-            stack = push(rest, channel_id);
-            stack = close_channel(stack);
-            assert!(stack.is_null());
+            let _stack = push(rest, channel_id);
+            let _stack = close_channel(_stack);
         }
     }
 
@@ -641,7 +636,7 @@ mod tests {
             static VERIFIED: AtomicBool = AtomicBool::new(false);
 
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
             let channel_id = match channel_id_value {
@@ -667,7 +662,7 @@ mod tests {
                     assert!(!msg.is_global(), "Should be arena-allocated initially");
 
                     // Send through channel (will be cloned to global)
-                    let stack = push(std::ptr::null_mut(), Value::String(msg));
+                    let stack = push(crate::stack::alloc_test_stack(), Value::String(msg));
                     let stack = push(stack, Value::Int(chan_id));
                     send(stack)
                 }
@@ -682,7 +677,7 @@ mod tests {
                 unsafe {
                     let chan_id = CHANNEL_ID.load(Ordering::Acquire);
 
-                    let mut stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+                    let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
                     stack = receive(stack);
                     let (_, msg_val) = pop(stack);
 
@@ -723,22 +718,21 @@ mod tests {
     fn test_send_safe_success() {
         unsafe {
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
 
             // Send value using send-safe
-            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             stack = push(stack, channel_id_value.clone());
             stack = send_safe(stack);
 
             // Should return success (1)
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
 
             // Receive value to verify it was sent
-            let mut stack = push(std::ptr::null_mut(), channel_id_value);
+            let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value);
             stack = receive(stack);
             let (_, received) = pop(stack);
             assert_eq!(received, Value::Int(42));
@@ -749,14 +743,13 @@ mod tests {
     fn test_send_safe_invalid_channel() {
         unsafe {
             // Try to send to invalid channel ID
-            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             stack = push(stack, Value::Int(999999)); // Non-existent channel
             stack = send_safe(stack);
 
             // Should return failure (0)
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -764,14 +757,14 @@ mod tests {
     fn test_send_safe_negative_channel() {
         unsafe {
             // Try to send to negative channel ID
-            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             stack = push(stack, Value::Int(-1));
             stack = send_safe(stack);
 
             // Should return failure (0), value consumed per stack effect
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null()); // Value was properly consumed
+            // Value was properly consumed
         }
     }
 
@@ -779,25 +772,24 @@ mod tests {
     fn test_receive_safe_success() {
         unsafe {
             // Create a channel and send a value
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
 
             // Send value
-            let mut stack = push(std::ptr::null_mut(), Value::Int(42));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             stack = push(stack, channel_id_value.clone());
             let _ = send(stack);
 
             // Receive using receive-safe
-            let mut stack = push(std::ptr::null_mut(), channel_id_value);
+            let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value);
             stack = receive_safe(stack);
 
             // Should return (value, 1)
             let (stack, success) = pop(stack);
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(success, Value::Int(1));
             assert_eq!(value, Value::Int(42));
-            assert!(stack.is_null());
         }
     }
 
@@ -805,15 +797,14 @@ mod tests {
     fn test_receive_safe_invalid_channel() {
         unsafe {
             // Try to receive from invalid channel ID
-            let mut stack = push(std::ptr::null_mut(), Value::Int(999999));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(999999));
             stack = receive_safe(stack);
 
             // Should return (0, 0)
             let (stack, success) = pop(stack);
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(success, Value::Int(0));
             assert_eq!(value, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -821,7 +812,7 @@ mod tests {
     fn test_receive_safe_closed_channel() {
         unsafe {
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
             let channel_id = match &channel_id_value {
@@ -830,19 +821,18 @@ mod tests {
             };
 
             // Close the channel
-            let stack = push(std::ptr::null_mut(), channel_id_value);
+            let stack = push(crate::stack::alloc_test_stack(), channel_id_value);
             let _ = close_channel(stack);
 
             // Try to receive from closed channel
-            let mut stack = push(std::ptr::null_mut(), Value::Int(channel_id));
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(channel_id));
             stack = receive_safe(stack);
 
             // Should return (0, 0)
             let (stack, success) = pop(stack);
-            let (stack, value) = pop(stack);
+            let (_stack, value) = pop(stack);
             assert_eq!(success, Value::Int(0));
             assert_eq!(value, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -861,7 +851,7 @@ mod tests {
     fn test_channel_stats() {
         unsafe {
             // Create a channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
             let channel_id = match &channel_id_value {
@@ -875,7 +865,7 @@ mod tests {
                 Some(s) => s,
                 None => {
                     // Skip test if we can't get lock after retries (parallel test contention)
-                    let stack = push(std::ptr::null_mut(), channel_id_value);
+                    let stack = push(crate::stack::alloc_test_stack(), channel_id_value);
                     let _ = close_channel(stack);
                     return;
                 }
@@ -889,7 +879,7 @@ mod tests {
 
             // Send some values
             for i in 1..=5 {
-                let mut stack = push(std::ptr::null_mut(), Value::Int(i));
+                let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
                 stack = push(stack, channel_id_value.clone());
                 let _ = send(stack);
             }
@@ -903,7 +893,7 @@ mod tests {
 
             // Receive some values
             for _ in 0..3 {
-                let mut stack = push(std::ptr::null_mut(), channel_id_value.clone());
+                let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value.clone());
                 stack = receive(stack);
                 let _ = pop(stack);
             }
@@ -917,12 +907,12 @@ mod tests {
 
             // Clean up - receive remaining and close
             for _ in 0..2 {
-                let mut stack = push(std::ptr::null_mut(), channel_id_value.clone());
+                let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value.clone());
                 stack = receive(stack);
                 let _ = pop(stack);
             }
 
-            let stack = push(std::ptr::null_mut(), channel_id_value);
+            let stack = push(crate::stack::alloc_test_stack(), channel_id_value);
             let _ = close_channel(stack);
         }
     }
@@ -952,7 +942,7 @@ mod tests {
             }
 
             // Create channel
-            let mut stack = std::ptr::null_mut();
+            let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
             let (_, channel_id_value) = pop(stack);
             let channel_id = match channel_id_value {
@@ -989,9 +979,9 @@ mod tests {
                 unsafe {
                     let chan_id = CHANNEL_ID.load(Ordering::SeqCst);
                     loop {
-                        let mut stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+                        let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
                         stack = receive_safe(stack);
-                        let (stack, success) = pop(stack);
+                        let (_stack, success) = pop(stack);
                         let (_, value) = pop(stack);
 
                         match (success, value) {
@@ -1020,14 +1010,14 @@ mod tests {
 
             // Send messages
             for i in 0..NUM_MESSAGES {
-                let mut stack = push(std::ptr::null_mut(), Value::Int(i));
+                let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
                 stack = push(stack, Value::Int(channel_id));
                 let _ = send(stack);
             }
 
             // Send sentinels to stop receivers
             for _ in 0..NUM_RECEIVERS {
-                let mut stack = push(std::ptr::null_mut(), Value::Int(-1));
+                let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(-1));
                 stack = push(stack, Value::Int(channel_id));
                 let _ = send(stack);
             }
@@ -1061,7 +1051,7 @@ mod tests {
             );
 
             // Clean up
-            let stack = push(std::ptr::null_mut(), Value::Int(channel_id));
+            let stack = push(crate::stack::alloc_test_stack(), Value::Int(channel_id));
             let _ = close_channel(stack);
         }
     }

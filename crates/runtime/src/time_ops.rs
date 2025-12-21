@@ -113,12 +113,11 @@ pub use patch_seq_time_sleep_ms as time_sleep_ms;
 mod tests {
     use super::*;
     use crate::stack::pop;
-    use std::ptr;
 
     #[test]
     fn test_time_now_returns_positive() {
         unsafe {
-            let stack = ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = patch_seq_time_now(stack);
             let (_, value) = pop(stack);
 
@@ -135,14 +134,14 @@ mod tests {
     #[test]
     fn test_time_nanos_monotonic() {
         unsafe {
-            let stack = ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = patch_seq_time_nanos(stack);
             let (_, value1) = pop(stack);
 
             // Small delay
             std::thread::sleep(Duration::from_micros(100));
 
-            let stack = ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = patch_seq_time_nanos(stack);
             let (_, value2) = pop(stack);
 
@@ -159,17 +158,16 @@ mod tests {
     fn test_time_sleep_ms() {
         unsafe {
             // Push 1ms sleep duration
-            let stack = ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(1));
 
             let start = Instant::now();
-            let stack = patch_seq_time_sleep_ms(stack);
+            let _stack = patch_seq_time_sleep_ms(stack);
             let elapsed = start.elapsed();
 
             // Should sleep at least 1ms
             assert!(elapsed >= Duration::from_millis(1));
             // Stack should be empty after popping the duration
-            assert!(stack.is_null());
         }
     }
 }

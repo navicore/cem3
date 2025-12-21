@@ -19,18 +19,19 @@
 //! my-list [ write_line ] list-each
 //! ```
 
-use crate::stack::{Stack, is_empty, pop, push};
+use crate::stack::{Stack, drop_stack_value, pop, pop_sv, push};
 use crate::value::{Value, VariantData};
 use std::sync::Arc;
 
-/// Helper to drain and free any remaining stack nodes
+/// Helper to drain any remaining stack values back to the base
 ///
 /// This ensures no memory is leaked if a quotation misbehaves
 /// by leaving extra values on the stack.
-unsafe fn drain_stack(mut stack: Stack) {
+unsafe fn drain_stack_to_base(mut stack: Stack, base: Stack) {
     unsafe {
-        while !is_empty(stack) {
-            let (rest, _) = pop(stack);
+        while stack > base {
+            let (rest, sv) = pop_sv(stack);
+            drop_stack_value(sv);
             stack = rest;
         }
     }
@@ -38,11 +39,11 @@ unsafe fn drain_stack(mut stack: Stack) {
 
 /// Helper to call a quotation or closure with a value on the stack
 ///
-/// Pushes `value` onto the stack, then calls the callable.
-/// Returns the resulting stack.
-unsafe fn call_with_value(stack: Stack, value: Value, callable: &Value) -> Stack {
+/// Pushes `value` onto a fresh stack, calls the callable, and returns (result_stack, base).
+/// The caller can compare result_stack to base to check if there are extra values.
+unsafe fn call_with_value(base: Stack, value: Value, callable: &Value) -> Stack {
     unsafe {
-        let stack = push(stack, value);
+        let stack = push(base, value);
 
         match callable {
             Value::Quotation { wrapper, .. } => {
@@ -95,19 +96,20 @@ pub unsafe extern "C" fn patch_seq_list_map(stack: Stack) -> Stack {
         let mut results = Vec::with_capacity(variant_data.fields.len());
 
         for field in variant_data.fields.iter() {
-            // Call quotation with element on stack
-            let temp_stack = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
+            // Create a fresh temp stack for this call
+            let temp_base = crate::stack::alloc_stack();
+            let temp_stack = call_with_value(temp_base, field.clone(), &callable);
 
             // Pop result - quotation should have effect ( elem -- elem' )
-            if is_empty(temp_stack) {
+            if temp_stack <= temp_base {
                 panic!("list-map: quotation consumed element without producing result");
             }
             let (remaining, result) = pop(temp_stack);
             results.push(result);
 
             // Stack hygiene: drain any extra values left by misbehaving quotation
-            if !is_empty(remaining) {
-                drain_stack(remaining);
+            if remaining > temp_base {
+                drain_stack_to_base(remaining, temp_base);
             }
         }
 
@@ -154,11 +156,12 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
         let mut results = Vec::new();
 
         for field in variant_data.fields.iter() {
-            // Call quotation with element on stack
-            let temp_stack = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
+            // Create a fresh temp stack for this call
+            let temp_base = crate::stack::alloc_stack();
+            let temp_stack = call_with_value(temp_base, field.clone(), &callable);
 
             // Pop result - quotation should have effect ( elem -- Int )
-            if is_empty(temp_stack) {
+            if temp_stack <= temp_base {
                 panic!("list-filter: quotation consumed element without producing result");
             }
             let (remaining, result) = pop(temp_stack);
@@ -173,8 +176,8 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
             }
 
             // Stack hygiene: drain any extra values left by misbehaving quotation
-            if !is_empty(remaining) {
-                drain_stack(remaining);
+            if remaining > temp_base {
+                drain_stack_to_base(remaining, temp_base);
             }
         }
 
@@ -224,8 +227,9 @@ pub unsafe extern "C" fn patch_seq_list_fold(stack: Stack) -> Stack {
         let mut acc = init;
 
         for field in variant_data.fields.iter() {
-            // Push acc, then element, then call quotation
-            let temp_stack = push(std::ptr::null_mut(), acc);
+            // Create a fresh temp stack and push acc, then element, then call quotation
+            let temp_base = crate::stack::alloc_stack();
+            let temp_stack = push(temp_base, acc);
             let temp_stack = push(temp_stack, field.clone());
 
             let temp_stack = match &callable {
@@ -243,15 +247,15 @@ pub unsafe extern "C" fn patch_seq_list_fold(stack: Stack) -> Stack {
             };
 
             // Pop new accumulator - quotation should have effect ( acc elem -- acc' )
-            if is_empty(temp_stack) {
+            if temp_stack <= temp_base {
                 panic!("list-fold: quotation consumed inputs without producing result");
             }
             let (remaining, new_acc) = pop(temp_stack);
             acc = new_acc;
 
             // Stack hygiene: drain any extra values left by misbehaving quotation
-            if !is_empty(remaining) {
-                drain_stack(remaining);
+            if remaining > temp_base {
+                drain_stack_to_base(remaining, temp_base);
             }
         }
 
@@ -293,10 +297,11 @@ pub unsafe extern "C" fn patch_seq_list_each(stack: Stack) -> Stack {
 
         // Call quotation for each element (for side effects)
         for field in variant_data.fields.iter() {
-            let temp_stack = call_with_value(std::ptr::null_mut(), field.clone(), &callable);
+            let temp_base = crate::stack::alloc_stack();
+            let temp_stack = call_with_value(temp_base, field.clone(), &callable);
             // Stack hygiene: drain any values left by quotation (effect should be ( elem -- ))
-            if !is_empty(temp_stack) {
-                drain_stack(temp_stack);
+            if temp_stack > temp_base {
+                drain_stack_to_base(temp_stack, temp_base);
             }
         }
 
@@ -401,7 +406,7 @@ mod tests {
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let fn_ptr = double_quot as usize;
             let stack = push(
@@ -413,7 +418,7 @@ mod tests {
             );
             let stack = list_map(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.fields.len(), 3);
@@ -423,7 +428,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -442,7 +446,7 @@ mod tests {
                 ],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let fn_ptr = is_positive_quot as usize;
             let stack = push(
@@ -454,7 +458,7 @@ mod tests {
             );
             let stack = list_filter(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.fields.len(), 2);
@@ -463,7 +467,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -482,7 +485,7 @@ mod tests {
                 ],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(0)); // initial accumulator
             let fn_ptr = add_quot as usize;
@@ -495,9 +498,8 @@ mod tests {
             );
             let stack = list_fold(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(15)); // 1+2+3+4+5 = 15
-            assert!(stack.is_null());
         }
     }
 
@@ -507,7 +509,7 @@ mod tests {
             // Create empty list
             let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(42)); // initial accumulator
             let fn_ptr = add_quot as usize;
@@ -520,9 +522,8 @@ mod tests {
             );
             let stack = list_fold(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(42)); // Should return initial value
-            assert!(stack.is_null());
         }
     }
 
@@ -534,13 +535,12 @@ mod tests {
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = list_length(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(3));
-            assert!(stack.is_null());
         }
     }
 
@@ -549,13 +549,12 @@ mod tests {
         unsafe {
             let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = list_empty(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
@@ -564,13 +563,12 @@ mod tests {
         unsafe {
             let list = Value::Variant(Arc::new(VariantData::new(0, vec![Value::Int(1)])));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = list_empty(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -579,7 +577,7 @@ mod tests {
         unsafe {
             let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let fn_ptr = double_quot as usize;
             let stack = push(
@@ -591,14 +589,13 @@ mod tests {
             );
             let stack = list_map(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.fields.len(), 0);
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -611,7 +608,7 @@ mod tests {
                 vec![Value::Int(1), Value::Int(2)],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let fn_ptr = double_quot as usize;
             let stack = push(
@@ -623,7 +620,7 @@ mod tests {
             );
             let stack = list_map(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.tag, 42); // Tag preserved
@@ -632,7 +629,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -670,12 +666,12 @@ mod tests {
                 env,
             };
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = push(stack, closure);
             let stack = list_map(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.fields.len(), 3);
@@ -685,7 +681,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 }

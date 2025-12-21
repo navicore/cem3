@@ -10,7 +10,7 @@ license = "MIT"
 
 [workspace.dependencies]
 # Concurrency
-may = "0.3"
+may = { version = "0.3", features = ["rand_work_steal"] }
 
 # Memory management
 bumpalo = "3.16"

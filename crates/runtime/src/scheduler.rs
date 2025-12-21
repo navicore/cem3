@@ -271,7 +271,12 @@ fn parse_stack_size(env_value: Option<String>) -> usize {
     }
 }
 
-/// Initialize the scheduler
+/// Default coroutine pool capacity.
+/// May reuses completed coroutine stacks from this pool to avoid allocations.
+/// Default of 1000 is often too small for spawn-heavy workloads.
+const DEFAULT_POOL_CAPACITY: usize = 10000;
+
+/// Initialize the scheduler.
 ///
 /// # Safety
 /// Safe to call multiple times (idempotent via Once).
@@ -280,14 +285,25 @@ fn parse_stack_size(env_value: Option<String>) -> usize {
 pub unsafe extern "C" fn patch_seq_scheduler_init() {
     SCHEDULER_INIT.call_once(|| {
         // Configure stack size for coroutines
-        // Default is 1MB, which is balanced between safety and May's maximum limit
-        // May has internal maximum (attempting 64MB causes ExceedsMaximumSize panic)
-        //
+        // Default is 128KB, reduced from 1MB for better spawn performance.
         // Can be overridden via SEQ_STACK_SIZE environment variable (in bytes)
         // Example: SEQ_STACK_SIZE=2097152 for 2MB
         // Invalid values (non-numeric, zero) are warned and ignored.
         let stack_size = parse_stack_size(std::env::var("SEQ_STACK_SIZE").ok());
-        may::config().set_stack_size(stack_size);
+
+        // Configure coroutine pool capacity
+        // May reuses coroutine stacks from this pool to reduce allocation overhead.
+        // Default 10000 is 10x May's default (1000), better for spawn-heavy workloads.
+        // Can be overridden via SEQ_POOL_CAPACITY environment variable.
+        let pool_capacity = std::env::var("SEQ_POOL_CAPACITY")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(DEFAULT_POOL_CAPACITY);
+
+        may::config()
+            .set_stack_size(stack_size)
+            .set_pool_capacity(pool_capacity);
 
         // Install SIGQUIT handler for runtime diagnostics (kill -3)
         #[cfg(feature = "diagnostics")]

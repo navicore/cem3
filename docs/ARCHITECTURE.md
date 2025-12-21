@@ -284,6 +284,40 @@ model.
 
 See `runtime/src/io.rs` for the implementation.
 
+### Runtime Configuration
+
+The scheduler can be tuned via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEQ_STACK_SIZE` | 131072 (128KB) | Coroutine stack size in bytes |
+| `SEQ_POOL_CAPACITY` | 10000 | Cached coroutine pool size |
+| `SEQ_WATCHDOG_SECS` | 0 (disabled) | Threshold for "stuck strand" detection |
+| `SEQ_WATCHDOG_INTERVAL` | 5 | Watchdog check frequency (seconds) |
+| `SEQ_WATCHDOG_ACTION` | warn | Action on stuck strand: `warn` or `exit` |
+
+### Diagnostics Feature
+
+The runtime includes optional diagnostics for production debugging:
+
+- **Strand registry** - Tracks active strands with spawn timestamps
+- **SIGQUIT handler** - Dumps runtime stats on `kill -3 <pid>`
+- **Watchdog** - Detects strands running longer than threshold
+
+These are controlled by the `diagnostics` Cargo feature (enabled by default):
+
+```toml
+# In Cargo.toml - disable for minimal overhead
+seq-runtime = { version = "...", default-features = false }
+```
+
+When disabled, the runtime skips strand registry operations and signal handler
+setup, eliminating ~O(1024) scans and `SystemTime::now()` syscalls per spawn.
+
+**Note:** Benchmarking shows the diagnostics overhead is negligible compared to
+May's coroutine spawn syscalls. The feature is primarily useful for production
+deployments where `kill -3` debugging is needed.
+
 ## Memory Management
 
 The tagged stack design eliminates per-operation allocation overhead. The stack

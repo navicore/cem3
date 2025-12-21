@@ -14,6 +14,7 @@ A concatenative, stack-based programming language with static typing, tail call 
 **Type System:** Row polymorphic stack effects with type inference
 **Standard Library:** JSON, YAML, HTTP, math utilities
 **Editor Support:** LSP server with diagnostics and completions
+**REPL:** Interactive stack-based REPL with file watching
 
 See `docs/ROADMAP.md` for the development plan.
 
@@ -29,7 +30,8 @@ See `docs/ROADMAP.md` for the development plan.
 ### Install from crates.io
 
 ```bash
-cargo install seq-compiler  # installs seqc
+cargo install seq-compiler  # installs seqc (compiler)
+cargo install seq-repl      # installs seqr (interactive REPL)
 cargo install seq-lsp       # installs seq-lsp (optional, for editor support)
 ```
 
@@ -56,6 +58,35 @@ seqc --version
 ```bash
 cargo test --all
 ```
+
+## Interactive REPL
+
+The `seqr` REPL provides an interactive environment for exploring Seq:
+
+```bash
+seqr
+```
+
+**Stack persists across lines:**
+```
+seqr> 1 2
+[1, 2]
+seqr> add
+[3]
+seqr> 5
+[3, 5]
+seqr> : square ( Int -- Int ) dup multiply ;
+Defined.
+seqr> square
+[9, 25]
+```
+
+**Commands:**
+- `:pop` - Remove last expression (undo)
+- `:clear` - Reset session
+- `:show` - Show current file
+- `:edit` - Open in $EDITOR
+- `:quit` - Exit
 
 ## What Works
 

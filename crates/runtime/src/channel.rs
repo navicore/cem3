@@ -3,6 +3,12 @@
 //! Channels are the primary communication mechanism between strands.
 //! They use May's MPMC channels with cooperative blocking.
 //!
+//! ## Zero-Mutex Design
+//!
+//! Channels are passed directly as `Value::Channel` on the stack. There is NO
+//! global registry and NO mutex contention. Send/receive operations work directly
+//! on the channel handles with zero locking overhead.
+//!
 //! ## Non-Blocking Guarantee
 //!
 //! All channel operations (`send`, `receive`) cooperatively block using May's scheduler.
@@ -14,193 +20,64 @@
 //! can receive from the same channel concurrently - each message is delivered to exactly
 //! one receiver (work-stealing semantics).
 //!
+//! ## Stack Effects
+//!
+//! - `chan.make`: ( -- Channel ) - creates a new channel
+//! - `chan.send`: ( value Channel -- ) - sends value through channel
+//! - `chan.receive`: ( Channel -- value ) - receives value from channel
+//!
 //! ## Error Handling
 //!
 //! Two variants are available for send/receive:
 //!
-//! - `send` / `receive` - Panic on errors (closed channel, invalid ID)
+//! - `send` / `receive` - Panic on errors (closed channel)
 //! - `send-safe` / `receive-safe` - Return success flag instead of panicking
-//!
-//! The safe variants enable graceful shutdown patterns:
-//! ```seq
-//! value channel-id send-safe if
-//!   # sent successfully
-//! else
-//!   # channel closed, handle gracefully
-//! then
-//! ```
 
 use crate::stack::{Stack, pop, push};
-use crate::value::Value;
+use crate::value::{ChannelData, Value};
 use may::sync::mpmc;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Once};
-
-/// Unique channel ID generation
-static NEXT_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
-
-/// Global channel registry
-/// Maps channel IDs to sender/receiver pairs
-static CHANNEL_REGISTRY: Mutex<Option<HashMap<u64, ChannelPair>>> = Mutex::new(None);
-
-/// Initialize the channel registry exactly once (lock-free after first call)
-static REGISTRY_INIT: Once = Once::new();
-
-/// Per-channel statistics (wrapped in Arc for lock-free access)
-#[derive(Debug)]
-struct ChannelStatsInner {
-    /// Lifetime count of messages sent (monotonic)
-    send_count: AtomicU64,
-    /// Lifetime count of messages received (monotonic)
-    receive_count: AtomicU64,
-}
-
-/// A channel pair (sender and receiver) with statistics
-/// Both sender and receiver are cloneable (MPMC) - no mutex needed
-/// Stats are Arc<> to allow updating after releasing the registry lock
-struct ChannelPair {
-    sender: mpmc::Sender<Value>,
-    receiver: mpmc::Receiver<Value>,
-    stats: Arc<ChannelStatsInner>,
-}
-
-/// Initialize the channel registry (lock-free after first call)
-fn init_registry() {
-    REGISTRY_INIT.call_once(|| {
-            let mut guard = CHANNEL_REGISTRY.lock()
-                .expect("init_registry: channel registry lock poisoned during initialization - strand panicked while holding lock");
-        *guard = Some(HashMap::new());
-    });
-}
-
-/// Get the number of open channels (for diagnostics)
-///
-/// Returns None if the registry lock is held (to avoid blocking in signal handler).
-/// This is a best-effort diagnostic - the count may be slightly stale.
-pub fn channel_count() -> Option<usize> {
-    // Use try_lock to avoid blocking in signal handler context
-    match CHANNEL_REGISTRY.try_lock() {
-        Ok(guard) => guard.as_ref().map(|registry| registry.len()),
-        Err(_) => None, // Lock held, return None rather than block
-    }
-}
-
-/// Per-channel statistics for diagnostics
-#[derive(Debug, Clone)]
-pub struct ChannelStats {
-    /// Channel ID
-    pub id: u64,
-    /// Current queue depth (sends - receives)
-    pub queue_depth: u64,
-    /// Lifetime count of messages sent
-    pub send_count: u64,
-    /// Lifetime count of messages received
-    pub receive_count: u64,
-}
-
-/// Get per-channel statistics for all open channels (for diagnostics)
-///
-/// Returns None if the registry lock is held (to avoid blocking in signal handler).
-/// Returns an empty Vec if no channels are open.
-///
-/// Queue depth is computed as send_count - receive_count. Due to the lock-free
-/// nature of the counters, there may be brief inconsistencies (e.g., depth < 0
-/// is clamped to 0), but this is acceptable for monitoring purposes.
-pub fn channel_stats() -> Option<Vec<ChannelStats>> {
-    // Use try_lock to avoid blocking in signal handler context
-    match CHANNEL_REGISTRY.try_lock() {
-        Ok(guard) => {
-            guard.as_ref().map(|registry| {
-                registry
-                    .iter()
-                    .map(|(&id, pair)| {
-                        let send_count = pair.stats.send_count.load(Ordering::Relaxed);
-                        let receive_count = pair.stats.receive_count.load(Ordering::Relaxed);
-                        // Queue depth = sends - receives, clamped to 0
-                        let queue_depth = send_count.saturating_sub(receive_count);
-                        ChannelStats {
-                            id,
-                            queue_depth,
-                            send_count,
-                            receive_count,
-                        }
-                    })
-                    .collect()
-            })
-        }
-        Err(_) => None, // Lock held, return None rather than block
-    }
-}
+use std::sync::Arc;
 
 /// Create a new channel
 ///
-/// Stack effect: ( -- channel_id )
+/// Stack effect: ( -- Channel )
 ///
-/// Returns a channel ID that can be used with send/receive operations.
+/// Returns a Channel value that can be used with send/receive operations.
+/// The channel can be duplicated (dup) to share between strands.
 ///
 /// # Safety
 /// Always safe to call
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
-    init_registry();
-
     // Create an unbounded MPMC channel
     // May's mpmc::channel() creates coroutine-aware channels with multi-producer, multi-consumer
     // The recv() operation cooperatively blocks (yields) instead of blocking the OS thread
-    // Both sender and receiver are Clone - no mutex needed for sharing
     let (sender, receiver) = mpmc::channel();
 
-    let channel_id = NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed);
+    // Wrap in Arc<ChannelData> and push directly - NO registry, NO mutex
+    let channel = Arc::new(ChannelData { sender, receiver });
 
-    // Store in registry
-    let mut guard = CHANNEL_REGISTRY.lock().expect(
-        "make_channel: channel registry lock poisoned - strand panicked while holding lock",
-    );
-
-    let registry = guard
-        .as_mut()
-        .expect("make_channel: channel registry not initialized - call init_registry first");
-
-    registry.insert(
-        channel_id,
-        ChannelPair {
-            sender,
-            receiver,
-            stats: Arc::new(ChannelStatsInner {
-                send_count: AtomicU64::new(0),
-                receive_count: AtomicU64::new(0),
-            }),
-        },
-    );
-
-    // Push channel ID onto stack
-    unsafe { push(stack, Value::Int(channel_id as i64)) }
+    unsafe { push(stack, Value::Channel(channel)) }
 }
 
 /// Send a value through a channel
 ///
-/// Stack effect: ( value channel_id -- )
+/// Stack effect: ( value Channel -- )
 ///
-/// Blocks the strand if the channel is full until space becomes available.
-/// This is cooperative blocking - the strand yields and May handles scheduling.
+/// Cooperatively blocks if the channel is full until space becomes available.
+/// The strand yields and May handles scheduling.
 ///
 /// # Safety
-/// Stack must have a channel ID (Int) on top and a value below it
+/// Stack must have a Channel on top and a value below it
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "send: stack is empty");
 
-    // Pop channel ID
-    let (stack, channel_id_value) = unsafe { pop(stack) };
-    let channel_id = match channel_id_value {
-        Value::Int(id) => {
-            if id < 0 {
-                panic!("send: channel ID must be positive, got {}", id);
-            }
-            id as u64
-        }
-        _ => panic!("send: expected channel ID (Int) on stack"),
+    // Pop channel
+    let (stack, channel_value) = unsafe { pop(stack) };
+    let channel = match channel_value {
+        Value::Channel(ch) => ch,
+        _ => panic!("send: expected Channel on stack, got {:?}", channel_value),
     };
 
     assert!(!stack.is_null(), "send: stack has only one value");
@@ -208,170 +85,109 @@ pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
     // Pop value to send
     let (rest, value) = unsafe { pop(stack) };
 
-    // Get sender from registry
-    let guard = CHANNEL_REGISTRY
-        .lock()
-        .expect("send: channel registry lock poisoned - strand panicked while holding lock");
-
-    let registry = guard
-        .as_ref()
-        .expect("send: channel registry not initialized - call init_registry first");
-
-    let pair = match registry.get(&channel_id) {
-        Some(p) => p,
-        None => panic!("send: invalid channel ID {}", channel_id),
-    };
-
-    // Clone the sender and stats so we can use them outside the lock
-    let sender = pair.sender.clone();
-    let stats = Arc::clone(&pair.stats);
-    drop(guard); // Release lock before potentially blocking
-
     // Clone the value before sending to ensure arena strings are promoted to global
-    // CemString::clone() allocates from global heap (see cemstring.rs:75-78)
-    // This prevents use-after-free when sender's arena is reset before receiver accesses the string
+    // This prevents use-after-free when sender's arena is reset before receiver accesses
     let global_value = value.clone();
 
-    // Send the value (may block if channel is full)
+    // Send the value directly - NO mutex, NO registry lookup
     // May's scheduler will handle the blocking cooperatively
-    sender.send(global_value).expect("send: channel closed");
-
-    // Update stats after successful send
-    stats.send_count.fetch_add(1, Ordering::Relaxed);
+    channel
+        .sender
+        .send(global_value)
+        .expect("send: channel closed");
 
     rest
 }
 
 /// Receive a value from a channel
 ///
-/// Stack effect: ( channel_id -- value )
+/// Stack effect: ( Channel -- value )
 ///
-/// Blocks the strand until a value is available.
-/// This is cooperative blocking - the strand yields and May handles scheduling.
+/// Cooperatively blocks until a value is available.
+/// The strand yields and May handles scheduling.
 ///
 /// ## Multi-Consumer Support
 ///
 /// Multiple strands can receive from the same channel concurrently (MPMC).
 /// Each message is delivered to exactly one receiver (work-stealing semantics).
-/// No serialization - strands compete fairly for messages.
 ///
 /// # Safety
-/// Stack must have a channel ID (Int) on top
+/// Stack must have a Channel on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "receive: stack is empty");
 
-    // Pop channel ID
-    let (rest, channel_id_value) = unsafe { pop(stack) };
-    let channel_id = match channel_id_value {
-        Value::Int(id) => {
-            if id < 0 {
-                panic!("receive: channel ID must be positive, got {}", id);
-            }
-            id as u64
-        }
-        _ => panic!("receive: expected channel ID (Int) on stack"),
+    // Pop channel
+    let (rest, channel_value) = unsafe { pop(stack) };
+    let channel = match channel_value {
+        Value::Channel(ch) => ch,
+        _ => panic!(
+            "receive: expected Channel on stack, got {:?}",
+            channel_value
+        ),
     };
 
-    // Clone receiver and stats from registry (don't hold lock during recv!)
-    // MPMC receiver is Clone - no mutex needed
-    let (receiver, stats) = {
-        let guard = CHANNEL_REGISTRY
-            .lock()
-            .expect("receive: channel registry lock poisoned - strand panicked while holding lock");
-
-        let registry = guard
-            .as_ref()
-            .expect("receive: channel registry not initialized - call init_registry first");
-
-        let pair = match registry.get(&channel_id) {
-            Some(p) => p,
-            None => panic!("receive: invalid channel ID {}", channel_id),
-        };
-
-        (pair.receiver.clone(), Arc::clone(&pair.stats))
-    }; // Registry lock released here!
-
-    // Receive a value (cooperatively blocks the strand until available)
+    // Receive a value directly - NO mutex, NO registry lookup
     // May's recv() yields to the scheduler, not blocking the OS thread
-    // Multiple strands can wait concurrently - MPMC handles synchronization
-    let value = match receiver.recv() {
+    let value = match channel.receiver.recv() {
         Ok(v) => v,
         Err(_) => panic!("receive: channel closed"),
     };
 
-    // Update stats after successful receive
-    stats.receive_count.fetch_add(1, Ordering::Relaxed);
-
     unsafe { push(rest, value) }
 }
 
-/// Close a channel and remove it from the registry
+/// Close a channel (drop it from the stack)
 ///
-/// Stack effect: ( channel_id -- )
+/// Stack effect: ( Channel -- )
 ///
-/// After closing, send/receive operations on this channel will fail.
+/// Simply drops the channel. When all references are dropped, the channel is closed.
+/// This is provided for API compatibility but is equivalent to `drop`.
 ///
 /// # Safety
-/// Stack must have a channel ID (Int) on top
+/// Stack must have a Channel on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_close_channel(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "close_channel: stack is empty");
 
-    // Pop channel ID
-    let (rest, channel_id_value) = unsafe { pop(stack) };
-    let channel_id = match channel_id_value {
-        Value::Int(id) => {
-            if id < 0 {
-                panic!("close_channel: channel ID must be positive, got {}", id);
-            }
-            id as u64
-        }
-        _ => panic!("close_channel: expected channel ID (Int) on stack"),
-    };
-
-    // Remove from registry
-    let mut guard = CHANNEL_REGISTRY.lock().expect(
-        "close_channel: channel registry lock poisoned - strand panicked while holding lock",
-    );
-
-    let registry = guard
-        .as_mut()
-        .expect("close_channel: channel registry not initialized - call init_registry first");
-
-    registry.remove(&channel_id);
+    // Pop and drop the channel
+    let (rest, channel_value) = unsafe { pop(stack) };
+    match channel_value {
+        Value::Channel(_) => {} // Drop occurs here
+        _ => panic!(
+            "close_channel: expected Channel on stack, got {:?}",
+            channel_value
+        ),
+    }
 
     rest
 }
 
 /// Send a value through a channel, with error handling
 ///
-/// Stack effect: ( value channel_id -- success_flag )
+/// Stack effect: ( value Channel -- success_flag )
 ///
-/// Returns 1 on success, 0 on failure (closed channel or invalid ID).
+/// Returns 1 on success, 0 on failure (closed channel or wrong type).
 /// Does not panic on errors - returns 0 instead.
 ///
 /// # Safety
-/// Stack must have a channel ID (Int) on top and a value below it
+/// Stack must have a Channel on top and a value below it
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "send-safe: stack is empty");
 
-    // Pop channel ID
-    let (stack, channel_id_value) = unsafe { pop(stack) };
-    let channel_id = match channel_id_value {
-        Value::Int(id) => {
-            if id < 0 {
-                // Invalid channel ID - consume value and return failure
-                if !stack.is_null() {
-                    let (rest, _value) = unsafe { pop(stack) };
-                    return unsafe { push(rest, Value::Int(0)) };
-                }
-                return unsafe { push(stack, Value::Int(0)) };
+    // Pop channel
+    let (stack, channel_value) = unsafe { pop(stack) };
+    let channel = match channel_value {
+        Value::Channel(ch) => ch,
+        _ => {
+            // Wrong type - consume value and return failure
+            if !stack.is_null() {
+                let (rest, _value) = unsafe { pop(stack) };
+                return unsafe { push(rest, Value::Int(0)) };
             }
-            id as u64
+            return unsafe { push(stack, Value::Int(0)) };
         }
-        _ => panic!("send-safe: expected channel ID (Int) on stack"),
     };
 
     if stack.is_null() {
@@ -382,42 +198,21 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
     // Pop value to send
     let (rest, value) = unsafe { pop(stack) };
 
-    // Get sender and stats from registry
-    let (sender, stats) = {
-        let guard = match CHANNEL_REGISTRY.lock() {
-            Ok(g) => g,
-            Err(_) => return unsafe { push(rest, Value::Int(0)) },
-        };
-
-        let registry = match guard.as_ref() {
-            Some(r) => r,
-            None => return unsafe { push(rest, Value::Int(0)) },
-        };
-
-        match registry.get(&channel_id) {
-            Some(p) => (p.sender.clone(), Arc::clone(&p.stats)),
-            None => return unsafe { push(rest, Value::Int(0)) },
-        }
-    };
-
-    // Clone the value before sending to ensure arena strings are promoted to global
+    // Clone the value before sending
     let global_value = value.clone();
 
     // Send the value
-    match sender.send(global_value) {
-        Ok(()) => {
-            stats.send_count.fetch_add(1, Ordering::Relaxed);
-            unsafe { push(rest, Value::Int(1)) }
-        }
+    match channel.sender.send(global_value) {
+        Ok(()) => unsafe { push(rest, Value::Int(1)) },
         Err(_) => unsafe { push(rest, Value::Int(0)) },
     }
 }
 
 /// Receive a value from a channel, with error handling
 ///
-/// Stack effect: ( channel_id -- value success_flag )
+/// Stack effect: ( Channel -- value success_flag )
 ///
-/// Returns (value, 1) on success, (0, 0) on failure (closed channel or invalid ID).
+/// Returns (value, 1) on success, (0, 0) on failure (closed channel or wrong type).
 /// Does not panic on errors - returns (0, 0) instead.
 ///
 /// ## Multi-Consumer Support
@@ -426,56 +221,25 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
 /// Each message is delivered to exactly one receiver (work-stealing semantics).
 ///
 /// # Safety
-/// Stack must have a channel ID (Int) on top
+/// Stack must have a Channel on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "receive-safe: stack is empty");
 
-    // Pop channel ID
-    let (rest, channel_id_value) = unsafe { pop(stack) };
-    let channel_id = match channel_id_value {
-        Value::Int(id) => {
-            if id < 0 {
-                // Invalid channel ID - return failure
-                let stack = unsafe { push(rest, Value::Int(0)) };
-                return unsafe { push(stack, Value::Int(0)) };
-            }
-            id as u64
-        }
-        _ => panic!("receive-safe: expected channel ID (Int) on stack"),
-    };
-
-    // Clone receiver and stats from registry (MPMC receiver is Clone)
-    let (receiver, stats) = {
-        let guard = match CHANNEL_REGISTRY.lock() {
-            Ok(g) => g,
-            Err(_) => {
-                let stack = unsafe { push(rest, Value::Int(0)) };
-                return unsafe { push(stack, Value::Int(0)) };
-            }
-        };
-
-        let registry = match guard.as_ref() {
-            Some(r) => r,
-            None => {
-                let stack = unsafe { push(rest, Value::Int(0)) };
-                return unsafe { push(stack, Value::Int(0)) };
-            }
-        };
-
-        match registry.get(&channel_id) {
-            Some(p) => (p.receiver.clone(), Arc::clone(&p.stats)),
-            None => {
-                let stack = unsafe { push(rest, Value::Int(0)) };
-                return unsafe { push(stack, Value::Int(0)) };
-            }
+    // Pop channel
+    let (rest, channel_value) = unsafe { pop(stack) };
+    let channel = match channel_value {
+        Value::Channel(ch) => ch,
+        _ => {
+            // Wrong type - return failure
+            let stack = unsafe { push(rest, Value::Int(0)) };
+            return unsafe { push(stack, Value::Int(0)) };
         }
     };
 
-    // Receive a value - MPMC handles concurrent receivers
-    match receiver.recv() {
+    // Receive a value
+    match channel.receiver.recv() {
         Ok(value) => {
-            stats.receive_count.fetch_add(1, Ordering::Relaxed);
             let stack = unsafe { push(rest, value) };
             unsafe { push(stack, Value::Int(1)) }
         }
@@ -498,7 +262,7 @@ pub use patch_seq_make_channel as make_channel;
 mod tests {
     use super::*;
     use crate::scheduler::{spawn_strand, wait_all_strands};
-    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
     #[test]
     fn test_make_channel() {
@@ -506,9 +270,9 @@ mod tests {
             let stack = crate::stack::alloc_test_stack();
             let stack = make_channel(stack);
 
-            // Should have channel ID on stack
+            // Should have Channel on stack
             let (_stack, value) = pop(stack);
-            assert!(matches!(value, Value::Int(_)));
+            assert!(matches!(value, Value::Channel(_)));
         }
     }
 
@@ -519,16 +283,16 @@ mod tests {
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
 
-            // Get channel ID
-            let (_empty_stack, channel_id_value) = pop(stack);
+            // Get channel (but keep it on stack for receive via dup-like pattern)
+            let (_empty_stack, channel_value) = pop(stack);
 
-            // Push value to send
+            // Push value to send, then channel
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, channel_id_value.clone());
+            stack = push(stack, channel_value.clone());
             stack = send(stack);
 
             // Receive value
-            stack = push(stack, channel_id_value);
+            stack = push(stack, channel_value);
             stack = receive(stack);
 
             // Should have received value
@@ -538,52 +302,26 @@ mod tests {
     }
 
     #[test]
-    fn test_channel_communication_between_strands() {
+    fn test_channel_dup_sharing() {
+        // Verify that duplicating a channel shares the same underlying sender/receiver
         unsafe {
-            static RECEIVED_VALUE: AtomicI64 = AtomicI64::new(0);
-
-            // Create a channel
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
-            let channel_id = match channel_id_value {
-                Value::Int(id) => id,
-                _ => panic!("Expected Int"),
-            };
 
-            // Receiver strand
-            extern "C" fn receiver(_stack: Stack) -> Stack {
-                unsafe {
-                    let channel_id = RECEIVED_VALUE.load(Ordering::Acquire); // Temporary storage
-                    let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(channel_id));
-                    stack = receive(stack);
-                    let (_, value) = pop(stack);
-                    if let Value::Int(n) = value {
-                        RECEIVED_VALUE.store(n, Ordering::Release);
-                    }
-                    std::ptr::null_mut()
-                }
-            }
+            let (_, ch1) = pop(stack);
+            let ch2 = ch1.clone(); // Simulates dup
 
-            // Store channel ID temporarily
-            RECEIVED_VALUE.store(channel_id, Ordering::Release);
+            // Send on ch1
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(99));
+            stack = push(stack, ch1);
+            stack = send(stack);
 
-            // Spawn receiver strand
-            spawn_strand(receiver);
+            // Receive on ch2
+            stack = push(stack, ch2);
+            stack = receive(stack);
 
-            // Give receiver time to start
-            std::thread::sleep(std::time::Duration::from_millis(10));
-
-            // Send value from main strand
-            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(123));
-            stack = push(stack, Value::Int(channel_id));
-            let _ = send(stack);
-
-            // Wait for all strands
-            wait_all_strands();
-
-            // Check received value
-            assert_eq!(RECEIVED_VALUE.load(Ordering::Acquire), 123);
+            let (_, received) = pop(stack);
+            assert_eq!(received, Value::Int(99));
         }
     }
 
@@ -593,18 +331,18 @@ mod tests {
             // Create a channel
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
+            let (_, channel_value) = pop(stack);
 
             // Send multiple values
             for i in 1..=5 {
                 let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
-                stack = push(stack, channel_id_value.clone());
+                stack = push(stack, channel_value.clone());
                 let _ = send(stack);
             }
 
             // Receive them back in order
             for i in 1..=5 {
-                let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value.clone());
+                let mut stack = push(crate::stack::alloc_test_stack(), channel_value.clone());
                 stack = receive(stack);
                 let (_, received) = pop(stack);
                 assert_eq!(received, Value::Int(i));
@@ -618,73 +356,75 @@ mod tests {
             // Create and close a channel
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (rest, channel_id) = pop(stack);
 
-            let _stack = push(rest, channel_id);
-            let _stack = close_channel(_stack);
+            let _stack = close_channel(stack);
         }
     }
 
     #[test]
     fn test_arena_string_send_between_strands() {
-        // This test verifies that arena-allocated strings are properly cloned
-        // to global storage when sent through channels (fix for issue #13)
+        // Verify that arena-allocated strings are properly cloned to global storage
         unsafe {
-            use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-
-            static CHANNEL_ID: AtomicI64 = AtomicI64::new(0);
+            static CHANNEL_PTR: AtomicI64 = AtomicI64::new(0);
             static VERIFIED: AtomicBool = AtomicBool::new(false);
 
             // Create a channel
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
-            let channel_id = match channel_id_value {
-                Value::Int(id) => id,
-                _ => panic!("Expected Int"),
+            let (_, channel_value) = pop(stack);
+
+            // Store channel pointer for strands (hacky but works for test)
+            let ch_ptr = match &channel_value {
+                Value::Channel(arc) => Arc::as_ptr(arc) as i64,
+                _ => panic!("Expected Channel"),
             };
+            CHANNEL_PTR.store(ch_ptr, Ordering::Release);
 
-            // Store channel ID for strands
-            CHANNEL_ID.store(channel_id, Ordering::Release);
+            // Keep the Arc alive
+            std::mem::forget(channel_value.clone());
 
-            // Sender strand: creates arena string and sends it
+            // Sender strand
             extern "C" fn sender(_stack: Stack) -> Stack {
                 use crate::seqstring::arena_string;
-                use crate::stack::push;
-                use crate::value::Value;
-                use std::sync::atomic::Ordering;
+                use crate::value::ChannelData;
 
                 unsafe {
-                    let chan_id = CHANNEL_ID.load(Ordering::Acquire);
+                    let ch_ptr = CHANNEL_PTR.load(Ordering::Acquire) as *const ChannelData;
+                    let channel = Arc::from_raw(ch_ptr);
+                    let channel_clone = Arc::clone(&channel);
+                    std::mem::forget(channel); // Don't drop
 
                     // Create arena string (fast path)
                     let msg = arena_string("Arena message!");
                     assert!(!msg.is_global(), "Should be arena-allocated initially");
 
-                    // Send through channel (will be cloned to global)
+                    // Send through channel
                     let stack = push(crate::stack::alloc_test_stack(), Value::String(msg));
-                    let stack = push(stack, Value::Int(chan_id));
+                    let stack = push(stack, Value::Channel(channel_clone));
                     send(stack)
                 }
             }
 
-            // Receiver strand: receives string and verifies it
+            // Receiver strand
             extern "C" fn receiver(_stack: Stack) -> Stack {
-                use crate::stack::{pop, push};
-                use crate::value::Value;
-                use std::sync::atomic::Ordering;
+                use crate::value::ChannelData;
 
                 unsafe {
-                    let chan_id = CHANNEL_ID.load(Ordering::Acquire);
+                    let ch_ptr = CHANNEL_PTR.load(Ordering::Acquire) as *const ChannelData;
+                    let channel = Arc::from_raw(ch_ptr);
+                    let channel_clone = Arc::clone(&channel);
+                    std::mem::forget(channel); // Don't drop
 
-                    let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
+                    let mut stack = push(
+                        crate::stack::alloc_test_stack(),
+                        Value::Channel(channel_clone),
+                    );
                     stack = receive(stack);
                     let (_, msg_val) = pop(stack);
 
                     match msg_val {
                         Value::String(s) => {
                             assert_eq!(s.as_str(), "Arena message!");
-                            // Verify it was cloned to global
                             assert!(s.is_global(), "Received string should be global");
                             VERIFIED.store(true, Ordering::Release);
                         }
@@ -695,44 +435,35 @@ mod tests {
                 }
             }
 
-            // Spawn both strands
             spawn_strand(sender);
             spawn_strand(receiver);
-
-            // Wait for both strands
             wait_all_strands();
 
-            // Verify message was received correctly
             assert!(
                 VERIFIED.load(Ordering::Acquire),
-                "Receiver should have verified the message"
+                "Receiver should have verified"
             );
         }
     }
 
-    // Note: Cannot test negative channel ID panics with #[should_panic] because
-    // these are extern "C" functions which cannot unwind. The validation is still
-    // in place at runtime - see lines 100-102, 157-159, 217-219.
-
     #[test]
     fn test_send_safe_success() {
         unsafe {
-            // Create a channel
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
+            let (_, channel_value) = pop(stack);
 
-            // Send value using send-safe
+            // Send using send-safe
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, channel_id_value.clone());
+            stack = push(stack, channel_value.clone());
             stack = send_safe(stack);
 
             // Should return success (1)
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
 
-            // Receive value to verify it was sent
-            let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value);
+            // Receive to verify
+            let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
             stack = receive(stack);
             let (_, received) = pop(stack);
             assert_eq!(received, Value::Int(42));
@@ -740,11 +471,11 @@ mod tests {
     }
 
     #[test]
-    fn test_send_safe_invalid_channel() {
+    fn test_send_safe_wrong_type() {
         unsafe {
-            // Try to send to invalid channel ID
+            // Try to send with Int instead of Channel
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, Value::Int(999999)); // Non-existent channel
+            stack = push(stack, Value::Int(999)); // Wrong type
             stack = send_safe(stack);
 
             // Should return failure (0)
@@ -754,35 +485,19 @@ mod tests {
     }
 
     #[test]
-    fn test_send_safe_negative_channel() {
-        unsafe {
-            // Try to send to negative channel ID
-            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, Value::Int(-1));
-            stack = send_safe(stack);
-
-            // Should return failure (0), value consumed per stack effect
-            let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
-            // Value was properly consumed
-        }
-    }
-
-    #[test]
     fn test_receive_safe_success() {
         unsafe {
-            // Create a channel and send a value
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
+            let (_, channel_value) = pop(stack);
 
             // Send value
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, channel_id_value.clone());
+            stack = push(stack, channel_value.clone());
             let _ = send(stack);
 
             // Receive using receive-safe
-            let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value);
+            let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
             stack = receive_safe(stack);
 
             // Should return (value, 1)
@@ -794,10 +509,10 @@ mod tests {
     }
 
     #[test]
-    fn test_receive_safe_invalid_channel() {
+    fn test_receive_safe_wrong_type() {
         unsafe {
-            // Try to receive from invalid channel ID
-            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(999999));
+            // Try to receive with Int instead of Channel
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(999));
             stack = receive_safe(stack);
 
             // Should return (0, 0)
@@ -805,136 +520,23 @@ mod tests {
             let (_stack, value) = pop(stack);
             assert_eq!(success, Value::Int(0));
             assert_eq!(value, Value::Int(0));
-        }
-    }
-
-    #[test]
-    fn test_receive_safe_closed_channel() {
-        unsafe {
-            // Create a channel
-            let mut stack = crate::stack::alloc_test_stack();
-            stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
-            let channel_id = match &channel_id_value {
-                Value::Int(id) => *id,
-                _ => panic!("Expected Int"),
-            };
-
-            // Close the channel
-            let stack = push(crate::stack::alloc_test_stack(), channel_id_value);
-            let _ = close_channel(stack);
-
-            // Try to receive from closed channel
-            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(channel_id));
-            stack = receive_safe(stack);
-
-            // Should return (0, 0)
-            let (stack, success) = pop(stack);
-            let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(0));
-            assert_eq!(value, Value::Int(0));
-        }
-    }
-
-    // Helper to get stats with retry (handles parallel test lock contention)
-    fn get_stats_with_retry() -> Option<Vec<super::ChannelStats>> {
-        for _ in 0..10 {
-            if let Some(stats) = super::channel_stats() {
-                return Some(stats);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-        None
-    }
-
-    #[test]
-    fn test_channel_stats() {
-        unsafe {
-            // Create a channel
-            let mut stack = crate::stack::alloc_test_stack();
-            stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
-            let channel_id = match &channel_id_value {
-                Value::Int(id) => *id as u64,
-                _ => panic!("Expected Int"),
-            };
-
-            // Initially, stats should show 0 sends and 0 receives
-            // Use retry to handle parallel test lock contention
-            let stats = match get_stats_with_retry() {
-                Some(s) => s,
-                None => {
-                    // Skip test if we can't get lock after retries (parallel test contention)
-                    let stack = push(crate::stack::alloc_test_stack(), channel_id_value);
-                    let _ = close_channel(stack);
-                    return;
-                }
-            };
-            let our_channel = stats.iter().find(|s| s.id == channel_id);
-            assert!(our_channel.is_some(), "Our channel should be in stats");
-            let stat = our_channel.unwrap();
-            assert_eq!(stat.send_count, 0);
-            assert_eq!(stat.receive_count, 0);
-            assert_eq!(stat.queue_depth, 0);
-
-            // Send some values
-            for i in 1..=5 {
-                let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
-                stack = push(stack, channel_id_value.clone());
-                let _ = send(stack);
-            }
-
-            // Check stats after sends
-            let stats = get_stats_with_retry().expect("Should get stats after retries");
-            let stat = stats.iter().find(|s| s.id == channel_id).unwrap();
-            assert_eq!(stat.send_count, 5);
-            assert_eq!(stat.receive_count, 0);
-            assert_eq!(stat.queue_depth, 5);
-
-            // Receive some values
-            for _ in 0..3 {
-                let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value.clone());
-                stack = receive(stack);
-                let _ = pop(stack);
-            }
-
-            // Check stats after receives
-            let stats = get_stats_with_retry().expect("Should get stats after retries");
-            let stat = stats.iter().find(|s| s.id == channel_id).unwrap();
-            assert_eq!(stat.send_count, 5);
-            assert_eq!(stat.receive_count, 3);
-            assert_eq!(stat.queue_depth, 2);
-
-            // Clean up - receive remaining and close
-            for _ in 0..2 {
-                let mut stack = push(crate::stack::alloc_test_stack(), channel_id_value.clone());
-                stack = receive(stack);
-                let _ = pop(stack);
-            }
-
-            let stack = push(crate::stack::alloc_test_stack(), channel_id_value);
-            let _ = close_channel(stack);
         }
     }
 
     #[test]
     fn test_mpmc_concurrent_receivers() {
-        // Verify that multiple receivers can receive from the same channel concurrently
-        // and that messages are distributed (not duplicated)
+        // Verify that multiple receivers work with MPMC
         unsafe {
-            use std::sync::atomic::{AtomicI64, Ordering};
-
             const NUM_MESSAGES: i64 = 100;
             const NUM_RECEIVERS: usize = 4;
 
-            // Shared counters for each receiver
             static RECEIVER_COUNTS: [AtomicI64; 4] = [
                 AtomicI64::new(0),
                 AtomicI64::new(0),
                 AtomicI64::new(0),
                 AtomicI64::new(0),
             ];
-            static CHANNEL_ID: AtomicI64 = AtomicI64::new(0);
+            static CHANNEL_PTR: AtomicI64 = AtomicI64::new(0);
 
             // Reset counters
             for counter in &RECEIVER_COUNTS {
@@ -944,16 +546,21 @@ mod tests {
             // Create channel
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
-            let (_, channel_id_value) = pop(stack);
-            let channel_id = match channel_id_value {
-                Value::Int(id) => id,
-                _ => panic!("Expected Int"),
-            };
-            CHANNEL_ID.store(channel_id, Ordering::SeqCst);
+            let (_, channel_value) = pop(stack);
 
-            // Receiver strand factory
-            fn make_receiver(receiver_idx: usize) -> extern "C" fn(Stack) -> Stack {
-                match receiver_idx {
+            let ch_ptr = match &channel_value {
+                Value::Channel(arc) => Arc::as_ptr(arc) as i64,
+                _ => panic!("Expected Channel"),
+            };
+            CHANNEL_PTR.store(ch_ptr, Ordering::SeqCst);
+
+            // Keep Arc alive
+            for _ in 0..(NUM_RECEIVERS + 1) {
+                std::mem::forget(channel_value.clone());
+            }
+
+            fn make_receiver(idx: usize) -> extern "C" fn(Stack) -> Stack {
+                match idx {
                     0 => receiver_0,
                     1 => receiver_1,
                     2 => receiver_2,
@@ -976,10 +583,18 @@ mod tests {
             }
 
             fn receive_loop(idx: usize, _stack: Stack) -> Stack {
+                use crate::value::ChannelData;
                 unsafe {
-                    let chan_id = CHANNEL_ID.load(Ordering::SeqCst);
+                    let ch_ptr = CHANNEL_PTR.load(Ordering::SeqCst) as *const ChannelData;
+                    let channel = Arc::from_raw(ch_ptr);
+                    let channel_clone = Arc::clone(&channel);
+                    std::mem::forget(channel);
+
                     loop {
-                        let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
+                        let mut stack = push(
+                            crate::stack::alloc_test_stack(),
+                            Value::Channel(channel_clone.clone()),
+                        );
                         stack = receive_safe(stack);
                         let (stack, success) = pop(stack);
                         let (_, value) = pop(stack);
@@ -987,12 +602,11 @@ mod tests {
                         match (success, value) {
                             (Value::Int(1), Value::Int(v)) => {
                                 if v < 0 {
-                                    // Sentinel - exit
-                                    break;
+                                    break; // Sentinel
                                 }
                                 RECEIVER_COUNTS[idx].fetch_add(1, Ordering::SeqCst);
                             }
-                            _ => break, // Channel closed or error
+                            _ => break,
                         }
                         may::coroutine::yield_now();
                     }
@@ -1002,57 +616,48 @@ mod tests {
 
             // Spawn receivers
             for i in 0..NUM_RECEIVERS {
-                crate::scheduler::spawn_strand(make_receiver(i));
+                spawn_strand(make_receiver(i));
             }
 
-            // Give receivers time to start
             std::thread::sleep(std::time::Duration::from_millis(10));
 
             // Send messages
             for i in 0..NUM_MESSAGES {
+                let ch_ptr = CHANNEL_PTR.load(Ordering::SeqCst) as *const ChannelData;
+                let channel = Arc::from_raw(ch_ptr);
+                let channel_clone = Arc::clone(&channel);
+                std::mem::forget(channel);
+
                 let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
-                stack = push(stack, Value::Int(channel_id));
+                stack = push(stack, Value::Channel(channel_clone));
                 let _ = send(stack);
             }
 
-            // Send sentinels to stop receivers
+            // Send sentinels
             for _ in 0..NUM_RECEIVERS {
+                let ch_ptr = CHANNEL_PTR.load(Ordering::SeqCst) as *const ChannelData;
+                let channel = Arc::from_raw(ch_ptr);
+                let channel_clone = Arc::clone(&channel);
+                std::mem::forget(channel);
+
                 let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(-1));
-                stack = push(stack, Value::Int(channel_id));
+                stack = push(stack, Value::Channel(channel_clone));
                 let _ = send(stack);
             }
 
-            // Wait for all strands
-            crate::scheduler::wait_all_strands();
+            wait_all_strands();
 
-            // Verify: total received should equal messages sent
             let total_received: i64 = RECEIVER_COUNTS
                 .iter()
                 .map(|c| c.load(Ordering::SeqCst))
                 .sum();
+            assert_eq!(total_received, NUM_MESSAGES);
 
-            assert_eq!(
-                total_received, NUM_MESSAGES,
-                "Total received ({}) should equal messages sent ({})",
-                total_received, NUM_MESSAGES
-            );
-
-            // Verify: messages were distributed (not all to one receiver)
-            // At least 2 receivers should have received messages
             let active_receivers = RECEIVER_COUNTS
                 .iter()
                 .filter(|c| c.load(Ordering::SeqCst) > 0)
                 .count();
-
-            assert!(
-                active_receivers >= 2,
-                "Messages should be distributed across receivers, but only {} received any",
-                active_receivers
-            );
-
-            // Clean up
-            let stack = push(crate::stack::alloc_test_stack(), Value::Int(channel_id));
-            let _ = close_channel(stack);
+            assert!(active_receivers >= 2, "Messages should be distributed");
         }
     }
 }

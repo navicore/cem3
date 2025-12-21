@@ -26,6 +26,7 @@ pub const DISC_VARIANT: u64 = 4;
 pub const DISC_MAP: u64 = 5;
 pub const DISC_QUOTATION: u64 = 6;
 pub const DISC_CLOSURE: u64 = 7;
+pub const DISC_CHANNEL: u64 = 8;
 
 /// Convert a Value to a StackValue for pushing onto the tagged stack
 #[inline]
@@ -103,6 +104,17 @@ pub fn value_to_stack_value(value: Value) -> StackValue {
                 slot4: 0,
             }
         }
+        Value::Channel(ch) => {
+            // Store Arc<ChannelData> as raw pointer
+            let ptr = Arc::into_raw(ch) as u64;
+            StackValue {
+                slot0: DISC_CHANNEL,
+                slot1: ptr,
+                slot2: 0,
+                slot3: 0,
+                slot4: 0,
+            }
+        }
     }
 }
 
@@ -148,6 +160,11 @@ pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
                     env: *env_box,
                 }
             }
+            DISC_CHANNEL => {
+                use crate::value::ChannelData;
+                let arc = Arc::from_raw(sv.slot1 as *const ChannelData);
+                Value::Channel(arc)
+            }
             _ => panic!("Invalid discriminant: {}", sv.slot0),
         }
     }
@@ -178,6 +195,7 @@ pub unsafe extern "C" fn patch_seq_clone_value(src: *const StackValue, dst: *mut
 /// - **Variant**: Arc refcount increment (O(1), shares underlying data)
 /// - **Map**: Deep clone of the HashMap and all contained values
 /// - **Closure**: Deep clone of the Arc<[Value]> environment
+/// - **Channel**: Arc refcount increment (O(1), shares underlying sender/receiver)
 ///
 /// # Safety
 /// The StackValue must contain valid data for its discriminant.
@@ -269,6 +287,22 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                     slot4: 0,
                 }
             }
+            DISC_CHANNEL => {
+                // Arc refcount increment - O(1) clone
+                use crate::value::ChannelData;
+                let ptr = sv.slot1 as *const ChannelData;
+                debug_assert!(!ptr.is_null(), "Channel pointer is null");
+                let arc = Arc::from_raw(ptr);
+                let cloned = Arc::clone(&arc);
+                std::mem::forget(arc);
+                StackValue {
+                    slot0: DISC_CHANNEL,
+                    slot1: Arc::into_raw(cloned) as u64,
+                    slot2: 0,
+                    slot3: 0,
+                    slot4: 0,
+                }
+            }
             _ => panic!("Invalid discriminant for clone: {}", sv.slot0),
         }
     }
@@ -307,6 +341,10 @@ pub unsafe fn drop_stack_value(sv: StackValue) {
             DISC_CLOSURE => {
                 // Unbox and drop the Arc<[Value]>
                 let _ = Box::from_raw(sv.slot2 as *mut Arc<[Value]>);
+            }
+            DISC_CHANNEL => {
+                use crate::value::ChannelData;
+                let _ = Arc::from_raw(sv.slot1 as *const ChannelData);
             }
             _ => panic!("Invalid discriminant for drop: {}", sv.slot0),
         }

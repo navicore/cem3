@@ -332,10 +332,6 @@ pub struct CodeGen {
     unions: Vec<UnionDef>,  // Union type definitions for pattern matching
     ffi_bindings: FfiBindings, // FFI function bindings
     ffi_wrapper_code: String, // Generated FFI wrapper functions
-    /// Use tagged stack architecture for inline integer operations.
-    /// When true, generates inline LLVM IR for integer operations instead of FFI calls.
-    /// This provides ~10-50x speedup for integer-heavy workloads.
-    use_tagged_stack: bool,
     /// Pure inline test mode: bypasses scheduler, returns top of stack as exit code.
     /// Used for testing pure integer programs without FFI dependencies.
     pure_inline_test: bool,
@@ -360,30 +356,17 @@ impl CodeGen {
             unions: Vec::new(),
             ffi_bindings: FfiBindings::new(),
             ffi_wrapper_code: String::new(),
-            // Tagged stack uses 40-byte StackValue slots, layout-compatible with
-            // LLVM's %Value type (with #[repr(C)]). FFI functions now work with
-            // *mut StackValue directly, so tagged stack is fully functional.
-            use_tagged_stack: true,
             pure_inline_test: false,
         }
     }
 
     /// Create a CodeGen for pure inline testing.
-    /// Enables tagged stack and bypasses the scheduler, returning top of stack as exit code.
+    /// Bypasses the scheduler, returning top of stack as exit code.
     /// Only supports operations that are fully inlined (integers, arithmetic, stack ops).
     #[allow(dead_code)]
     pub fn new_pure_inline_test() -> Self {
         let mut cg = Self::new();
-        cg.use_tagged_stack = true;
         cg.pure_inline_test = true;
-        cg
-    }
-
-    /// Create a CodeGen with tagged stack disabled (for testing/fallback)
-    #[allow(dead_code)]
-    pub fn new_legacy() -> Self {
-        let mut cg = Self::new();
-        cg.use_tagged_stack = false;
         cg
     }
 
@@ -834,18 +817,16 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
         writeln!(&mut ir)?;
 
-        // Tagged stack runtime declarations (for inline integer operations)
-        if self.use_tagged_stack {
-            writeln!(&mut ir, "; Tagged stack operations")?;
-            writeln!(&mut ir, "declare ptr @seq_stack_new_default()")?;
-            writeln!(&mut ir, "declare void @seq_stack_free(ptr)")?;
-            writeln!(&mut ir, "declare ptr @seq_stack_base(ptr)")?;
-            writeln!(&mut ir, "declare i64 @seq_stack_sp(ptr)")?;
-            writeln!(&mut ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
-            writeln!(&mut ir, "declare void @seq_stack_grow(ptr, i64)")?;
-            writeln!(&mut ir, "declare void @patch_seq_set_stack_base(ptr)")?;
-            writeln!(&mut ir)?;
-        }
+        // Tagged stack runtime declarations
+        writeln!(&mut ir, "; Tagged stack operations")?;
+        writeln!(&mut ir, "declare ptr @seq_stack_new_default()")?;
+        writeln!(&mut ir, "declare void @seq_stack_free(ptr)")?;
+        writeln!(&mut ir, "declare ptr @seq_stack_base(ptr)")?;
+        writeln!(&mut ir, "declare i64 @seq_stack_sp(ptr)")?;
+        writeln!(&mut ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
+        writeln!(&mut ir, "declare void @seq_stack_grow(ptr, i64)")?;
+        writeln!(&mut ir, "declare void @patch_seq_set_stack_base(ptr)")?;
+        writeln!(&mut ir)?;
 
         // External builtin declarations (from config)
         if !self.external_builtins.is_empty() {
@@ -1203,18 +1184,16 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
         writeln!(ir)?;
 
-        // Tagged stack runtime declarations (for inline integer operations)
-        if self.use_tagged_stack {
-            writeln!(ir, "; Tagged stack operations")?;
-            writeln!(ir, "declare ptr @seq_stack_new_default()")?;
-            writeln!(ir, "declare void @seq_stack_free(ptr)")?;
-            writeln!(ir, "declare ptr @seq_stack_base(ptr)")?;
-            writeln!(ir, "declare i64 @seq_stack_sp(ptr)")?;
-            writeln!(ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
-            writeln!(ir, "declare void @seq_stack_grow(ptr, i64)")?;
-            writeln!(ir, "declare void @patch_seq_set_stack_base(ptr)")?;
-            writeln!(ir)?;
-        }
+        // Tagged stack runtime declarations
+        writeln!(ir, "; Tagged stack operations")?;
+        writeln!(ir, "declare ptr @seq_stack_new_default()")?;
+        writeln!(ir, "declare void @seq_stack_free(ptr)")?;
+        writeln!(ir, "declare ptr @seq_stack_base(ptr)")?;
+        writeln!(ir, "declare i64 @seq_stack_sp(ptr)")?;
+        writeln!(ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
+        writeln!(ir, "declare void @seq_stack_grow(ptr, i64)")?;
+        writeln!(ir, "declare void @patch_seq_set_stack_base(ptr)")?;
+        writeln!(ir)?;
 
         Ok(())
     }
@@ -1646,9 +1625,9 @@ impl CodeGen {
         }
         writeln!(&mut self.output, "entry:")?;
 
-        // For main with tagged stack (non-pure-inline): allocate the stack and get base pointer
+        // For main (non-pure-inline): allocate the tagged stack and get base pointer
         // In pure_inline_test mode, main() allocates the stack, so seq_main just uses %stack
-        let mut stack_var = if is_main && self.use_tagged_stack && !self.pure_inline_test {
+        let mut stack_var = if is_main && !self.pure_inline_test {
             // Allocate tagged stack
             writeln!(
                 &mut self.output,
@@ -1677,8 +1656,8 @@ impl CodeGen {
         if word.body.is_empty()
             || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
         {
-            if is_main && self.use_tagged_stack && !self.pure_inline_test {
-                // Normal tagged stack mode: free the stack before returning
+            if is_main && !self.pure_inline_test {
+                // Normal mode: free the stack before returning
                 writeln!(
                     &mut self.output,
                     "  call void @seq_stack_free(ptr %tagged_stack)"
@@ -2112,44 +2091,33 @@ impl CodeGen {
 
     /// Generate code for an integer literal: ( -- n )
     fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, CodeGenError> {
-        if self.use_tagged_stack {
-            // Inline push: Write Value directly to stack
-            // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-            // stack_var points to where the next value should go
+        // Inline push: Write Value directly to stack
+        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+        // stack_var points to where the next value should go
 
-            // Store discriminant 0 (Int) at slot0
-            writeln!(&mut self.output, "  store i64 0, ptr %{}", stack_var)?;
+        // Store discriminant 0 (Int) at slot0
+        writeln!(&mut self.output, "  store i64 0, ptr %{}", stack_var)?;
 
-            // Get pointer to slot1 (offset 8 bytes = 1 i64)
-            let slot1_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                slot1_ptr, stack_var
-            )?;
+        // Get pointer to slot1 (offset 8 bytes = 1 i64)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, stack_var
+        )?;
 
-            // Store value at slot1
-            writeln!(&mut self.output, "  store i64 {}, ptr %{}", n, slot1_ptr)?;
+        // Store value at slot1
+        writeln!(&mut self.output, "  store i64 {}, ptr %{}", n, slot1_ptr)?;
 
-            // Return pointer to next Value slot
-            let result_var = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr %Value, ptr %{}, i64 1",
-                result_var, stack_var
-            )?;
+        // Return pointer to next Value slot
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
 
-            Ok(result_var)
-        } else {
-            // Legacy FFI call (for non-tagged-stack mode)
-            let result_var = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                result_var, stack_var, n
-            )?;
-            Ok(result_var)
-        }
+        Ok(result_var)
     }
 
     /// Generate code for a float literal: ( -- f )
@@ -2160,104 +2128,70 @@ impl CodeGen {
         // Format float bits as hex for LLVM
         let float_bits = f.to_bits();
 
-        if self.use_tagged_stack {
-            // Inline push: Write Value directly to stack
-            // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-            // Float discriminant = 1 (Int=0, Float=1, Bool=2)
+        // Inline push: Write Value directly to stack
+        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+        // Float discriminant = 1 (Int=0, Float=1, Bool=2)
 
-            // Store discriminant 1 (Float) at slot0
-            writeln!(&mut self.output, "  store i64 1, ptr %{}", stack_var)?;
+        // Store discriminant 1 (Float) at slot0
+        writeln!(&mut self.output, "  store i64 1, ptr %{}", stack_var)?;
 
-            // Get pointer to slot1 (offset 8 bytes = 1 i64)
-            let slot1_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                slot1_ptr, stack_var
-            )?;
+        // Get pointer to slot1 (offset 8 bytes = 1 i64)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, stack_var
+        )?;
 
-            // Store float bits as i64 at slot1
-            writeln!(
-                &mut self.output,
-                "  store i64 {}, ptr %{}",
-                float_bits, slot1_ptr
-            )?;
+        // Store float bits as i64 at slot1
+        writeln!(
+            &mut self.output,
+            "  store i64 {}, ptr %{}",
+            float_bits, slot1_ptr
+        )?;
 
-            // Return pointer to next Value slot
-            let result_var = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr %Value, ptr %{}, i64 1",
-                result_var, stack_var
-            )?;
+        // Return pointer to next Value slot
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
 
-            Ok(result_var)
-        } else {
-            // Legacy FFI call (for non-tagged-stack mode)
-            let result_var = self.fresh_temp();
-            // Format for LLVM double literal
-            let float_str = if f.is_nan() {
-                "0x7FF8000000000000".to_string() // NaN
-            } else if f.is_infinite() {
-                if f.is_sign_positive() {
-                    "0x7FF0000000000000".to_string() // +Infinity
-                } else {
-                    "0xFFF0000000000000".to_string() // -Infinity
-                }
-            } else {
-                format!("0x{:016X}", float_bits)
-            };
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
-                result_var, stack_var, float_str
-            )?;
-            Ok(result_var)
-        }
+        Ok(result_var)
     }
 
     /// Generate code for a boolean literal: ( -- b )
     fn codegen_bool_literal(&mut self, stack_var: &str, b: bool) -> Result<String, CodeGenError> {
         let val = if b { 1 } else { 0 };
 
-        if self.use_tagged_stack {
-            // Inline push: Write Value directly to stack
-            // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-            // Bool discriminant = 2 (Int=0, Float=1, Bool=2)
+        // Inline push: Write Value directly to stack
+        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+        // Bool discriminant = 2 (Int=0, Float=1, Bool=2)
 
-            // Store discriminant 2 (Bool) at slot0
-            writeln!(&mut self.output, "  store i64 2, ptr %{}", stack_var)?;
+        // Store discriminant 2 (Bool) at slot0
+        writeln!(&mut self.output, "  store i64 2, ptr %{}", stack_var)?;
 
-            // Get pointer to slot1 (offset 8 bytes = 1 i64)
-            let slot1_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                slot1_ptr, stack_var
-            )?;
+        // Get pointer to slot1 (offset 8 bytes = 1 i64)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, stack_var
+        )?;
 
-            // Store value at slot1 (1 for true, 0 for false)
-            writeln!(&mut self.output, "  store i64 {}, ptr %{}", val, slot1_ptr)?;
+        // Store value at slot1 (1 for true, 0 for false)
+        writeln!(&mut self.output, "  store i64 {}, ptr %{}", val, slot1_ptr)?;
 
-            // Return pointer to next Value slot
-            let result_var = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr %Value, ptr %{}, i64 1",
-                result_var, stack_var
-            )?;
+        // Return pointer to next Value slot
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
 
-            Ok(result_var)
-        } else {
-            // Legacy FFI call (for non-tagged-stack mode)
-            let result_var = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                result_var, stack_var, val
-            )?;
-            Ok(result_var)
-        }
+        Ok(result_var)
     }
 
     /// Generate code for a string literal: ( -- s )
@@ -4197,10 +4131,8 @@ impl CodeGen {
         name: &str,
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
-        // Tagged stack: inline integer operations
-        if self.use_tagged_stack
-            && let Some(result) = self.try_codegen_inline_op(stack_var, name)?
-        {
+        // Inline operations for common stack/arithmetic ops
+        if let Some(result) = self.try_codegen_inline_op(stack_var, name)? {
             return Ok(result);
         }
 
@@ -4271,59 +4203,38 @@ impl CodeGen {
         else_branch: Option<&Vec<Statement>>,
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
-        // Peek the condition value, then pop
-        let (cond_temp, popped_stack) = if self.use_tagged_stack {
-            // Inline: get pointer to top Value (at SP-1)
-            let top_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-                top_ptr, stack_var
-            )?;
+        // Peek the condition value, then pop (inline)
+        // Get pointer to top Value (at SP-1)
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
 
-            // Get pointer to slot1 (value at offset 8)
-            let slot1_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                slot1_ptr, top_ptr
-            )?;
+        // Get pointer to slot1 (value at offset 8)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
 
-            // Load condition value from slot1
-            let cond_temp = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = load i64, ptr %{}",
-                cond_temp, slot1_ptr
-            )?;
+        // Load condition value from slot1
+        let cond_temp = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_temp, slot1_ptr
+        )?;
 
-            // Pop: SP = SP - 1
-            let popped_stack = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-                popped_stack, stack_var
-            )?;
-
-            (cond_temp, popped_stack)
-        } else {
-            // Legacy FFI path
-            let cond_temp = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
-                cond_temp, stack_var
-            )?;
-
-            let popped_stack = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
-                popped_stack, stack_var
-            )?;
-
-            (cond_temp, popped_stack)
-        };
+        // Pop: SP = SP - 1
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, stack_var
+        )?;
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();
@@ -4742,8 +4653,7 @@ impl CodeGen {
             // Stack order: first quotation pushed is below second
             // For while: condition is pushed first, body second → [cond] [body] while
             // For until: body is pushed first, condition second → [body] [cond] until
-            if self.use_tagged_stack
-                && i + 2 < len
+            if i + 2 < len
                 && let (
                     Statement::Quotation {
                         body: first_quot, ..
@@ -4771,8 +4681,7 @@ impl CodeGen {
             // Pattern: [body] count times
             // Stack order: quotation pushed first, then count, then times called
             // Statement pattern: Quotation, IntLiteral, WordCall("times")
-            if self.use_tagged_stack
-                && i + 2 < len
+            if i + 2 < len
                 && let (
                     Statement::Quotation {
                         body: loop_body, ..
@@ -5017,8 +4926,8 @@ mod tests {
 
     #[test]
     fn test_codegen_arithmetic() {
-        // Use legacy codegen (tagged stack disabled) to test FFI-based arithmetic
-        let mut codegen = CodeGen::new_legacy();
+        // Test inline tagged stack arithmetic
+        let mut codegen = CodeGen::new();
 
         let program = Program {
             includes: vec![],
@@ -5040,11 +4949,12 @@ mod tests {
 
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        // With tagged stack disabled, integers and add use FFI calls
-        assert!(ir.contains("call ptr @patch_seq_push_int"));
-        assert!(ir.contains("i64 2")); // Push int 2
-        assert!(ir.contains("i64 3")); // Push int 3
-        assert!(ir.contains("call ptr @patch_seq_add"));
+        // With tagged stack, integers are pushed inline (store discriminant + value)
+        assert!(ir.contains("store i64 0")); // Int discriminant
+        assert!(ir.contains("store i64 2")); // Push int 2
+        assert!(ir.contains("store i64 3")); // Push int 3
+        // Add is inlined (load, add, store pattern)
+        assert!(ir.contains("add i64"));
     }
 
     #[test]

@@ -181,8 +181,13 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                 // Clone by creating a new global string from the content
                 let ptr = sv.slot1 as *const u8;
                 let len = sv.slot2 as usize;
+                debug_assert!(!ptr.is_null(), "String pointer is null");
                 // Read the string content without taking ownership
                 let slice = std::slice::from_raw_parts(ptr, len);
+                // Validate UTF-8 in debug builds, skip in release for performance
+                #[cfg(debug_assertions)]
+                let s = std::str::from_utf8(slice).expect("Invalid UTF-8 in string clone");
+                #[cfg(not(debug_assertions))]
                 let s = std::str::from_utf8_unchecked(slice);
                 // Clone to a new global string
                 let cloned = crate::seqstring::global_string(s.to_string());
@@ -197,7 +202,13 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
             }
             DISC_VARIANT => {
                 use crate::value::VariantData;
-                let arc = Arc::from_raw(sv.slot1 as *const VariantData);
+                let ptr = sv.slot1 as *const VariantData;
+                debug_assert!(!ptr.is_null(), "Variant pointer is null");
+                debug_assert!(
+                    (ptr as usize).is_multiple_of(std::mem::align_of::<VariantData>()),
+                    "Variant pointer is misaligned"
+                );
+                let arc = Arc::from_raw(ptr);
                 let cloned = Arc::clone(&arc);
                 std::mem::forget(arc);
                 StackValue {
@@ -212,7 +223,13 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                 // Deep clone the map
                 use crate::value::MapKey;
                 use std::collections::HashMap;
-                let boxed = Box::from_raw(sv.slot1 as *mut HashMap<MapKey, Value>);
+                let ptr = sv.slot1 as *mut HashMap<MapKey, Value>;
+                debug_assert!(!ptr.is_null(), "Map pointer is null");
+                debug_assert!(
+                    (ptr as usize).is_multiple_of(std::mem::align_of::<HashMap<MapKey, Value>>()),
+                    "Map pointer is misaligned"
+                );
+                let boxed = Box::from_raw(ptr);
                 let cloned = boxed.clone();
                 std::mem::forget(boxed);
                 StackValue {
@@ -226,6 +243,11 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
             DISC_CLOSURE => {
                 // The env is stored as Box<Arc<[Value]>>
                 let env_box_ptr = sv.slot2 as *mut Arc<[Value]>;
+                debug_assert!(!env_box_ptr.is_null(), "Closure env pointer is null");
+                debug_assert!(
+                    (env_box_ptr as usize).is_multiple_of(std::mem::align_of::<Arc<[Value]>>()),
+                    "Closure env pointer is misaligned"
+                );
                 let env_arc = &*env_box_ptr;
                 let cloned_env = Arc::clone(env_arc);
                 // Box the cloned Arc

@@ -45,7 +45,6 @@
 //! - Simple inline integer/boolean operations in compiled code
 
 use std::alloc::{Layout, alloc, dealloc, realloc};
-use std::ptr;
 
 /// A 40-byte stack value, layout-compatible with LLVM's %Value type.
 ///
@@ -372,33 +371,24 @@ impl TaggedStack {
 
     /// Clone this stack (for spawn)
     ///
-    /// Creates a deep copy. For heap objects, increments reference counts.
+    /// Creates a deep copy. For heap objects, properly clones them using
+    /// the clone_stack_value function which handles each type correctly.
     pub fn clone_stack(&self) -> Self {
-        // Allocate new stack array directly
+        use crate::stack::clone_stack_value;
+
+        // Allocate new stack array
         let layout = Layout::array::<StackValue>(self.capacity).expect("layout overflow");
         let new_base = unsafe { alloc(layout) as *mut StackValue };
         if new_base.is_null() {
             panic!("Failed to allocate cloned stack");
         }
 
-        // Copy all values
-        unsafe {
-            ptr::copy_nonoverlapping(self.base, new_base, self.sp);
-        }
-
-        // Increment refcounts for heap objects
+        // Clone each value properly (handles heap types correctly)
         for i in 0..self.sp {
-            let val = unsafe { (*self.base.add(i)).slot0 };
-            if is_tagged_heap(val) && val != 0 {
-                let obj = untag_heap_ptr(val);
-                unsafe {
-                    if !(*obj).is_static() {
-                        // Atomic increment
-                        let rc = &(*obj).refcount as *const u32 as *mut u32;
-                        std::sync::atomic::AtomicU32::from_ptr(rc)
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                }
+            unsafe {
+                let sv = &*self.base.add(i);
+                let cloned = clone_stack_value(sv);
+                *new_base.add(i) = cloned;
             }
         }
 
@@ -412,23 +402,13 @@ impl TaggedStack {
 
 impl Drop for TaggedStack {
     fn drop(&mut self) {
-        // Decrement refcounts for all heap objects
+        use crate::stack::drop_stack_value;
+
+        // Drop all values properly (handles heap types correctly)
         for i in 0..self.sp {
-            let val = unsafe { (*self.base.add(i)).slot0 };
-            if is_tagged_heap(val) && val != 0 {
-                let obj = untag_heap_ptr(val);
-                unsafe {
-                    if !(*obj).is_static() {
-                        // Atomic decrement
-                        let rc = &(*obj).refcount as *const u32 as *mut u32;
-                        let old = std::sync::atomic::AtomicU32::from_ptr(rc)
-                            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-                        if old == 1 {
-                            // Last reference, free the object
-                            seq_free_heap_object(obj);
-                        }
-                    }
-                }
+            unsafe {
+                let sv = *self.base.add(i);
+                drop_stack_value(sv);
             }
         }
 

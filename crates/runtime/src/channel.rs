@@ -981,7 +981,7 @@ mod tests {
                     loop {
                         let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
                         stack = receive_safe(stack);
-                        let (_stack, success) = pop(stack);
+                        let (stack, success) = pop(stack);
                         let (_, value) = pop(stack);
 
                         match (success, value) {

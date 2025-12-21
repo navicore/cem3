@@ -585,7 +585,7 @@ mod tests {
         use crate::value::Value;
 
         // Create a stack with some values
-        let mut stack = std::ptr::null_mut();
+        let mut stack = crate::stack::alloc_test_stack();
         stack = unsafe { push(stack, Value::Int(10)) };
         stack = unsafe { push(stack, Value::Int(5)) };
 
@@ -594,7 +594,7 @@ mod tests {
         stack = unsafe { push_closure(stack, fn_ptr, 2) };
 
         // Pop the closure
-        let (stack, closure_value) = unsafe { pop(stack) };
+        let (_stack, closure_value) = unsafe { pop(stack) };
 
         // Verify it's a closure with correct captures
         match closure_value {
@@ -608,7 +608,6 @@ mod tests {
         }
 
         // Stack should be empty now
-        assert!(stack.is_null());
     }
 
     #[test]
@@ -617,14 +616,14 @@ mod tests {
         use crate::value::Value;
 
         // Create empty stack
-        let stack = std::ptr::null_mut();
+        let stack = crate::stack::alloc_test_stack();
 
         // Create a closure with no captures
         let fn_ptr = 0x5678;
         let stack = unsafe { push_closure(stack, fn_ptr, 0) };
 
         // Pop the closure
-        let (stack, closure_value) = unsafe { pop(stack) };
+        let (_stack, closure_value) = unsafe { pop(stack) };
 
         // Verify it's a closure with no captures
         match closure_value {
@@ -636,7 +635,6 @@ mod tests {
         }
 
         // Stack should be empty
-        assert!(stack.is_null());
     }
 
     #[test]

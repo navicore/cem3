@@ -332,6 +332,9 @@ pub struct CodeGen {
     unions: Vec<UnionDef>,  // Union type definitions for pattern matching
     ffi_bindings: FfiBindings, // FFI function bindings
     ffi_wrapper_code: String, // Generated FFI wrapper functions
+    /// Pure inline test mode: bypasses scheduler, returns top of stack as exit code.
+    /// Used for testing pure integer programs without FFI dependencies.
+    pure_inline_test: bool,
 }
 
 impl CodeGen {
@@ -353,7 +356,18 @@ impl CodeGen {
             unions: Vec::new(),
             ffi_bindings: FfiBindings::new(),
             ffi_wrapper_code: String::new(),
+            pure_inline_test: false,
         }
+    }
+
+    /// Create a CodeGen for pure inline testing.
+    /// Bypasses the scheduler, returning top of stack as exit code.
+    /// Only supports operations that are fully inlined (integers, arithmetic, stack ops).
+    #[allow(dead_code)]
+    pub fn new_pure_inline_test() -> Self {
+        let mut cg = Self::new();
+        cg.pure_inline_test = true;
+        cg
     }
 
     /// Generate a fresh temporary variable name
@@ -560,10 +574,10 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
+        // Value type (Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload)
         // We define concrete size so LLVM can pass by value (required for Alpine/musl)
-        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}")?;
+        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
         // String constants
@@ -605,6 +619,17 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_clz(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_ctz(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_int_bits(ptr)")?;
+        // LLVM intrinsics for bit counting (used by inline codegen)
+        writeln!(&mut ir, "declare i64 @llvm.ctpop.i64(i64)")?;
+        writeln!(&mut ir, "declare i64 @llvm.ctlz.i64(i64, i1)")?;
+        writeln!(&mut ir, "declare i64 @llvm.cttz.i64(i64, i1)")?;
+        // LLVM intrinsic for memmove (used by roll)
+        writeln!(
+            &mut ir,
+            "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)"
+        )?;
+        // LLVM intrinsic for trap (used by division-by-zero check)
+        writeln!(&mut ir, "declare void @llvm.trap() noreturn nounwind")?;
         writeln!(&mut ir, "; Stack operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -612,6 +637,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_over(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_rot(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_nip(ptr)")?;
+        writeln!(&mut ir, "declare void @patch_seq_clone_value(ptr, ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_tuck(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_2dup(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_3drop(ptr)")?;
@@ -793,6 +819,17 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
         writeln!(&mut ir)?;
 
+        // Tagged stack runtime declarations
+        writeln!(&mut ir, "; Tagged stack operations")?;
+        writeln!(&mut ir, "declare ptr @seq_stack_new_default()")?;
+        writeln!(&mut ir, "declare void @seq_stack_free(ptr)")?;
+        writeln!(&mut ir, "declare ptr @seq_stack_base(ptr)")?;
+        writeln!(&mut ir, "declare i64 @seq_stack_sp(ptr)")?;
+        writeln!(&mut ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
+        writeln!(&mut ir, "declare void @seq_stack_grow(ptr, i64)")?;
+        writeln!(&mut ir, "declare void @patch_seq_set_stack_base(ptr)")?;
+        writeln!(&mut ir)?;
+
         // External builtin declarations (from config)
         if !self.external_builtins.is_empty() {
             writeln!(&mut ir, "; External builtin declarations")?;
@@ -866,9 +903,9 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type (Rust enum, 32 bytes: discriminant + largest variant payload)
-        writeln!(&mut ir, "; Value type (Rust enum - 32 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64 }}")?;
+        // Value type (Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload)
+        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
         // String constants
@@ -971,6 +1008,17 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_clz(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_ctz(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_int_bits(ptr)")?;
+        // LLVM intrinsics for bit counting (used by inline codegen)
+        writeln!(ir, "declare i64 @llvm.ctpop.i64(i64)")?;
+        writeln!(ir, "declare i64 @llvm.ctlz.i64(i64, i1)")?;
+        writeln!(ir, "declare i64 @llvm.cttz.i64(i64, i1)")?;
+        // LLVM intrinsic for memmove (used by roll)
+        writeln!(
+            ir,
+            "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)"
+        )?;
+        // LLVM intrinsic for trap (used by division-by-zero check)
+        writeln!(ir, "declare void @llvm.trap() noreturn nounwind")?;
         writeln!(ir, "; Stack operations")?;
         writeln!(ir, "declare ptr @patch_seq_dup(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_drop_op(ptr)")?;
@@ -978,6 +1026,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_over(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_rot(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_nip(ptr)")?;
+        writeln!(ir, "declare void @patch_seq_clone_value(ptr, ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_tuck(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_2dup(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_3drop(ptr)")?;
@@ -1138,6 +1187,18 @@ impl CodeGen {
         writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
         writeln!(ir)?;
+
+        // Tagged stack runtime declarations
+        writeln!(ir, "; Tagged stack operations")?;
+        writeln!(ir, "declare ptr @seq_stack_new_default()")?;
+        writeln!(ir, "declare void @seq_stack_free(ptr)")?;
+        writeln!(ir, "declare ptr @seq_stack_base(ptr)")?;
+        writeln!(ir, "declare i64 @seq_stack_sp(ptr)")?;
+        writeln!(ir, "declare void @seq_stack_set_sp(ptr, i64)")?;
+        writeln!(ir, "declare void @seq_stack_grow(ptr, i64)")?;
+        writeln!(ir, "declare void @patch_seq_set_stack_base(ptr)")?;
+        writeln!(ir)?;
+
         Ok(())
     }
 
@@ -1568,26 +1629,49 @@ impl CodeGen {
         }
         writeln!(&mut self.output, "entry:")?;
 
-        let mut stack_var = "stack".to_string();
-        let body_len = word.body.len();
+        // For main (non-pure-inline): allocate the tagged stack and get base pointer
+        // In pure_inline_test mode, main() allocates the stack, so seq_main just uses %stack
+        let mut stack_var = if is_main && !self.pure_inline_test {
+            // Allocate tagged stack
+            writeln!(
+                &mut self.output,
+                "  %tagged_stack = call ptr @seq_stack_new_default()"
+            )?;
+            // Get base pointer - this is our initial "stack" (SP points to first free slot)
+            writeln!(
+                &mut self.output,
+                "  %stack_base = call ptr @seq_stack_base(ptr %tagged_stack)"
+            )?;
+            // Set thread-local stack base for clone_stack (needed by spawn)
+            writeln!(
+                &mut self.output,
+                "  call void @patch_seq_set_stack_base(ptr %stack_base)"
+            )?;
+            "stack_base".to_string()
+        } else {
+            "stack".to_string()
+        };
 
-        // Generate code for each statement
-        // The last statement is in tail position
-        for (i, statement) in word.body.iter().enumerate() {
-            let position = if i == body_len - 1 {
-                TailPosition::Tail
-            } else {
-                TailPosition::NonTail
-            };
-            stack_var = self.codegen_statement(&stack_var, statement, position)?;
-        }
+        // Generate code for all statements with pattern detection for inline loops
+        stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
 
         // Only emit ret if the last statement wasn't a tail call
         // (tail calls emit their own ret)
         if word.body.is_empty()
             || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
         {
-            writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
+            if is_main && !self.pure_inline_test {
+                // Normal mode: free the stack before returning
+                writeln!(
+                    &mut self.output,
+                    "  call void @seq_stack_free(ptr %tagged_stack)"
+                )?;
+                // Return null since we've freed the stack
+                writeln!(&mut self.output, "  ret ptr null")?;
+            } else {
+                // Return the final stack pointer (used by main to read result)
+                writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
+            }
         }
         writeln!(&mut self.output, "}}")?;
         writeln!(&mut self.output)?;
@@ -2011,12 +2095,32 @@ impl CodeGen {
 
     /// Generate code for an integer literal: ( -- n )
     fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, CodeGenError> {
+        // Inline push: Write Value directly to stack
+        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+        // stack_var points to where the next value should go
+
+        // Store discriminant 0 (Int) at slot0
+        writeln!(&mut self.output, "  store i64 0, ptr %{}", stack_var)?;
+
+        // Get pointer to slot1 (offset 8 bytes = 1 i64)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, stack_var
+        )?;
+
+        // Store value at slot1
+        writeln!(&mut self.output, "  store i64 {}, ptr %{}", n, slot1_ptr)?;
+
+        // Return pointer to next Value slot
         let result_var = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-            result_var, stack_var, n
+            "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
         )?;
+
         Ok(result_var)
     }
 
@@ -2025,37 +2129,72 @@ impl CodeGen {
     /// Uses LLVM's hexadecimal floating point format for exact representation.
     /// Handles special values (NaN, Infinity) explicitly.
     fn codegen_float_literal(&mut self, stack_var: &str, f: f64) -> Result<String, CodeGenError> {
-        let result_var = self.fresh_temp();
-        // Format float to ensure LLVM recognizes it as a double literal
-        let float_str = if f.is_nan() {
-            "0x7FF8000000000000".to_string() // NaN
-        } else if f.is_infinite() {
-            if f.is_sign_positive() {
-                "0x7FF0000000000000".to_string() // +Infinity
-            } else {
-                "0xFFF0000000000000".to_string() // -Infinity
-            }
-        } else {
-            // Use LLVM's hexadecimal floating point format for exact representation
-            format!("0x{:016X}", f.to_bits())
-        };
+        // Format float bits as hex for LLVM
+        let float_bits = f.to_bits();
+
+        // Inline push: Write Value directly to stack
+        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+        // Float discriminant = 1 (Int=0, Float=1, Bool=2)
+
+        // Store discriminant 1 (Float) at slot0
+        writeln!(&mut self.output, "  store i64 1, ptr %{}", stack_var)?;
+
+        // Get pointer to slot1 (offset 8 bytes = 1 i64)
+        let slot1_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = call ptr @patch_seq_push_float(ptr %{}, double {})",
-            result_var, stack_var, float_str
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, stack_var
         )?;
+
+        // Store float bits as i64 at slot1
+        writeln!(
+            &mut self.output,
+            "  store i64 {}, ptr %{}",
+            float_bits, slot1_ptr
+        )?;
+
+        // Return pointer to next Value slot
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
+
         Ok(result_var)
     }
 
     /// Generate code for a boolean literal: ( -- b )
     fn codegen_bool_literal(&mut self, stack_var: &str, b: bool) -> Result<String, CodeGenError> {
-        let result_var = self.fresh_temp();
         let val = if b { 1 } else { 0 };
+
+        // Inline push: Write Value directly to stack
+        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
+        // Bool discriminant = 2 (Int=0, Float=1, Bool=2)
+
+        // Store discriminant 2 (Bool) at slot0
+        writeln!(&mut self.output, "  store i64 2, ptr %{}", stack_var)?;
+
+        // Get pointer to slot1 (offset 8 bytes = 1 i64)
+        let slot1_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-            result_var, stack_var, val
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, stack_var
         )?;
+
+        // Store value at slot1 (1 for true, 0 for false)
+        writeln!(&mut self.output, "  store i64 {}, ptr %{}", val, slot1_ptr)?;
+
+        // Return pointer to next Value slot
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
+
         Ok(result_var)
     }
 
@@ -2079,6 +2218,1978 @@ impl CodeGen {
         Ok(result_var)
     }
 
+    /// Try to generate inline code for a tagged stack operation.
+    /// Returns Some(result_var) if the operation was inlined, None otherwise.
+    fn try_codegen_inline_op(
+        &mut self,
+        stack_var: &str,
+        name: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        match name {
+            // drop: ( a -- )
+            // Must call runtime to properly drop heap values
+            "drop" => {
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // dup: ( a -- a a )
+            // Uses patch_seq_clone_value to properly clone heap values
+            "dup" => {
+                let top_ptr = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                // Get pointer to top value (sp - 1)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, stack_var
+                )?;
+                // Clone the value from top_ptr to stack_var (current SP)
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    top_ptr, stack_var
+                )?;
+                // Increment SP
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // swap: ( a b -- b a )
+            "swap" => {
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+
+                // Get pointers to a and b
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                // Load full Values (40 bytes each)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                // Store swapped
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_b
+                )?;
+                // SP unchanged
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // over: ( a b -- a b a )
+            // Uses patch_seq_clone_value to properly clone heap values
+            "over" => {
+                let ptr_a = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                // Get pointer to a (sp - 2)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                // Clone the value from ptr_a to stack_var (current SP)
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_a, stack_var
+                )?;
+                // Increment SP
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // add: ( a b -- a+b )
+            "add" => self.codegen_inline_binary_op(stack_var, "add", "sub"),
+
+            // subtract: ( a b -- a-b )
+            "subtract" => self.codegen_inline_binary_op(stack_var, "sub", "add"),
+
+            // multiply: ( a b -- a*b )
+            "multiply" => {
+                // Values are in slot1 of each Value (slot0 is discriminant 0)
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+
+                // Get slot1 pointers (offset 8 bytes)
+                let slot1_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
+                )?;
+                let slot1_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
+                )?;
+
+                // Load values from slot1
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
+
+                // Multiply
+                let product = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = mul i64 %{}, %{}",
+                    product, val_a, val_b
+                )?;
+
+                // Store result at slot1 (discriminant 0 already at slot0)
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    product, slot1_a
+                )?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // divide: ( a b -- a/b )
+            // Matches runtime behavior: panic on zero, wrapping for i64::MIN/-1
+            "divide" => {
+                // Values are in slot1 of each Value (slot0 is discriminant 0)
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+
+                // Get slot1 pointers (offset 8 bytes)
+                let slot1_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
+                )?;
+                let slot1_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
+                )?;
+
+                // Load values from slot1
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
+
+                // Check for division by zero
+                let is_zero = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, 0",
+                    is_zero, val_b
+                )?;
+
+                // Check for overflow case: i64::MIN / -1
+                let is_min = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, -9223372036854775808",
+                    is_min, val_a
+                )?;
+                let is_neg_one = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, -1",
+                    is_neg_one, val_b
+                )?;
+                let is_overflow = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = and i1 %{}, %{}",
+                    is_overflow, is_min, is_neg_one
+                )?;
+
+                // Use safe divisor: if zero use 1, if overflow case use 1
+                let safe_divisor = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = select i1 %{}, i64 1, i64 %{}",
+                    safe_divisor, is_zero, val_b
+                )?;
+                let final_divisor = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = select i1 %{}, i64 1, i64 %{}",
+                    final_divisor, is_overflow, safe_divisor
+                )?;
+
+                // Divide (signed) with safe divisor
+                let quotient = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = sdiv i64 %{}, %{}",
+                    quotient, val_a, final_divisor
+                )?;
+
+                // For overflow case: result should be i64::MIN (wrapping behavior)
+                // For zero case: we'll trap below, but use 0 as placeholder
+                let safe_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = select i1 %{}, i64 -9223372036854775808, i64 %{}",
+                    safe_result, is_overflow, quotient
+                )?;
+
+                // Trap on division by zero (call llvm.trap)
+                let ok_label = self.fresh_block("div_ok");
+                let trap_label = self.fresh_block("div_trap");
+                writeln!(
+                    &mut self.output,
+                    "  br i1 %{}, label %{}, label %{}",
+                    is_zero, trap_label, ok_label
+                )?;
+                writeln!(&mut self.output, "{}:", trap_label)?;
+                writeln!(&mut self.output, "  call void @llvm.trap()")?;
+                writeln!(&mut self.output, "  unreachable")?;
+                writeln!(&mut self.output, "{}:", ok_label)?;
+
+                // Store result at slot1 (discriminant 0 already at slot0)
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    safe_result, slot1_a
+                )?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // Comparison operations - result is tagged bool (0=false, 1=true)
+            // =  (equal)
+            "=" => self.codegen_inline_comparison(stack_var, "eq"),
+
+            // <> (not equal)
+            "<>" => self.codegen_inline_comparison(stack_var, "ne"),
+
+            // < (less than)
+            "<" => self.codegen_inline_comparison(stack_var, "slt"),
+
+            // > (greater than)
+            ">" => self.codegen_inline_comparison(stack_var, "sgt"),
+
+            // <= (less than or equal)
+            "<=" => self.codegen_inline_comparison(stack_var, "sle"),
+
+            // >= (greater than or equal)
+            ">=" => self.codegen_inline_comparison(stack_var, "sge"),
+
+            // Float arithmetic operations
+            // Values are stored as f64 bits in slot1, discriminant 1 (Float)
+            "f.add" => self.codegen_inline_float_binary_op(stack_var, "fadd"),
+            "f.subtract" => self.codegen_inline_float_binary_op(stack_var, "fsub"),
+            "f.multiply" => self.codegen_inline_float_binary_op(stack_var, "fmul"),
+            "f.divide" => self.codegen_inline_float_binary_op(stack_var, "fdiv"),
+
+            // Float comparison operations - result is tagged bool
+            "f.=" => self.codegen_inline_float_comparison(stack_var, "oeq"),
+            "f.<>" => self.codegen_inline_float_comparison(stack_var, "one"),
+            "f.<" => self.codegen_inline_float_comparison(stack_var, "olt"),
+            "f.>" => self.codegen_inline_float_comparison(stack_var, "ogt"),
+            "f.<=" => self.codegen_inline_float_comparison(stack_var, "ole"),
+            "f.>=" => self.codegen_inline_float_comparison(stack_var, "oge"),
+
+            // Boolean operations - values are in slot1, discriminant 2 (Bool)
+            // and: ( a b -- a&&b )
+            "and" => {
+                // Get pointers to Value slots
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+
+                // Get slot1 pointers (values at offset 8)
+                let slot1_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
+                )?;
+                let slot1_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
+                )?;
+
+                // Load values from slot1
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
+
+                // AND the values and convert to 0 or 1
+                let and_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = and i64 %{}, %{}",
+                    and_result, val_a, val_b
+                )?;
+                let bool_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp ne i64 %{}, 0",
+                    bool_result, and_result
+                )?;
+                let zext = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = zext i1 %{} to i64",
+                    zext, bool_result
+                )?;
+
+                // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+                writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // or: ( a b -- a||b )
+            "or" => {
+                // Get pointers to Value slots
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+
+                // Get slot1 pointers (values at offset 8)
+                let slot1_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
+                )?;
+                let slot1_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
+                )?;
+
+                // Load values from slot1
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
+
+                // OR the values and convert to 0 or 1
+                let or_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = or i64 %{}, %{}",
+                    or_result, val_a, val_b
+                )?;
+                let bool_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp ne i64 %{}, 0",
+                    bool_result, or_result
+                )?;
+                let zext = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = zext i1 %{} to i64",
+                    zext, bool_result
+                )?;
+
+                // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+                writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
+                writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // not: ( a -- !a )
+            "not" => {
+                // Get pointer to top Value
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, stack_var
+                )?;
+
+                // Get pointer to slot1 (value at offset 8)
+                let slot1_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_ptr, top_ptr
+                )?;
+
+                // Load value from slot1
+                let val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val, slot1_ptr
+                )?;
+
+                // not: if val == 0, result is 1; else result is 0
+                let is_zero = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = icmp eq i64 %{}, 0", is_zero, val)?;
+                let zext = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = zext i1 %{} to i64",
+                    zext, is_zero
+                )?;
+
+                // Store result as Value::Bool (discriminant 2 at slot0, value at slot1)
+                writeln!(&mut self.output, "  store i64 2, ptr %{}", top_ptr)?;
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    zext, slot1_ptr
+                )?;
+                // SP unchanged
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // Bitwise operations - operate on Int values (discriminant 0)
+            // band: ( a b -- a&b ) bitwise AND
+            "band" => self.codegen_inline_int_bitwise_binary(stack_var, "and"),
+
+            // bor: ( a b -- a|b ) bitwise OR
+            "bor" => self.codegen_inline_int_bitwise_binary(stack_var, "or"),
+
+            // bxor: ( a b -- a^b ) bitwise XOR
+            "bxor" => self.codegen_inline_int_bitwise_binary(stack_var, "xor"),
+
+            // shl: ( a b -- a<<b ) shift left, returns 0 for shift >= 64 or negative
+            "shl" => self.codegen_inline_shift(stack_var, true),
+
+            // shr: ( a b -- a>>b ) logical shift right, returns 0 for shift >= 64 or negative
+            "shr" => self.codegen_inline_shift(stack_var, false),
+
+            // bnot: ( a -- ~a ) bitwise NOT
+            "bnot" => {
+                // Get pointer to top Value
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, stack_var
+                )?;
+
+                // Get pointer to slot1 (value at offset 8)
+                let slot1_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_ptr, top_ptr
+                )?;
+
+                // Load value from slot1
+                let val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val, slot1_ptr
+                )?;
+
+                // Bitwise NOT: XOR with -1 (all 1s)
+                let not_result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = xor i64 %{}, -1", not_result, val)?;
+
+                // Store result (discriminant stays 0 for Int)
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    not_result, slot1_ptr
+                )?;
+                // SP unchanged
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // popcount: ( a -- count ) count number of 1 bits
+            "popcount" => self.codegen_inline_int_unary_intrinsic(stack_var, "llvm.ctpop.i64"),
+
+            // clz: ( a -- count ) count leading zeros
+            "clz" => self.codegen_inline_int_unary_intrinsic(stack_var, "llvm.ctlz.i64"),
+
+            // ctz: ( a -- count ) count trailing zeros
+            "ctz" => self.codegen_inline_int_unary_intrinsic(stack_var, "llvm.cttz.i64"),
+
+            // More stack operations
+            // rot: ( a b c -- b c a )
+            "rot" => {
+                let ptr_c = self.fresh_temp();
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let val_c = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_c, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -3",
+                    ptr_a, stack_var
+                )?;
+
+                // Load full Values (40 bytes each)
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_c, ptr_c
+                )?;
+
+                // Rotate: a goes to top, b goes to a's position, c goes to b's position
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_c, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_c
+                )?;
+
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // nip: ( a b -- b )
+            // Must call runtime to properly drop the removed value
+            "nip" => {
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_nip(ptr %{})",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // tuck: ( a b -- b a b )
+            // Uses patch_seq_clone_value to properly clone heap values
+            "tuck" => {
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                // Load full Values
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                // Clone b to the new top position
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_b, stack_var
+                )?;
+
+                // Result: b a b (a's slot gets b, b's slot gets a, new slot gets b_clone)
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_b
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // 2dup: ( a b -- a b a b )
+            // Uses patch_seq_clone_value to properly clone heap values
+            "2dup" => {
+                let ptr_b = self.fresh_temp();
+                let ptr_a = self.fresh_temp();
+                let new_ptr = self.fresh_temp();
+                let result_var = self.fresh_temp();
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
+                // Clone a to stack_var
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_a, stack_var
+                )?;
+                // Clone b to stack_var + 1
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    new_ptr, stack_var
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    ptr_b, new_ptr
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 2",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // 3drop: ( a b c -- )
+            // Must call runtime to properly drop heap values
+            "3drop" => {
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_3drop(ptr %{})",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // pick: ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
+            // Copy the nth item (0-indexed from below n) to top
+            // Uses patch_seq_clone_value to properly clone heap values
+            "pick" => {
+                // Get pointer to n (top of stack)
+                let n_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    n_ptr, stack_var
+                )?;
+
+                // Load n from slot1
+                let n_slot1 = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    n_slot1, n_ptr
+                )?;
+                let n_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    n_val, n_slot1
+                )?;
+
+                // Calculate offset: -(n + 2) from stack_var
+                // After popping n, x0 is at -1, x1 at -2, xn at -(n+1)
+                // But we're indexing from stack_var, so xn is at -(n+2)
+                let offset = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = add i64 %{}, 2", offset, n_val)?;
+                let neg_offset = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = sub i64 0, %{}",
+                    neg_offset, offset
+                )?;
+
+                // Get pointer to the item to copy
+                let src_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
+                    src_ptr, stack_var, neg_offset
+                )?;
+
+                // Clone the value from src_ptr to n_ptr (replacing n with the picked value)
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                    src_ptr, n_ptr
+                )?;
+
+                // SP unchanged (we replaced n with the picked value)
+                Ok(Some(stack_var.to_string()))
+            }
+
+            // roll: ( ... xn xn-1 ... x1 x0 n -- ... xn-1 ... x1 x0 xn )
+            // Move the nth item to top, shifting others down
+            "roll" => {
+                // Get pointer to n (top of stack)
+                let n_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    n_ptr, stack_var
+                )?;
+
+                // Load n from slot1
+                let n_slot1 = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    n_slot1, n_ptr
+                )?;
+                let n_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    n_val, n_slot1
+                )?;
+
+                // Pop n first - new SP is stack_var - 1
+                let popped_sp = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    popped_sp, stack_var
+                )?;
+
+                // Calculate offset to the item to roll: -(n + 1) from popped_sp
+                let offset = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = add i64 %{}, 1", offset, n_val)?;
+                let neg_offset = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = sub i64 0, %{}",
+                    neg_offset, offset
+                )?;
+
+                // Get pointer to the item to roll (xn)
+                let src_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
+                    src_ptr, popped_sp, neg_offset
+                )?;
+
+                // Load the value to roll
+                let rolled_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    rolled_val, src_ptr
+                )?;
+
+                // Use memmove to shift items down (from src+1 to src, n items)
+                // memmove(dest, src, size) - dest is src_ptr, src is src_ptr+1
+                let src_plus_one = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    src_plus_one, src_ptr
+                )?;
+
+                // Size in bytes = n * 40 (sizeof %Value)
+                let size_bytes = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = mul i64 %{}, 40",
+                    size_bytes, n_val
+                )?;
+
+                // Call memmove
+                writeln!(
+                    &mut self.output,
+                    "  call void @llvm.memmove.p0.p0.i64(ptr %{}, ptr %{}, i64 %{}, i1 false)",
+                    src_ptr, src_plus_one, size_bytes
+                )?;
+
+                // Store rolled value at top (popped_sp - 1, which is where x0 was)
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, popped_sp
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    rolled_val, top_ptr
+                )?;
+
+                // SP = popped_sp (we removed n, rolled doesn't change count)
+                Ok(Some(popped_sp))
+            }
+
+            // Not an inline-able operation
+            _ => Ok(None),
+        }
+    }
+
+    /// Generate inline code for comparison operations.
+    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
+    fn codegen_inline_comparison(
+        &mut self,
+        stack_var: &str,
+        icmp_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values are at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Compare
+        let cmp_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp {} i64 %{}, %{}",
+            cmp_result, icmp_op, val_a, val_b
+        )?;
+
+        // Convert i1 to i64
+        let zext = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = zext i1 %{} to i64",
+            zext, cmp_result
+        )?;
+
+        // Store result as Value::Int (discriminant 0 at slot0, value at slot1)
+        // Comparison results are Forth-style: 0 for false, 1 for true
+        writeln!(&mut self.output, "  store i64 0, ptr %{}", ptr_a)?;
+        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for binary arithmetic (add/subtract).
+    /// Values are stored in slot1 of each Value (slot0 is discriminant 0 for Int).
+    fn codegen_inline_binary_op(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str,
+        _adjust_op: &str, // No longer needed, kept for compatibility
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get pointers to slot1 (actual value, offset 8 bytes from Value start)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load actual values from slot1
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Perform the operation
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            op_result, llvm_op, val_a, val_b
+        )?;
+
+        // Store result: discriminant 0 at slot0, result at slot1
+        // ptr_a already has discriminant 0 from the original push, so we only need to update slot1
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for float binary operations (f.add, f.subtract, etc.)
+    /// Values are stored as f64 bits in slot1, discriminant 1 (Float).
+    fn codegen_inline_float_binary_op(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1 as i64 (raw bits)
+        let bits_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_a, slot1_a
+        )?;
+        let bits_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_b, slot1_b
+        )?;
+
+        // Bitcast to double
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_a, bits_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_b, bits_b
+        )?;
+
+        // Perform the float operation
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} double %{}, %{}",
+            op_result, llvm_op, val_a, val_b
+        )?;
+
+        // Bitcast result back to i64
+        let result_bits = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast double %{} to i64",
+            result_bits, op_result
+        )?;
+
+        // Store result at slot1 (discriminant 1 already at slot0)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            result_bits, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for float comparison operations.
+    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
+    fn codegen_inline_float_comparison(
+        &mut self,
+        stack_var: &str,
+        fcmp_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1 as i64 (raw bits)
+        let bits_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_a, slot1_a
+        )?;
+        let bits_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_b, slot1_b
+        )?;
+
+        // Bitcast to double
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_a, bits_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_b, bits_b
+        )?;
+
+        // Compare using fcmp
+        let cmp_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = fcmp {} double %{}, %{}",
+            cmp_result, fcmp_op, val_a, val_b
+        )?;
+
+        // Convert i1 to i64
+        let zext = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = zext i1 %{} to i64",
+            zext, cmp_result
+        )?;
+
+        // Store result as Value::Int (discriminant 0 at slot0, value at slot1)
+        // Comparison results are Forth-style: 0 for false, 1 for true
+        writeln!(&mut self.output, "  store i64 0, ptr %{}", ptr_a)?;
+        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for integer bitwise binary operations.
+    /// Returns tagged int (discriminant 0).
+    fn codegen_inline_int_bitwise_binary(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str, // "and", "or", "xor"
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Perform the bitwise operation
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            op_result, llvm_op, val_a, val_b
+        )?;
+
+        // Store result (discriminant stays 0 for Int, just update slot1)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for shift operations with proper edge case handling.
+    /// Matches runtime behavior: returns 0 for negative shift or shift >= 64.
+    /// For shr, uses logical (not arithmetic) shift to match runtime.
+    fn codegen_inline_shift(
+        &mut self,
+        stack_var: &str,
+        is_left: bool, // true for shl, false for shr
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointers to Value slots (b = shift count, a = value to shift)
+        let ptr_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            ptr_b, stack_var
+        )?;
+        let ptr_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+            ptr_a, stack_var
+        )?;
+
+        // Get slot1 pointers (values at offset 8)
+        let slot1_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_a, ptr_a
+        )?;
+        let slot1_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_b, ptr_b
+        )?;
+
+        // Load values from slot1 (val_a = value to shift, val_b = shift count)
+        let val_a = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
+        let val_b = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
+
+        // Check if shift count is negative
+        let is_neg = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp slt i64 %{}, 0",
+            is_neg, val_b
+        )?;
+
+        // Check if shift count >= 64
+        let is_overflow = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sge i64 %{}, 64",
+            is_overflow, val_b
+        )?;
+
+        // Combine: is_invalid = is_neg OR is_overflow
+        let is_invalid = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = or i1 %{}, %{}",
+            is_invalid, is_neg, is_overflow
+        )?;
+
+        // Use a safe shift count (clamped to 0 if invalid) to avoid LLVM UB
+        let safe_count = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = select i1 %{}, i64 0, i64 %{}",
+            safe_count, is_invalid, val_b
+        )?;
+
+        // Perform the shift operation with safe count
+        let shift_result = self.fresh_temp();
+        let op = if is_left { "shl" } else { "lshr" };
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            shift_result, op, val_a, safe_count
+        )?;
+
+        // Select final result: 0 if invalid, otherwise shift_result
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = select i1 %{}, i64 0, i64 %{}",
+            op_result, is_invalid, shift_result
+        )?;
+
+        // Store result (discriminant stays 0 for Int, just update slot1)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Generate inline code for integer unary intrinsic operations.
+    /// Used for popcount, clz, ctz which use LLVM intrinsics.
+    fn codegen_inline_int_unary_intrinsic(
+        &mut self,
+        stack_var: &str,
+        intrinsic: &str, // "llvm.ctpop.i64", "llvm.ctlz.i64", "llvm.cttz.i64"
+    ) -> Result<Option<String>, CodeGenError> {
+        // Get pointer to top Value
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+
+        // Get pointer to slot1 (value at offset 8)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+
+        // Load value from slot1
+        let val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val, slot1_ptr
+        )?;
+
+        // Call the intrinsic
+        let result = self.fresh_temp();
+        if intrinsic == "llvm.ctpop.i64" {
+            writeln!(
+                &mut self.output,
+                "  %{} = call i64 @{}(i64 %{})",
+                result, intrinsic, val
+            )?;
+        } else {
+            // clz and ctz have a second parameter: is_poison_on_zero (false)
+            writeln!(
+                &mut self.output,
+                "  %{} = call i64 @{}(i64 %{}, i1 false)",
+                result, intrinsic, val
+            )?;
+        }
+
+        // Store result (discriminant stays 0 for Int)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            result, slot1_ptr
+        )?;
+
+        // SP unchanged
+        Ok(Some(stack_var.to_string()))
+    }
+
+    /// Generate inline code for `while` loop: [cond] [body] while
+    ///
+    /// LLVM structure:
+    /// ```text
+    /// while_cond:
+    ///   <execute cond_body>
+    ///   %cond = load condition from stack
+    ///   %sp = pop condition
+    ///   br i1 %cond, label %while_body, label %while_end
+    /// while_body:
+    ///   <execute loop_body>
+    ///   br label %while_cond
+    /// while_end:
+    ///   ...
+    /// ```
+    fn codegen_inline_while(
+        &mut self,
+        stack_var: &str,
+        cond_body: &[Statement],
+        loop_body: &[Statement],
+    ) -> Result<String, CodeGenError> {
+        let cond_block = self.fresh_block("while_cond");
+        let body_block = self.fresh_block("while_body");
+        let end_block = self.fresh_block("while_end");
+
+        // Use named variables for phi nodes to avoid SSA ordering issues
+        let loop_stack_phi = format!("{}_stack", cond_block);
+        let loop_stack_next = format!("{}_stack_next", cond_block);
+
+        // Jump to condition check
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for stack pointer at loop entry
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, body_block
+        )?;
+
+        // Execute condition body
+        let cond_stack = self.codegen_statements(cond_body, &loop_stack_phi, false)?;
+
+        // Inline peek and pop for condition
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, cond_stack
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, cond_stack
+        )?;
+
+        // Branch on condition
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cond_bool, cond_val
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &popped_stack, false)?;
+
+        // Create landing block for phi node
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+
+        // Store result for phi and loop back
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i8, ptr %{}, i64 0",
+            loop_stack_next, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(popped_stack)
+    }
+
+    /// Generate inline code for `until` loop: [cond] [body] until
+    ///
+    /// Like while but executes body first, then checks condition.
+    /// Continues until condition is TRUE (opposite of while).
+    fn codegen_inline_until(
+        &mut self,
+        stack_var: &str,
+        cond_body: &[Statement],
+        loop_body: &[Statement],
+    ) -> Result<String, CodeGenError> {
+        let body_block = self.fresh_block("until_body");
+        let cond_block = self.fresh_block("until_cond");
+        let end_block = self.fresh_block("until_end");
+
+        // Use named variables for phi nodes to avoid SSA ordering issues
+        let loop_stack_phi = format!("{}_stack", body_block);
+        let loop_stack_next = format!("{}_stack_next", body_block);
+
+        // Jump to body (do-while style)
+        writeln!(&mut self.output, "  br label %{}", body_block)?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Phi for stack pointer at loop entry
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, cond_block
+        )?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack_phi, false)?;
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Execute condition body
+        let cond_stack = self.codegen_statements(cond_body, &body_end_stack, false)?;
+
+        // Inline peek and pop for condition
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, cond_stack
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, cond_stack
+        )?;
+
+        // Create landing block for phi
+        let cond_end_block = format!("{}_end", cond_block);
+        writeln!(&mut self.output, "  br label %{}", cond_end_block)?;
+        writeln!(&mut self.output, "{}:", cond_end_block)?;
+
+        // Store result for phi
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i8, ptr %{}, i64 0",
+            loop_stack_next, popped_stack
+        )?;
+
+        // Branch: if condition is TRUE, exit; if FALSE, continue loop
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cond_bool, cond_val
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, end_block, body_block
+        )?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(popped_stack)
+    }
+
+    /// Generate inline code for `times` loop: n [body] times
+    ///
+    /// Pops count from stack, executes body that many times.
+    #[allow(dead_code)] // Reserved for future dynamic count support
+    fn codegen_inline_times(
+        &mut self,
+        stack_var: &str,
+        loop_body: &[Statement],
+    ) -> Result<String, CodeGenError> {
+        let cond_block = self.fresh_block("times_cond");
+        let body_block = self.fresh_block("times_body");
+        let end_block = self.fresh_block("times_end");
+
+        // Pop count from stack (it was pushed before the quotation)
+        // Actually, the quotation is at top, count is below it
+        // But in our pattern, we detected [body] times, so count is already on stack
+        // We need to pop the count that's on the stack
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let count_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            count_val, slot1_ptr
+        )?;
+        let init_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            init_stack, stack_var
+        )?;
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for counter and stack
+        let counter = self.fresh_temp();
+        let loop_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = phi i64 [ %{}, %entry ], [ %{}_next, %{}_end ]",
+            counter, count_val, counter, body_block
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}_body_end, %{}_end ]",
+            loop_stack, init_stack, body_block, body_block
+        )?;
+
+        // Check if counter > 0
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sgt i64 %{}, 0",
+            cond_bool, counter
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack, false)?;
+
+        // Create landing block
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+
+        // Decrement counter and store for phi
+        writeln!(
+            &mut self.output,
+            "  %{}_next = sub i64 %{}, 1",
+            counter, counter
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{}_body_end = getelementptr i8, ptr %{}, i64 0",
+            body_block, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(loop_stack)
+    }
+
+    /// Generate inline code for `times` loop with literal count: [body] n times
+    ///
+    /// The count is known at compile time, so we don't need to pop it from stack.
+    fn codegen_inline_times_literal(
+        &mut self,
+        stack_var: &str,
+        loop_body: &[Statement],
+        count: i64,
+    ) -> Result<String, CodeGenError> {
+        // If count is 0 or negative, skip the loop entirely
+        if count <= 0 {
+            return Ok(stack_var.to_string());
+        }
+
+        let cond_block = self.fresh_block("times_cond");
+        let body_block = self.fresh_block("times_body");
+        let end_block = self.fresh_block("times_end");
+
+        // Use named variables for phi nodes to avoid SSA ordering issues
+        let counter_phi = format!("{}_counter", cond_block);
+        let counter_next = format!("{}_counter_next", cond_block);
+        let loop_stack_phi = format!("{}_stack", cond_block);
+        let loop_stack_next = format!("{}_stack_next", cond_block);
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for counter and stack
+        writeln!(
+            &mut self.output,
+            "  %{} = phi i64 [ {}, %entry ], [ %{}, %{}_end ]",
+            counter_phi, count, counter_next, body_block
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, body_block
+        )?;
+
+        // Check if counter > 0
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sgt i64 %{}, 0",
+            cond_bool, counter_phi
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+
+        // Execute loop body
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack_phi, false)?;
+
+        // Create landing block
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+
+        // Decrement counter and create stack alias for phi
+        writeln!(
+            &mut self.output,
+            "  %{} = sub i64 %{}, 1",
+            counter_next, counter_phi
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i8, ptr %{}, i64 0",
+            loop_stack_next, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(loop_stack_phi)
+    }
+
     /// Generate code for a word call
     ///
     /// Handles builtin functions, external builtins, and user-defined words.
@@ -2089,6 +4200,11 @@ impl CodeGen {
         name: &str,
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
+        // Inline operations for common stack/arithmetic ops
+        if let Some(result) = self.try_codegen_inline_op(stack_var, name)? {
+            return Ok(result);
+        }
+
         let result_var = self.fresh_temp();
 
         // Phase 2 TCO: Special handling for `call` in tail position
@@ -2156,18 +4272,36 @@ impl CodeGen {
         else_branch: Option<&Vec<Statement>>,
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
-        // Peek the condition value, then pop to free the stack node
+        // Peek the condition value, then pop (inline)
+        // Get pointer to top Value (at SP-1)
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+
+        // Get pointer to slot1 (value at offset 8)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+
+        // Load condition value from slot1
         let cond_temp = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
-            cond_temp, stack_var
+            "  %{} = load i64, ptr %{}",
+            cond_temp, slot1_ptr
         )?;
 
+        // Pop: SP = SP - 1
         let popped_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             popped_stack, stack_var
         )?;
 
@@ -2560,6 +4694,85 @@ impl CodeGen {
     // Main Statement Dispatcher
     // =========================================================================
 
+    /// Generate code for a sequence of statements with pattern detection.
+    ///
+    /// Detects patterns like `[cond] [body] while` and emits inline loops
+    /// instead of quotation push + FFI call.
+    ///
+    /// Returns the final stack variable name.
+    fn codegen_statements(
+        &mut self,
+        statements: &[Statement],
+        initial_stack_var: &str,
+        last_is_tail: bool,
+    ) -> Result<String, CodeGenError> {
+        let mut stack_var = initial_stack_var.to_string();
+        let len = statements.len();
+        let mut i = 0;
+
+        while i < len {
+            let is_last = i == len - 1;
+            let position = if is_last && last_is_tail {
+                TailPosition::Tail
+            } else {
+                TailPosition::NonTail
+            };
+
+            // Pattern: [cond] [body] while  or  [body] [cond] until
+            // Stack order: first quotation pushed is below second
+            // For while: condition is pushed first, body second → [cond] [body] while
+            // For until: body is pushed first, condition second → [body] [cond] until
+            if i + 2 < len
+                && let (
+                    Statement::Quotation {
+                        body: first_quot, ..
+                    },
+                    Statement::Quotation {
+                        body: second_quot, ..
+                    },
+                    Statement::WordCall { name, .. },
+                ) = (&statements[i], &statements[i + 1], &statements[i + 2])
+            {
+                if name == "while" {
+                    // while: [cond] [body] - first is cond, second is body
+                    stack_var = self.codegen_inline_while(&stack_var, first_quot, second_quot)?;
+                    i += 3;
+                    continue;
+                }
+                if name == "until" {
+                    // until: [body] [cond] - first is body, second is cond
+                    stack_var = self.codegen_inline_until(&stack_var, second_quot, first_quot)?;
+                    i += 3;
+                    continue;
+                }
+            }
+
+            // Pattern: [body] count times
+            // Stack order: quotation pushed first, then count, then times called
+            // Statement pattern: Quotation, IntLiteral, WordCall("times")
+            if i + 2 < len
+                && let (
+                    Statement::Quotation {
+                        body: loop_body, ..
+                    },
+                    Statement::IntLiteral(count),
+                    Statement::WordCall { name, .. },
+                ) = (&statements[i], &statements[i + 1], &statements[i + 2])
+                && name == "times"
+            {
+                stack_var = self.codegen_inline_times_literal(&stack_var, loop_body, *count)?;
+                i += 3;
+                continue;
+            }
+
+            // Regular statement processing
+            stack_var = self.codegen_statement(&stack_var, &statements[i], position)?;
+            i += 1;
+        }
+
+        Ok(stack_var)
+    }
+
     /// Generate code for a single statement
     ///
     /// The `position` parameter indicates whether this statement is in tail position.
@@ -2593,29 +4806,76 @@ impl CodeGen {
         )?;
         writeln!(&mut self.output, "entry:")?;
 
-        // Initialize command-line arguments (before scheduler so args are available)
-        writeln!(
-            &mut self.output,
-            "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
-        )?;
+        if self.pure_inline_test {
+            // Pure inline test mode: no scheduler, just run the code directly
+            // and return the top of stack as exit code.
+            //
+            // This mode is for testing pure integer programs that use only
+            // inlined operations (push_int, arithmetic, stack ops).
 
-        // Initialize scheduler
-        writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()")?;
+            // Allocate tagged stack
+            writeln!(
+                &mut self.output,
+                "  %tagged_stack = call ptr @seq_stack_new_default()"
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %stack_base = call ptr @seq_stack_base(ptr %tagged_stack)"
+            )?;
 
-        // Spawn user's main function as the first strand
-        // This ensures all code runs in coroutine context for non-blocking I/O
-        writeln!(
-            &mut self.output,
-            "  %0 = call i64 @patch_seq_strand_spawn(ptr @seq_main, ptr null)"
-        )?;
+            // Call seq_main which returns the final stack pointer
+            writeln!(
+                &mut self.output,
+                "  %final_sp = call ptr @seq_main(ptr %stack_base)"
+            )?;
 
-        // Wait for all spawned strands to complete (including main)
-        writeln!(
-            &mut self.output,
-            "  %1 = call ptr @patch_seq_scheduler_run()"
-        )?;
+            // Read top of stack value (at sp - 1, slot1 contains the int value)
+            writeln!(
+                &mut self.output,
+                "  %top_ptr = getelementptr %Value, ptr %final_sp, i64 -1"
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %val_ptr = getelementptr i64, ptr %top_ptr, i64 1"
+            )?;
+            writeln!(&mut self.output, "  %result = load i64, ptr %val_ptr")?;
 
-        writeln!(&mut self.output, "  ret i32 0")?;
+            // Free the stack
+            writeln!(
+                &mut self.output,
+                "  call void @seq_stack_free(ptr %tagged_stack)"
+            )?;
+
+            // Return result as exit code (truncate to i32)
+            writeln!(&mut self.output, "  %exit_code = trunc i64 %result to i32")?;
+            writeln!(&mut self.output, "  ret i32 %exit_code")?;
+        } else {
+            // Normal mode: use scheduler for concurrency support
+
+            // Initialize command-line arguments (before scheduler so args are available)
+            writeln!(
+                &mut self.output,
+                "  call void @patch_seq_args_init(i32 %argc, ptr %argv)"
+            )?;
+
+            // Initialize scheduler
+            writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()")?;
+
+            // Spawn user's main function as the first strand
+            // This ensures all code runs in coroutine context for non-blocking I/O
+            writeln!(
+                &mut self.output,
+                "  %0 = call i64 @patch_seq_strand_spawn(ptr @seq_main, ptr null)"
+            )?;
+
+            // Wait for all spawned strands to complete (including main)
+            writeln!(
+                &mut self.output,
+                "  %1 = call ptr @patch_seq_scheduler_run()"
+            )?;
+
+            writeln!(&mut self.output, "  ret i32 0")?;
+        }
         writeln!(&mut self.output, "}}")?;
 
         Ok(())
@@ -2735,6 +4995,7 @@ mod tests {
 
     #[test]
     fn test_codegen_arithmetic() {
+        // Test inline tagged stack arithmetic
         let mut codegen = CodeGen::new();
 
         let program = Program {
@@ -2757,9 +5018,59 @@ mod tests {
 
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        assert!(ir.contains("call ptr @patch_seq_push_int(ptr %stack, i64 2)"));
-        assert!(ir.contains("call ptr @patch_seq_push_int"));
-        assert!(ir.contains("call ptr @patch_seq_add"));
+        // With tagged stack, integers are pushed inline (store discriminant + value)
+        assert!(ir.contains("store i64 0")); // Int discriminant
+        assert!(ir.contains("store i64 2")); // Push int 2
+        assert!(ir.contains("store i64 3")); // Push int 3
+        // Add is inlined (load, add, store pattern)
+        assert!(ir.contains("add i64"));
+    }
+
+    #[test]
+    fn test_pure_inline_test_mode() {
+        let mut codegen = CodeGen::new_pure_inline_test();
+
+        // Simple program: 5 3 add (should return 8)
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::IntLiteral(5),
+                    Statement::IntLiteral(3),
+                    Statement::WordCall {
+                        name: "add".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+
+        // Pure inline test mode should:
+        // 1. NOT CALL the scheduler (declarations are ok, calls are not)
+        assert!(!ir.contains("call void @patch_seq_scheduler_init"));
+        assert!(!ir.contains("call i64 @patch_seq_strand_spawn"));
+
+        // 2. Have main allocate tagged stack and call seq_main directly
+        assert!(ir.contains("call ptr @seq_stack_new_default()"));
+        assert!(ir.contains("call ptr @seq_main(ptr %stack_base)"));
+
+        // 3. Read result from stack and return as exit code
+        assert!(ir.contains("trunc i64 %result to i32"));
+        assert!(ir.contains("ret i32 %exit_code"));
+
+        // 4. Use inline push (store i64 0, not call patch_seq_push_int)
+        assert!(!ir.contains("call ptr @patch_seq_push_int"));
+        assert!(ir.contains("store i64 0, ptr %stack")); // Int discriminant
+
+        // 5. Use inline add (add i64, not call patch_seq_add)
+        assert!(!ir.contains("call ptr @patch_seq_add"));
+        assert!(ir.contains("add i64"));
     }
 
     #[test]

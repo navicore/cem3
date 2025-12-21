@@ -124,9 +124,4 @@ fn verify_runtime_version() {
             compiler_version, runtime_version, compiler_version
         );
     }
-
-    println!(
-        "cargo:warning=✓ Version verified: seq-compiler {} with seq-runtime {}",
-        compiler_version, runtime_version
-    );
 }

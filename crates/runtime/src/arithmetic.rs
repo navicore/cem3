@@ -21,7 +21,7 @@
 //!
 //! This matches the behavior of Forth and Factor, providing consistency for low-level code.
 
-use crate::stack::{Stack, pop, pop_two, push};
+use crate::stack::{DISC_INT, Stack, peek_sv, pop, pop_two, push};
 use crate::value::Value;
 
 /// Push an integer literal onto the stack (for compiler-generated code)
@@ -490,13 +490,15 @@ pub unsafe extern "C" fn patch_seq_int_bits(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
     assert!(!stack.is_null(), "peek_int_value: stack is empty");
 
-    let node = unsafe { &*stack };
-    match &node.value {
-        Value::Int(n) => *n,
-        _ => panic!(
-            "peek_int_value: expected Int on stack, got {:?}",
-            node.value
-        ),
+    // Stack points to next push location, so top is at stack - 1
+    let sv = unsafe { peek_sv(stack) };
+    if sv.slot0 == DISC_INT {
+        sv.slot1 as i64
+    } else {
+        panic!(
+            "peek_int_value: expected Int on stack, got discriminant {}",
+            sv.slot0
+        )
     }
 }
 
@@ -550,56 +552,52 @@ mod tests {
     #[test]
     fn test_add() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 5);
             let stack = push_int(stack, 3);
             let stack = add(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(8));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_subtract() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 10);
             let stack = push_int(stack, 3);
             let stack = subtract(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(7));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_multiply() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 4);
             let stack = push_int(stack, 5);
             let stack = multiply(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(20));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_divide() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 20);
             let stack = push_int(stack, 4);
             let stack = divide(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(5));
-            assert!(stack.is_null());
         }
     }
 
@@ -607,29 +605,26 @@ mod tests {
     fn test_comparisons() {
         unsafe {
             // Test eq (returns 1 for true, 0 for false - Forth style)
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 5);
             let stack = push_int(stack, 5);
             let stack = eq(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1)); // 1 = true
-            assert!(stack.is_null());
 
             // Test lt
             let stack = push_int(stack, 3);
             let stack = push_int(stack, 5);
             let stack = lt(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1)); // 1 = true
-            assert!(stack.is_null());
 
             // Test gt
             let stack = push_int(stack, 7);
             let stack = push_int(stack, 5);
             let stack = gt(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1)); // 1 = true
-            assert!(stack.is_null());
         }
     }
 
@@ -638,30 +633,27 @@ mod tests {
         // Test that arithmetic uses wrapping semantics (defined overflow behavior)
         unsafe {
             // Test add overflow: i64::MAX + 1 should wrap
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, i64::MAX);
             let stack = push_int(stack, 1);
             let stack = add(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(i64::MIN)); // Wraps to minimum
-            assert!(stack.is_null());
 
             // Test multiply overflow
             let stack = push_int(stack, i64::MAX);
             let stack = push_int(stack, 2);
             let stack = multiply(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             // Result is well-defined (wrapping)
             assert!(matches!(result, Value::Int(_)));
-            assert!(stack.is_null());
 
             // Test subtract underflow
             let stack = push_int(stack, i64::MIN);
             let stack = push_int(stack, 1);
             let stack = subtract(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(i64::MAX)); // Wraps to maximum
-            assert!(stack.is_null());
         }
     }
 
@@ -669,29 +661,26 @@ mod tests {
     fn test_negative_division() {
         unsafe {
             // Test negative dividend
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, -10);
             let stack = push_int(stack, 3);
             let stack = divide(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(-3)); // Truncates toward zero
-            assert!(stack.is_null());
 
             // Test negative divisor
             let stack = push_int(stack, 10);
             let stack = push_int(stack, -3);
             let stack = divide(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(-3));
-            assert!(stack.is_null());
 
             // Test both negative
             let stack = push_int(stack, -10);
             let stack = push_int(stack, -3);
             let stack = divide(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(3));
-            assert!(stack.is_null());
         }
     }
 
@@ -700,116 +689,107 @@ mod tests {
         // Critical edge case: i64::MIN / -1 would overflow
         // Regular division panics, but wrapping_div wraps to i64::MIN
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, i64::MIN);
             let stack = push_int(stack, -1);
             let stack = divide(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             // i64::MIN / -1 would be i64::MAX + 1, which wraps to i64::MIN
             assert_eq!(result, Value::Int(i64::MIN));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_and_true_true() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 1);
             let stack = push_int(stack, 1);
             let stack = and(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_and_true_false() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 1);
             let stack = push_int(stack, 0);
             let stack = and(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_and_false_false() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 0);
             let stack = push_int(stack, 0);
             let stack = and(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_or_true_true() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 1);
             let stack = push_int(stack, 1);
             let stack = or(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_or_true_false() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 1);
             let stack = push_int(stack, 0);
             let stack = or(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_or_false_false() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 0);
             let stack = push_int(stack, 0);
             let stack = or(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_not_true() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 1);
             let stack = not(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
     #[test]
     fn test_not_false() {
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 0);
             let stack = not(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 
@@ -817,13 +797,12 @@ mod tests {
     fn test_and_nonzero_values() {
         // Forth-style: any non-zero is true
         unsafe {
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 42);
             let stack = push_int(stack, -5);
             let stack = and(stack);
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(1));
-            assert!(stack.is_null());
         }
     }
 

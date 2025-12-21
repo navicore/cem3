@@ -12,6 +12,10 @@ categories = ["compilers", "development-tools"]
 [lib]
 crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testing
 
+[features]
+default = ["diagnostics"]
+diagnostics = ["signal-hook"]  # Strand registry + SIGQUIT handler for production debugging
+
 [dependencies]
 # May - Erlang-style green threads / coroutines for CSP concurrency
 may.workspace = true
@@ -26,9 +30,9 @@ libc.workspace = true
 serde.workspace = true
 bincode.workspace = true
 
-# Signal handling for SIGQUIT diagnostics (Unix only)
+# Signal handling for SIGQUIT diagnostics (Unix only, optional via diagnostics feature)
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3"
+signal-hook = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

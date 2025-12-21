@@ -1,7 +1,35 @@
 use crate::seqstring::SeqString;
+use may::sync::mpmc;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+/// Channel data: holds sender and receiver for direct handle passing
+///
+/// Both sender and receiver are Clone (MPMC), so duplicating a Channel value
+/// just clones the Arc. Send/receive operations use the handles directly
+/// with zero mutex overhead.
+#[derive(Debug)]
+pub struct ChannelData {
+    pub sender: mpmc::Sender<Value>,
+    pub receiver: mpmc::Receiver<Value>,
+}
+
+impl Clone for ChannelData {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            receiver: self.receiver.clone(),
+        }
+    }
+}
+
+// PartialEq by identity (Arc pointer comparison)
+impl PartialEq for ChannelData {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
 
 // Note: Arc is used for both Closure.env and Variant to enable O(1) cloning.
 // This is essential for functional programming with recursive data structures.
@@ -108,6 +136,11 @@ pub enum Value {
         /// Ordered top-down: env[0] is top of stack at creation
         env: Arc<[Value]>,
     },
+
+    /// Channel (MPMC sender/receiver pair for CSP-style concurrency)
+    /// Uses Arc for O(1) cloning - duplicating a channel shares the underlying handles.
+    /// Send/receive operations use the handles directly with zero mutex overhead.
+    Channel(Arc<ChannelData>),
 }
 
 // Safety: Value can be sent and shared between strands (green threads)
@@ -119,6 +152,7 @@ pub enum Value {
 // - Quotation stores function pointer as usize (Send-safe, no owned data)
 // - Closure: fn_ptr is usize (Send), env is Arc<[Value]> (Send when Value is Send+Sync)
 // - Map contains Box<HashMap> which is Send because keys and values are Send
+// - Channel contains Arc<ChannelData> which is Send (May's Sender/Receiver are Send)
 //
 // Sync (safe to share references between threads):
 // - Value has no interior mutability (no Cell, RefCell, Mutex, etc.)
@@ -127,7 +161,7 @@ pub enum Value {
 //
 // This is required for:
 // - Channel communication between strands
-// - Arc-based sharing of Variants and Closure environments
+// - Arc-based sharing of Variants, Closure environments, and Channels
 unsafe impl Send for Value {}
 unsafe impl Sync for Value {}
 
@@ -207,7 +241,7 @@ mod tests {
 
         unsafe {
             // With #[repr(C)], the discriminant is at offset 0
-            // For 8 variants, discriminant fits in 1 byte but is padded
+            // For 9 variants, discriminant fits in 1 byte but is padded
             let discriminant_byte = *ptr;
             assert_eq!(
                 discriminant_byte, 0,

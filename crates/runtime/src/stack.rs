@@ -1,162 +1,481 @@
-use crate::pool;
+//! Tagged Stack Implementation
+//!
+//! This module implements the stack using a contiguous array of 40-byte StackValue entries.
+//! Each StackValue has the layout: { slot0: discriminant, slot1-4: payload }
+//!
+//! The Stack type is a pointer to the "current position" (where next push goes).
+//! - Push: store at *sp, return sp + 1
+//! - Pop: return sp - 1, read from *(sp - 1)
+
+use crate::tagged_stack::StackValue;
 use crate::value::Value;
+use std::sync::Arc;
 
-/// StackNode: Implementation detail of the stack
+/// Stack: A pointer to the current position in a contiguous array of StackValue.
 ///
-/// This is a linked list node that contains a Value.
-/// The key insight: StackNode is separate from Value.
-/// Users think about Values, not StackNodes.
-pub struct StackNode {
-    /// The actual value stored in this node
-    pub value: Value,
+/// Points to where the next value would be pushed.
+/// sp - 1 points to the top value, sp - 2 to second, etc.
+pub type Stack = *mut StackValue;
 
-    /// Pointer to the next node in the stack (or null if this is the bottom)
-    /// This pointer is ONLY for stack structure, never for variant field linking
-    pub next: *mut StackNode,
+/// Discriminant values matching codegen
+pub const DISC_INT: u64 = 0;
+pub const DISC_FLOAT: u64 = 1;
+pub const DISC_BOOL: u64 = 2;
+pub const DISC_STRING: u64 = 3;
+pub const DISC_VARIANT: u64 = 4;
+pub const DISC_MAP: u64 = 5;
+pub const DISC_QUOTATION: u64 = 6;
+pub const DISC_CLOSURE: u64 = 7;
+
+/// Convert a Value to a StackValue for pushing onto the tagged stack
+#[inline]
+pub fn value_to_stack_value(value: Value) -> StackValue {
+    match value {
+        Value::Int(i) => StackValue {
+            slot0: DISC_INT,
+            slot1: i as u64,
+            slot2: 0,
+            slot3: 0,
+            slot4: 0,
+        },
+        Value::Float(f) => StackValue {
+            slot0: DISC_FLOAT,
+            slot1: f.to_bits(),
+            slot2: 0,
+            slot3: 0,
+            slot4: 0,
+        },
+        Value::Bool(b) => StackValue {
+            slot0: DISC_BOOL,
+            slot1: if b { 1 } else { 0 },
+            slot2: 0,
+            slot3: 0,
+            slot4: 0,
+        },
+        Value::String(s) => {
+            // SeqString has: ptr, len, capacity, global
+            // Store these in slots 1-4
+            let (ptr, len, capacity, global) = s.into_raw_parts();
+            StackValue {
+                slot0: DISC_STRING,
+                slot1: ptr as u64,
+                slot2: len as u64,
+                slot3: capacity as u64,
+                slot4: if global { 1 } else { 0 },
+            }
+        }
+        Value::Variant(v) => {
+            let ptr = Arc::into_raw(v) as u64;
+            StackValue {
+                slot0: DISC_VARIANT,
+                slot1: ptr,
+                slot2: 0,
+                slot3: 0,
+                slot4: 0,
+            }
+        }
+        Value::Map(m) => {
+            let ptr = Box::into_raw(m) as u64;
+            StackValue {
+                slot0: DISC_MAP,
+                slot1: ptr,
+                slot2: 0,
+                slot3: 0,
+                slot4: 0,
+            }
+        }
+        Value::Quotation { wrapper, impl_ } => StackValue {
+            slot0: DISC_QUOTATION,
+            slot1: wrapper as u64,
+            slot2: impl_ as u64,
+            slot3: 0,
+            slot4: 0,
+        },
+        Value::Closure { fn_ptr, env } => {
+            // Arc<[Value]> is a fat pointer - use Box to store it
+            let env_box = Box::new(env);
+            let env_ptr = Box::into_raw(env_box) as u64;
+            StackValue {
+                slot0: DISC_CLOSURE,
+                slot1: fn_ptr as u64,
+                slot2: env_ptr,
+                slot3: 0,
+                slot4: 0,
+            }
+        }
+    }
 }
 
-/// Stack: A pointer to the top of the stack
+/// Convert a StackValue back to a Value
 ///
-/// null represents an empty stack
-pub type Stack = *mut StackNode;
+/// # Safety
+/// The StackValue must contain valid data for its discriminant
+#[inline]
+pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
+    unsafe {
+        match sv.slot0 {
+            DISC_INT => Value::Int(sv.slot1 as i64),
+            DISC_FLOAT => Value::Float(f64::from_bits(sv.slot1)),
+            DISC_BOOL => Value::Bool(sv.slot1 != 0),
+            DISC_STRING => {
+                use crate::seqstring::SeqString;
+                let ptr = sv.slot1 as *const u8;
+                let len = sv.slot2 as usize;
+                let capacity = sv.slot3 as usize;
+                let global = sv.slot4 != 0;
+                Value::String(SeqString::from_raw_parts(ptr, len, capacity, global))
+            }
+            DISC_VARIANT => {
+                use crate::value::VariantData;
+                let arc = Arc::from_raw(sv.slot1 as *const VariantData);
+                Value::Variant(arc)
+            }
+            DISC_MAP => {
+                use crate::value::MapKey;
+                use std::collections::HashMap;
+                let boxed = Box::from_raw(sv.slot1 as *mut HashMap<MapKey, Value>);
+                Value::Map(boxed)
+            }
+            DISC_QUOTATION => Value::Quotation {
+                wrapper: sv.slot1 as usize,
+                impl_: sv.slot2 as usize,
+            },
+            DISC_CLOSURE => {
+                // Unbox the Arc<[Value]> that we boxed in value_to_stack_value
+                let env_box = Box::from_raw(sv.slot2 as *mut Arc<[Value]>);
+                Value::Closure {
+                    fn_ptr: sv.slot1 as usize,
+                    env: *env_box,
+                }
+            }
+            _ => panic!("Invalid discriminant: {}", sv.slot0),
+        }
+    }
+}
+
+/// Clone a StackValue from LLVM IR - reads from src pointer, writes to dst pointer.
+/// This is the FFI-callable version for inline codegen that avoids ABI issues
+/// with passing large structs by value.
+///
+/// # Safety
+/// Both src and dst pointers must be valid and properly aligned StackValue pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_clone_value(src: *const StackValue, dst: *mut StackValue) {
+    unsafe {
+        let sv = &*src;
+        let cloned = clone_stack_value(sv);
+        *dst = cloned;
+    }
+}
+
+/// Clone a StackValue, handling reference counting for heap types.
+///
+/// # Cloning Strategy by Type
+/// - **Int, Float, Bool, Quotation**: Bitwise copy (no heap allocation)
+/// - **String**: Deep copy to a new global (refcounted) string. This is necessary
+///   because the source may be an arena-allocated string that would become invalid
+///   when the arena resets. Global strings are heap-allocated with Arc refcounting.
+/// - **Variant**: Arc refcount increment (O(1), shares underlying data)
+/// - **Map**: Deep clone of the HashMap and all contained values
+/// - **Closure**: Deep clone of the Arc<[Value]> environment
+///
+/// # Safety
+/// The StackValue must contain valid data for its discriminant.
+#[inline]
+pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
+    unsafe {
+        match sv.slot0 {
+            DISC_INT | DISC_FLOAT | DISC_BOOL | DISC_QUOTATION => *sv,
+            DISC_STRING => {
+                // Deep copy: arena strings may become invalid, so always create a global string
+                let ptr = sv.slot1 as *const u8;
+                let len = sv.slot2 as usize;
+                debug_assert!(!ptr.is_null(), "String pointer is null");
+                // Read the string content without taking ownership
+                let slice = std::slice::from_raw_parts(ptr, len);
+                // Validate UTF-8 in debug builds, skip in release for performance
+                #[cfg(debug_assertions)]
+                let s = std::str::from_utf8(slice).expect("Invalid UTF-8 in string clone");
+                #[cfg(not(debug_assertions))]
+                let s = std::str::from_utf8_unchecked(slice);
+                // Clone to a new global string
+                let cloned = crate::seqstring::global_string(s.to_string());
+                let (new_ptr, new_len, new_cap, new_global) = cloned.into_raw_parts();
+                StackValue {
+                    slot0: DISC_STRING,
+                    slot1: new_ptr as u64,
+                    slot2: new_len as u64,
+                    slot3: new_cap as u64,
+                    slot4: if new_global { 1 } else { 0 },
+                }
+            }
+            DISC_VARIANT => {
+                use crate::value::VariantData;
+                let ptr = sv.slot1 as *const VariantData;
+                debug_assert!(!ptr.is_null(), "Variant pointer is null");
+                debug_assert!(
+                    (ptr as usize).is_multiple_of(std::mem::align_of::<VariantData>()),
+                    "Variant pointer is misaligned"
+                );
+                let arc = Arc::from_raw(ptr);
+                let cloned = Arc::clone(&arc);
+                std::mem::forget(arc);
+                StackValue {
+                    slot0: DISC_VARIANT,
+                    slot1: Arc::into_raw(cloned) as u64,
+                    slot2: 0,
+                    slot3: 0,
+                    slot4: 0,
+                }
+            }
+            DISC_MAP => {
+                // Deep clone the map
+                use crate::value::MapKey;
+                use std::collections::HashMap;
+                let ptr = sv.slot1 as *mut HashMap<MapKey, Value>;
+                debug_assert!(!ptr.is_null(), "Map pointer is null");
+                debug_assert!(
+                    (ptr as usize).is_multiple_of(std::mem::align_of::<HashMap<MapKey, Value>>()),
+                    "Map pointer is misaligned"
+                );
+                let boxed = Box::from_raw(ptr);
+                let cloned = boxed.clone();
+                std::mem::forget(boxed);
+                StackValue {
+                    slot0: DISC_MAP,
+                    slot1: Box::into_raw(cloned) as u64,
+                    slot2: 0,
+                    slot3: 0,
+                    slot4: 0,
+                }
+            }
+            DISC_CLOSURE => {
+                // The env is stored as Box<Arc<[Value]>>
+                let env_box_ptr = sv.slot2 as *mut Arc<[Value]>;
+                debug_assert!(!env_box_ptr.is_null(), "Closure env pointer is null");
+                debug_assert!(
+                    (env_box_ptr as usize).is_multiple_of(std::mem::align_of::<Arc<[Value]>>()),
+                    "Closure env pointer is misaligned"
+                );
+                let env_arc = &*env_box_ptr;
+                let cloned_env = Arc::clone(env_arc);
+                // Box the cloned Arc
+                let new_env_box = Box::new(cloned_env);
+                StackValue {
+                    slot0: DISC_CLOSURE,
+                    slot1: sv.slot1,
+                    slot2: Box::into_raw(new_env_box) as u64,
+                    slot3: 0,
+                    slot4: 0,
+                }
+            }
+            _ => panic!("Invalid discriminant for clone: {}", sv.slot0),
+        }
+    }
+}
+
+/// Drop a StackValue, decrementing refcounts for heap types
+///
+/// # Safety
+/// The StackValue must contain valid data for its discriminant.
+#[inline]
+pub unsafe fn drop_stack_value(sv: StackValue) {
+    unsafe {
+        match sv.slot0 {
+            DISC_INT | DISC_FLOAT | DISC_BOOL | DISC_QUOTATION => {
+                // No heap allocation, nothing to drop
+            }
+            DISC_STRING => {
+                // Reconstruct SeqString and let it drop
+                use crate::seqstring::SeqString;
+                let ptr = sv.slot1 as *const u8;
+                let len = sv.slot2 as usize;
+                let capacity = sv.slot3 as usize;
+                let global = sv.slot4 != 0;
+                let _ = SeqString::from_raw_parts(ptr, len, capacity, global);
+                // SeqString::drop will free global strings, ignore arena strings
+            }
+            DISC_VARIANT => {
+                use crate::value::VariantData;
+                let _ = Arc::from_raw(sv.slot1 as *const VariantData);
+            }
+            DISC_MAP => {
+                use crate::value::MapKey;
+                use std::collections::HashMap;
+                let _ = Box::from_raw(sv.slot1 as *mut HashMap<MapKey, Value>);
+            }
+            DISC_CLOSURE => {
+                // Unbox and drop the Arc<[Value]>
+                let _ = Box::from_raw(sv.slot2 as *mut Arc<[Value]>);
+            }
+            _ => panic!("Invalid discriminant for drop: {}", sv.slot0),
+        }
+    }
+}
+
+// ============================================================================
+// Core Stack Operations
+// ============================================================================
 
 /// Push a value onto the stack
 ///
-/// Takes ownership of the value and creates a new StackNode from the pool.
-/// Returns a pointer to the new top of the stack.
+/// Stores the value at the current stack pointer and returns sp + 1.
 ///
 /// # Safety
-/// Stack pointer must be valid (or null for empty stack)
-///
-/// # Performance
-/// Uses thread-local pool for ~10x speedup over Box::new()
+/// Stack pointer must be valid and have room for the value.
+#[inline]
 pub unsafe fn push(stack: Stack, value: Value) -> Stack {
-    pool::pool_allocate(value, stack)
+    unsafe {
+        let sv = value_to_stack_value(value);
+        *stack = sv;
+        stack.add(1)
+    }
+}
+
+/// Push a StackValue directly onto the stack
+///
+/// # Safety
+/// Stack pointer must be valid and have room for the value.
+#[inline]
+pub unsafe fn push_sv(stack: Stack, sv: StackValue) -> Stack {
+    unsafe {
+        *stack = sv;
+        stack.add(1)
+    }
 }
 
 /// Pop a value from the stack
 ///
-/// Returns the rest of the stack and the popped value.
-/// Returns the StackNode to the pool for reuse.
+/// Returns (new_sp, value) where new_sp = sp - 1.
 ///
 /// # Safety
-/// Stack must not be null (use is_empty to check first)
-///
-/// # Performance
-/// Returns node to thread-local pool for reuse (~10x faster than free)
+/// Stack must not be at base (must have at least one value).
+#[inline]
 pub unsafe fn pop(stack: Stack) -> (Stack, Value) {
-    assert!(!stack.is_null(), "pop: stack is empty");
-
     unsafe {
-        let rest = (*stack).next;
-        // CRITICAL: Replace value with dummy before returning node to pool
-        // This prevents double-drop when pool reuses the node
-        // The dummy value (Int(0)) will be overwritten when node is reused
-        let value = std::mem::replace(&mut (*stack).value, Value::Int(0));
+        let new_sp = stack.sub(1);
+        let sv = *new_sp;
+        (new_sp, stack_value_to_value(sv))
+    }
+}
 
-        // Return node to pool for reuse
-        pool::pool_free(stack);
-
-        (rest, value)
+/// Pop a StackValue directly from the stack
+///
+/// # Safety
+/// Stack must not be at base and must have at least one value.
+#[inline]
+pub unsafe fn pop_sv(stack: Stack) -> (Stack, StackValue) {
+    unsafe {
+        let new_sp = stack.sub(1);
+        let sv = *new_sp;
+        (new_sp, sv)
     }
 }
 
 /// Pop two values from the stack (for binary operations)
 ///
-/// Returns the rest of the stack and both values (first popped, second popped).
-/// This is a common pattern for binary operations like add, subtract, etc.
+/// Returns (new_sp, a, b) where a was below b on stack.
+/// Stack effect: ( a b -- ) returns (a, b)
 ///
 /// # Safety
-/// Stack must have at least two values
-///
-/// # Returns
-/// (remaining_stack, second_value, first_value) - note: second is "a", first is "b"
-/// for operations like a - b where b is on top
-pub unsafe fn pop_two(stack: Stack, op_name: &str) -> (Stack, Value, Value) {
-    assert!(!stack.is_null(), "{}: stack is empty", op_name);
-    let (rest, b) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "{}: need two values", op_name);
-    let (rest, a) = unsafe { pop(rest) };
-    (rest, a, b)
+/// Stack must have at least two values.
+#[inline]
+pub unsafe fn pop_two(stack: Stack, _op_name: &str) -> (Stack, Value, Value) {
+    unsafe {
+        let (sp, b) = pop(stack);
+        let (sp, a) = pop(sp);
+        (sp, a, b)
+    }
 }
 
-/// Pop three values from the stack (for ternary operations like rot)
-///
-/// Returns the rest of the stack and three values in order from bottom to top.
+/// Pop three values from the stack (for ternary operations)
 ///
 /// # Safety
-/// Stack must have at least three values
-///
-/// # Returns
-/// (remaining_stack, a, b, c) where stack was: ... a b c (c on top)
-pub unsafe fn pop_three(stack: Stack, op_name: &str) -> (Stack, Value, Value, Value) {
-    assert!(!stack.is_null(), "{}: stack is empty", op_name);
-    let (rest, c) = unsafe { pop(stack) };
-    assert!(!rest.is_null(), "{}: need at least two values", op_name);
-    let (rest, b) = unsafe { pop(rest) };
-    assert!(!rest.is_null(), "{}: need at least three values", op_name);
-    let (rest, a) = unsafe { pop(rest) };
-    (rest, a, b, c)
-}
-
-/// Check if the stack is empty
-pub fn is_empty(stack: Stack) -> bool {
-    stack.is_null()
+/// Stack must have at least three values.
+#[inline]
+pub unsafe fn pop_three(stack: Stack, _op_name: &str) -> (Stack, Value, Value, Value) {
+    unsafe {
+        let (sp, c) = pop(stack);
+        let (sp, b) = pop(sp);
+        let (sp, a) = pop(sp);
+        (sp, a, b, c)
+    }
 }
 
 /// Peek at the top value without removing it
 ///
 /// # Safety
-/// Stack must not be null
-/// Caller must ensure the returned reference is used within a valid lifetime
-pub unsafe fn peek<'a>(stack: Stack) -> &'a Value {
-    assert!(!stack.is_null(), "peek: stack is empty");
-    unsafe { &(*stack).value }
+/// Stack must have at least one value.
+#[inline]
+pub unsafe fn peek(stack: Stack) -> Value {
+    unsafe {
+        let sv = *stack.sub(1);
+        // Don't consume - need to clone for heap types
+        stack_value_to_value(clone_stack_value(&sv))
+    }
 }
+
+/// Peek at the raw StackValue without removing it
+///
+/// # Safety
+/// Stack must have at least one value.
+#[inline]
+pub unsafe fn peek_sv(stack: Stack) -> StackValue {
+    unsafe { *stack.sub(1) }
+}
+
+/// Check if stack is empty (at base pointer)
+/// Note: With tagged stack, we need to compare against base, not null
+#[inline]
+pub fn is_empty(_stack: Stack) -> bool {
+    // For now, assume stack is never truly empty in valid programs
+    // The caller should track base pointer if needed
+    false
+}
+
+// ============================================================================
+// FFI Stack Operations
+// ============================================================================
 
 /// Duplicate the top value on the stack: ( a -- a a )
 ///
 /// # Safety
-/// Stack must not be null
+/// Stack must have at least one value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_dup(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "dup: stack is empty");
-    // SAFETY NOTE: In Rust 2024 edition, even within `unsafe fn`, the body is not
-    // automatically an unsafe context. Explicit `unsafe {}` blocks are required for
-    // all unsafe operations (dereferencing raw pointers, calling unsafe functions).
-    // This is intentional and follows best practices for clarity about what's unsafe.
-    let value = unsafe { (*stack).value.clone() };
-    unsafe { push(stack, value) }
+    unsafe {
+        let sv = peek_sv(stack);
+        let cloned = clone_stack_value(&sv);
+        push_sv(stack, cloned)
+    }
 }
 
 /// Drop the top value from the stack: ( a -- )
 ///
 /// # Safety
-/// Stack must not be null
-pub unsafe fn drop(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "drop: stack is empty");
-    let (rest, _) = unsafe { pop(stack) };
-    rest
+/// Stack must have at least one value.
+#[inline]
+pub unsafe fn drop_top(stack: Stack) -> Stack {
+    unsafe {
+        let (new_sp, sv) = pop_sv(stack);
+        drop_stack_value(sv);
+        new_sp
+    }
 }
 
 /// Alias for drop to avoid LLVM keyword conflicts
 ///
-/// LLVM uses "drop" as a reserved word, so codegen calls this as drop_op
-///
 /// # Safety
-/// Stack must not be null
+/// Stack must have at least one value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_drop_op(stack: Stack) -> Stack {
-    unsafe { drop(stack) }
+    unsafe { drop_top(stack) }
 }
 
 /// Push an arbitrary Value onto the stack (for LLVM codegen)
 ///
-/// This is used by closure functions to push captured values.
-///
 /// # Safety
-/// Value must be a valid Value
-// Allow improper_ctypes_definitions: Called from LLVM IR (not C), both sides understand layout
+/// Stack pointer must be valid and have room for the value.
 #[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_push_value(stack: Stack, value: Value) -> Stack {
@@ -166,1255 +485,384 @@ pub unsafe extern "C" fn patch_seq_push_value(stack: Stack, value: Value) -> Sta
 /// Swap the top two values: ( a b -- b a )
 ///
 /// # Safety
-/// Stack must have at least two values
+/// Stack must have at least two values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_swap(stack: Stack) -> Stack {
-    let (rest, a, b) = unsafe { pop_two(stack, "swap") };
-    let stack = unsafe { push(rest, b) };
-    unsafe { push(stack, a) }
+    unsafe {
+        let ptr_b = stack.sub(1);
+        let ptr_a = stack.sub(2);
+        let a = *ptr_a;
+        let b = *ptr_b;
+        *ptr_a = b;
+        *ptr_b = a;
+        stack
+    }
 }
 
 /// Copy the second value to the top: ( a b -- a b a )
 ///
 /// # Safety
-/// Stack must have at least two values
+/// Stack must have at least two values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_over(stack: Stack) -> Stack {
-    let (rest, a, b) = unsafe { pop_two(stack, "over") };
-    let stack = unsafe { push(rest, a.clone()) };
-    let stack = unsafe { push(stack, b) };
-    unsafe { push(stack, a) }
+    unsafe {
+        let sv_a = *stack.sub(2);
+        let cloned = clone_stack_value(&sv_a);
+        push_sv(stack, cloned)
+    }
 }
 
 /// Rotate the top three values: ( a b c -- b c a )
 ///
 /// # Safety
-/// Stack must have at least three values
+/// Stack must have at least three values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_rot(stack: Stack) -> Stack {
-    let (rest, a, b, c) = unsafe { pop_three(stack, "rot") };
-    let stack = unsafe { push(rest, b) };
-    let stack = unsafe { push(stack, c) };
-    unsafe { push(stack, a) }
+    unsafe {
+        let ptr_c = stack.sub(1);
+        let ptr_b = stack.sub(2);
+        let ptr_a = stack.sub(3);
+        let a = *ptr_a;
+        let b = *ptr_b;
+        let c = *ptr_c;
+        *ptr_a = b;
+        *ptr_b = c;
+        *ptr_c = a;
+        stack
+    }
 }
 
 /// Remove the second value: ( a b -- b )
 ///
 /// # Safety
-/// Stack must have at least two values
+/// Stack must have at least two values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_nip(stack: Stack) -> Stack {
-    let (rest, _a, b) = unsafe { pop_two(stack, "nip") };
-    unsafe { push(rest, b) }
+    unsafe {
+        let ptr_b = stack.sub(1);
+        let ptr_a = stack.sub(2);
+        let a = *ptr_a;
+        let b = *ptr_b;
+        drop_stack_value(a);
+        *ptr_a = b;
+        stack.sub(1)
+    }
 }
 
 /// Copy top value below second value: ( a b -- b a b )
 ///
 /// # Safety
-/// Stack must have at least two values
+/// Stack must have at least two values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_tuck(stack: Stack) -> Stack {
-    let (rest, a, b) = unsafe { pop_two(stack, "tuck") };
-    let stack = unsafe { push(rest, b.clone()) };
-    let stack = unsafe { push(stack, a) };
-    unsafe { push(stack, b) }
+    unsafe {
+        let ptr_b = stack.sub(1);
+        let ptr_a = stack.sub(2);
+        let a = *ptr_a;
+        let b = *ptr_b;
+        let b_clone = clone_stack_value(&b);
+        *ptr_a = b;
+        *ptr_b = a;
+        push_sv(stack, b_clone)
+    }
 }
 
 /// Duplicate top two values: ( a b -- a b a b )
 ///
 /// # Safety
-/// Stack must have at least two values
+/// Stack must have at least two values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_2dup(stack: Stack) -> Stack {
-    let (rest, a, b) = unsafe { pop_two(stack, "2dup") };
-    let stack = unsafe { push(rest, a.clone()) };
-    let stack = unsafe { push(stack, b.clone()) };
-    let stack = unsafe { push(stack, a) };
-    unsafe { push(stack, b) }
+    unsafe {
+        let sv_a = *stack.sub(2);
+        let sv_b = *stack.sub(1);
+        let a_clone = clone_stack_value(&sv_a);
+        let b_clone = clone_stack_value(&sv_b);
+        let sp = push_sv(stack, a_clone);
+        push_sv(sp, b_clone)
+    }
 }
 
 /// Drop top three values: ( a b c -- )
 ///
 /// # Safety
-/// Stack must have at least three values
+/// Stack must have at least three values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_3drop(stack: Stack) -> Stack {
-    let (rest, _a, _b, _c) = unsafe { pop_three(stack, "3drop") };
-    rest
+    unsafe {
+        let (sp, sv_c) = pop_sv(stack);
+        let (sp, sv_b) = pop_sv(sp);
+        let (sp, sv_a) = pop_sv(sp);
+        drop_stack_value(sv_c);
+        drop_stack_value(sv_b);
+        drop_stack_value(sv_a);
+        sp
+    }
 }
 
-/// Pick: Copy the nth value to the top (0-indexed from top)
+/// Pick: Copy the nth value to the top
 /// ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
 ///
-/// Examples:
-/// - pick(0) is equivalent to dup
-/// - pick(1) is equivalent to over
-/// - pick(2) copies the third value to the top
-///
 /// # Safety
-/// Stack must have at least n+1 values
-pub unsafe fn pick(stack: Stack, n: usize) -> Stack {
-    assert!(!stack.is_null(), "pick: stack is empty");
-
-    // Walk down n nodes to find the target value
-    let mut current = stack;
-    for i in 0..n {
-        assert!(
-            !current.is_null(),
-            "pick: stack has only {} values, need at least {}",
-            i + 1,
-            n + 1
-        );
-        current = unsafe { (*current).next };
-    }
-
-    assert!(
-        !current.is_null(),
-        "pick: stack has only {} values, need at least {}",
-        n,
-        n + 1
-    );
-
-    // Clone the value at position n
-    let value = unsafe { (*current).value.clone() };
-
-    // Push it on top of the stack
-    unsafe { push(stack, value) }
-}
-
-/// Pick operation exposed to compiler
+/// Stack must have at least n+1 values (plus the index value).
 ///
-/// Copies a value from depth n to the top of the stack.
-///
-/// Stack effect: ( ..stack n -- ..stack value )
-/// where n is how deep to look (0 = top, 1 = second, etc.)
-///
-/// # Examples
-///
-/// ```cem
-/// 10 20 30 0 pick   # Stack: 10 20 30 30  (pick(0) = dup)
-/// 10 20 30 1 pick   # Stack: 10 20 30 20  (pick(1) = over)
-/// 10 20 30 2 pick   # Stack: 10 20 30 10  (pick(2) = third)
-/// ```
-///
-/// # Common Equivalences
-///
-/// - `pick(0)` is equivalent to `dup`  - copy top value
-/// - `pick(1)` is equivalent to `over` - copy second value
-/// - `pick(2)` copies third value (sometimes called "third")
-/// - `pick(n)` copies value at depth n
-///
-/// # Use Cases
-///
-/// Useful for building stack utilities like:
-/// - `third`: `2 pick` - access third item
-/// - `3dup`: `2 pick 2 pick 2 pick` - duplicate top three items
-/// - Complex stack manipulations without excessive rot/swap
-///
-/// # Safety
-/// Stack must have at least one value (the Int n), and at least n+1 values total
+/// # Panics
+/// - If the top value is not an Int
+/// - If n is negative
+/// - If n exceeds the current stack depth
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
-    use crate::value::Value;
+    unsafe {
+        // Get n from top of stack
+        let (sp, n_val) = pop(stack);
+        let n_raw = match n_val {
+            Value::Int(i) => i,
+            _ => panic!("pick: expected Int"),
+        };
 
-    assert!(!stack.is_null(), "pick: stack is empty");
-
-    // Peek at the depth value without popping (for better error messages)
-    let depth_value = unsafe { &(*stack).value };
-    let n = match depth_value {
-        Value::Int(i) => {
-            if *i < 0 {
-                panic!("pick: depth must be non-negative, got {}", i);
-            }
-            *i as usize
+        // Bounds check: n must be non-negative
+        if n_raw < 0 {
+            panic!("pick: index cannot be negative (got {})", n_raw);
         }
-        _ => panic!(
-            "pick: expected Int depth on top of stack, got {:?}",
-            depth_value
-        ),
-    };
+        let n = n_raw as usize;
 
-    // Count stack depth (excluding the depth parameter itself)
-    let mut count = 0;
-    let mut current = unsafe { (*stack).next };
-    while !current.is_null() {
-        count += 1;
-        current = unsafe { (*current).next };
+        // Check stack depth to prevent out-of-bounds access
+        let base = get_stack_base();
+        let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
+        if n >= depth {
+            panic!(
+                "pick: index {} exceeds stack depth {} (need at least {} values)",
+                n,
+                depth,
+                n + 1
+            );
+        }
+
+        // Get the value at depth n (0 = top after popping n)
+        let sv = *sp.sub(n + 1);
+        let cloned = clone_stack_value(&sv);
+        push_sv(sp, cloned)
     }
-
-    // Validate we have enough values
-    // Need: n+1 values total (depth parameter + n values below it)
-    // We have: 1 (depth param) + count
-    // So we need: count >= n + 1
-    if count < n + 1 {
-        panic!(
-            "pick: cannot access depth {} - stack has only {} value{} (need at least {})",
-            n,
-            count,
-            if count == 1 { "" } else { "s" },
-            n + 1
-        );
-    }
-
-    // Now pop the depth value and call internal pick
-    let (stack, _) = unsafe { pop(stack) };
-    unsafe { pick(stack, n) }
 }
 
 /// Roll: Rotate n+1 items, bringing the item at depth n to the top
 /// ( x_n x_(n-1) ... x_1 x_0 n -- x_(n-1) ... x_1 x_0 x_n )
 ///
-/// Examples:
-/// - roll(0) is a no-op (rotate 1 item)
-/// - roll(1) is equivalent to swap (rotate 2 items)
-/// - roll(2) is equivalent to rot (rotate 3 items)
-/// - roll(3) rotates 4 items: ( a b c d 3 -- b c d a )
-///
-/// This is the standard Forth ROLL word.
-///
 /// # Safety
-/// Stack must have the depth parameter (Int) on top, and at least n+1 values below it
+/// Stack must have at least n+1 values (plus the index value).
+///
+/// # Panics
+/// - If the top value is not an Int
+/// - If n is negative
+/// - If n exceeds the current stack depth
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
-    use crate::value::Value;
+    unsafe {
+        // Get n from top of stack
+        let (sp, n_val) = pop(stack);
+        let n_raw = match n_val {
+            Value::Int(i) => i,
+            _ => panic!("roll: expected Int"),
+        };
 
-    assert!(!stack.is_null(), "roll: stack is empty");
-
-    // Get the depth parameter
-    let depth_value = unsafe { &(*stack).value };
-    let n = match depth_value {
-        Value::Int(i) => {
-            if *i < 0 {
-                panic!("roll: depth must be non-negative, got {}", i);
-            }
-            *i as usize
+        // Bounds check: n must be non-negative
+        if n_raw < 0 {
+            panic!("roll: index cannot be negative (got {})", n_raw);
         }
-        _ => panic!(
-            "roll: expected Int depth on top of stack, got {:?}",
-            depth_value
-        ),
-    };
+        let n = n_raw as usize;
 
-    // Pop the depth parameter
-    let (stack, _) = unsafe { pop(stack) };
+        if n == 0 {
+            return sp;
+        }
+        if n == 1 {
+            return patch_seq_swap(sp);
+        }
+        if n == 2 {
+            return patch_seq_rot(sp);
+        }
 
-    // Special cases for efficiency
-    if n == 0 {
-        // roll(0) is a no-op
-        return stack;
+        // Check stack depth to prevent out-of-bounds access
+        let base = get_stack_base();
+        let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
+        if n >= depth {
+            panic!(
+                "roll: index {} exceeds stack depth {} (need at least {} values)",
+                n,
+                depth,
+                n + 1
+            );
+        }
+
+        // General case: save item at depth n, shift others, put saved at top
+        let src_ptr = sp.sub(n + 1);
+        let saved = *src_ptr;
+
+        // Shift items down: memmove from src+1 to src, n items
+        std::ptr::copy(src_ptr.add(1), src_ptr, n);
+
+        // Put saved item at top (sp - 1)
+        *sp.sub(1) = saved;
+
+        sp
     }
-    if n == 1 {
-        // roll(1) is swap
-        return unsafe { patch_seq_swap(stack) };
-    }
-    if n == 2 {
-        // roll(2) is rot
-        return unsafe { patch_seq_rot(stack) };
-    }
-
-    // General case: rotate n+1 items
-    // We need to pop n+1 items, then push them back in rotated order
-
-    // Validate stack depth
-    let mut count = 0;
-    let mut current = stack;
-    while !current.is_null() && count <= n {
-        count += 1;
-        current = unsafe { (*current).next };
-    }
-
-    if count < n + 1 {
-        panic!(
-            "roll: cannot rotate {} items - stack has only {} value{}",
-            n + 1,
-            count,
-            if count == 1 { "" } else { "s" }
-        );
-    }
-
-    // Pop n+1 items into a vector
-    let mut items = Vec::with_capacity(n + 1);
-    let mut current_stack = stack;
-    for _ in 0..=n {
-        let (rest, val) = unsafe { pop(current_stack) };
-        items.push(val);
-        current_stack = rest;
-    }
-
-    // items[0] = top, items[1] = second, ..., items[n] = bottom of rotated section
-    // We want: items[n] goes to top, items[0..n] shift down
-    // So push order is: items[n-1], items[n-2], ..., items[0], items[n]
-
-    // Take item[n] first using swap_remove (it goes on top at the end)
-    // swap_remove(n) moves the last element to position n, but n IS the last position,
-    // so this just removes and returns items[n]
-    let top_item = items.swap_remove(n);
-
-    // Push items in reverse order (items[n-1] down to items[0])
-    // Drain in reverse to consume the vector without cloning
-    for val in items.into_iter().rev() {
-        current_stack = unsafe { push(current_stack, val) };
-    }
-    // Push the saved item[n] on top (this was at depth n, now at top)
-    current_stack = unsafe { push(current_stack, top_item) };
-
-    current_stack
 }
 
-/// Clone a stack - creates a deep copy of all values
+/// Clone a stack segment
 ///
-/// This is used by spawn to pass a copy of the parent's stack to the child.
-/// Returns a new stack with cloned values, or null if input is null.
-///
-/// NOTE: This uses Box allocation instead of pool allocation because the
-/// cloned stack will be used by a different strand (different thread context).
-/// Thread-local pools are not shared between strands.
+/// Clones `count` StackValues from src to dst, handling refcounts.
 ///
 /// # Safety
-/// Stack pointer must be valid (or null for empty stack)
-pub unsafe fn clone_stack(stack: Stack) -> Stack {
-    if stack.is_null() {
-        return std::ptr::null_mut();
+/// Both src and dst must be valid stack pointers with sufficient space for count values.
+pub unsafe fn clone_stack_segment(src: Stack, dst: Stack, count: usize) {
+    unsafe {
+        for i in 0..count {
+            let sv = *src.sub(count - i);
+            let cloned = clone_stack_value(&sv);
+            *dst.add(i) = cloned;
+        }
     }
-
-    // Collect all values (bottom to top for correct push order)
-    let mut values = Vec::new();
-    let mut current = stack;
-    while !current.is_null() {
-        values.push(unsafe { (*current).value.clone() });
-        current = unsafe { (*current).next };
-    }
-
-    // Build new stack using Box allocation (not pool) for cross-strand safety
-    // We can't use the thread-local pool because this stack will be used by another strand
-    let mut new_stack: Stack = std::ptr::null_mut();
-    for value in values.into_iter().rev() {
-        let node = Box::new(StackNode {
-            value,
-            next: new_stack,
-        });
-        new_stack = Box::into_raw(node);
-    }
-
-    new_stack
 }
 
-// Public re-exports with short names for internal use
+// ============================================================================
+// Coroutine-Local Stack Base Tracking (for spawn)
+// ============================================================================
+//
+// IMPORTANT: We use May's coroutine_local! instead of thread_local! because
+// May coroutines can migrate between OS threads. Using thread_local would cause
+// STACK_BASE to be lost when a coroutine is moved to a different thread.
+
+use std::cell::Cell;
+
+// Use coroutine-local storage that moves with the coroutine
+may::coroutine_local!(static STACK_BASE: Cell<usize> = Cell::new(0));
+
+/// Set the current strand's stack base (called at strand entry)
+///
+/// # Safety
+/// Base pointer must be a valid stack pointer for the current strand.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_set_stack_base(base: Stack) {
+    STACK_BASE.with(|cell| {
+        cell.set(base as usize);
+    });
+}
+
+/// Get the current strand's stack base
+#[inline]
+pub fn get_stack_base() -> Stack {
+    STACK_BASE.with(|cell| cell.get() as *mut StackValue)
+}
+
+/// Clone the current stack for spawning a child strand
+///
+/// Allocates a new stack buffer and copies all values from the current stack.
+/// Returns a pointer to the first value in the new stack (like Stack convention).
+///
+/// # Safety
+/// - Current stack must have a valid base set via set_stack_base
+/// - sp must point to a valid position within the current stack
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn clone_stack(sp: Stack) -> Stack {
+    unsafe {
+        let (new_sp, _base) = clone_stack_with_base(sp);
+        new_sp
+    }
+}
+
+/// Clone the current stack for spawning, returning both base and sp.
+///
+/// This is used by spawn to create a copy of the parent's stack for the child strand.
+/// Returns (new_sp, new_base) so the spawn mechanism can set STACK_BASE for the child.
+///
+/// # Safety
+/// Current stack must have a valid base set via set_stack_base and sp must point to a valid position.
+pub unsafe fn clone_stack_with_base(sp: Stack) -> (Stack, Stack) {
+    let base = get_stack_base();
+    if base.is_null() {
+        panic!("clone_stack: stack base not set");
+    }
+
+    // Calculate depth (number of values on stack)
+    let depth = unsafe { sp.offset_from(base) as usize };
+
+    if depth == 0 {
+        // Empty stack - still need to allocate a buffer
+        use crate::tagged_stack::{DEFAULT_STACK_CAPACITY, TaggedStack};
+        let new_stack = TaggedStack::new(DEFAULT_STACK_CAPACITY);
+        let new_base = new_stack.base;
+        std::mem::forget(new_stack); // Don't drop - caller owns memory
+        return (new_base, new_base);
+    }
+
+    // Allocate new stack with capacity for at least the current depth
+    use crate::tagged_stack::{DEFAULT_STACK_CAPACITY, TaggedStack};
+    let capacity = depth.max(DEFAULT_STACK_CAPACITY);
+    let new_stack = TaggedStack::new(capacity);
+    let new_base = new_stack.base;
+    std::mem::forget(new_stack); // Don't drop - caller owns memory
+
+    // Clone all values from base to sp
+    unsafe {
+        for i in 0..depth {
+            let sv = &*base.add(i);
+            let cloned = clone_stack_value(sv);
+            *new_base.add(i) = cloned;
+        }
+    }
+
+    // Return both sp and base
+    unsafe { (new_base.add(depth), new_base) }
+}
+
+// ============================================================================
+// Short Aliases for Internal/Test Use
+// ============================================================================
+
 pub use patch_seq_2dup as two_dup;
 pub use patch_seq_3drop as three_drop;
-pub use patch_seq_drop_op as drop_op;
 pub use patch_seq_dup as dup;
 pub use patch_seq_nip as nip;
 pub use patch_seq_over as over;
-pub use patch_seq_pick_op as pick_op;
-pub use patch_seq_push_value as push_value;
+pub use patch_seq_pick_op as pick;
 pub use patch_seq_roll as roll;
 pub use patch_seq_rot as rot;
 pub use patch_seq_swap as swap;
 pub use patch_seq_tuck as tuck;
 
+// ============================================================================
+// Stack Allocation Helpers
+// ============================================================================
+
+/// Allocate a new stack with default capacity.
+/// Returns a pointer to the base of the stack (where first push goes).
+///
+/// # Note
+/// The returned stack is allocated but not tracked.
+/// The memory will be leaked when the caller is done with it.
+/// This is used for temporary stacks in quotation calls and tests.
+pub fn alloc_stack() -> Stack {
+    use crate::tagged_stack::TaggedStack;
+    let stack = TaggedStack::with_default_capacity();
+    let base = stack.base;
+    std::mem::forget(stack); // Don't drop - caller owns memory
+    base
+}
+
+/// Allocate a new test stack and set it as the stack base
+/// This is used in tests that need clone_stack to work
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    /// Test helper: Create a stack with integer values
-    fn make_stack(values: &[i64]) -> Stack {
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            for &val in values {
-                stack = push(stack, Value::Int(val));
-            }
-            stack
-        }
-    }
-
-    /// Test helper: Pop all values from stack and return as Vec
-    fn drain_stack(mut stack: Stack) -> Vec<Value> {
-        unsafe {
-            let mut values = Vec::new();
-            while !is_empty(stack) {
-                let (rest, val) = pop(stack);
-                stack = rest;
-                values.push(val);
-            }
-            values
-        }
-    }
-
-    /// Test helper: Assert stack contains expected integer values (top to bottom)
-    fn assert_stack_ints(stack: Stack, expected: &[i64]) {
-        let values = drain_stack(stack);
-        let ints: Vec<i64> = values
-            .into_iter()
-            .map(|v| match v {
-                Value::Int(n) => n,
-                _ => panic!("Expected Int, got {:?}", v),
-            })
-            .collect();
-        assert_eq!(ints, expected);
-    }
-
-    #[test]
-    fn test_push_pop() {
-        unsafe {
-            let stack = std::ptr::null_mut();
-            assert!(is_empty(stack));
-
-            let stack = push(stack, Value::Int(42));
-            assert!(!is_empty(stack));
-
-            let (stack, value) = pop(stack);
-            assert_eq!(value, Value::Int(42));
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_multiple_values() {
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_peek() {
-        unsafe {
-            let stack = push(std::ptr::null_mut(), Value::Int(42));
-            let peeked = peek(stack);
-            assert_eq!(*peeked, Value::Int(42));
-
-            // Value still there
-            let (stack, value) = pop(stack);
-            assert_eq!(value, Value::Int(42));
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_dup() {
-        unsafe {
-            let stack = push(std::ptr::null_mut(), Value::Int(42));
-            let stack = dup(stack);
-
-            // Should have two copies of 42
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(42));
-
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(42));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_drop() {
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-
-            // Drop top value (3)
-            stack = drop(stack);
-
-            // Should have 2 on top now
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_swap() {
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-
-            // Swap: 1 2 -> 2 1
-            stack = swap(stack);
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_composition() {
-        // Test: compose swap + drop + dup to verify operations work together
-        // Trace:
-        // Start:  [1]
-        // push 2: [2, 1]
-        // push 3: [3, 2, 1]
-        // swap:   [2, 3, 1]  (swap top two)
-        // drop:   [3, 1]     (remove top)
-        // dup:    [3, 3, 1]  (duplicate top)
-        unsafe {
-            let mut stack = make_stack(&[1, 2, 3]);
-
-            stack = swap(stack);
-            stack = drop(stack);
-            stack = dup(stack);
-
-            assert_stack_ints(stack, &[3, 3, 1]);
-        }
-    }
-
-    #[test]
-    fn test_over() {
-        // over: ( a b -- a b a )
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-
-            stack = over(stack); // [1, 2, 1]
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_rot() {
-        // rot: ( a b c -- b c a )
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-
-            stack = rot(stack); // [1, 3, 2]
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_nip() {
-        // nip: ( a b -- b )
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-
-            stack = nip(stack); // [2]
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_tuck() {
-        // tuck: ( a b -- b a b )
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-
-            stack = tuck(stack); // [2, 1, 2]
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_critical_shuffle_pattern() {
-        // This is THE CRITICAL TEST that failed in cem2!
-        // In cem2, this shuffle pattern caused variant field corruption because
-        // StackCell.next pointers were used for BOTH stack linking AND variant fields.
-        // When the stack was shuffled, next pointers became stale, corrupting variants.
-        //
-        // In Seq, this CANNOT happen because:
-        // - StackNode.next is ONLY for stack structure
-        // - Variant fields are stored in Box<[Value]> arrays
-        // - Values are independent of stack position
-        //
-        // Shuffle pattern: rot swap rot rot swap
-        // This was extracted from the list-reverse-helper function
-
-        unsafe {
-            let mut stack = make_stack(&[1, 2, 3, 4, 5]);
-
-            // Initial state: [5, 4, 3, 2, 1] (top to bottom)
-            //
-            // Apply the critical shuffle pattern:
-            stack = rot(stack);
-            // rot: ( a b c -- b c a )
-            // Before: [5, 4, 3, 2, 1]
-            //          ^  ^  ^
-            // After:  [3, 5, 4, 2, 1]
-
-            stack = swap(stack);
-            // swap: ( a b -- b a )
-            // Before: [3, 5, 4, 2, 1]
-            //          ^  ^
-            // After:  [5, 3, 4, 2, 1]
-
-            stack = rot(stack);
-            // rot: ( a b c -- b c a )
-            // Before: [5, 3, 4, 2, 1]
-            //          ^  ^  ^
-            // After:  [4, 5, 3, 2, 1]
-
-            stack = rot(stack);
-            // rot: ( a b c -- b c a )
-            // Before: [4, 5, 3, 2, 1]
-            //          ^  ^  ^
-            // After:  [3, 4, 5, 2, 1]
-
-            stack = swap(stack);
-            // swap: ( a b -- b a )
-            // Before: [3, 4, 5, 2, 1]
-            //          ^  ^
-            // After:  [4, 3, 5, 2, 1]
-
-            // Final state: [4, 3, 5, 2, 1] (top to bottom)
-            // Verify every value is intact - no corruption
-            assert_stack_ints(stack, &[4, 3, 5, 2, 1]);
-        }
-    }
-
-    #[test]
-    fn test_pick_0_is_dup() {
-        // pick(0) should be equivalent to dup
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(42));
-
-            stack = pick(stack, 0);
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(42));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(42));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_pick_1_is_over() {
-        // pick(1) should be equivalent to over
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-
-            stack = pick(stack, 1);
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_pick_deep() {
-        // Test picking from deeper in the stack
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-            stack = push(stack, Value::Int(4));
-            stack = push(stack, Value::Int(5));
-
-            // pick(3) should copy the 4th value (2) to the top
-            // Stack: [5, 4, 3, 2, 1]
-            //         0  1  2  3  <- indices
-            stack = pick(stack, 3); // [2, 5, 4, 3, 2, 1]
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(5));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(4));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-
-            assert!(is_empty(stack));
-        }
-    }
-
-    #[test]
-    fn test_multifield_variant_survives_shuffle() {
-        // THE TEST THAT WOULD HAVE FAILED IN CEM2!
-        // Create a multi-field variant (simulating Cons(head, tail)),
-        // apply the critical shuffle pattern, and verify variant is intact
-        use crate::value::VariantData;
-
-        unsafe {
-            // Create a Cons-like variant: Cons(42, Nil)
-            // Tag 0 = Nil, Tag 1 = Cons
-            let nil = Value::Variant(Arc::new(VariantData::new(0, vec![])));
-            let cons = Value::Variant(Arc::new(VariantData::new(
-                1,
-                vec![Value::Int(42), nil.clone()],
-            )));
-
-            // Put the variant on the stack with some other values
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(100)); // Extra value
-            stack = push(stack, Value::Int(200)); // Extra value
-            stack = push(stack, cons.clone()); // Our variant
-            stack = push(stack, Value::Int(300)); // Extra value
-            stack = push(stack, Value::Int(400)); // Extra value
-
-            // Apply the CRITICAL SHUFFLE PATTERN that broke cem2
-            stack = rot(stack); // Rotate top 3
-            stack = swap(stack); // Swap top 2
-            stack = rot(stack); // Rotate top 3
-            stack = rot(stack); // Rotate top 3
-            stack = swap(stack); // Swap top 2
-
-            // Pop all values and find our variant
-            let mut found_variant = None;
-            while !is_empty(stack) {
-                let (rest, val) = pop(stack);
-                stack = rest;
-                if matches!(val, Value::Variant(_)) {
-                    found_variant = Some(val);
-                }
-            }
-
-            // Verify the variant is intact
-            assert!(found_variant.is_some(), "Variant was lost during shuffle!");
-
-            if let Some(Value::Variant(variant_data)) = found_variant {
-                assert_eq!(variant_data.tag, 1, "Variant tag corrupted!");
-                assert_eq!(
-                    variant_data.fields.len(),
-                    2,
-                    "Variant field count corrupted!"
-                );
-                assert_eq!(
-                    variant_data.fields[0],
-                    Value::Int(42),
-                    "First field corrupted!"
-                );
-
-                // Verify second field is Nil variant
-                if let Value::Variant(nil_data) = &variant_data.fields[1] {
-                    assert_eq!(nil_data.tag, 0, "Nested variant tag corrupted!");
-                    assert_eq!(nil_data.fields.len(), 0, "Nested variant should be empty!");
-                } else {
-                    panic!("Second field should be a Variant!");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_arbitrary_depth_operations() {
-        // Property: Operations should work at any stack depth
-        // Test with 100-deep stack, then manipulate top elements
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-
-            // Build a 100-deep stack
-            for i in 0..100 {
-                stack = push(stack, Value::Int(i));
-            }
-
-            // Operations on top should work regardless of depth below
-            stack = dup(stack); // [99, 99, 98, 97, ..., 0]
-            stack = swap(stack); // [99, 99, 98, 97, ..., 0]
-            stack = over(stack); // [99, 99, 99, 98, 97, ..., 0]
-            stack = rot(stack); // [99, 99, 99, 98, 97, ..., 0]
-            stack = drop(stack); // [99, 99, 98, 97, ..., 0]
-
-            // Verify we can still access deep values with pick
-            stack = pick(stack, 50); // Should copy value at depth 50
-
-            // Pop and verify stack is still intact
-            let mut count = 0;
-            while !is_empty(stack) {
-                let (rest, _val) = pop(stack);
-                stack = rest;
-                count += 1;
-            }
-
-            // Started with 100, added 1 with dup, added 1 with over, dropped 1, picked 1
-            assert_eq!(count, 102);
-        }
-    }
-
-    #[test]
-    fn test_operation_composition_completeness() {
-        // Property: Any valid sequence of operations should succeed
-        // Test complex composition with multiple operation types
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-
-            // Build initial state
-            for i in 1..=10 {
-                stack = push(stack, Value::Int(i));
-            }
-
-            // Complex composition: mix all operation types
-            // [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-            stack = dup(stack); // [10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-            stack = over(stack); // [10, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-            stack = rot(stack); // [10, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-            stack = swap(stack); // Top two swapped
-            stack = nip(stack); // Remove second
-            stack = tuck(stack); // Copy top below second
-            stack = pick(stack, 5); // Copy from depth 5
-            stack = drop(stack); // Remove top
-
-            // If we get here without panic, composition works
-            // Verify stack still has values and is traversable
-            let mut depth = 0;
-            let mut current = stack;
-            while !current.is_null() {
-                depth += 1;
-                current = (*current).next;
-            }
-
-            assert!(depth > 0, "Stack should not be empty after operations");
-        }
-    }
-
-    #[test]
-    fn test_pick_at_arbitrary_depths() {
-        // Property: pick(n) should work for any n < stack_depth
-        // Verify pick can access any depth without corruption
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-
-            // Build stack with identifiable values
-            for i in 0..50 {
-                stack = push(stack, Value::Int(i * 10));
-            }
-
-            // Pick from various depths and verify values
-            // Stack is: [490, 480, 470, ..., 20, 10, 0]
-            //            0    1    2         47  48  49
-
-            stack = pick(stack, 0); // Should get 490
-            let (mut stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(490));
-
-            stack = pick(stack, 10); // Should get value at depth 10
-            let (mut stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(390)); // (49-10) * 10
-
-            stack = pick(stack, 40); // Deep pick
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(90)); // (49-40) * 10
-
-            // After all these operations, stack should still be intact
-            let mut count = 0;
-            let mut current = stack;
-            while !current.is_null() {
-                count += 1;
-                current = (*current).next;
-            }
-
-            assert_eq!(count, 50, "Stack depth should be unchanged");
-        }
-    }
-
-    #[test]
-    fn test_pick_op_equivalence_to_dup() {
-        // pick_op(0) should behave like dup
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(42));
-            stack = push(stack, Value::Int(0)); // depth parameter
-
-            stack = pick_op(stack);
-
-            // Should have two 42s on stack
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(42));
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(42));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_pick_op_equivalence_to_over() {
-        // pick_op(1) should behave like over
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(10));
-            stack = push(stack, Value::Int(20));
-            stack = push(stack, Value::Int(1)); // depth parameter
-
-            stack = pick_op(stack);
-
-            // Should have: 10 20 10
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(10));
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(20));
-            let (stack, val3) = pop(stack);
-            assert_eq!(val3, Value::Int(10));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_pick_op_deep_access() {
-        // Test accessing deeper stack values
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            for i in 0..10 {
-                stack = push(stack, Value::Int(i));
-            }
-            stack = push(stack, Value::Int(5)); // depth parameter
-
-            stack = pick_op(stack);
-
-            // Should have copied value at depth 5 (which is 4) to top
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(4));
-
-            // Stack should still have original 10 values
-            let mut count = 0;
-            let mut current = stack;
-            while !current.is_null() {
-                count += 1;
-                current = (*current).next;
-            }
-            assert_eq!(count, 10);
-        }
-    }
-
-    // Note: Cannot test panic cases (negative depth, insufficient stack depth)
-    // because extern "C" functions cannot be caught with #[should_panic].
-    // These cases are validated at runtime with descriptive panic messages.
-    // See examples/test-pick.seq for integration testing of valid cases.
-
-    #[test]
-    fn test_roll_0_is_noop() {
-        // roll(0) should be a no-op
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(42));
-            stack = push(stack, Value::Int(0)); // depth parameter
-
-            stack = roll(stack);
-
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(42));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_roll_1_is_swap() {
-        // roll(1) should be equivalent to swap
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(1)); // depth parameter
-
-            stack = roll(stack);
-
-            // 1 2 -> 2 1
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(1));
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(2));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_roll_2_is_rot() {
-        // roll(2) should be equivalent to rot
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-            stack = push(stack, Value::Int(2)); // depth parameter
-
-            stack = roll(stack);
-
-            // 1 2 3 -> 2 3 1 (rot brings 3rd item to top)
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(1));
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(3));
-            let (stack, val3) = pop(stack);
-            assert_eq!(val3, Value::Int(2));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_roll_3_rotates_4_items() {
-        // roll(3) rotates 4 items: ( a b c d 3 -- b c d a )
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(1)); // bottom
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-            stack = push(stack, Value::Int(4)); // top
-            stack = push(stack, Value::Int(3)); // depth parameter
-
-            stack = roll(stack);
-
-            // 1 2 3 4 -> 2 3 4 1
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(1)); // was at depth 3, now on top
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(4));
-            let (stack, val3) = pop(stack);
-            assert_eq!(val3, Value::Int(3));
-            let (stack, val4) = pop(stack);
-            assert_eq!(val4, Value::Int(2));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_roll_deep() {
-        // Test rolling with more items
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            for i in 0..10 {
-                stack = push(stack, Value::Int(i));
-            }
-            // Stack is: 9 8 7 6 5 4 3 2 1 0 (9 on top, 0 at bottom)
-            stack = push(stack, Value::Int(5)); // depth parameter
-
-            stack = roll(stack);
-
-            // roll(5) brings item at depth 5 (which is 4) to top
-            // Stack becomes: 4 9 8 7 6 5 3 2 1 0
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(4)); // 4 is now on top
-
-            // Verify rest of stack
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(9));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(8));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(7));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(6));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(5));
-            // Note: 4 was moved to top, so now we have 3
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(3));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(2));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(1));
-            let (stack, val) = pop(stack);
-            assert_eq!(val, Value::Int(0));
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_roll_with_extra_stack() {
-        // Roll should only affect the top n+1 items, leaving rest unchanged
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-            stack = push(stack, Value::Int(100)); // This should not be affected
-            stack = push(stack, Value::Int(1));
-            stack = push(stack, Value::Int(2));
-            stack = push(stack, Value::Int(3));
-            stack = push(stack, Value::Int(4));
-            stack = push(stack, Value::Int(3)); // depth parameter
-
-            stack = roll(stack);
-
-            // 1 2 3 4 -> 2 3 4 1, but 100 at bottom unchanged
-            let (stack, val1) = pop(stack);
-            assert_eq!(val1, Value::Int(1));
-            let (stack, val2) = pop(stack);
-            assert_eq!(val2, Value::Int(4));
-            let (stack, val3) = pop(stack);
-            assert_eq!(val3, Value::Int(3));
-            let (stack, val4) = pop(stack);
-            assert_eq!(val4, Value::Int(2));
-            let (stack, val5) = pop(stack);
-            assert_eq!(val5, Value::Int(100)); // Unchanged
-            assert!(stack.is_null());
-        }
-    }
-
-    #[test]
-    fn test_operations_preserve_stack_integrity() {
-        // Property: After any operation, walking the stack should never loop
-        // This catches next pointer corruption
-        unsafe {
-            let mut stack = std::ptr::null_mut();
-
-            for i in 0..20 {
-                stack = push(stack, Value::Int(i));
-            }
-
-            // Apply operations that manipulate next pointers heavily
-            stack = swap(stack);
-            stack = rot(stack);
-            stack = swap(stack);
-            stack = rot(stack);
-            stack = over(stack);
-            stack = tuck(stack);
-
-            // Walk stack and verify:
-            // 1. No cycles (walk completes)
-            // 2. No null mid-stack (all nodes valid until end)
-            let mut visited = std::collections::HashSet::new();
-            let mut current = stack;
-            let mut count = 0;
-
-            while !current.is_null() {
-                // Check for cycle
-                assert!(
-                    visited.insert(current as usize),
-                    "Detected cycle in stack - next pointer corruption!"
-                );
-
-                count += 1;
-                current = (*current).next;
-
-                // Safety: prevent infinite loop in case of corruption
-                assert!(
-                    count < 1000,
-                    "Stack walk exceeded reasonable depth - likely corrupted"
-                );
-            }
-
-            assert!(count > 0, "Stack should have elements");
-        }
-    }
-
-    #[test]
-    fn test_nested_variants_with_deep_stacks() {
-        // Property: Variants with nested variants survive deep stack operations
-        // This combines depth + complex data structures
-        use crate::value::VariantData;
-
-        unsafe {
-            // Build deeply nested variant: Cons(1, Cons(2, Cons(3, Nil)))
-            let nil = Value::Variant(Arc::new(VariantData::new(0, vec![])));
-            let cons3 = Value::Variant(Arc::new(VariantData::new(1, vec![Value::Int(3), nil])));
-            let cons2 = Value::Variant(Arc::new(VariantData::new(1, vec![Value::Int(2), cons3])));
-            let cons1 = Value::Variant(Arc::new(VariantData::new(1, vec![Value::Int(1), cons2])));
-
-            // Put on deep stack
-            let mut stack = std::ptr::null_mut();
-            for i in 0..30 {
-                stack = push(stack, Value::Int(i));
-            }
-            stack = push(stack, cons1.clone());
-            for i in 30..60 {
-                stack = push(stack, Value::Int(i));
-            }
-
-            // Heavy shuffling in the region containing the variant
-            for _ in 0..10 {
-                stack = rot(stack);
-                stack = swap(stack);
-                stack = over(stack);
-                stack = drop(stack);
-            }
-
-            // Find and verify the nested variant is intact
-            let mut found_variant = None;
-            while !is_empty(stack) {
-                let (rest, val) = pop(stack);
-                stack = rest;
-                if let Value::Variant(ref vdata) = val
-                    && vdata.tag == 1
-                    && vdata.fields.len() == 2
-                    && let Value::Int(1) = vdata.fields[0]
-                {
-                    found_variant = Some(val);
-                    break;
-                }
-            }
-
-            assert!(
-                found_variant.is_some(),
-                "Nested variant lost during deep stack operations"
-            );
-        }
-    }
+pub fn alloc_test_stack() -> Stack {
+    let stack = alloc_stack();
+    unsafe { patch_seq_set_stack_base(stack) };
+    stack
+}
+
+/// Macro to create a test stack
+#[macro_export]
+macro_rules! test_stack {
+    () => {{
+        use $crate::tagged_stack::StackValue;
+        static mut BUFFER: [StackValue; 256] = unsafe { std::mem::zeroed() };
+        unsafe { BUFFER.as_mut_ptr() }
+    }};
 }

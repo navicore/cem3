@@ -428,13 +428,12 @@ mod tests {
                 vec![Value::Int(10), Value::Int(20), Value::Int(30)],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, variant);
             let stack = variant_field_count(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(3));
-            assert!(stack.is_null());
         }
     }
 
@@ -444,13 +443,12 @@ mod tests {
             // Create a variant with tag 42
             let variant = Value::Variant(Arc::new(VariantData::new(42, vec![Value::Int(10)])));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, variant);
             let stack = variant_tag(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(42));
-            assert!(stack.is_null());
         }
     }
 
@@ -471,32 +469,29 @@ mod tests {
             )));
 
             // Test accessing field 0
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, variant.clone());
             let stack = push(stack, Value::Int(0));
             let stack = variant_field_at(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::String(str1.clone()));
-            assert!(stack.is_null());
 
             // Test accessing field 1
             let stack = push(stack, variant.clone());
             let stack = push(stack, Value::Int(1));
             let stack = variant_field_at(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(42));
-            assert!(stack.is_null());
 
             // Test accessing field 2
             let stack = push(stack, variant.clone());
             let stack = push(stack, Value::Int(2));
             let stack = variant_field_at(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::String(str2));
-            assert!(stack.is_null());
         }
     }
 
@@ -506,13 +501,12 @@ mod tests {
             // Create a variant with no fields
             let variant = Value::Variant(Arc::new(VariantData::new(0, vec![])));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, variant);
             let stack = variant_field_count(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
-            assert!(stack.is_null());
         }
     }
 
@@ -521,7 +515,7 @@ mod tests {
         unsafe {
             // Create: 10 20 30 42 make-variant-3
             // Should produce variant with tag 42 and fields [10, 20, 30]
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(10)); // field 0
             let stack = push(stack, Value::Int(20)); // field 1
             let stack = push(stack, Value::Int(30)); // field 2
@@ -529,7 +523,7 @@ mod tests {
 
             let stack = make_variant_3(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
 
             match result {
                 Value::Variant(v) => {
@@ -541,7 +535,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -550,12 +543,12 @@ mod tests {
         unsafe {
             // Create: 0 make-variant-0
             // Should produce variant with tag 0 and no fields
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(0)); // tag
 
             let stack = make_variant_0(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
 
             match result {
                 Value::Variant(v) => {
@@ -564,7 +557,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -574,7 +566,7 @@ mod tests {
             let s = global_string("hello".to_string());
 
             // Create variant with mixed field types using make-variant-3
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(42));
             let stack = push(stack, Value::String(s.clone()));
             let stack = push(stack, Value::Float(3.5));
@@ -582,7 +574,7 @@ mod tests {
 
             let stack = make_variant_3(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
 
             match result {
                 Value::Variant(v) => {
@@ -594,7 +586,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -602,7 +593,7 @@ mod tests {
     fn test_variant_append() {
         unsafe {
             // Create an empty variant (tag 4 for array)
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(4)); // tag (array)
             let stack = make_variant_0(stack);
 
@@ -611,7 +602,7 @@ mod tests {
             let stack = variant_append(stack);
 
             // Check result
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.tag, 4);
@@ -620,7 +611,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -628,7 +618,7 @@ mod tests {
     fn test_variant_append_multiple() {
         unsafe {
             // Create an empty variant (tag 5 for object)
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(5)); // tag (object)
             let stack = make_variant_0(stack);
 
@@ -643,7 +633,7 @@ mod tests {
             let stack = variant_append(stack);
 
             // Check result - should have 2 fields
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.tag, 5);
@@ -653,7 +643,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -666,13 +655,12 @@ mod tests {
                 vec![Value::Int(10), Value::Int(20), Value::Int(30)],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, variant);
             let stack = variant_last(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(30));
-            assert!(stack.is_null());
         }
     }
 
@@ -685,11 +673,11 @@ mod tests {
                 vec![Value::Int(10), Value::Int(20), Value::Int(30)],
             )));
 
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, variant);
             let stack = variant_init(stack);
 
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.tag, 42); // tag preserved
@@ -699,7 +687,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 
@@ -708,7 +695,7 @@ mod tests {
         // Test using variant as a stack: append, append, last, init, last
         unsafe {
             // Create empty "stack" variant (tag 99)
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::Int(99)); // tag
             let stack = make_variant_0(stack);
 
@@ -741,7 +728,7 @@ mod tests {
             assert_eq!(top, Value::Int(10));
 
             // Verify remaining variant has 1 field
-            let (stack, result) = pop(stack);
+            let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
                     assert_eq!(v.fields.len(), 1);
@@ -749,7 +736,6 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
-            assert!(stack.is_null());
         }
     }
 

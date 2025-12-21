@@ -56,6 +56,16 @@ impl MapKey {
 /// This is pure data with no pointers to other values.
 /// Values can be pushed on the stack, stored in variants, etc.
 /// The key insight: Value is independent of Stack structure.
+///
+/// # Memory Layout
+///
+/// Using `#[repr(C)]` ensures a predictable C-compatible layout:
+/// - Discriminant (tag) at offset 0
+/// - Payload data follows at a fixed offset
+///
+/// This allows compiled code to write Values directly without FFI calls,
+/// enabling inline integer/boolean operations for better performance.
+#[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// Integer value
@@ -157,3 +167,87 @@ impl VariantData {
 
 // We'll implement proper cleanup in Drop later
 // For now, Rust's ownership handles most of it
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::{align_of, size_of};
+
+    #[test]
+    fn test_value_layout() {
+        // Print sizes for debugging
+        println!("size_of::<Value>() = {}", size_of::<Value>());
+        println!("align_of::<Value>() = {}", align_of::<Value>());
+
+        // Verify Value is exactly 40 bytes to match StackValue layout
+        // This is critical for FFI correctness between LLVM IR and Rust
+        use crate::tagged_stack::StackValue;
+        assert_eq!(
+            size_of::<Value>(),
+            size_of::<StackValue>(),
+            "Value ({} bytes) must match StackValue ({} bytes) for FFI compatibility",
+            size_of::<Value>(),
+            size_of::<StackValue>()
+        );
+        assert_eq!(
+            size_of::<Value>(),
+            40,
+            "Value must be exactly 40 bytes, got {}",
+            size_of::<Value>()
+        );
+
+        // Verify alignment is 8 (for 64-bit pointers)
+        assert_eq!(align_of::<Value>(), 8);
+    }
+
+    #[test]
+    fn test_value_int_layout() {
+        let val = Value::Int(42);
+        let ptr = &val as *const Value as *const u8;
+
+        unsafe {
+            // With #[repr(C)], the discriminant is at offset 0
+            // For 8 variants, discriminant fits in 1 byte but is padded
+            let discriminant_byte = *ptr;
+            assert_eq!(
+                discriminant_byte, 0,
+                "Int discriminant should be 0, got {}",
+                discriminant_byte
+            );
+
+            // The i64 value should be at a fixed offset after the discriminant
+            // With C repr, it's typically at offset 8 (discriminant + padding)
+            let value_ptr = ptr.add(8) as *const i64;
+            let stored_value = *value_ptr;
+            assert_eq!(
+                stored_value, 42,
+                "Int value should be 42 at offset 8, got {}",
+                stored_value
+            );
+        }
+    }
+
+    #[test]
+    fn test_value_bool_layout() {
+        let val_true = Value::Bool(true);
+        let val_false = Value::Bool(false);
+        let ptr_true = &val_true as *const Value as *const u8;
+        let ptr_false = &val_false as *const Value as *const u8;
+
+        unsafe {
+            // Bool is variant index 2 (after Int=0, Float=1)
+            let discriminant = *ptr_true;
+            assert_eq!(
+                discriminant, 2,
+                "Bool discriminant should be 2, got {}",
+                discriminant
+            );
+
+            // The bool value should be at offset 8
+            let value_ptr_true = ptr_true.add(8);
+            let value_ptr_false = ptr_false.add(8);
+            assert_eq!(*value_ptr_true, 1, "true should be 1");
+            assert_eq!(*value_ptr_false, 0, "false should be 0");
+        }
+    }
+}

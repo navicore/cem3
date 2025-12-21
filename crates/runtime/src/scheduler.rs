@@ -15,8 +15,8 @@
 //! In a production system, consider implementing error channels or Result-based
 //! error handling instead of panicking.
 
-use crate::pool;
-use crate::stack::{Stack, StackNode};
+use crate::stack::Stack;
+use crate::tagged_stack::StackValue;
 use may::coroutine;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, Once};
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn patch_seq_scheduler_shutdown() {
 ///
 /// # Safety
 /// - `entry` must be a valid function pointer that can safely execute on any thread
-/// - `initial_stack` must be either null or a valid pointer to a `StackNode` that:
+/// - `initial_stack` must be either null or a valid pointer to a `StackValue` that:
 ///   - Was heap-allocated (e.g., via Box)
 ///   - Has a 'static lifetime or lives longer than the coroutine
 ///   - Is safe to access from the spawned thread
@@ -342,6 +342,27 @@ pub unsafe extern "C" fn patch_seq_scheduler_shutdown() {
 pub unsafe extern "C" fn patch_seq_strand_spawn(
     entry: extern "C" fn(Stack) -> Stack,
     initial_stack: Stack,
+) -> i64 {
+    // For backwards compatibility, use null base (won't support nested spawns)
+    unsafe { patch_seq_strand_spawn_with_base(entry, initial_stack, std::ptr::null_mut()) }
+}
+
+/// Spawn a strand (coroutine) with initial stack and explicit stack base
+///
+/// This variant allows setting the STACK_BASE for the spawned strand, which is
+/// required for the child to perform operations like clone_stack (nested spawn).
+///
+/// # Safety
+/// - `entry` must be a valid function pointer that can safely execute on any thread
+/// - `initial_stack` must be a valid pointer to a `StackValue` array
+/// - `stack_base` must be the base of the stack (or null to skip setting STACK_BASE)
+/// - The caller transfers ownership of `initial_stack` to the coroutine
+/// - Returns a unique strand ID (positive integer)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_strand_spawn_with_base(
+    entry: extern "C" fn(Stack) -> Stack,
+    initial_stack: Stack,
+    stack_base: Stack,
 ) -> i64 {
     // Generate unique strand ID
     let strand_id = NEXT_STRAND_ID.fetch_add(1, Ordering::Relaxed);
@@ -373,24 +394,33 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
     // Function pointers are already Send, no wrapper needed
     let entry_fn = entry;
 
-    // Convert pointer to usize (which is Send)
+    // Convert pointers to usize (which is Send)
     // This is necessary because *mut T is !Send, but the caller guarantees thread safety
     let stack_addr = initial_stack as usize;
+    let base_addr = stack_base as usize;
 
     unsafe {
         coroutine::spawn(move || {
-            // Reconstruct pointer from address
-            let stack_ptr = stack_addr as *mut StackNode;
+            // Reconstruct pointers from addresses
+            let stack_ptr = stack_addr as *mut StackValue;
+            let base_ptr = base_addr as *mut StackValue;
 
             // Debug assertion: validate stack pointer alignment and reasonable address
             debug_assert!(
-                stack_ptr.is_null() || stack_addr.is_multiple_of(std::mem::align_of::<StackNode>()),
+                stack_ptr.is_null()
+                    || stack_addr.is_multiple_of(std::mem::align_of::<StackValue>()),
                 "Stack pointer must be null or properly aligned"
             );
             debug_assert!(
                 stack_ptr.is_null() || stack_addr > 0x1000,
                 "Stack pointer appears to be in invalid memory region (< 0x1000)"
             );
+
+            // Set STACK_BASE for this strand if provided
+            // This enables nested spawns and other operations that need clone_stack
+            if !base_ptr.is_null() {
+                crate::stack::patch_seq_set_stack_base(base_ptr);
+            }
 
             // Execute the entry function
             let final_stack = entry_fn(stack_ptr);
@@ -424,32 +454,15 @@ pub unsafe extern "C" fn patch_seq_strand_spawn(
 
 /// Free a stack allocated by the runtime
 ///
-/// # Safety
-/// - `stack` must be either:
-///   - A null pointer (safe, will be a no-op)
-///   - A valid pointer returned by runtime stack functions (push, etc.)
-/// - The pointer must not have been previously freed
-/// - After calling this function, the pointer is invalid and must not be used
-/// - This function takes ownership and returns nodes to the pool
+/// With the tagged stack implementation, stack cleanup is handled differently.
+/// The contiguous array is freed when the TaggedStack is dropped.
+/// This function just resets the thread-local arena.
 ///
-/// # Performance
-/// Returns nodes to thread-local pool for reuse instead of freeing to heap
-fn free_stack(mut stack: Stack) {
-    if !stack.is_null() {
-        use crate::value::Value;
-        unsafe {
-            // Walk the stack and return each node to the pool
-            while !stack.is_null() {
-                let next = (*stack).next;
-                // Drop the value, then return node to pool
-                // We need to drop the value to free any heap allocations (String, Variant)
-                drop(std::mem::replace(&mut (*stack).value, Value::Int(0)));
-                // Return node to pool for reuse
-                pool::pool_free(stack);
-                stack = next;
-            }
-        }
-    }
+/// # Safety
+/// Stack pointer must be valid or null.
+fn free_stack(_stack: Stack) {
+    // With tagged stack, the array is freed when TaggedStack is dropped.
+    // We just need to reset the arena for thread-local strings.
 
     // Reset the thread-local arena to free all arena-allocated strings
     // This is safe because:
@@ -555,7 +568,7 @@ mod tests {
     fn test_free_stack_valid() {
         unsafe {
             // Create a stack, then free it
-            let stack = push(std::ptr::null_mut(), Value::Int(42));
+            let stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             free_stack(stack);
             // If we get here without crashing, test passed
         }
@@ -572,7 +585,7 @@ mod tests {
                 stack
             }
 
-            let initial_stack = push(std::ptr::null_mut(), Value::Int(99));
+            let initial_stack = push(crate::stack::alloc_test_stack(), Value::Int(99));
             strand_spawn(test_entry, initial_stack);
 
             std::thread::sleep(std::time::Duration::from_millis(200));
@@ -697,7 +710,7 @@ mod tests {
             static RECEIVED_COUNT: AtomicU32 = AtomicU32::new(0);
 
             // Create channel
-            let stack = std::ptr::null_mut();
+            let stack = crate::stack::alloc_test_stack();
             let stack = make_channel(stack);
             let (stack, chan_val) = pop(stack);
             let chan_id = match chan_val {
@@ -768,10 +781,10 @@ mod tests {
             }
 
             // Spawn sender and receiver
-            let sender_stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+            let sender_stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
             strand_spawn(sender, sender_stack);
 
-            let receiver_stack = push(std::ptr::null_mut(), Value::Int(chan_id));
+            let receiver_stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
             strand_spawn(receiver, receiver_stack);
 
             // Wait for both strands

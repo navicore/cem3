@@ -36,6 +36,11 @@ enum Commands {
         /// External FFI manifest file(s) to load
         #[arg(long = "ffi-manifest", value_name = "PATH")]
         ffi_manifests: Vec<PathBuf>,
+
+        /// Pure inline test mode: bypass scheduler, return top of stack as exit code.
+        /// Only supports inline operations (integers, arithmetic, stack ops).
+        #[arg(long)]
+        pure_inline: bool,
     },
 
     /// Run lint checks on .seq files
@@ -89,13 +94,14 @@ fn main() {
             output,
             keep_ir,
             ffi_manifests,
+            pure_inline,
         } => {
             let output = output.unwrap_or_else(|| {
                 // Default: input filename without .seq extension
                 let stem = input.file_stem().unwrap_or_default();
                 PathBuf::from(stem)
             });
-            run_build(&input, &output, keep_ir, &ffi_manifests);
+            run_build(&input, &output, keep_ir, &ffi_manifests, pure_inline);
         }
         Commands::Lint {
             paths,
@@ -123,13 +129,22 @@ fn run_completions(shell: Shell) {
     generate(shell, &mut cmd, "seqc", &mut io::stdout());
 }
 
-fn run_build(input: &Path, output: &Path, keep_ir: bool, ffi_manifests: &[PathBuf]) {
+fn run_build(
+    input: &Path,
+    output: &Path,
+    keep_ir: bool,
+    ffi_manifests: &[PathBuf],
+    pure_inline: bool,
+) {
     // Build config with external FFI manifests
-    let config = if ffi_manifests.is_empty() {
+    let mut config = if ffi_manifests.is_empty() {
         seqc::CompilerConfig::default()
     } else {
         seqc::CompilerConfig::new().with_ffi_manifests(ffi_manifests.iter().cloned())
     };
+
+    // Enable pure inline test mode if requested
+    config.pure_inline_test = pure_inline;
 
     match seqc::compile_file_with_config(input, output, keep_ir, &config) {
         Ok(_) => {

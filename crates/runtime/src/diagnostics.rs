@@ -172,16 +172,6 @@ pub fn dump_diagnostics() {
         "  Arena bytes:     {} (across all threads)",
         format_bytes(mem_stats.total_arena_bytes)
     );
-    let _ = writeln!(
-        out,
-        "  Pool nodes:      {} free / {} capacity",
-        mem_stats.total_pool_free, mem_stats.total_pool_capacity
-    );
-    let _ = writeln!(
-        out,
-        "  Pool allocs:     {} (lifetime total)",
-        mem_stats.total_pool_allocations
-    );
     if mem_stats.overflow_count > 0 {
         let _ = writeln!(
             out,

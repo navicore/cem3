@@ -3542,7 +3542,7 @@ impl CodeGen {
     fn codegen_inline_int_bitwise_binary(
         &mut self,
         stack_var: &str,
-        llvm_op: &str, // "and", "or", "xor", "shl", "ashr"
+        llvm_op: &str, // "and", "or", "xor"
     ) -> Result<Option<String>, CodeGenError> {
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();

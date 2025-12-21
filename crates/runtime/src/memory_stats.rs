@@ -1,11 +1,11 @@
 //! Cross-thread memory statistics registry
 //!
-//! Provides visibility into arena and pool memory usage across all worker threads.
+//! Provides visibility into arena memory usage across all worker threads.
 //! Each thread registers itself and updates its own slot with minimal overhead.
 //!
 //! # Design
 //!
-//! The challenge: Arena and pool are thread-local, but diagnostics runs on a
+//! The challenge: Arena is thread-local, but diagnostics runs on a
 //! separate signal handler thread. We solve this with a global registry where
 //! each thread has an exclusive slot for its stats.
 //!
@@ -19,8 +19,6 @@
 //! │  │ Slot 0 (Thread A)│  │ Slot 1 (Thread B)│  ...        │
 //! │  │ thread_id: u64   │  │ thread_id: u64   │             │
 //! │  │ arena_bytes: u64 │  │ arena_bytes: u64 │             │
-//! │  │ pool_free: u64   │  │ pool_free: u64   │             │
-//! │  │ pool_allocs: u64 │  │ pool_allocs: u64 │             │
 //! │  └──────────────────┘  └──────────────────┘             │
 //! └─────────────────────────────────────────────────────────┘
 //! ```
@@ -47,12 +45,6 @@ pub struct MemorySlot {
     pub thread_id: AtomicU64,
     /// Arena allocated bytes
     pub arena_bytes: AtomicU64,
-    /// Pool free node count
-    pub pool_free_count: AtomicU64,
-    /// Pool total capacity
-    pub pool_capacity: AtomicU64,
-    /// Total allocations from pool (lifetime counter)
-    pub pool_allocations: AtomicU64,
 }
 
 impl MemorySlot {
@@ -60,9 +52,6 @@ impl MemorySlot {
         Self {
             thread_id: AtomicU64::new(0),
             arena_bytes: AtomicU64::new(0),
-            pool_free_count: AtomicU64::new(0),
-            pool_capacity: AtomicU64::new(0),
-            pool_allocations: AtomicU64::new(0),
         }
     }
 }
@@ -120,33 +109,9 @@ impl MemoryStatsRegistry {
         }
     }
 
-    /// Update pool stats for a slot
-    ///
-    /// # Safety
-    /// Caller must own the slot (be the thread that registered it)
-    #[inline]
-    pub fn update_pool(&self, slot_idx: usize, free_count: usize, capacity: usize) {
-        if let Some(slot) = self.slots.get(slot_idx) {
-            slot.pool_free_count
-                .store(free_count as u64, Ordering::Relaxed);
-            slot.pool_capacity.store(capacity as u64, Ordering::Relaxed);
-        }
-    }
-
-    /// Increment pool allocation counter
-    #[inline]
-    pub fn increment_pool_allocations(&self, slot_idx: usize) {
-        if let Some(slot) = self.slots.get(slot_idx) {
-            slot.pool_allocations.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
     /// Get aggregated memory statistics across all threads
     pub fn aggregate_stats(&self) -> AggregateMemoryStats {
         let mut total_arena_bytes: u64 = 0;
-        let mut total_pool_free: u64 = 0;
-        let mut total_pool_capacity: u64 = 0;
-        let mut total_pool_allocations: u64 = 0;
         let mut active_threads: usize = 0;
 
         for slot in self.slots.iter() {
@@ -154,18 +119,12 @@ impl MemoryStatsRegistry {
             if thread_id > 0 {
                 active_threads += 1;
                 total_arena_bytes += slot.arena_bytes.load(Ordering::Relaxed);
-                total_pool_free += slot.pool_free_count.load(Ordering::Relaxed);
-                total_pool_capacity += slot.pool_capacity.load(Ordering::Relaxed);
-                total_pool_allocations += slot.pool_allocations.load(Ordering::Relaxed);
             }
         }
 
         AggregateMemoryStats {
             active_threads,
             total_arena_bytes,
-            total_pool_free,
-            total_pool_capacity,
-            total_pool_allocations,
             overflow_count: self.overflow_count.load(Ordering::Relaxed),
         }
     }
@@ -178,9 +137,6 @@ impl MemoryStatsRegistry {
                 Some(ThreadMemoryStats {
                     thread_id,
                     arena_bytes: slot.arena_bytes.load(Ordering::Relaxed),
-                    pool_free_count: slot.pool_free_count.load(Ordering::Relaxed),
-                    pool_capacity: slot.pool_capacity.load(Ordering::Relaxed),
-                    pool_allocations: slot.pool_allocations.load(Ordering::Relaxed),
                 })
             } else {
                 None
@@ -199,9 +155,6 @@ impl MemoryStatsRegistry {
 pub struct AggregateMemoryStats {
     pub active_threads: usize,
     pub total_arena_bytes: u64,
-    pub total_pool_free: u64,
-    pub total_pool_capacity: u64,
-    pub total_pool_allocations: u64,
     pub overflow_count: u64,
 }
 
@@ -210,9 +163,6 @@ pub struct AggregateMemoryStats {
 pub struct ThreadMemoryStats {
     pub thread_id: u64,
     pub arena_bytes: u64,
-    pub pool_free_count: u64,
-    pub pool_capacity: u64,
-    pub pool_allocations: u64,
 }
 
 /// Global counter for generating unique thread IDs
@@ -270,22 +220,6 @@ pub fn update_arena_stats(arena_bytes: usize) {
     }
 }
 
-/// Update pool stats for the current thread
-#[inline]
-pub fn update_pool_stats(free_count: usize, capacity: usize) {
-    if let Some(idx) = SLOT_INDEX.with(|cell| cell.get()) {
-        memory_registry().update_pool(idx, free_count, capacity);
-    }
-}
-
-/// Increment pool allocation counter for the current thread
-#[inline]
-pub fn increment_pool_allocations() {
-    if let Some(idx) = SLOT_INDEX.with(|cell| cell.get()) {
-        memory_registry().increment_pool_allocations(idx);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,14 +235,11 @@ mod tests {
 
         // Update stats
         registry.update_arena(idx, 1024);
-        registry.update_pool(idx, 10, 100);
 
         // Aggregate should reflect our updates
         let stats = registry.aggregate_stats();
         assert_eq!(stats.active_threads, 1);
         assert_eq!(stats.total_arena_bytes, 1024);
-        assert_eq!(stats.total_pool_free, 10);
-        assert_eq!(stats.total_pool_capacity, 100);
     }
 
     #[test]
@@ -349,14 +280,10 @@ mod tests {
         if slot.is_some() {
             // Update stats
             update_arena_stats(2048);
-            update_pool_stats(5, 50);
-            increment_pool_allocations();
-            increment_pool_allocations();
 
             // Verify via aggregate
             let stats = memory_registry().aggregate_stats();
             assert!(stats.total_arena_bytes >= 2048); // May have other test data
-            assert!(stats.total_pool_allocations >= 2);
         }
         // If slot is None, registry was full - that's OK for this test
     }
@@ -396,8 +323,6 @@ mod tests {
                     if slot.is_some() {
                         // Each thread sets a unique arena value
                         update_arena_stats(1000 * (i + 1));
-                        update_pool_stats(i * 10, 100);
-                        increment_pool_allocations();
                     }
                     slot.is_some()
                 })
@@ -416,10 +341,6 @@ mod tests {
         let stats = memory_registry().aggregate_stats();
         // active_threads includes all threads that have registered (including test threads)
         assert!(stats.active_threads >= registered_count);
-        // If any threads registered, we should have some pool allocations
-        if registered_count > 0 {
-            assert!(stats.total_pool_allocations >= registered_count as u64);
-        }
     }
 
     #[test]

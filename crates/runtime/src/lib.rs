@@ -2,8 +2,8 @@
 //!
 //! Key design principles:
 //! - Value: What the language talks about (Int, Bool, Variant, etc.)
-//! - StackNode: Implementation detail (contains Value + next pointer)
-//! - Variant fields: Stored in arrays, NOT linked via next pointers
+//! - StackValue: 40-byte tagged stack entry (discriminant + 4 payload slots)
+//! - Stack: Contiguous array of StackValue entries for efficient operations
 
 pub mod arena;
 pub mod args;
@@ -19,7 +19,6 @@ pub mod list_ops;
 pub mod map_ops;
 pub mod memory_stats;
 pub mod os;
-pub mod pool;
 pub mod quotations;
 pub mod scheduler;
 pub mod seqstring;

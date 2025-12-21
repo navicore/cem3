@@ -903,6 +903,7 @@ pub fn alloc_test_stack() -> Stack {
 /// # Safety
 /// - Stack base must have been set via set_stack_base
 /// - sp must be a valid stack pointer
+/// - All stack values between base and sp must be valid
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
     let base = get_stack_base();
@@ -927,6 +928,14 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
             }
         }
         println!("]");
+
+        // Drop all heap-allocated values to prevent memory leaks
+        for i in 0..depth {
+            unsafe {
+                let sv = *base.add(i);
+                drop_stack_value(sv);
+            }
+        }
     }
 
     // Return base (empty stack)
@@ -934,25 +943,38 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
 }
 
 /// Print a stack value in a readable format
+///
+/// # Safety Requirements
+/// The StackValue must be valid and not previously dropped. For strings,
+/// the pointer (slot1) must point to valid, readable memory of length slot2.
+/// This is guaranteed when called from stack.dump on freshly computed values.
 fn print_stack_value(sv: &StackValue) {
     match sv.slot0 {
         DISC_INT => print!("{}", sv.slot1 as i64),
         DISC_FLOAT => print!("{}", f64::from_bits(sv.slot1)),
         DISC_BOOL => print!("{}", if sv.slot1 != 0 { "true" } else { "false" }),
-        DISC_STRING => unsafe {
+        DISC_STRING => {
             let ptr = sv.slot1 as *const u8;
             let len = sv.slot2 as usize;
-            if !ptr.is_null() && len > 0 {
-                let slice = std::slice::from_raw_parts(ptr, len);
-                if let Ok(s) = std::str::from_utf8(slice) {
-                    print!("\"{}\"", s);
-                } else {
-                    print!("<string:{} bytes>", len);
-                }
-            } else {
+            // Safety: We trust the stack value is valid. The pointer was allocated
+            // by SeqString and hasn't been freed yet (we print before dropping).
+            // Additional defensive checks for null/zero-length.
+            if ptr.is_null() || len == 0 {
                 print!("\"\"");
+            } else if len > 10_000_000 {
+                // Sanity check: reject unreasonably large strings (likely corruption)
+                print!("<string:invalid length {}>", len);
+            } else {
+                unsafe {
+                    let slice = std::slice::from_raw_parts(ptr, len);
+                    if let Ok(s) = std::str::from_utf8(slice) {
+                        print!("\"{}\"", s);
+                    } else {
+                        print!("<string:{} bytes, non-utf8>", len);
+                    }
+                }
             }
-        },
+        }
         DISC_VARIANT => print!("<variant>"),
         DISC_MAP => print!("<map>"),
         DISC_QUOTATION => print!("<quotation>"),

@@ -15,6 +15,7 @@
 //!   :show                   # Show current file contents
 //!   :edit                   # Open file in $EDITOR
 //!   :run                    # Manually recompile and run
+//!   :repair                 # Validate/repair session file
 //!   :help                   # Show help
 
 use clap::Parser as ClapParser;
@@ -31,6 +32,11 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
+
+// Memory ordering notes:
+// - Use Ordering::Release on stores to ensure writes are visible to other threads
+// - Use Ordering::Acquire on loads to see writes from other threads
+// This is used for cross-thread communication between file watcher and main REPL loop
 use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
 
@@ -101,6 +107,12 @@ fn main() {
     // Track when we last wrote to the file (to debounce watcher)
     let last_write = Arc::new(AtomicU64::new(0));
 
+    // Validate and repair session file if needed
+    if !repair_session_file(&seq_file, &last_write) {
+        eprintln!("Could not initialize session file");
+        std::process::exit(1);
+    }
+
     // Start file watcher
     let (watch_tx, watch_rx) = mpsc::channel();
     let _watcher = start_file_watcher(&seq_file, watch_tx);
@@ -146,7 +158,7 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
         // Check for external file changes (debounce our own writes)
         match watch_rx.try_recv() {
             Ok(()) => {
-                let last = last_write.load(Ordering::Relaxed);
+                let last = last_write.load(Ordering::Acquire);
                 let now = now_ms();
                 if now.saturating_sub(last) > DEBOUNCE_MS {
                     println!("\n[File changed externally, recompiling...]");
@@ -193,6 +205,11 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                     }
                     ":show" => {
                         show_file_contents(seq_file);
+                    }
+                    ":repair" => {
+                        if repair_session_file(seq_file, &last_write) {
+                            println!("Session file is valid.");
+                        }
                     }
                     ":help" => {
                         print_help();
@@ -258,14 +275,14 @@ fn try_definition(seq_file: &Path, def: &str, last_write: &Arc<AtomicU64>) {
     match seqc::compile_file(seq_file, &output_path, false) {
         Ok(_) => {
             println!("Defined.");
-            let _ = fs::remove_file(&output_path);
+            remove_file_logged(&output_path);
         }
         Err(e) => {
             eprintln!("Compile error: {}", e);
             if let Err(e) = fs::write(seq_file, &original) {
                 eprintln!("Error rolling back: {}", e);
             }
-            last_write.store(now_ms(), Ordering::Relaxed);
+            last_write.store(now_ms(), Ordering::Release);
         }
     }
 }
@@ -301,7 +318,7 @@ fn add_definition(seq_file: &Path, def: &str, last_write: &Arc<AtomicU64>) -> bo
         eprintln!("Error writing file: {}", e);
         return false;
     }
-    last_write.store(now_ms(), Ordering::Relaxed);
+    last_write.store(now_ms(), Ordering::Release);
     true
 }
 
@@ -334,7 +351,7 @@ fn try_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) {
                 Err(e) => eprintln!("Run error: {}", e),
                 _ => {}
             }
-            let _ = fs::remove_file(&output_path);
+            remove_file_logged(&output_path);
         }
         Err(e) => {
             // Failed - rollback to original
@@ -342,7 +359,7 @@ fn try_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) {
             if let Err(e) = fs::write(seq_file, &original) {
                 eprintln!("Error rolling back: {}", e);
             }
-            last_write.store(now_ms(), Ordering::Relaxed);
+            last_write.store(now_ms(), Ordering::Release);
         }
     }
 }
@@ -378,7 +395,7 @@ fn append_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) -
         eprintln!("Error writing file: {}", e);
         return false;
     }
-    last_write.store(now_ms(), Ordering::Relaxed);
+    last_write.store(now_ms(), Ordering::Release);
     true
 }
 
@@ -459,7 +476,7 @@ fn pop_last_expression(seq_file: &Path, last_write: &Arc<AtomicU64>) -> bool {
         eprintln!("Error writing file: {}", e);
         return false;
     }
-    last_write.store(now_ms(), Ordering::Relaxed);
+    last_write.store(now_ms(), Ordering::Release);
     true
 }
 
@@ -487,19 +504,46 @@ fn compile_and_run(seq_file: &Path) {
             }
 
             // Clean up executable
-            let _ = fs::remove_file(&output_path);
+            remove_file_logged(&output_path);
         }
         Err(e) => {
             eprintln!("Compile error: {}", e);
         }
     }
 }
+/// Validate that the session file has the required structure
+/// Returns true if valid, false if malformed
+fn validate_session_file(seq_file: &Path) -> bool {
+    let content = match fs::read_to_string(seq_file) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    content.contains(MAIN_MARKER) && content.contains("  stack.dump")
+}
+
+/// Attempt to repair a malformed session file
+/// Returns true if repair was successful or not needed
+fn repair_session_file(seq_file: &Path, last_write: &Arc<AtomicU64>) -> bool {
+    if validate_session_file(seq_file) {
+        return true; // Already valid
+    }
+
+    eprintln!("Session file appears malformed. Resetting to template...");
+    if let Err(e) = fs::write(seq_file, format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE)) {
+        eprintln!("Error repairing session file: {}", e);
+        return false;
+    }
+    last_write.store(now_ms(), Ordering::Release);
+    eprintln!("Session file repaired.");
+    true
+}
+
 /// Clear the session (reset to template)
 fn clear_session(seq_file: &Path, last_write: &Arc<AtomicU64>) {
     if let Err(e) = fs::write(seq_file, format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE)) {
         eprintln!("Error clearing session: {}", e);
     } else {
-        last_write.store(now_ms(), Ordering::Relaxed);
+        last_write.store(now_ms(), Ordering::Release);
     }
 }
 
@@ -520,13 +564,27 @@ fn show_file_contents(seq_file: &Path) {
 }
 
 /// Open file in $EDITOR
+///
+/// Supports editors with flags, e.g., EDITOR="code --wait" or EDITOR="emacs -nw"
 fn open_in_editor(seq_file: &Path) {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+
+    // Split EDITOR into command and arguments
+    // This handles cases like "code --wait" or "emacs -nw"
+    let parts: Vec<&str> = editor.split_whitespace().collect();
+    if parts.is_empty() {
+        eprintln!("EDITOR is empty, using vi");
+        let _ = Command::new("vi").arg(seq_file).status();
+        return;
+    }
+
+    let cmd = parts[0];
+    let editor_args = &parts[1..];
 
     println!("Opening in {}...", editor);
     io::stdout().flush().ok();
 
-    let status = Command::new(&editor).arg(seq_file).status();
+    let status = Command::new(cmd).args(editor_args).arg(seq_file).status();
 
     match status {
         Ok(s) if s.success() => {}
@@ -535,6 +593,7 @@ fn open_in_editor(seq_file: &Path) {
         }
         Err(e) => {
             eprintln!("Failed to open editor '{}': {}", editor, e);
+            eprintln!("Hint: Make sure the editor command is in your PATH");
         }
     }
 }
@@ -574,6 +633,17 @@ fn dirs_history_file() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("seqr_history"))
 }
 
+/// Remove a file, logging any errors (useful for cleanup)
+fn remove_file_logged(path: &Path) {
+    if let Err(e) = fs::remove_file(path) {
+        // Only warn if file exists but couldn't be removed
+        // (ignore "not found" errors during cleanup)
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("Warning: could not remove {}: {}", path.display(), e);
+        }
+    }
+}
+
 /// Print help message
 fn print_help() {
     println!(
@@ -585,6 +655,7 @@ Seq REPL Commands:
   :show         Show current file contents
   :edit         Open file in $EDITOR
   :run          Manually recompile and run
+  :repair       Validate and repair malformed session file
   :help         Show this help
 
 Usage:
@@ -609,4 +680,126 @@ Examples:
   [9]
 "#
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicU64;
+    use tempfile::NamedTempFile;
+
+    fn create_test_file() -> (PathBuf, NamedTempFile) {
+        let temp = NamedTempFile::with_suffix(".seq").unwrap();
+        let path = temp.path().to_path_buf();
+        fs::write(&path, format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE)).unwrap();
+        (path, temp)
+    }
+
+    #[test]
+    fn test_append_expression() {
+        let (path, _temp) = create_test_file();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Append first expression
+        assert!(append_expression(&path, "1 2", &last_write));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("  1 2\n"));
+        assert!(content.contains("  stack.dump"));
+
+        // Append second expression
+        assert!(append_expression(&path, "add", &last_write));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("  1 2\n"));
+        assert!(content.contains("  add\n"));
+    }
+
+    #[test]
+    fn test_pop_last_expression() {
+        let (path, _temp) = create_test_file();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Add two expressions
+        append_expression(&path, "1 2", &last_write);
+        append_expression(&path, "add", &last_write);
+
+        // Pop the last one
+        assert!(pop_last_expression(&path, &last_write));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("  1 2\n"));
+        assert!(!content.contains("  add\n"));
+
+        // Pop again
+        assert!(pop_last_expression(&path, &last_write));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(!content.contains("  1 2\n"));
+
+        // Pop on empty should return false
+        assert!(!pop_last_expression(&path, &last_write));
+    }
+
+    #[test]
+    fn test_add_definition() {
+        let (path, _temp) = create_test_file();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Add a definition
+        assert!(add_definition(
+            &path,
+            ": square ( Int -- Int ) dup multiply ;",
+            &last_write
+        ));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains(": square ( Int -- Int ) dup multiply ;"));
+
+        // Definition should be before main marker
+        let def_pos = content.find(": square").unwrap();
+        let main_pos = content.find(MAIN_MARKER).unwrap();
+        assert!(def_pos < main_pos);
+    }
+
+    #[test]
+    fn test_clear_session() {
+        let (path, _temp) = create_test_file();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Add some content
+        append_expression(&path, "1 2 3", &last_write);
+        add_definition(&path, ": test ( -- ) ;", &last_write);
+
+        // Clear
+        clear_session(&path, &last_write);
+        let content = fs::read_to_string(&path).unwrap();
+
+        // Should be back to template
+        assert!(!content.contains("1 2 3"));
+        assert!(!content.contains(": test"));
+        assert!(content.contains(MAIN_MARKER));
+        assert!(content.contains("stack.dump"));
+    }
+
+    #[test]
+    fn test_malformed_file_handling() {
+        let temp = NamedTempFile::with_suffix(".seq").unwrap();
+        let path = temp.path().to_path_buf();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Write malformed content (no stack.dump marker)
+        fs::write(&path, ": main ( -- )\n;\n").unwrap();
+
+        // Should return false for append
+        assert!(!append_expression(&path, "1 2", &last_write));
+    }
+
+    #[test]
+    fn test_command_vs_definition_detection() {
+        // ": foo" with space is a definition
+        assert!(": square ( -- ) ;".trim_start().starts_with(": "));
+
+        // ":foo" without space is a command
+        assert!(!":quit".trim_start().starts_with(": "));
+        assert!(!":help".trim_start().starts_with(": "));
+
+        // ":" alone followed by tab is also a definition
+        assert!(":\tfoo".trim_start().starts_with(":\t"));
+    }
 }

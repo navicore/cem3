@@ -184,63 +184,10 @@ pub fn dump_diagnostics() {
         );
     }
 
-    // Channel stats (global registry - accurate if lock available)
-    let _ = writeln!(out, "\n[Channels]");
-    match get_channel_stats() {
-        Some(stats) => {
-            let _ = writeln!(out, "  Open channels: {}", stats.len());
-            if !stats.is_empty() {
-                let _ = writeln!(out);
-                let _ = writeln!(
-                    out,
-                    "  {:>6}  {:>8}  {:>8}  {:>8}",
-                    "ID", "Depth", "Sends", "Recvs"
-                );
-                let _ = writeln!(out, "  {:->6}  {:->8}  {:->8}  {:->8}", "", "", "", "");
-
-                // Sort by ID for consistent output
-                let mut sorted_stats = stats;
-                sorted_stats.sort_by_key(|s| s.id);
-
-                for stat in sorted_stats {
-                    let backpressure_warning = if stat.queue_depth > 100 {
-                        " ⚠️"
-                    } else {
-                        ""
-                    };
-                    let _ = writeln!(
-                        out,
-                        "  {:>6}  {:>8}  {:>8}  {:>8}{}",
-                        format!("#{}", stat.id),
-                        stat.queue_depth,
-                        stat.send_count,
-                        stat.receive_count,
-                        backpressure_warning
-                    );
-                }
-            }
-        }
-        None => {
-            let _ = writeln!(out, "  Open channels: (unavailable - registry locked)");
-        }
-    }
+    // Note: Channel stats are not available with the zero-mutex design.
+    // Channels are passed directly as Value::Channel on the stack with no global registry.
 
     let _ = writeln!(out, "\n=== End Diagnostics ===\n");
-}
-
-/// Try to get channel count without blocking
-/// Returns None if the registry lock is held
-#[allow(dead_code)]
-fn get_channel_count() -> Option<usize> {
-    use crate::channel::channel_count;
-    channel_count()
-}
-
-/// Try to get per-channel statistics without blocking
-/// Returns None if the registry lock is held
-fn get_channel_stats() -> Option<Vec<crate::channel::ChannelStats>> {
-    use crate::channel::channel_stats;
-    channel_stats()
 }
 
 /// Format bytes as human-readable string

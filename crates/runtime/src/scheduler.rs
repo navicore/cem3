@@ -702,43 +702,50 @@ mod tests {
     #[test]
     fn test_arena_with_channel_send() {
         unsafe {
-            use crate::channel::{close_channel, make_channel};
+            use crate::channel::{close_channel, make_channel, receive, send};
             use crate::stack::{pop, push};
             use crate::value::Value;
-            use std::sync::atomic::{AtomicU32, Ordering};
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
             static RECEIVED_COUNT: AtomicU32 = AtomicU32::new(0);
+            static CHANNEL_PTR: AtomicI64 = AtomicI64::new(0);
 
             // Create channel
             let stack = crate::stack::alloc_test_stack();
             let stack = make_channel(stack);
             let (stack, chan_val) = pop(stack);
-            let chan_id = match chan_val {
-                Value::Int(id) => id,
-                _ => panic!("Expected channel ID"),
+            let channel = match chan_val {
+                Value::Channel(ch) => ch,
+                _ => panic!("Expected Channel"),
             };
 
+            // Store channel pointer for strands
+            let ch_ptr = Arc::as_ptr(&channel) as i64;
+            CHANNEL_PTR.store(ch_ptr, Ordering::Release);
+
+            // Keep Arc alive
+            std::mem::forget(channel.clone());
+            std::mem::forget(channel.clone());
+
             // Sender strand: creates arena string, sends through channel
-            extern "C" fn sender(stack: Stack) -> Stack {
-                use crate::channel::send;
+            extern "C" fn sender(_stack: Stack) -> Stack {
                 use crate::seqstring::arena_string;
-                use crate::stack::{pop, push};
-                use crate::value::Value;
+                use crate::value::ChannelData;
+                use std::sync::Arc;
 
                 unsafe {
-                    // Extract channel ID from stack
-                    let (stack, chan_val) = pop(stack);
-                    let chan_id = match chan_val {
-                        Value::Int(id) => id,
-                        _ => panic!("Expected channel ID"),
-                    };
+                    let ch_ptr = CHANNEL_PTR.load(Ordering::Acquire) as *const ChannelData;
+                    let channel = Arc::from_raw(ch_ptr);
+                    let channel_clone = Arc::clone(&channel);
+                    std::mem::forget(channel); // Don't drop
 
                     // Create arena string
                     let msg = arena_string("Hello from sender!");
 
-                    // Push string and channel ID for send
-                    let stack = push(stack, Value::String(msg));
-                    let stack = push(stack, Value::Int(chan_id));
+                    // Push string and channel for send
+                    let stack = push(crate::stack::alloc_test_stack(), Value::String(msg));
+                    let stack = push(stack, Value::Channel(channel_clone));
 
                     // Send (will clone to global)
                     send(stack)
@@ -746,28 +753,28 @@ mod tests {
             }
 
             // Receiver strand: receives string from channel
-            extern "C" fn receiver(stack: Stack) -> Stack {
-                use crate::channel::receive;
-                use crate::stack::{pop, push};
-                use crate::value::Value;
+            extern "C" fn receiver(_stack: Stack) -> Stack {
+                use crate::value::ChannelData;
+                use std::sync::Arc;
                 use std::sync::atomic::Ordering;
 
                 unsafe {
-                    // Extract channel ID from stack
-                    let (stack, chan_val) = pop(stack);
-                    let chan_id = match chan_val {
-                        Value::Int(id) => id,
-                        _ => panic!("Expected channel ID"),
-                    };
+                    let ch_ptr = CHANNEL_PTR.load(Ordering::Acquire) as *const ChannelData;
+                    let channel = Arc::from_raw(ch_ptr);
+                    let channel_clone = Arc::clone(&channel);
+                    std::mem::forget(channel); // Don't drop
 
-                    // Push channel ID for receive
-                    let stack = push(stack, Value::Int(chan_id));
+                    // Push channel for receive
+                    let stack = push(
+                        crate::stack::alloc_test_stack(),
+                        Value::Channel(channel_clone),
+                    );
 
                     // Receive message
                     let stack = receive(stack);
 
                     // Pop and verify message
-                    let (stack, msg_val) = pop(stack);
+                    let (_stack, msg_val) = pop(stack);
                     match msg_val {
                         Value::String(s) => {
                             assert_eq!(s.as_str(), "Hello from sender!");
@@ -776,16 +783,13 @@ mod tests {
                         _ => panic!("Expected String"),
                     }
 
-                    stack
+                    std::ptr::null_mut()
                 }
             }
 
             // Spawn sender and receiver
-            let sender_stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
-            strand_spawn(sender, sender_stack);
-
-            let receiver_stack = push(crate::stack::alloc_test_stack(), Value::Int(chan_id));
-            strand_spawn(receiver, receiver_stack);
+            spawn_strand(sender);
+            spawn_strand(receiver);
 
             // Wait for both strands
             wait_all_strands();
@@ -798,7 +802,7 @@ mod tests {
             );
 
             // Clean up channel
-            let stack = push(stack, Value::Int(chan_id));
+            let stack = push(stack, Value::Channel(channel));
             close_channel(stack);
         }
     }

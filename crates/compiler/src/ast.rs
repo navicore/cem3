@@ -430,6 +430,8 @@ impl Program {
             "time.now",
             "time.nanos",
             "time.sleep-ms",
+            // Stack introspection (for REPL)
+            "stack.dump",
         ];
 
         for word in &self.words {

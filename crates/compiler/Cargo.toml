@@ -15,19 +15,19 @@ name = "seqc"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
-clap_complete = "4.5"
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+clap.workspace = true
+clap_complete.workspace = true
+serde.workspace = true
+toml.workspace = true
 
 [build-dependencies]
 # Version must EXACTLY match workspace version - enforced by build.rs and CI
 seq-runtime = { path = "../runtime", version = "=0.12.0" }
-toml = "0.8"
+toml.workspace = true
 
 [lib]
 name = "seqc"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

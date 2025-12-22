@@ -32,7 +32,7 @@ bincode.workspace = true
 
 # Signal handling for SIGQUIT diagnostics (Unix only, optional via diagnostics feature)
 [target.'cfg(unix)'.dependencies]
-signal-hook = { version = "0.3", optional = true }
+signal-hook = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

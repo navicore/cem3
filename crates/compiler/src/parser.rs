@@ -445,7 +445,9 @@ impl Parser {
 
         // Try to parse as string literal
         if token.starts_with('"') {
-            let raw = token.trim_start_matches('"').trim_end_matches('"');
+            // Strip exactly one quote from each end (not all quotes, which would
+            // incorrectly handle escaped quotes at string boundaries like "hello\"")
+            let raw = &token[1..token.len() - 1];
             let unescaped = unescape_string(raw)?;
             return Ok(Statement::StringLiteral(unescaped));
         }

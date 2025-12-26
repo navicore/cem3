@@ -570,7 +570,7 @@ fn get_yield_threshold() -> u64 {
                 Ok(n) => n,
                 Err(_) => {
                     eprintln!(
-                        "[seq] WARNING: Invalid SEQ_YIELD_INTERVAL='{}', must be a positive integer. Yield safety valve disabled.",
+                        "Warning: SEQ_YIELD_INTERVAL='{}' is not a valid positive integer, yield safety valve disabled",
                         s
                     );
                     0

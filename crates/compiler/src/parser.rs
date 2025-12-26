@@ -445,7 +445,13 @@ impl Parser {
 
         // Try to parse as string literal
         if token.starts_with('"') {
-            let raw = token.trim_start_matches('"').trim_end_matches('"');
+            // Validate token has at least opening and closing quotes
+            if token.len() < 2 || !token.ends_with('"') {
+                return Err(format!("Malformed string literal: {}", token));
+            }
+            // Strip exactly one quote from each end (not all quotes, which would
+            // incorrectly handle escaped quotes at string boundaries like "hello\"")
+            let raw = &token[1..token.len() - 1];
             let unescaped = unescape_string(raw)?;
             return Ok(Statement::StringLiteral(unescaped));
         }
@@ -1272,6 +1278,36 @@ mod tests {
             // Escape sequences should be processed: \" becomes actual quote
             Statement::StringLiteral(s) => assert_eq!(s, "Say \"hello\" there"),
             _ => panic!("Expected StringLiteral with escaped quotes"),
+        }
+    }
+
+    /// Regression test for issue #117: escaped quote at end of string
+    /// Previously failed with "String ends with incomplete escape sequence"
+    #[test]
+    fn test_escaped_quote_at_end_of_string() {
+        let source = r#": main ( -- ) "hello\"" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => assert_eq!(s, "hello\""),
+            _ => panic!("Expected StringLiteral ending with escaped quote"),
+        }
+    }
+
+    /// Test escaped quote at start of string (boundary case)
+    #[test]
+    fn test_escaped_quote_at_start_of_string() {
+        let source = r#": main ( -- ) "\"hello" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => assert_eq!(s, "\"hello"),
+            _ => panic!("Expected StringLiteral starting with escaped quote"),
         }
     }
 

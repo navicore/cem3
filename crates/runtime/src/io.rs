@@ -168,9 +168,10 @@ const READ_N_MAX_BYTES: i64 = 10 * 1024 * 1024;
 /// Returns Ok(usize) on success, Err(message) on validation failure.
 fn validate_read_n_count(value: &Value) -> Result<usize, String> {
     match value {
-        Value::Int(n) if *n < 0 => {
-            Err(format!("read_n: byte count must be non-negative, got {}", n))
-        }
+        Value::Int(n) if *n < 0 => Err(format!(
+            "read_n: byte count must be non-negative, got {}",
+            n
+        )),
         Value::Int(n) if *n > READ_N_MAX_BYTES => Err(format!(
             "read_n: byte count {} exceeds maximum allowed ({})",
             n, READ_N_MAX_BYTES
@@ -397,14 +398,8 @@ mod tests {
 
     #[test]
     fn test_read_n_valid_input() {
-        assert_eq!(
-            super::validate_read_n_count(&Value::Int(0)),
-            Ok(0)
-        );
-        assert_eq!(
-            super::validate_read_n_count(&Value::Int(100)),
-            Ok(100)
-        );
+        assert_eq!(super::validate_read_n_count(&Value::Int(0)), Ok(0));
+        assert_eq!(super::validate_read_n_count(&Value::Int(100)), Ok(100));
         assert_eq!(
             super::validate_read_n_count(&Value::Int(1024 * 1024)), // 1MB
             Ok(1024 * 1024)

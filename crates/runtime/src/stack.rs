@@ -917,6 +917,7 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
     if depth == 0 {
         println!("[]");
     } else {
+        use std::io::Write;
         print!("[");
         for i in 0..depth {
             if i > 0 {
@@ -928,6 +929,9 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
             }
         }
         println!("]");
+        // Flush stdout to ensure output is visible immediately
+        // This prevents partial output if the program terminates unexpectedly
+        let _ = std::io::stdout().flush();
 
         // Drop all heap-allocated values to prevent memory leaks
         for i in 0..depth {
@@ -951,7 +955,14 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
 fn print_stack_value(sv: &StackValue) {
     match sv.slot0 {
         DISC_INT => print!("{}", sv.slot1 as i64),
-        DISC_FLOAT => print!("{}", f64::from_bits(sv.slot1)),
+        DISC_FLOAT => {
+            let f = f64::from_bits(sv.slot1);
+            if f.fract() == 0.0 && f.is_finite() {
+                print!("{}.0", f)
+            } else {
+                print!("{}", f)
+            }
+        }
         DISC_BOOL => print!("{}", if sv.slot1 != 0 { "true" } else { "false" }),
         DISC_STRING => {
             let ptr = sv.slot1 as *const u8;

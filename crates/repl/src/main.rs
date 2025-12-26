@@ -276,6 +276,8 @@ fn try_definition(seq_file: &Path, def: &str, last_write: &Arc<AtomicU64>) {
         Ok(_) => {
             println!("Defined.");
             remove_file_logged(&output_path);
+            // Update last_write after compile to suppress file watcher
+            last_write.store(now_ms(), Ordering::Release);
         }
         Err(e) => {
             eprintln!("Compile error: {}", e);
@@ -352,6 +354,8 @@ fn try_expression(seq_file: &Path, expr: &str, last_write: &Arc<AtomicU64>) {
                 _ => {}
             }
             remove_file_logged(&output_path);
+            // Update last_write after compile+run to suppress file watcher
+            last_write.store(now_ms(), Ordering::Release);
         }
         Err(e) => {
             // Failed - rollback to original

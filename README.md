@@ -160,10 +160,14 @@ cargo install seq-lsp
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SEQ_STACK_SIZE` | 1048576 (1MB) | Coroutine stack size in bytes. Increase if you hit stack overflow in deeply nested (non-tail) calls. |
+| `SEQ_YIELD_INTERVAL` | 0 (disabled) | Yield to scheduler every N tail calls. Prevents tight recursive loops from starving other strands. |
+| `SEQ_WATCHDOG_SECS` | 0 (disabled) | Detect strands running longer than N seconds. See `crates/runtime/src/watchdog.rs` for details. |
 
-Example:
+Examples:
 ```bash
-SEQ_STACK_SIZE=2097152 ./my-program  # 2MB stacks
+SEQ_STACK_SIZE=2097152 ./my-program      # 2MB stacks
+SEQ_YIELD_INTERVAL=10000 ./my-program    # Yield every 10K tail calls
+SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
 ```
 
 ## Documentation

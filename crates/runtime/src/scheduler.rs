@@ -533,6 +533,12 @@ pub unsafe extern "C" fn patch_seq_yield_strand(stack: Stack) -> Stack {
 // Configuration:
 //   SEQ_YIELD_INTERVAL=10000  - Yield every 10,000 tail calls (default: 0 = disabled)
 //
+// Scope:
+//   - Covers: User-defined word tail calls (musttail) and quotation tail calls
+//   - Does NOT cover: Closure calls (they use regular calls, bounded by stack)
+//   - Does NOT cover: Non-tail recursive calls (bounded by stack)
+//   This is intentional: the safety valve targets unbounded TCO loops.
+//
 // Design:
 //   - Zero overhead when disabled (threshold=0 short-circuits immediately)
 //   - Thread-local counter avoids synchronization overhead

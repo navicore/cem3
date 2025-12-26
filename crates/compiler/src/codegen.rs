@@ -76,6 +76,7 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("io.write-line", "patch_seq_write_line"),
         ("io.read-line", "patch_seq_read_line"),
         ("io.read-line+", "patch_seq_read_line_plus"),
+        ("io.read-n", "patch_seq_read_n"),
         ("int->string", "patch_seq_int_to_string"),
         // Command-line arguments
         ("args.count", "patch_seq_arg_count"),
@@ -595,6 +596,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_read_n(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)")?;
@@ -986,6 +988,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_read_n(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_int_to_string(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_add(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_subtract(ptr)")?;

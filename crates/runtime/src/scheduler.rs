@@ -523,6 +523,73 @@ pub unsafe extern "C" fn patch_seq_yield_strand(stack: Stack) -> Stack {
     stack
 }
 
+// =============================================================================
+// Cooperative Yield Safety Valve
+// =============================================================================
+//
+// Prevents tight TCO loops from starving other strands and making the process
+// unresponsive. When enabled via SEQ_YIELD_INTERVAL, yields after N tail calls.
+//
+// Configuration:
+//   SEQ_YIELD_INTERVAL=10000  - Yield every 10,000 tail calls (default: 0 = disabled)
+//
+// Design:
+//   - Zero overhead when disabled (threshold=0 short-circuits immediately)
+//   - Thread-local counter avoids synchronization overhead
+//   - Called before every musttail in generated code
+
+use std::cell::Cell;
+use std::sync::OnceLock;
+
+/// Cached yield interval threshold (0 = disabled)
+static YIELD_THRESHOLD: OnceLock<u64> = OnceLock::new();
+
+thread_local! {
+    /// Per-thread tail call counter
+    static TAIL_CALL_COUNTER: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Get the yield threshold from environment (cached)
+fn get_yield_threshold() -> u64 {
+    *YIELD_THRESHOLD.get_or_init(|| {
+        std::env::var("SEQ_YIELD_INTERVAL")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
+/// Maybe yield to other coroutines based on tail call count
+///
+/// Called before every tail call in generated code. When SEQ_YIELD_INTERVAL
+/// is set, yields after that many tail calls to prevent starvation.
+///
+/// # Performance
+/// - Disabled (default): Single branch on cached threshold (< 1ns)
+/// - Enabled: Increment + compare + occasional yield (~10-20ns average)
+///
+/// # Safety
+/// Always safe to call. No-op when not in a May coroutine context.
+#[unsafe(no_mangle)]
+pub extern "C" fn patch_seq_maybe_yield() {
+    let threshold = get_yield_threshold();
+
+    // Fast path: disabled
+    if threshold == 0 {
+        return;
+    }
+
+    TAIL_CALL_COUNTER.with(|counter| {
+        let count = counter.get().wrapping_add(1);
+        counter.set(count);
+
+        if count >= threshold {
+            counter.set(0);
+            coroutine::yield_now();
+        }
+    });
+}
+
 /// Wait for all strands to complete
 ///
 /// # Safety
@@ -544,6 +611,7 @@ pub unsafe extern "C" fn patch_seq_wait_all_strands() {
 }
 
 // Public re-exports with short names for internal use
+pub use patch_seq_maybe_yield as maybe_yield;
 pub use patch_seq_scheduler_init as scheduler_init;
 pub use patch_seq_scheduler_run as scheduler_run;
 pub use patch_seq_scheduler_shutdown as scheduler_shutdown;

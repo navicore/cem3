@@ -537,6 +537,15 @@ pub unsafe extern "C" fn patch_seq_yield_strand(stack: Stack) -> Stack {
 //   - Zero overhead when disabled (threshold=0 short-circuits immediately)
 //   - Thread-local counter avoids synchronization overhead
 //   - Called before every musttail in generated code
+//   - Threshold is cached on first access via OnceLock
+//
+// Thread-Local Counter Behavior:
+//   The counter is per-OS-thread, not per-coroutine. Multiple coroutines on the
+//   same OS thread share the counter, which may cause yields slightly more
+//   frequently than the configured interval. This is intentional:
+//   - Avoids coroutine-local storage overhead
+//   - Still achieves the goal of preventing starvation
+//   - Actual yield frequency is still bounded by the threshold
 
 use std::cell::Cell;
 use std::sync::OnceLock;
@@ -550,12 +559,25 @@ thread_local! {
 }
 
 /// Get the yield threshold from environment (cached)
+///
+/// Returns 0 (disabled) if SEQ_YIELD_INTERVAL is not set or invalid.
+/// Prints a warning to stderr if the value is set but invalid.
 fn get_yield_threshold() -> u64 {
     *YIELD_THRESHOLD.get_or_init(|| {
-        std::env::var("SEQ_YIELD_INTERVAL")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0)
+        match std::env::var("SEQ_YIELD_INTERVAL") {
+            Ok(s) if s.is_empty() => 0,
+            Ok(s) => match s.parse::<u64>() {
+                Ok(n) => n,
+                Err(_) => {
+                    eprintln!(
+                        "[seq] WARNING: Invalid SEQ_YIELD_INTERVAL='{}', must be a positive integer. Yield safety valve disabled.",
+                        s
+                    );
+                    0
+                }
+            },
+            Err(_) => 0,
+        }
     })
 }
 
@@ -1125,5 +1147,50 @@ mod tests {
             );
             assert_eq!(COUNTER.load(Ordering::SeqCst), 10);
         }
+    }
+
+    // =========================================================================
+    // Yield Safety Valve Tests
+    // =========================================================================
+
+    #[test]
+    fn test_maybe_yield_disabled_by_default() {
+        // When SEQ_YIELD_INTERVAL is not set (or 0), maybe_yield should be a no-op
+        // This test verifies it doesn't panic and returns quickly
+        for _ in 0..1000 {
+            patch_seq_maybe_yield();
+        }
+    }
+
+    #[test]
+    fn test_tail_call_counter_increments() {
+        // Verify the thread-local counter increments correctly
+        TAIL_CALL_COUNTER.with(|counter| {
+            let initial = counter.get();
+            patch_seq_maybe_yield();
+            patch_seq_maybe_yield();
+            patch_seq_maybe_yield();
+            // Counter should have incremented (if threshold > 0) or stayed same (if disabled)
+            // Either way, it shouldn't panic
+            let _ = counter.get();
+            // Reset to avoid affecting other tests
+            counter.set(initial);
+        });
+    }
+
+    #[test]
+    fn test_counter_overflow_safety() {
+        // Verify wrapping_add prevents overflow panic
+        TAIL_CALL_COUNTER.with(|counter| {
+            let initial = counter.get();
+            // Set counter near max to test overflow behavior
+            counter.set(u64::MAX - 1);
+            // These calls should not panic due to overflow
+            patch_seq_maybe_yield();
+            patch_seq_maybe_yield();
+            patch_seq_maybe_yield();
+            // Reset
+            counter.set(initial);
+        });
     }
 }

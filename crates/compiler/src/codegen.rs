@@ -702,6 +702,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
+        writeln!(&mut ir, "declare void @patch_seq_maybe_yield()")?;
         writeln!(&mut ir, "; Scheduler operations")?;
         writeln!(&mut ir, "declare void @patch_seq_scheduler_init()")?;
         writeln!(&mut ir, "declare ptr @patch_seq_scheduler_run()")?;
@@ -1077,6 +1078,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_close_channel(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
+        writeln!(ir, "declare void @patch_seq_maybe_yield()")?;
         writeln!(ir, "; Scheduler operations")?;
         writeln!(ir, "declare void @patch_seq_scheduler_init()")?;
         writeln!(ir, "declare ptr @patch_seq_scheduler_run()")?;
@@ -2075,6 +2077,8 @@ impl CodeGen {
 
         // Tail call the quotation's impl function using musttail + tailcc
         // This is guaranteed TCO: caller is tailcc, quotation impl is tailcc
+        // Yield check before tail call to prevent starvation in tight loops
+        writeln!(&mut self.output, "  call void @patch_seq_maybe_yield()")?;
         let quot_result = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2085,6 +2089,10 @@ impl CodeGen {
 
         // Closure path: fall back to regular patch_seq_call
         // Use a fresh temp to ensure proper SSA numbering (must be >= quotation branch temps)
+        //
+        // Note: No yield check here because closures use regular calls (not musttail),
+        // so recursive closures will eventually hit stack limits. The yield safety valve
+        // is specifically for unbounded TCO loops which can run infinitely.
         writeln!(&mut self.output, "{}:", closure_block)?;
         let closure_result = self.fresh_temp();
         writeln!(
@@ -4247,6 +4255,8 @@ impl CodeGen {
             && !self.inside_quotation
             && is_seq_word;
         if can_tail_call {
+            // Yield check before tail call to prevent starvation in tight loops
+            writeln!(&mut self.output, "  call void @patch_seq_maybe_yield()")?;
             writeln!(
                 &mut self.output,
                 "  %{} = musttail call tailcc ptr @{}(ptr %{})",

@@ -164,6 +164,22 @@ pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
 /// LSP messages are typically < 1MB, so 10MB provides generous headroom.
 const READ_N_MAX_BYTES: i64 = 10 * 1024 * 1024;
 
+/// Validates and extracts the byte count from a Value for read_n.
+/// Returns Ok(usize) on success, Err(message) on validation failure.
+fn validate_read_n_count(value: &Value) -> Result<usize, String> {
+    match value {
+        Value::Int(n) if *n < 0 => {
+            Err(format!("read_n: byte count must be non-negative, got {}", n))
+        }
+        Value::Int(n) if *n > READ_N_MAX_BYTES => Err(format!(
+            "read_n: byte count {} exceeds maximum allowed ({})",
+            n, READ_N_MAX_BYTES
+        )),
+        Value::Int(n) => Ok(*n as usize),
+        _ => Err(format!("read_n: expected Int on stack, got {:?}", value)),
+    }
+}
+
 /// Read exactly N bytes from stdin
 ///
 /// Returns the bytes read and a status flag:
@@ -194,19 +210,7 @@ pub unsafe extern "C" fn patch_seq_read_n(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "read_n: stack is empty");
 
     let (stack, value) = unsafe { pop(stack) };
-    let n = match value {
-        Value::Int(n) if n < 0 => {
-            panic!("read_n: byte count must be non-negative, got {}", n)
-        }
-        Value::Int(n) if n > READ_N_MAX_BYTES => {
-            panic!(
-                "read_n: byte count {} exceeds maximum allowed ({})",
-                n, READ_N_MAX_BYTES
-            )
-        }
-        Value::Int(n) => n as usize,
-        _ => panic!("read_n: expected Int on stack, got {:?}", value),
-    };
+    let n = validate_read_n_count(&value).unwrap_or_else(|e| panic!("{}", e));
 
     let stdin = io::stdin();
     let mut buffer = vec![0u8; n];
@@ -385,5 +389,67 @@ mod tests {
             let (_stack, value) = pop(stack);
             assert_eq!(value, Value::String("Hello, 世界! 🌍".into()));
         }
+    }
+
+    // =========================================================================
+    // read_n validation tests
+    // =========================================================================
+
+    #[test]
+    fn test_read_n_valid_input() {
+        assert_eq!(
+            super::validate_read_n_count(&Value::Int(0)),
+            Ok(0)
+        );
+        assert_eq!(
+            super::validate_read_n_count(&Value::Int(100)),
+            Ok(100)
+        );
+        assert_eq!(
+            super::validate_read_n_count(&Value::Int(1024 * 1024)), // 1MB
+            Ok(1024 * 1024)
+        );
+    }
+
+    #[test]
+    fn test_read_n_negative_input() {
+        let result = super::validate_read_n_count(&Value::Int(-1));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be non-negative"));
+    }
+
+    #[test]
+    fn test_read_n_large_negative_input() {
+        let result = super::validate_read_n_count(&Value::Int(i64::MIN));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be non-negative"));
+    }
+
+    #[test]
+    fn test_read_n_exceeds_max_bytes() {
+        let result = super::validate_read_n_count(&Value::Int(super::READ_N_MAX_BYTES + 1));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("exceeds maximum allowed"));
+    }
+
+    #[test]
+    fn test_read_n_at_max_bytes_ok() {
+        // Exactly at the limit should be OK
+        let result = super::validate_read_n_count(&Value::Int(super::READ_N_MAX_BYTES));
+        assert_eq!(result, Ok(super::READ_N_MAX_BYTES as usize));
+    }
+
+    #[test]
+    fn test_read_n_wrong_type_string() {
+        let result = super::validate_read_n_count(&Value::String("not an int".into()));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected Int"));
+    }
+
+    #[test]
+    fn test_read_n_wrong_type_bool() {
+        let result = super::validate_read_n_count(&Value::Bool(true));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected Int"));
     }
 }

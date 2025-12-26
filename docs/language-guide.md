@@ -929,6 +929,80 @@ Strands solve these:
 
 Write code that reads sequentially, runs concurrently.
 
+## Understanding Type Errors
+
+Seq's type system tracks two orthogonal concepts:
+
+| Concept | What It Is | Example |
+|---------|------------|---------|
+| Stack Effect | A word's declared transformation | `( Int Int -- Int )` |
+| Stack Type | The actual stack state at a point | `(..rest Float Float)` |
+
+A **stack effect** describes what a word *does* - its inputs and outputs.
+A **stack type** describes what *is* - the current stack contents.
+
+Type errors occur when your stack type doesn't satisfy a word's input requirements:
+
+```
+divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float): Type mismatch: cannot unify Int with Float
+```
+
+Here, `divide` has stack effect `( Int Int -- Int )`. The compiler checks:
+"Does the current stack type have two `Int` values on top?" Your stack type
+`(..rest Float Float)` has two `Float` values instead - mismatch.
+
+### Reading the Error
+
+The format `(..name Type Type ...)` represents a stack state:
+
+| Component | Meaning |
+|-----------|---------|
+| `(...)` | Stack contents, left-to-right = bottom-to-top |
+| `..a` or `..rest` | "The rest of the stack" (row variable) |
+| `Int`, `Float`, etc. | Concrete types at those positions |
+| `a$0`, `a$5`, etc. | Freshened variable names (the number is just a counter) |
+
+So `(..a$0 Int Int)` means: "any stack with two `Int` values on top."
+
+### Visual Breakdown
+
+```
+divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float)
+                                       │     │   │           │      │     │
+                                       │     │   └── top     │      │     └── top
+                                       │     └── 2nd         │      └── 2nd
+                                       └── rest of stack     └── rest of stack
+
+Translation:
+  divide expects: ( ..a Int Int -- ..a Int )  ← two Ints in, one Int out
+  You provided:   ( ..rest Float Float )      ← two Floats
+  Problem:        Int ≠ Float
+```
+
+### Row Variables Enable Polymorphism
+
+The `..a` notation (row variable) is what makes words like `dup` work on any
+stack depth:
+
+```seq
+: dup ( ..a T -- ..a T T )
+```
+
+This says: "Whatever is on the stack (`..a`), plus some value of type `T` on
+top, I'll duplicate that `T`, leaving the rest untouched."
+
+Row variables let the type checker verify stack effects without knowing the
+full stack contents - only the parts each word actually touches.
+
+### Common Type Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Expected Int, got Float` | Wrong numeric type | Use `f.divide` for floats |
+| `Expected String, got Int` | Need conversion | Use `int->string` |
+| `stack underflow` | Not enough values | Check stack effect, add values |
+| `cannot unify T with U` | Type variables don't match | Ensure consistent types |
+
 ---
 
 *Seq: where composition is not just a pattern, but the foundation.*

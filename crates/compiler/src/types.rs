@@ -59,22 +59,92 @@ pub struct UnionTypeInfo {
 }
 
 /// Stack types with row polymorphism
+///
+/// # Understanding Stack Type Representation
+///
+/// Seq uses **row polymorphism** to type stack operations. The stack is represented
+/// as a linked list structure using `Cons` cells (from Lisp terminology).
+///
+/// ## Components
+///
+/// - **`Cons { rest, top }`**: A "cons cell" pairing a value type with the rest of the stack
+///   - `top`: The type of the value at this position
+///   - `rest`: What's underneath (another `Cons`, `Empty`, or `RowVar`)
+///
+/// - **`RowVar("name")`**: A row variable representing "the rest of the stack we don't care about"
+///   - Enables polymorphic functions like `dup` that work regardless of stack depth
+///   - Written as `..name` in stack effect signatures
+///
+/// - **`Empty`**: An empty stack (no values)
+///
+/// ## Debug vs Display Format
+///
+/// The `Debug` format shows the internal structure (useful for compiler developers):
+/// ```text
+/// Cons { rest: Cons { rest: RowVar("a$5"), top: Int }, top: Int }
+/// ```
+///
+/// The `Display` format shows user-friendly notation (matches stack effect syntax):
+/// ```text
+/// (..a$5 Int Int)
+/// ```
+///
+/// ## Reading the Debug Format
+///
+/// To read `Cons { rest: Cons { rest: RowVar("a"), top: Int }, top: Float }`:
+///
+/// 1. Start from the outermost `Cons` - its `top` is the stack top: `Float`
+/// 2. Follow `rest` to the next `Cons` - its `top` is next: `Int`
+/// 3. Follow `rest` to `RowVar("a")` - this is the polymorphic "rest of stack"
+///
+/// ```text
+/// Cons { rest: Cons { rest: RowVar("a"), top: Int }, top: Float }
+/// │                                           │           │
+/// │                                           │           └── top of stack: Float
+/// │                                           └── second from top: Int
+/// └── rest of stack: ..a (whatever else is there)
+///
+/// Equivalent to: (..a Int Float)  or in signature: ( ..a Int Float -- ... )
+/// ```
+///
+/// ## Fresh Variables (e.g., "a$5")
+///
+/// During type checking, variables are "freshened" to avoid name collisions:
+/// - `a` becomes `a$0`, `a$1`, etc.
+/// - The number is just a unique counter, not semantically meaningful
+/// - `a$5` means "the 6th fresh variable generated with prefix 'a'"
+///
+/// ## Example Error Message
+///
+/// ```text
+/// divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float)
+/// ```
+///
+/// Meaning:
+/// - `divide` expects two `Int` values on top of any stack (`..a$0`)
+/// - You provided two `Float` values on top of the stack (`..rest`)
+/// - The types don't match: `Int` vs `Float`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StackType {
-    /// Empty stack
+    /// Empty stack - no values
     Empty,
 
-    /// Stack with a value on top of rest
-    /// Example: Int on top of ..a
+    /// Stack with a value on top of rest (a "cons cell")
+    ///
+    /// Named after Lisp's cons (construct) operation that builds pairs.
+    /// Think of it as: `top` is the head, `rest` is the tail.
     Cons {
         /// The rest of the stack (may be Empty, another Cons, or RowVar)
         rest: Box<StackType>,
-        /// The type on top of the stack
+        /// The type on top of the stack at this position
         top: Type,
     },
 
-    /// Row variable representing "rest of stack"
-    /// Example: ..a in ( ..a Int -- ..a Bool )
+    /// Row variable representing "rest of stack" for polymorphism
+    ///
+    /// Allows functions to be polymorphic over stack depth.
+    /// Example: `dup` has effect `( ..a T -- ..a T T )` where `..a` means
+    /// "whatever is already on the stack stays there".
     RowVar(String),
 }
 

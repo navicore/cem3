@@ -159,6 +159,11 @@ pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
     unsafe { push(stack, Value::Int(status)) }
 }
 
+/// Maximum bytes allowed for a single read_n call (10MB)
+/// This prevents accidental or malicious massive memory allocations.
+/// LSP messages are typically < 1MB, so 10MB provides generous headroom.
+const READ_N_MAX_BYTES: i64 = 10 * 1024 * 1024;
+
 /// Read exactly N bytes from stdin
 ///
 /// Returns the bytes read and a status flag:
@@ -167,13 +172,21 @@ pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( Int -- String Int )
 ///
-/// The `+` suffix indicates this returns a result pattern (value + status).
+/// Like `io.read-line+`, this returns a result pattern (value + status) to allow
+/// explicit EOF detection. The function name omits the `+` suffix for brevity
+/// since byte-count reads are inherently status-oriented.
 ///
 /// This is used for protocols like LSP where message bodies are byte-counted
 /// and don't have trailing newlines.
 ///
+/// # UTF-8 Handling
+/// The bytes are interpreted as UTF-8. Invalid UTF-8 sequences are replaced
+/// with the Unicode replacement character (U+FFFD). This is appropriate for
+/// text-based protocols like LSP but may not be suitable for binary data.
+///
 /// # Safety
-/// Stack must have an Int on top
+/// Stack must have an Int on top. The integer must be non-negative and
+/// not exceed READ_N_MAX_BYTES (10MB).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_read_n(stack: Stack) -> Stack {
     use std::io::Read;
@@ -182,6 +195,15 @@ pub unsafe extern "C" fn patch_seq_read_n(stack: Stack) -> Stack {
 
     let (stack, value) = unsafe { pop(stack) };
     let n = match value {
+        Value::Int(n) if n < 0 => {
+            panic!("read_n: byte count must be non-negative, got {}", n)
+        }
+        Value::Int(n) if n > READ_N_MAX_BYTES => {
+            panic!(
+                "read_n: byte count {} exceeds maximum allowed ({})",
+                n, READ_N_MAX_BYTES
+            )
+        }
         Value::Int(n) => n as usize,
         _ => panic!("read_n: expected Int on stack, got {:?}", value),
     };

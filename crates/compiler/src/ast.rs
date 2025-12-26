@@ -267,6 +267,7 @@ impl Program {
             "io.write-line",
             "io.read-line",
             "io.read-line+",
+            "io.read-n",
             "int->string",
             // Command-line arguments
             "args.count",

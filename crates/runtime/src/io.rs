@@ -159,6 +159,62 @@ pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
     unsafe { push(stack, Value::Int(status)) }
 }
 
+/// Read exactly N bytes from stdin
+///
+/// Returns the bytes read and a status flag:
+/// - ( string 1 ) on success (read all N bytes)
+/// - ( string 0 ) at EOF or partial read (string may be shorter than N)
+///
+/// Stack effect: ( Int -- String Int )
+///
+/// The `+` suffix indicates this returns a result pattern (value + status).
+///
+/// This is used for protocols like LSP where message bodies are byte-counted
+/// and don't have trailing newlines.
+///
+/// # Safety
+/// Stack must have an Int on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_read_n(stack: Stack) -> Stack {
+    use std::io::Read;
+
+    assert!(!stack.is_null(), "read_n: stack is empty");
+
+    let (stack, value) = unsafe { pop(stack) };
+    let n = match value {
+        Value::Int(n) => n as usize,
+        _ => panic!("read_n: expected Int on stack, got {:?}", value),
+    };
+
+    let stdin = io::stdin();
+    let mut buffer = vec![0u8; n];
+    let mut total_read = 0;
+
+    {
+        let mut handle = stdin.lock();
+        while total_read < n {
+            match handle.read(&mut buffer[total_read..]) {
+                Ok(0) => break, // EOF
+                Ok(bytes_read) => total_read += bytes_read,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => panic!("read_n: failed to read from stdin: {}", e),
+            }
+        }
+    }
+
+    // Truncate to actual bytes read
+    buffer.truncate(total_read);
+
+    // Convert to String (assuming UTF-8)
+    let s = String::from_utf8_lossy(&buffer).into_owned();
+
+    // Status: 1 if we read all N bytes, 0 otherwise
+    let status = if total_read == n { 1i64 } else { 0i64 };
+
+    let stack = unsafe { push(stack, Value::String(s.into())) };
+    unsafe { push(stack, Value::Int(status)) }
+}
+
 /// Convert an integer to a string
 ///
 /// Stack effect: ( Int -- String )
@@ -249,6 +305,7 @@ pub use patch_seq_push_seqstring as push_seqstring;
 pub use patch_seq_push_string as push_string;
 pub use patch_seq_read_line as read_line;
 pub use patch_seq_read_line_plus as read_line_plus;
+pub use patch_seq_read_n as read_n;
 pub use patch_seq_write_line as write_line;
 
 #[cfg(test)]

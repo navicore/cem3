@@ -2089,6 +2089,10 @@ impl CodeGen {
 
         // Closure path: fall back to regular patch_seq_call
         // Use a fresh temp to ensure proper SSA numbering (must be >= quotation branch temps)
+        //
+        // Note: No yield check here because closures use regular calls (not musttail),
+        // so recursive closures will eventually hit stack limits. The yield safety valve
+        // is specifically for unbounded TCO loops which can run infinitely.
         writeln!(&mut self.output, "{}:", closure_block)?;
         let closure_result = self.fresh_temp();
         writeln!(

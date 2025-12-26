@@ -843,7 +843,7 @@ impl TypeChecker {
         // Unify current stack with effect's input
         let subst = unify_stacks(&effect.inputs, &current_stack).map_err(|e| {
             format!(
-                "{}: stack type mismatch. Expected {:?}, got {:?}: {}",
+                "{}: stack type mismatch. Expected {}, got {}: {}",
                 operation, effect.inputs, current_stack, e
             )
         })?;

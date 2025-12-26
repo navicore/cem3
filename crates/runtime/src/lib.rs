@@ -78,10 +78,10 @@ pub use io::{
 
 // Scheduler operations (exported for LLVM linking)
 pub use scheduler::{
-    patch_seq_scheduler_init as scheduler_init, patch_seq_scheduler_run as scheduler_run,
-    patch_seq_scheduler_shutdown as scheduler_shutdown, patch_seq_spawn_strand as spawn_strand,
-    patch_seq_strand_spawn as strand_spawn, patch_seq_wait_all_strands as wait_all_strands,
-    patch_seq_yield_strand as yield_strand,
+    patch_seq_maybe_yield as maybe_yield, patch_seq_scheduler_init as scheduler_init,
+    patch_seq_scheduler_run as scheduler_run, patch_seq_scheduler_shutdown as scheduler_shutdown,
+    patch_seq_spawn_strand as spawn_strand, patch_seq_strand_spawn as strand_spawn,
+    patch_seq_wait_all_strands as wait_all_strands, patch_seq_yield_strand as yield_strand,
 };
 
 // Channel operations (exported for LLVM linking)

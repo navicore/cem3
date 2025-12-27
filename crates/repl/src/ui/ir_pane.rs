@@ -211,43 +211,211 @@ impl<'a> IrPane<'a> {
             .collect()
     }
 
-    /// Style LLVM IR content
+    /// Style LLVM IR content with syntax highlighting
     fn style_llvm(&self, lines: &[String]) -> Vec<Line<'a>> {
         lines
             .iter()
             .map(|line| {
-                let mut spans = Vec::new();
                 let trimmed = line.trim_start();
 
-                // Comments in dark gray
+                // Comments in dark gray (whole line)
                 if trimmed.starts_with(';') {
-                    spans.push(Span::styled(
+                    return Line::from(Span::styled(
                         line.clone(),
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
-                // Definitions in yellow
-                else if trimmed.starts_with("define ") {
-                    spans.push(Span::styled(
+
+                // Labels in cyan (whole line)
+                if trimmed.ends_with(':') && !trimmed.contains(' ') {
+                    return Line::from(Span::styled(
                         line.clone(),
-                        Style::default().fg(Color::Yellow),
-                    ));
-                }
-                // Labels in cyan
-                else if trimmed.ends_with(':') && !trimmed.contains(' ') {
-                    spans.push(Span::styled(line.clone(), Style::default().fg(Color::Cyan)));
-                }
-                // Default
-                else {
-                    spans.push(Span::styled(
-                        line.clone(),
-                        Style::default().fg(Color::White),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 }
 
-                Line::from(spans)
+                // For other lines, do token-based highlighting
+                Line::from(self.tokenize_llvm_line(line))
             })
             .collect()
+    }
+
+    /// Tokenize and style a single LLVM IR line
+    fn tokenize_llvm_line(&self, line: &str) -> Vec<Span<'a>> {
+        let mut spans = Vec::new();
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            let ch = chars[i];
+
+            // Preserve leading whitespace
+            if ch.is_whitespace() {
+                let start = i;
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                spans.push(Span::raw(chars[start..i].iter().collect::<String>()));
+                continue;
+            }
+
+            // % registers/variables in magenta
+            if ch == '%' {
+                let start = i;
+                i += 1;
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '.')
+                {
+                    i += 1;
+                }
+                spans.push(Span::styled(
+                    chars[start..i].iter().collect::<String>(),
+                    Style::default().fg(Color::Magenta),
+                ));
+                continue;
+            }
+
+            // @ function names in yellow
+            if ch == '@' {
+                let start = i;
+                i += 1;
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                spans.push(Span::styled(
+                    chars[start..i].iter().collect::<String>(),
+                    Style::default().fg(Color::Yellow),
+                ));
+                continue;
+            }
+
+            // Numbers in blue
+            if ch.is_ascii_digit()
+                || (ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit())
+            {
+                let start = i;
+                if ch == '-' {
+                    i += 1;
+                }
+                while i < chars.len() && chars[i].is_ascii_digit() {
+                    i += 1;
+                }
+                spans.push(Span::styled(
+                    chars[start..i].iter().collect::<String>(),
+                    Style::default().fg(Color::Blue),
+                ));
+                continue;
+            }
+
+            // Identifiers (keywords, types, instructions)
+            if ch.is_alphabetic() || ch == '_' {
+                let start = i;
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '.')
+                {
+                    i += 1;
+                }
+                let word: String = chars[start..i].iter().collect();
+                let style = self.llvm_word_style(&word);
+                spans.push(Span::styled(word, style));
+                continue;
+            }
+
+            // Operators and punctuation in default color
+            spans.push(Span::raw(ch.to_string()));
+            i += 1;
+        }
+
+        spans
+    }
+
+    /// Get style for an LLVM IR word
+    fn llvm_word_style(&self, word: &str) -> Style {
+        // Keywords (calling conventions, linkage, etc.)
+        const KEYWORDS: &[&str] = &[
+            "define", "declare", "tailcc", "fastcc", "ccc", "private", "internal", "external",
+            "global", "constant", "align", "to", "null", "true", "false", "undef", "nuw", "nsw",
+            "exact", "inbounds",
+        ];
+
+        // Instructions
+        const INSTRUCTIONS: &[&str] = &[
+            "ret",
+            "br",
+            "switch",
+            "invoke",
+            "resume",
+            "unreachable",
+            "add",
+            "sub",
+            "mul",
+            "udiv",
+            "sdiv",
+            "urem",
+            "srem",
+            "and",
+            "or",
+            "xor",
+            "shl",
+            "lshr",
+            "ashr",
+            "fadd",
+            "fsub",
+            "fmul",
+            "fdiv",
+            "frem",
+            "alloca",
+            "load",
+            "store",
+            "getelementptr",
+            "fence",
+            "cmpxchg",
+            "atomicrmw",
+            "trunc",
+            "zext",
+            "sext",
+            "fptrunc",
+            "fpext",
+            "fptoui",
+            "fptosi",
+            "uitofp",
+            "sitofp",
+            "ptrtoint",
+            "inttoptr",
+            "bitcast",
+            "addrspacecast",
+            "icmp",
+            "fcmp",
+            "phi",
+            "select",
+            "call",
+            "va_arg",
+            "extractelement",
+            "insertelement",
+            "shufflevector",
+            "extractvalue",
+            "insertvalue",
+        ];
+
+        // Type names
+        const TYPES: &[&str] = &[
+            "void", "i1", "i8", "i16", "i32", "i64", "i128", "half", "float", "double", "fp128",
+            "ptr", "label", "metadata", "type",
+        ];
+
+        if KEYWORDS.contains(&word) {
+            Style::default().fg(Color::Yellow)
+        } else if INSTRUCTIONS.contains(&word) {
+            Style::default().fg(Color::Green)
+        } else if TYPES.contains(&word)
+            || word.starts_with('i') && word[1..].chars().all(|c| c.is_ascii_digit())
+        {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::White)
+        }
     }
 }
 

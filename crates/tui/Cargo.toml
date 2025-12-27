@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
-seq-compiler = { path = "../compiler", version = "=0.13.0" }
+seq-compiler = { path = "../compiler", version = "=0.14.1" }
 
 # TUI framework - using latest v0.30 (consult https://ratatui.rs/)
 ratatui.workspace = true

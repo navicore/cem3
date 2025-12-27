@@ -83,6 +83,8 @@ pub struct App {
     pub filename: String,
     /// IR pane scroll offset
     pub ir_scroll: u16,
+    /// Whether the IR pane is visible
+    pub show_ir_pane: bool,
     /// Whether the app should quit
     pub should_quit: bool,
     /// Status message (clears after next action)
@@ -119,6 +121,7 @@ impl App {
             layout_config: LayoutConfig::default(),
             filename: "(scratch)".to_string(),
             ir_scroll: 0,
+            show_ir_pane: false,
             should_quit: false,
             status_message: None,
             session_path,
@@ -145,6 +148,7 @@ impl App {
             layout_config: LayoutConfig::default(),
             filename,
             ir_scroll: 0,
+            show_ir_pane: false,
             should_quit: false,
             status_message: None,
             session_path: path,
@@ -204,20 +208,12 @@ impl App {
                 self.repl_state.cursor_home();
             }
 
-            // Cursor movement
+            // Cursor movement (REPL always has focus)
             KeyCode::Char('h') | KeyCode::Left => {
-                if self.focused == FocusedPane::Repl {
-                    self.repl_state.cursor_left();
-                } else {
-                    self.ir_mode = self.ir_mode.prev();
-                }
+                self.repl_state.cursor_left();
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                if self.focused == FocusedPane::Repl {
-                    self.repl_state.cursor_right();
-                } else {
-                    self.ir_mode = self.ir_mode.next();
-                }
+                self.repl_state.cursor_right();
             }
             KeyCode::Char('0') | KeyCode::Home => {
                 self.repl_state.cursor_home();
@@ -243,21 +239,24 @@ impl App {
                 self.repl_state.clear_input();
             }
 
-            // Scrolling IR pane
+            // History navigation (like rustyline in original REPL)
             KeyCode::Char('j') | KeyCode::Down => {
-                if self.focused == FocusedPane::Ir {
-                    self.ir_scroll = self.ir_scroll.saturating_add(1);
-                }
+                self.repl_state.history_down();
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if self.focused == FocusedPane::Ir {
-                    self.ir_scroll = self.ir_scroll.saturating_sub(1);
+                self.repl_state.history_up();
+            }
+
+            // Ctrl+N cycles IR view modes (when visible)
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.show_ir_pane {
+                    self.ir_mode = self.ir_mode.next();
                 }
             }
 
-            // Focus switching
+            // Tab is reserved for completion (not implemented yet)
             KeyCode::Tab => {
-                self.focused = self.focused.toggle();
+                // TODO: Tab completion
             }
 
             // Execute current input
@@ -302,6 +301,12 @@ impl App {
             }
             KeyCode::Right => {
                 self.repl_state.cursor_right();
+            }
+            KeyCode::Up => {
+                self.repl_state.history_up();
+            }
+            KeyCode::Down => {
+                self.repl_state.history_down();
             }
             KeyCode::Home => {
                 self.repl_state.cursor_home();
@@ -707,9 +712,34 @@ impl App {
                     self.ir_mode = IrViewMode::StackArt;
                 }
             }
+            ":ir" => {
+                // Toggle IR pane visibility
+                self.show_ir_pane = !self.show_ir_pane;
+                if self.show_ir_pane {
+                    self.status_message =
+                        Some(format!("IR: {} (Ctrl+N to cycle)", self.ir_mode.name()));
+                } else {
+                    self.status_message = Some("IR pane hidden".to_string());
+                }
+            }
+            ":ir stack" => {
+                self.show_ir_pane = true;
+                self.ir_mode = IrViewMode::StackArt;
+                self.status_message = Some("IR: Stack Effects".to_string());
+            }
+            ":ir ast" => {
+                self.show_ir_pane = true;
+                self.ir_mode = IrViewMode::TypedAst;
+                self.status_message = Some("IR: Typed AST".to_string());
+            }
+            ":ir llvm" => {
+                self.show_ir_pane = true;
+                self.ir_mode = IrViewMode::LlvmIr;
+                self.status_message = Some("IR: LLVM IR".to_string());
+            }
             ":help" | ":h" => {
                 self.status_message = Some(
-                    ":q :clear :pop :show :include <mod> | Vi: i/a insert, Esc normal, Tab focus"
+                    ":q :clear :pop :ir [stack|ast|llvm] :include <mod> | Ctrl+N cycle IR"
                         .to_string(),
                 );
             }
@@ -1028,11 +1058,11 @@ impl App {
     /// Render the application to a frame
     pub fn render(&self, frame: &mut Frame) {
         let area = frame.area();
-        let layout = ComputedLayout::compute(area, &self.layout_config);
+        let layout = ComputedLayout::compute(area, &self.layout_config, self.show_ir_pane);
 
-        // Render REPL pane
+        // Render REPL pane (always focused, no border)
         let repl_pane = ReplPane::new(&self.repl_state)
-            .focused(self.focused == FocusedPane::Repl && self.vi_mode == ViMode::Insert)
+            .focused(self.vi_mode == ViMode::Insert)
             .prompt(if self.vi_mode == ViMode::Insert {
                 "seq> "
             } else {
@@ -1040,11 +1070,10 @@ impl App {
             });
         frame.render_widget(&repl_pane, layout.repl);
 
-        // Render IR pane (if visible)
-        if layout.ir_visible() {
+        // Render IR pane (if enabled and space available)
+        if self.show_ir_pane && layout.ir_visible() {
             let ir_pane = IrPane::new(&self.ir_content)
                 .mode(self.ir_mode)
-                .focused(self.focused == FocusedPane::Ir)
                 .scroll(self.ir_scroll);
             frame.render_widget(&ir_pane, layout.ir);
         }
@@ -1138,32 +1167,26 @@ mod tests {
     }
 
     #[test]
-    fn test_focus_toggle() {
+    fn test_history_navigation() {
         let mut app = App::new();
-        assert_eq!(app.focused, FocusedPane::Repl);
 
-        app.handle_key(KeyEvent::from(KeyCode::Tab));
-        assert_eq!(app.focused, FocusedPane::Ir);
+        // Add some history entries manually
+        app.repl_state
+            .add_entry(HistoryEntry::new("first").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("second").with_output("2"));
 
-        app.handle_key(KeyEvent::from(KeyCode::Tab));
-        assert_eq!(app.focused, FocusedPane::Repl);
-    }
+        // k goes up in history (to most recent)
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "second");
 
-    #[test]
-    fn test_ir_view_cycling() {
-        let mut app = App::new();
-        app.focused = FocusedPane::Ir;
+        // k again goes to older entry
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "first");
 
-        assert_eq!(app.ir_mode, IrViewMode::StackArt);
-
-        app.handle_key(KeyEvent::from(KeyCode::Char('l')));
-        assert_eq!(app.ir_mode, IrViewMode::TypedAst);
-
-        app.handle_key(KeyEvent::from(KeyCode::Char('l')));
-        assert_eq!(app.ir_mode, IrViewMode::LlvmIr);
-
-        app.handle_key(KeyEvent::from(KeyCode::Char('h')));
-        assert_eq!(app.ir_mode, IrViewMode::TypedAst);
+        // j goes back down
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "second");
     }
 
     #[test]

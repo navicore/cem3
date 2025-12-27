@@ -7,7 +7,7 @@
 # Powers of 2 have exactly one bit set
 : power-of-2? ( Int -- Int )
   dup 0 >                    # x > 0?
-  swap dup 1 subtract band   # x & (x-1)
+  swap dup 1 i.subtract band   # x & (x-1)
   0 =                        # == 0?
   and                        # both conditions
 ;
@@ -15,20 +15,20 @@
 # Round up to the next power of 2
 # Uses bit smearing followed by increment
 : next-power-of-2 ( Int -- Int )
-  1 subtract          # handle exact powers of 2
+  1 i.subtract          # handle exact powers of 2
   dup  1 shr bor      # smear bits right
   dup  2 shr bor
   dup  4 shr bor
   dup  8 shr bor
   dup 16 shr bor
   dup 32 shr bor      # now all bits right of MSB are 1
-  1 add               # add 1 to get power of 2
+  1 i.add               # add 1 to get power of 2
 ;
 
 # Find floor(log2(x)) for x > 0
 # This is the position of the most significant bit
 : log2-floor ( Int -- Int )
-  int-bits swap clz subtract 1 subtract
+  int-bits swap clz i.subtract 1 i.subtract
 ;
 
 # Check if x is a power of 2 (alternative using popcount)

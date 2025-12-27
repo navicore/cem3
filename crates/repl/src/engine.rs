@@ -272,9 +272,9 @@ pub fn builtin_effects() -> Vec<WordEffect> {
             ),
         },
         WordEffect {
-            name: "add".to_string(),
+            name: "i.add".to_string(),
             effect: StackEffect::new(
-                "add",
+                "i.add",
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
@@ -282,9 +282,9 @@ pub fn builtin_effects() -> Vec<WordEffect> {
             ),
         },
         WordEffect {
-            name: "multiply".to_string(),
+            name: "i.multiply".to_string(),
             effect: StackEffect::new(
-                "multiply",
+                "i.multiply",
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
@@ -314,7 +314,7 @@ mod tests {
     fn test_analyze_word_with_effect() -> Result<(), String> {
         let source = r#"
 : double ( Int -- Int )
-    dup add
+    dup i.add
 ;
 
 : main ( -- )
@@ -339,7 +339,7 @@ mod tests {
     fn test_analyze_type_error() {
         let source = r#"
 : main ( -- )
-    "hello" 42 add
+    "hello" 42 i.add
 ;
 "#;
         let result = analyze(source);

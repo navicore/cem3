@@ -6,7 +6,7 @@
 
 : recurse-via-quotation ( Int -- )
     dup 0 > if
-        1 subtract [ recurse-via-quotation ] call
+        1 i.subtract [ recurse-via-quotation ] call
     else
         drop
     then

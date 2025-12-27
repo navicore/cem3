@@ -118,7 +118,7 @@ union IntOption {
 
 # Helper: double a number and wrap in Ok
 : double-ok ( Int -- IntResult )
-  2 multiply Make-Ok
+  2 i.multiply Make-Ok
 ;
 
 # Helper: return Err if not positive
@@ -166,7 +166,7 @@ union IntOption {
 ;
 
 : test-result-map-ok ( -- )
-  5 Make-Ok [ 2 multiply ] result-map
+  5 Make-Ok [ 2 i.multiply ] result-map
   result-ok? if
     0 variant.field-at 10 = if
       "result-map Ok" test-pass
@@ -179,7 +179,7 @@ union IntOption {
 ;
 
 : test-result-map-err ( -- )
-  "error" Make-Err [ 2 multiply ] result-map
+  "error" Make-Err [ 2 i.multiply ] result-map
   result-err? if
     drop "result-map Err passthrough" test-pass
   else
@@ -303,7 +303,7 @@ union IntOption {
 ;
 
 : test-option-map-some ( -- )
-  5 Make-Some [ 2 multiply ] option-map
+  5 Make-Some [ 2 i.multiply ] option-map
   option-some? if
     0 variant.field-at 10 = if
       "option-map Some" test-pass
@@ -316,7 +316,7 @@ union IntOption {
 ;
 
 : test-option-map-none ( -- )
-  Make-None [ 2 multiply ] option-map
+  Make-None [ 2 i.multiply ] option-map
   option-none? if
     drop "option-map None passthrough" test-pass
   else
@@ -342,8 +342,8 @@ union IntOption {
 
 : test-chain-success ( -- )
   "5" parse-positive
-  [ 2 multiply Make-Ok ] result-bind
-  [ 3 add Make-Ok ] result-bind
+  [ 2 i.multiply Make-Ok ] result-bind
+  [ 3 i.add Make-Ok ] result-bind
   result-ok? if
     0 variant.field-at 13 = if
       "chain success (5*2+3=13)" test-pass
@@ -357,8 +357,8 @@ union IntOption {
 
 : test-chain-early-err ( -- )
   "-5" parse-positive
-  [ 2 multiply Make-Ok ] result-bind
-  [ 3 add Make-Ok ] result-bind
+  [ 2 i.multiply Make-Ok ] result-bind
+  [ 3 i.add Make-Ok ] result-bind
   result-err? if
     drop "chain early error" test-pass
   else

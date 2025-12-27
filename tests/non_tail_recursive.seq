@@ -8,7 +8,7 @@
     dup 1 <= if
         drop 1
     else
-        dup 1 subtract factorial multiply
+        dup 1 i.subtract factorial i.multiply
     then
 ;
 

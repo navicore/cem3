@@ -7,7 +7,7 @@
     dup 0 = if
         drop 1
     else
-        1 subtract is-odd
+        1 i.subtract is-odd
     then
 ;
 
@@ -15,7 +15,7 @@
     dup 0 = if
         drop 0
     else
-        1 subtract is-even
+        1 i.subtract is-even
     then
 ;
 

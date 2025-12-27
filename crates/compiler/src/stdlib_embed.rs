@@ -9,7 +9,8 @@ use std::sync::LazyLock;
 /// Embedded stdlib files (name -> content)
 static STDLIB: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     let mut m = HashMap::new();
-    m.insert("math", include_str!("../stdlib/math.seq"));
+    m.insert("imath", include_str!("../stdlib/imath.seq"));
+    m.insert("fmath", include_str!("../stdlib/fmath.seq"));
     m.insert("json", include_str!("../stdlib/json.seq"));
     m.insert("yaml", include_str!("../stdlib/yaml.seq"));
     m.insert("http", include_str!("../stdlib/http.seq"));
@@ -38,10 +39,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_math_stdlib_exists() {
-        assert!(has_stdlib("math"));
-        let content = get_stdlib("math").unwrap();
+    fn test_imath_stdlib_exists() {
+        assert!(has_stdlib("imath"));
+        let content = get_stdlib("imath").unwrap();
         assert!(content.contains("abs"));
+    }
+
+    #[test]
+    fn test_fmath_stdlib_exists() {
+        assert!(has_stdlib("fmath"));
+        let content = get_stdlib("fmath").unwrap();
+        assert!(content.contains("f.abs"));
     }
 
     #[test]

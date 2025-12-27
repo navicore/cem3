@@ -81,11 +81,11 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         // Command-line arguments
         ("args.count", "patch_seq_arg_count"),
         ("args.at", "patch_seq_arg_at"),
-        // Arithmetic
-        ("add", "patch_seq_add"),
-        ("subtract", "patch_seq_subtract"),
-        ("multiply", "patch_seq_multiply"),
-        ("divide", "patch_seq_divide"),
+        // Integer Arithmetic
+        ("i.add", "patch_seq_add"),
+        ("i.subtract", "patch_seq_subtract"),
+        ("i.multiply", "patch_seq_multiply"),
+        ("i.divide", "patch_seq_divide"),
         // Comparison (symbolic -> named)
         ("=", "patch_seq_eq"),
         ("<", "patch_seq_lt"),
@@ -2353,14 +2353,14 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
-            // add: ( a b -- a+b )
-            "add" => self.codegen_inline_binary_op(stack_var, "add", "sub"),
+            // i.add: ( a b -- a+b )
+            "i.add" => self.codegen_inline_binary_op(stack_var, "add", "sub"),
 
-            // subtract: ( a b -- a-b )
-            "subtract" => self.codegen_inline_binary_op(stack_var, "sub", "add"),
+            // i.subtract: ( a b -- a-b )
+            "i.subtract" => self.codegen_inline_binary_op(stack_var, "sub", "add"),
 
-            // multiply: ( a b -- a*b )
-            "multiply" => {
+            // i.multiply: ( a b -- a*b )
+            "i.multiply" => {
                 // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -2426,9 +2426,9 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
-            // divide: ( a b -- a/b )
+            // i.divide: ( a b -- a/b )
             // Matches runtime behavior: panic on zero, wrapping for i64::MIN/-1
-            "divide" => {
+            "i.divide" => {
                 // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -5027,7 +5027,7 @@ mod tests {
                     Statement::IntLiteral(2),
                     Statement::IntLiteral(3),
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                 ],
@@ -5060,7 +5060,7 @@ mod tests {
                     Statement::IntLiteral(5),
                     Statement::IntLiteral(3),
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                 ],

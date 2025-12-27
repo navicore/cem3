@@ -304,7 +304,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Integer Arithmetic ( a Int Int -- a Int )
     // =========================================================================
 
-    builtins_int_int_to_int!(sigs, "add", "subtract", "multiply", "divide");
+    builtins_int_int_to_int!(sigs, "i.add", "i.subtract", "i.multiply", "i.divide");
 
     // =========================================================================
     // Integer Comparison ( a Int Int -- a Int )
@@ -660,8 +660,8 @@ mod tests {
     }
 
     #[test]
-    fn test_builtin_signature_add() {
-        let sig = builtin_signature("add").unwrap();
+    fn test_builtin_signature_i_add() {
+        let sig = builtin_signature("i.add").unwrap();
         // ( ..a Int Int -- ..a Int )
         let (rest, top) = sig.inputs.clone().pop().unwrap();
         assert_eq!(top, Type::Int);
@@ -701,7 +701,7 @@ mod tests {
         assert!(sigs.contains_key("io.write-line"));
         assert!(sigs.contains_key("io.read-line"));
         assert!(sigs.contains_key("int->string"));
-        assert!(sigs.contains_key("add"));
+        assert!(sigs.contains_key("i.add"));
         assert!(sigs.contains_key("dup"));
         assert!(sigs.contains_key("swap"));
         assert!(sigs.contains_key("chan.make"));

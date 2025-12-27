@@ -5,14 +5,68 @@
 //! - Real-time IR visualization (stack effects, typed AST, LLVM snippets)
 //! - ASCII art stack effect diagrams
 
+pub mod app;
 pub mod engine;
 pub mod ir;
 pub mod ui;
-// pub mod input;  // Phase 3
-// pub mod app;    // Phase 3
+
+use crossterm::{
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io::{self, stdout};
 
 /// Run the TUI REPL with an optional file
-pub fn run(_file: Option<&std::path::Path>) -> Result<(), String> {
-    // TODO: Phase 4 - full application integration
-    Err("TUI mode not yet implemented - coming in Phase 4".to_string())
+pub fn run(file: Option<&std::path::Path>) -> Result<(), String> {
+    // Setup terminal
+    enable_raw_mode().map_err(|e| format!("Failed to enable raw mode: {}", e))?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen)
+        .map_err(|e| format!("Failed to enter alternate screen: {}", e))?;
+
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal =
+        Terminal::new(backend).map_err(|e| format!("Failed to create terminal: {}", e))?;
+
+    // Create app with filename if provided
+    let mut app_state = app::App::new();
+    if let Some(path) = file {
+        app_state = app_state.with_filename(path.display().to_string());
+    }
+
+    // Run the app
+    let result = run_app(&mut terminal, app_state);
+
+    // Restore terminal
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
+
+    result.map_err(|e| format!("Application error: {}", e))
+}
+
+/// Internal run loop (specialized for CrosstermBackend)
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    mut app: app::App,
+) -> io::Result<()> {
+    use crossterm::event::{self, Event};
+    use std::time::Duration;
+
+    loop {
+        terminal.draw(|frame| app.render(frame))?;
+
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            app.handle_key(key);
+        }
+
+        if app.should_quit {
+            break;
+        }
+    }
+
+    Ok(())
 }

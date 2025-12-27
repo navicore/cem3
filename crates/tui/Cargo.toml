@@ -23,3 +23,6 @@ crossterm.workspace = true
 
 # Session file management
 tempfile.workspace = true
+
+# History persistence
+dirs.workspace = true

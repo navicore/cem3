@@ -15,9 +15,9 @@ path = "src/main.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
-seq-compiler = { path = "../compiler", version = "=0.13.0" }
+seq-compiler = { path = "../compiler", version = "=0.14.1" }
 # TUI mode (optional, enabled by --tui flag)
-seq-tui = { path = "../tui", version = "=0.13.0" }
+seq-tui = { path = "../tui", version = "=0.14.1" }
 clap.workspace = true
 rustyline.workspace = true
 tempfile.workspace = true

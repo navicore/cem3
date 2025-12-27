@@ -738,10 +738,46 @@ impl App {
                 self.status_message = Some("IR: LLVM IR".to_string());
             }
             ":help" | ":h" => {
-                self.status_message = Some(
-                    ":q :clear :pop :ir [stack|ast|llvm] :include <mod> | Ctrl+N cycle IR"
-                        .to_string(),
-                );
+                // Show help in the IR pane
+                self.ir_content = IrContent {
+                    stack_art: vec![
+                        "╭─────────────────────────────────────╮".to_string(),
+                        "│           Seq TUI REPL              │".to_string(),
+                        "╰─────────────────────────────────────╯".to_string(),
+                        String::new(),
+                        "COMMANDS".to_string(),
+                        "  :q, :quit     Exit the REPL".to_string(),
+                        "  :clear        Clear session and history".to_string(),
+                        "  :pop          Remove last expression".to_string(),
+                        "  :show         Show session file".to_string(),
+                        "  :ir           Toggle IR pane".to_string(),
+                        "  :ir stack     Show stack effects".to_string(),
+                        "  :ir ast       Show typed AST".to_string(),
+                        "  :ir llvm      Show LLVM IR".to_string(),
+                        "  :include <m>  Include module".to_string(),
+                        "  :help, :h     Show this help".to_string(),
+                        String::new(),
+                        "VI MODE".to_string(),
+                        "  i, a, A, I    Enter insert mode".to_string(),
+                        "  Esc           Return to normal mode".to_string(),
+                        "  h, l          Move cursor left/right".to_string(),
+                        "  j, k          History down/up".to_string(),
+                        "  w, b          Word forward/backward".to_string(),
+                        "  0, $          Line start/end".to_string(),
+                        "  x             Delete character".to_string(),
+                        "  d             Clear line".to_string(),
+                        String::new(),
+                        "KEYS".to_string(),
+                        "  Ctrl+N        Cycle IR views".to_string(),
+                        "  Enter         Execute expression".to_string(),
+                        "  Up/Down       History navigation".to_string(),
+                    ],
+                    typed_ast: vec![],
+                    llvm_ir: vec![],
+                    errors: vec![],
+                };
+                self.ir_mode = IrViewMode::StackArt;
+                self.show_ir_pane = true;
             }
             _ if cmd.starts_with(":include ") => {
                 let module = cmd.strip_prefix(":include ").unwrap().trim();

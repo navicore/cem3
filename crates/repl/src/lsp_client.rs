@@ -322,30 +322,19 @@ impl LspClient {
 
 impl Drop for LspClient {
     fn drop(&mut self) {
-        // Try to shutdown gracefully with a timeout
-        // If graceful shutdown fails or times out, force kill to prevent process leak
-
         // Attempt graceful shutdown (send shutdown request + exit notification)
-        let shutdown_result = self.shutdown();
+        let _ = self.shutdown();
 
-        // Give it a brief moment to exit gracefully
-        if shutdown_result.is_ok() {
-            // Try to check if process exited
-            for _ in 0..5 {
-                match self.process.try_wait() {
-                    Ok(Some(_)) => return, // Process exited cleanly
-                    Ok(None) => {
-                        // Still running, wait a bit
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                    }
-                    Err(_) => break, // Error checking status, force kill
-                }
+        // Check if process exited, otherwise force kill immediately
+        // We avoid blocking in Drop - if graceful shutdown didn't work, just kill it
+        match self.process.try_wait() {
+            Ok(Some(_)) => (), // Process exited cleanly
+            _ => {
+                // Still running or error - force kill and reap
+                let _ = self.process.kill();
+                let _ = self.process.wait();
             }
         }
-
-        // If we get here, process didn't exit gracefully - force kill
-        let _ = self.process.kill();
-        let _ = self.process.wait(); // Reap the zombie process
     }
 }
 

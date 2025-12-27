@@ -2,10 +2,41 @@
 
 Benchmark suite comparing Seq strand performance against Go goroutines.
 
+## CI Integration
+
+**Benchmarks must be run within 24 hours of any commit.** The `just ci` command
+will fail if `LATEST_RUN.txt` is stale or missing.
+
+**Why 24 hours?** Performance regressions are easier to diagnose when caught early.
+The 24-hour window ensures benchmarks are run at least once per development session,
+catching issues before they're buried under unrelated commits. Cloud CI runners have
+inconsistent performance, so local benchmarking is the source of truth.
+
+```bash
+# If CI fails with "Benchmarks are stale", run:
+just bench
+
+# Then commit the updated LATEST_RUN.txt
+git add benchmarks/LATEST_RUN.txt
+git commit -m "Update benchmark run timestamp"
+```
+
 ## Prerequisites
 
+**Required:**
 - **Rust/Cargo**: For building seqc
 - **Go**: For Go benchmarks (`brew install go` or https://go.dev)
+
+**Optional (recommended):**
+- **hyperfine**: For statistical benchmarking with summary table (`cargo install hyperfine`)
+- **jq**: For robust JSON parsing of hyperfine output (`brew install jq` or `dnf install jq`)
+- **bc**: For ratio calculations in summary (usually pre-installed)
+
+**Linux only:**
+- If running skynet (1M strands), you may need to increase memory map limits:
+  ```bash
+  sudo sysctl -w vm.max_map_count=2000000
+  ```
 
 ## Quick Start
 

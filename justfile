@@ -92,7 +92,7 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test build build-examples test-integration lint-seq
+ci: fmt-check lint test build build-examples test-integration lint-seq check-bench-freshness
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
@@ -103,8 +103,45 @@ ci: fmt-check lint test build build-examples test-integration lint-seq
     @echo "   - Examples built ✓"
     @echo "   - Integration tests ✓"
     @echo "   - Seq lint ✓"
+    @echo "   - Benchmarks fresh ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
+
+# Check that benchmarks have been run recently (within 24 hours)
+# This catches performance regressions by ensuring benchmarks are run regularly
+check-bench-freshness:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    BENCH_FILE="benchmarks/LATEST_RUN.txt"
+    if [ ! -f "$BENCH_FILE" ]; then
+        echo "❌ Benchmarks have never been run!"
+        echo "   Run 'just bench' to establish a baseline."
+        exit 1
+    fi
+    # Extract timestamp from file
+    TIMESTAMP=$(grep "^timestamp:" "$BENCH_FILE" | cut -d' ' -f2)
+    if [ -z "$TIMESTAMP" ]; then
+        echo "❌ Invalid benchmark file format"
+        exit 1
+    fi
+    # Convert to epoch seconds (works on both macOS and Linux)
+    # Note: Timestamps are stored in UTC, so we must compare against UTC
+    if date --version >/dev/null 2>&1; then
+        # GNU date (Linux) - understands ISO 8601 with Z suffix
+        BENCH_EPOCH=$(date -d "$TIMESTAMP" +%s)
+    else
+        # BSD date (macOS) - parse as UTC by setting TZ
+        BENCH_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$TIMESTAMP" +%s 2>/dev/null || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${TIMESTAMP%Z}" +%s)
+    fi
+    NOW_EPOCH=$(date -u +%s)
+    AGE_HOURS=$(( (NOW_EPOCH - BENCH_EPOCH) / 3600 ))
+    if [ $AGE_HOURS -ge 24 ]; then
+        echo "❌ Benchmarks are stale ($AGE_HOURS hours old)"
+        echo "   Last run: $TIMESTAMP"
+        echo "   Run 'just bench' to update."
+        exit 1
+    fi
+    echo "✅ Benchmarks are fresh ($AGE_HOURS hours old)"
 
 # Lint all Seq source files (strict mode for CI - warnings are errors)
 lint-seq: build

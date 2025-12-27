@@ -14,6 +14,7 @@
 //!   :clear                  # Clear the session (reset stack)
 //!   :show                   # Show current file contents
 //!   :edit, :e               # Open file in $EDITOR
+//!   :include <mod>          # Include a module (e.g., std:math)
 //!   :run                    # Manually recompile and run
 //!   :repair                 # Validate/repair session file
 //!   :help                   # Show help
@@ -208,11 +209,16 @@ struct Args {
 const REPL_TEMPLATE: &str = r#"# Seq REPL session
 # Expressions are auto-printed via stack.dump
 
+# --- includes ---
+
 # --- definitions ---
 
 # --- main ---
 : main ( -- )
 "#;
+
+/// Marker for includes section
+const INCLUDES_MARKER: &str = "# --- includes ---";
 
 /// Closing for the main word
 const MAIN_CLOSE: &str = "  stack.dump\n;\n";
@@ -418,6 +424,18 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                     ":help" => {
                         print_help();
                     }
+                    _ if line.starts_with(":include ") => {
+                        let module = line.strip_prefix(":include ").unwrap().trim();
+                        if module.is_empty() {
+                            println!("Usage: :include <module>");
+                            println!("Example: :include std:math");
+                        } else if try_include(seq_file, module, &last_write) {
+                            if let Some(helper) = rl.helper() {
+                                helper.sync_document();
+                            }
+                            println!("Included '{}'.", module);
+                        }
+                    }
                     _ => {
                         // Check if this is a Seq word definition (": name ...")
                         // vs a REPL command (":command")
@@ -463,6 +481,88 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
     if let Some(ref path) = history_file {
         let _ = rl.save_history(path);
     }
+}
+
+/// Try adding an include to the includes section
+fn try_include(seq_file: &Path, module: &str, last_write: &Arc<AtomicU64>) -> bool {
+    let original = match fs::read_to_string(seq_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading file: {}", e);
+            return false;
+        }
+    };
+
+    // Check if already included
+    let include_stmt = format!("include {}", module);
+    if original.contains(&include_stmt) {
+        println!("'{}' is already included.", module);
+        return false;
+    }
+
+    // Add include to includes section
+    if !add_include(seq_file, module, last_write) {
+        return false;
+    }
+
+    // Try to compile
+    let output_path = seq_file.with_extension("");
+    match seqc::compile_file(seq_file, &output_path, false) {
+        Ok(_) => {
+            remove_file_logged(&output_path);
+            last_write.store(now_ms(), Ordering::Release);
+            true
+        }
+        Err(e) => {
+            eprintln!("Include error: {}", e);
+            if let Err(e) = fs::write(seq_file, &original) {
+                eprintln!("Error rolling back: {}", e);
+            }
+            last_write.store(now_ms(), Ordering::Release);
+            false
+        }
+    }
+}
+
+/// Add an include statement to the includes section
+fn add_include(seq_file: &Path, module: &str, last_write: &Arc<AtomicU64>) -> bool {
+    let content = match fs::read_to_string(seq_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading file: {}", e);
+            return false;
+        }
+    };
+
+    // Find the includes marker
+    let includes_pos = match content.find(INCLUDES_MARKER) {
+        Some(p) => p,
+        None => {
+            eprintln!("Error: Malformed session file (no includes marker)");
+            return false;
+        }
+    };
+
+    // Find the end of the includes marker line
+    let marker_end = includes_pos + INCLUDES_MARKER.len();
+    let after_marker = &content[marker_end..];
+    let newline_pos = after_marker.find('\n').unwrap_or(0);
+    let insert_pos = marker_end + newline_pos + 1;
+
+    // Insert include after the marker
+    let mut new_content = String::new();
+    new_content.push_str(&content[..insert_pos]);
+    new_content.push_str("include ");
+    new_content.push_str(module);
+    new_content.push('\n');
+    new_content.push_str(&content[insert_pos..]);
+
+    if let Err(e) = fs::write(seq_file, new_content) {
+        eprintln!("Error writing file: {}", e);
+        return false;
+    }
+    last_write.store(now_ms(), Ordering::Release);
+    true
 }
 
 /// Try adding a word definition to the definitions section
@@ -863,19 +963,21 @@ fn print_help() {
     println!(
         r#"
 Seq REPL Commands:
-  :quit, :q     Exit the REPL
-  :pop          Remove last expression (undo)
-  :clear        Clear the session (reset stack and expressions)
-  :show         Show current file contents
-  :edit, :e     Open file in $EDITOR (yank code from here)
-  :run          Manually recompile and run
-  :repair       Validate and repair malformed session file
-  :help         Show this help
+  :quit, :q        Exit the REPL
+  :pop             Remove last expression (undo)
+  :clear           Clear the session (reset stack and expressions)
+  :show            Show current file contents
+  :edit, :e        Open file in $EDITOR (yank code from here)
+  :include <mod>   Include a module (e.g., :include std:math)
+  :run             Manually recompile and run
+  :repair          Validate and repair malformed session file
+  :help            Show this help
 
 Usage:
   - Type expressions to evaluate them (stack is shown automatically)
   - Stack persists across lines - build up values incrementally
   - Define words with ": name ( sig ) ... ;" - these persist in the session
+  - Use :include to add stdlib modules for math, json, etc.
   - Use :pop to undo the last expression
   - Use :clear to start fresh
 
@@ -888,13 +990,13 @@ Examples:
   [1, 2]
   seqr> add
   [3]
-  seqr> 5
-  [3, 5]
-  seqr> :pop
-  [3]
+  seqr> :include std:math
+  Included 'std:math'.
+  seqr> 3.14159 sin
+  [3, 0.0000026...]
   seqr> : square ( Int -- Int ) dup multiply ;
   Defined.
-  seqr> square
+  seqr> drop drop 3 square
   [9]
 "#
     );
@@ -1019,5 +1121,23 @@ mod tests {
 
         // ":" alone followed by tab is also a definition
         assert!(":\tfoo".trim_start().starts_with(":\t"));
+    }
+
+    #[test]
+    fn test_add_include() {
+        let (path, _temp) = create_test_file();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Add an include
+        assert!(add_include(&path, "std:math", &last_write));
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("include std:math"));
+
+        // Include should be after includes marker but before definitions marker
+        let inc_pos = content.find("include std:math").unwrap();
+        let includes_marker_pos = content.find(INCLUDES_MARKER).unwrap();
+        let def_marker_pos = content.find("# --- definitions ---").unwrap();
+        assert!(inc_pos > includes_marker_pos);
+        assert!(inc_pos < def_marker_pos);
     }
 }

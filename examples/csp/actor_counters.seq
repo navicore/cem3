@@ -96,9 +96,9 @@ union Message {
     Increment { >response_chan } ->
       # Increment counter and return new count
       # Stack: ( parent my count pending response_chan )
-      rot 1 add              # ( parent my pending response_chan count+1 )
+      rot 1 i.add              # ( parent my pending response_chan count+1 )
       dup rot chan.send           # ( parent my pending count+1 ) - sent response
-      swap 1 add             # ( parent my count+1 pending+1 )
+      swap 1 i.add             # ( parent my count+1 pending+1 )
 
       # Check if we should report to parent
       dup report-threshold >= if
@@ -151,7 +151,7 @@ union Message {
     Report { >delta } ->
       # Add delta, forward to region immediately
       # Stack: ( parent my total delta )
-      dup rot add            # ( parent my delta total+delta )
+      dup rot i.add            # ( parent my delta total+delta )
       tuck                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
       3 pick chan.send            # ( parent my total' ) - forwarded to region
@@ -195,7 +195,7 @@ union Message {
     Report { >delta } ->
       # Add delta, forward to company immediately
       # Stack: ( parent my total delta )
-      dup rot add            # ( parent my delta total+delta )
+      dup rot i.add            # ( parent my delta total+delta )
       tuck                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
       3 pick chan.send            # ( parent my total' ) - forwarded to company
@@ -238,7 +238,7 @@ union Message {
     Report { >delta } ->
       # Add delta (no forwarding - company is top of hierarchy)
       # Stack: ( my-chan total delta )
-      add                    # ( my-chan total+delta )
+      i.add                  # ( my-chan total+delta )
       company-loop
 
     Increment ->
@@ -339,7 +339,7 @@ union Message {
     drop
   else
     "0" rot string.concat swap
-    1 subtract pad-zeros
+    1 i.subtract pad-zeros
   then
 ;
 
@@ -347,7 +347,7 @@ union Message {
 # Stack: ( str width -- padded-str )
 : pad-to-width ( String Int -- String )
   over string.length        # ( str width len )
-  over swap subtract        # ( str width padding )
+  over swap i.subtract        # ( str width padding )
   nip                       # ( str padding )
   pad-zeros                 # ( padded-str )
 ;
@@ -431,7 +431,7 @@ union Message {
     3 pick swap string.concat      # ( parent prefix counter registry path )
     over 5 pick rot rot            # ( parent prefix counter registry parent path registry )
     create-store                   # ( parent prefix counter registry new-reg )
-    nip swap 1 subtract swap       # ( parent prefix counter-1 new-reg )
+    nip swap 1 i.subtract swap       # ( parent prefix counter-1 new-reg )
     gen-stores-loop
   then
 ;
@@ -506,7 +506,7 @@ union Message {
 : count-path-segments ( String -- Int )
   # Strip leading / if present
   dup 0 string.char-at 47 = if  # 47 = '/'
-    1 over string.length 1 subtract string.substring
+    1 over string.length 1 i.subtract string.substring
   then
   "/" string.split variant.field-count
 ;
@@ -532,7 +532,7 @@ union Message {
   over "/increment" string-ends-with? if
     # Increment request - strip suffix and do increment
     drop                     # ( registry socket path )
-    dup string.length 10 subtract 0 swap string.substring  # remove "/increment"
+    dup string.length 10 i.subtract 0 swap string.substring  # remove "/increment"
     do-increment
   else
     drop                     # ( registry socket path )
@@ -577,7 +577,7 @@ union Message {
     3drop drop 0
   else
     # Get the end of the string
-    subtract                # ( suffix str offset )
+    i.subtract                # ( suffix str offset )
     over string.length      # ( suffix str offset len )
     string.substring        # ( suffix end-of-str )
     string.equal?
@@ -589,7 +589,7 @@ union Message {
 : do-get-store ( Variant Int String -- Variant )
   # Strip leading / if present
   dup 0 string.char-at 47 = if  # 47 = '/'
-    1 over string.length 1 subtract string.substring
+    1 over string.length 1 i.subtract string.substring
   then
 
   # Look up actor in unified registry
@@ -616,7 +616,7 @@ union Message {
 : do-increment ( Variant Int String -- Variant )
   # Strip leading / if present
   dup 0 string.char-at 47 = if
-    1 over string.length 1 subtract string.substring
+    1 over string.length 1 i.subtract string.substring
   then
 
   # Look up store in unified registry
@@ -642,7 +642,7 @@ union Message {
 : do-get-actor ( Variant Int String -- Variant )
   # Strip leading / if present
   dup 0 string.char-at 47 = if  # 47 = '/'
-    1 over string.length 1 subtract string.substring
+    1 over string.length 1 i.subtract string.substring
   then
 
   # Look up actor in unified registry

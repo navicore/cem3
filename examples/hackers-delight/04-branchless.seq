@@ -9,7 +9,7 @@
 # Create a mask: -1 if x < 0, else 0
 : negative-mask ( Int -- Int )
   0 <                  # 1 if negative, 0 if not
-  0 swap subtract      # -1 or 0
+  0 swap i.subtract      # -1 or 0
 ;
 
 # Absolute value without branching
@@ -19,37 +19,37 @@
   dup negative-mask    # x mask
   dup rot              # mask mask x
   bxor                 # mask (x ^ mask)
-  swap subtract        # (x ^ mask) - mask
+  swap i.subtract        # (x ^ mask) - mask
 ;
 
 # Sign of x: returns -1, 0, or 1
 : sign ( Int -- Int )
   dup 0 >              # x pos?
   swap 0 <             # pos? neg?
-  0 swap subtract      # pos? -neg?
-  add                  # pos - neg = 1, -1, or 0
+  0 swap i.subtract      # pos? -neg?
+  i.add                  # pos - neg = 1, -1, or 0
 ;
 
 # Branchless min using the formula:
 # min(a, b) = b + ((a - b) & mask)  where mask = -1 if a < b, else 0
 : min-branchless ( Int Int -- Int )
-  2dup subtract   # a b (a-b)
+  2dup i.subtract   # a b (a-b)
   dup 0 <              # a b diff (diff<0)?
-  0 swap subtract      # a b diff mask
+  0 swap i.subtract      # a b diff mask
   band                 # a b (diff & mask)
-  add                  # a (b + masked_diff)
+  i.add                  # a (b + masked_diff)
   nip                  # result
 ;
 
 # Branchless max using the formula:
 # max(a, b) = a - ((a - b) & mask)  where mask = -1 if a < b, else 0
 : max-branchless ( Int Int -- Int )
-  2dup subtract   # a b (a-b)
+  2dup i.subtract   # a b (a-b)
   dup 0 <              # a b diff (diff<0)?
-  0 swap subtract      # a b diff mask
+  0 swap i.subtract      # a b diff mask
   band                 # a b (diff & mask)
   rot swap             # b a masked_diff
-  subtract             # b (a - masked_diff)
+  i.subtract             # b (a - masked_diff)
   nip                  # result
 ;
 

@@ -3,7 +3,7 @@
 : test-int-to-string ( -- )
   42 int->string "42" string.equal? test.assert
   0 int->string "0" string.equal? test.assert
-  0 1 subtract int->string "-1" string.equal? test.assert
+  0 1 i.subtract int->string "-1" string.equal? test.assert
 ;
 
 : test-string-to-int-success ( -- )
@@ -11,7 +11,7 @@
   swap 42 = and test.assert
 
   "-7" string->int
-  swap 0 7 subtract = and test.assert
+  swap 0 7 i.subtract = and test.assert
 
   "  123  " string->int
   swap 123 = and test.assert

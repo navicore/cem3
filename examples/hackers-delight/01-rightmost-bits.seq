@@ -7,35 +7,35 @@
 # Formula: x & (x - 1)
 # Example: 0b1010 -> 0b1000 (turns off the rightmost 1)
 : rightmost-1-off ( Int -- Int )
-  dup 1 subtract band
+  dup 1 i.subtract band
 ;
 
 # Isolate the rightmost 1-bit
 # Formula: x & (-x)  or equivalently  x & (~x + 1)
 # Example: 0b1010 -> 0b0010 (isolates the rightmost 1)
 : rightmost-1-isolate ( Int -- Int )
-  dup 0 swap subtract band  # x & (-x)
+  dup 0 swap i.subtract band  # x & (-x)
 ;
 
 # Turn on the rightmost 0-bit
 # Formula: x | (x + 1)
 # Example: 0b1010 -> 0b1011 (turns on the rightmost 0)
 : rightmost-0-on ( Int -- Int )
-  dup 1 add bor
+  dup 1 i.add bor
 ;
 
 # Isolate the rightmost 0-bit
 # Formula: ~x & (x + 1)
 # Example: 0b1010 -> 0b0001 (isolates the rightmost 0)
 : rightmost-0-isolate ( Int -- Int )
-  dup bnot swap 1 add band
+  dup bnot swap 1 i.add band
 ;
 
 # Right-propagate the rightmost 1-bit
 # Formula: x | (x - 1)
 # Example: 0b1010 -> 0b1011 (propagates rightmost 1 to fill trailing 0s)
 : rightmost-1-propagate ( Int -- Int )
-  dup 1 subtract bor
+  dup 1 i.subtract bor
 ;
 
 # Test and display

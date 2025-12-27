@@ -28,5 +28,5 @@
 # Test Quotation capture
 : test-quotation-capture ( -- )
   # Capture [2 multiply] and apply it to 5, expect 10
-  [ 2 multiply ] [ 5 swap call 10 = test.assert ] call
+  [ 2 i.multiply ] [ 5 swap call 10 = test.assert ] call
 ;

@@ -172,9 +172,9 @@
 
 # Extract substring after colon (stops at newline)
 : yaml-value-part ( ..rest String Int -- ..rest String )
-  1 add                        # position after colon
+  1 i.add                        # position after colon
   over string.length           # str afterpos len
-  over subtract                # str afterpos remaining
+  over i.subtract                # str afterpos remaining
   string.substring             # value-with-possible-newline
   # Find and strip newline if present
   dup yaml-find-newline        # val nlpos
@@ -233,7 +233,7 @@
   then
 ;
 
-# Parse one line and add to object if valid
+# Parse one line and i.add to object if valid
 # Stack: ( obj line -- obj' )
 : yaml-parse-and-add ( ..rest Variant String -- ..rest Variant )
   dup yaml-is-blank-line if
@@ -265,8 +265,8 @@
   2dup                            # str nlpos str nlpos
   0 swap string.substring              # str nlpos line
   rot rot                              # line str nlpos
-  1 add                                # line str afterpos
-  over string.length over subtract     # line str afterpos remaining
+  1 i.add                                # line str afterpos
+  over string.length over i.subtract     # line str afterpos remaining
   string.substring                     # line rest
 ;
 
@@ -312,8 +312,8 @@
     drop 0
   else
     dup 0 string.char-at 32 = if
-      1 over string.length 1 subtract string.substring
-      yaml-count-spaces 1 add
+      1 over string.length 1 i.subtract string.substring
+      yaml-count-spaces 1 i.add
     else
       drop 0
     then
@@ -329,11 +329,11 @@
     drop drop 0
   else
     # Check what's after the colon
-    1 add
+    1 i.add
     over string.length over <= if
       drop drop 1  # colon is at end
     else
-      over string.length over subtract
+      over string.length over i.subtract
       string.substring string.trim string.empty?
     then
   then
@@ -360,7 +360,7 @@
   over string.length over < if
     drop  # string too short, return as-is
   else
-    over string.length over subtract
+    over string.length over i.subtract
     string.substring
   then
 ;
@@ -388,7 +388,7 @@
   else
     dup 0 string.char-at 10 = if
       # Starts with newline, skip it
-      1 over string.length 1 subtract string.substring
+      1 over string.length 1 i.subtract string.substring
       yaml-skip-leading-newlines
     else
       nop
@@ -419,8 +419,8 @@
         yaml-append-line swap  # Append line to result
       then
       # Advance past newline
-      dup yaml-find-newline 1 add
-      over string.length over subtract
+      dup yaml-find-newline 1 i.add
+      over string.length over i.subtract
       string.substring  # result' rest
       yaml-strip-simple-loop
     then
@@ -446,8 +446,8 @@
   dup 0 < if
     drop drop "" ""  # no content after key-only line
   else
-    1 add
-    over string.length over subtract
+    1 i.add
+    over string.length over i.subtract
     string.substring
     # Now find where the indented block ends
     dup yaml-get-block-indent
@@ -496,8 +496,8 @@
         rot 10 char->string string.concat swap string.concat  # ( remaining collected' )
         swap  # ( collected' remaining )
         # Advance remaining
-        dup yaml-find-newline 1 add
-        over string.length over subtract
+        dup yaml-find-newline 1 i.add
+        over string.length over i.subtract
         string.substring  # ( collected' rest )
         yaml-collect-simple-loop
       then
@@ -516,7 +516,7 @@
 # Parse a nested line (handles both key-only and key:value)
 # Stack: ( obj line -- obj' remaining )
 # For key-only: parses nested block, returns (obj-with-nested, remaining)
-# For key:value: adds to obj, returns (obj', "")
+# For key:value: i.adds to obj, returns (obj', "")
 : yaml-parse-nested-line ( ..rest Variant String -- ..rest Variant String )
   # Check first line only for blank/comment/key-only
   dup yaml-first-line-is-blank? if

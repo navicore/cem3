@@ -5,7 +5,7 @@
   dup 1 <= if
     drop 1
   else
-    dup 1 subtract factorial multiply
+    dup 1 i.subtract factorial i.multiply
   then
 ;
 
@@ -20,9 +20,9 @@
   dup 2 < if
     drop 1
   else
-    dup 1 subtract fib
-    swap 2 subtract fib
-    add
+    dup 1 i.subtract fib
+    swap 2 i.subtract fib
+    i.add
   then
 ;
 
@@ -37,7 +37,7 @@
   dup 0 <= if
     drop 0
   else
-    1 subtract countdown
+    1 i.subtract countdown
   then
 ;
 

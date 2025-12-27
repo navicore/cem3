@@ -1,7 +1,9 @@
-//! LSP Client for REPL
+//! LSP Client for TUI REPL
 //!
-//! Connects to seq-lsp to provide completions, hover info, and diagnostics.
+//! Connects to seq-lsp to provide completions.
 //! Uses JSON-RPC over stdin/stdout to communicate with the language server.
+//!
+//! Ported from crates/repl/src/lsp_client.rs
 
 use lsp_types::{
     ClientCapabilities, CompletionItem, CompletionParams, CompletionResponse,
@@ -320,8 +322,19 @@ impl LspClient {
 
 impl Drop for LspClient {
     fn drop(&mut self) {
-        // Try to shutdown gracefully, but don't panic if it fails
+        // Attempt graceful shutdown (send shutdown request + exit notification)
         let _ = self.shutdown();
+
+        // Check if process exited, otherwise force kill immediately
+        // We avoid blocking in Drop - if graceful shutdown didn't work, just kill it
+        match self.process.try_wait() {
+            Ok(Some(_)) => (), // Process exited cleanly
+            _ => {
+                // Still running or error - force kill and reap
+                let _ = self.process.kill();
+                let _ = self.process.wait();
+            }
+        }
     }
 }
 

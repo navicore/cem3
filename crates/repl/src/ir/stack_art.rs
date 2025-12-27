@@ -61,6 +61,7 @@ impl StackValue {
     }
 
     /// Check if this is a rest variable
+    #[allow(dead_code)]
     fn is_rest(&self) -> bool {
         matches!(self, Self::Rest(_))
     }
@@ -86,6 +87,7 @@ impl Stack {
     }
 
     /// Create an empty stack
+    #[allow(dead_code)]
     pub fn empty() -> Self {
         Self { values: vec![] }
     }
@@ -104,11 +106,13 @@ impl Stack {
     }
 
     /// Get all values (bottom to top)
+    #[allow(dead_code)]
     pub fn values(&self) -> &[StackValue] {
         &self.values
     }
 
     /// Check if the stack has values (excluding rest)
+    #[allow(dead_code)]
     pub fn has_concrete_values(&self) -> bool {
         self.values.iter().any(|v| !v.is_rest())
     }
@@ -247,6 +251,7 @@ pub fn render_transition(effect: &StackEffect, before: &Stack, after: &Stack) ->
 /// Render a sequence of operations showing the stack evolving
 ///
 /// Each step shows: word name, input stack → output stack
+#[allow(dead_code)]
 pub fn render_sequence(steps: &[(StackEffect, Stack, Stack)]) -> Vec<String> {
     if steps.is_empty() {
         return vec![];

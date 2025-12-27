@@ -5,26 +5,6 @@
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-/// Which pane is currently focused
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FocusedPane {
-    /// REPL input/output pane
-    #[default]
-    Repl,
-    /// IR visualization pane
-    Ir,
-}
-
-impl FocusedPane {
-    /// Toggle focus to the other pane
-    pub fn toggle(self) -> Self {
-        match self {
-            Self::Repl => Self::Ir,
-            Self::Ir => Self::Repl,
-        }
-    }
-}
-
 /// Layout configuration
 #[derive(Debug, Clone)]
 pub struct LayoutConfig {
@@ -48,17 +28,20 @@ impl Default for LayoutConfig {
 
 impl LayoutConfig {
     /// Create a new layout config
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the REPL width percentage
+    #[allow(dead_code)]
     pub fn repl_width(mut self, percent: u16) -> Self {
         self.repl_width_percent = percent.clamp(10, 90);
         self
     }
 
-    /// Set the status bar height
+    /// Set the status bar height (for future use)
+    #[allow(dead_code)]
     pub fn status_bar(mut self, height: u16) -> Self {
         self.status_bar_height = height;
         self
@@ -170,7 +153,8 @@ impl StatusContent {
         self
     }
 
-    /// Set a status message
+    /// Set a status message (for future use)
+    #[allow(dead_code)]
     pub fn message(mut self, msg: impl Into<String>) -> Self {
         self.message = Some(msg.into());
         self
@@ -208,13 +192,6 @@ impl StatusContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_focused_pane_toggle() {
-        let pane = FocusedPane::Repl;
-        assert_eq!(pane.toggle(), FocusedPane::Ir);
-        assert_eq!(pane.toggle().toggle(), FocusedPane::Repl);
-    }
 
     #[test]
     fn test_layout_config_defaults() {

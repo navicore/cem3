@@ -11,7 +11,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget, Wrap},
+    widgets::{Block, Borders, Paragraph, Widget},
 };
 
 /// A single entry in the REPL history
@@ -293,9 +293,9 @@ impl Widget for &ReplPane<'_> {
             0
         };
 
-        let paragraph = Paragraph::new(lines)
-            .scroll((scroll, 0))
-            .wrap(Wrap { trim: false });
+        // Don't use Wrap - it interferes with scroll calculation
+        // Long lines will be clipped, which is fine for a REPL
+        let paragraph = Paragraph::new(lines).scroll((scroll, 0));
 
         paragraph.render(inner, buf);
     }

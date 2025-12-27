@@ -10,7 +10,7 @@ Inspired by the Tokio ecosystem (tokio-console, tracing, metrics, tower), we asp
 
 ## Recent (v0.14)
 
-### TUI REPL
+### TUI REPL (now default)
 
 Split-pane terminal interface for interactive development:
 - Vi mode editing with syntax highlighting
@@ -19,7 +19,7 @@ Split-pane terminal interface for interactive development:
 - LSP-powered tab completion
 - Session file management with `:edit` to open in $EDITOR
 
-Launch with `seqr --tui` or `seqr --tui myfile.seq`.
+Launch with `seqr` or `seqr myfile.seq`.
 
 ---
 
@@ -34,6 +34,8 @@ These features are stable and documented:
 | **FFI** | v0.11 | Manifest-based C bindings, string marshalling, out parameters. Examples: libedit, SQLite |
 | **Runtime observability** | v0.12 | SIGQUIT diagnostics, watchdog timer, strand/channel/memory stats |
 | **Yield safety valve** | v0.13 | Automatic yields in tight loops to prevent strand starvation |
+| **LSP server** | v0.12 | Language server with completions, hover, diagnostics. Powers TUI and editor integrations |
+| **TUI REPL** | v0.14 | Default REPL with split-pane IR visualization, Vi editing, tab completion |
 
 ---
 
@@ -106,20 +108,8 @@ Seq's philosophy: type safety through inference, not annotation.
 
 **Constraint**: Must not compromise point-free style or add syntactic noise.
 
-### CLI & Developer Experience
-
-**Tab completion for Seq-based CLI tools**:
-- Word name completion in interactive prompts
-- Context-aware completions
-- File path completion
-
-**Potential paths**:
-1. Custom completion protocol with manual key handling
-2. LSP integration for editor/IDE support
-
 ---
 
 ## Design Documents
 
 - [FFI Design](design/ffi.md)
-- [TUI Plan](/.claude/plans/) (internal)

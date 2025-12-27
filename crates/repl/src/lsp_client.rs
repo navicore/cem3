@@ -228,10 +228,16 @@ impl LspClient {
     }
 
     /// Read a response with the given ID
+    ///
+    /// Skips notifications and other messages until we find the expected response.
+    /// Gives up after MAX_SKIPPED_MESSAGES to prevent infinite loops.
     fn read_response<R: for<'de> Deserialize<'de>>(
         &mut self,
         expected_id: i64,
     ) -> Result<R, String> {
+        const MAX_SKIPPED_MESSAGES: usize = 100;
+        let mut skipped = 0;
+
         loop {
             let content = self.read_message()?;
 
@@ -249,8 +255,15 @@ impl LspClient {
                     .result
                     .ok_or_else(|| "Missing result in response".to_string());
             }
-            // Otherwise it's a notification or different request - skip for now
-            // TODO: Handle diagnostics notifications
+
+            // Otherwise it's a notification or different request - skip it
+            skipped += 1;
+            if skipped >= MAX_SKIPPED_MESSAGES {
+                return Err(format!(
+                    "LSP response not found after {} messages",
+                    MAX_SKIPPED_MESSAGES
+                ));
+            }
         }
     }
 

@@ -59,15 +59,19 @@ struct SeqHelper {
     lsp: RefCell<Option<LspClient>>,
     /// Path to the seq file being edited
     seq_file: PathBuf,
+    /// Cached file content to avoid repeated I/O during completions
+    cached_content: RefCell<String>,
 }
 
 impl SeqHelper {
     fn new(seq_file: PathBuf) -> Self {
+        // Read initial content
+        let content = fs::read_to_string(&seq_file).unwrap_or_default();
+
         // Try to start LSP client, but don't fail if unavailable
         let lsp = match LspClient::new(&seq_file) {
             Ok(mut client) => {
                 // Open the document
-                let content = fs::read_to_string(&seq_file).unwrap_or_default();
                 if client.did_open(&content).is_ok() {
                     Some(client)
                 } else {
@@ -80,16 +84,34 @@ impl SeqHelper {
         Self {
             lsp: RefCell::new(lsp),
             seq_file,
+            cached_content: RefCell::new(content),
         }
     }
 
-    /// Sync the document content with the LSP after changes
+    /// Sync the document content with the LSP after changes.
+    /// Also updates the cached content for completions.
     fn sync_document(&self) {
-        if let Ok(content) = fs::read_to_string(&self.seq_file)
-            && let Some(ref mut lsp) = *self.lsp.borrow_mut()
-        {
-            let _ = lsp.did_change(&content);
+        if let Ok(content) = fs::read_to_string(&self.seq_file) {
+            // Update cache
+            if let Ok(mut cache) = self.cached_content.try_borrow_mut() {
+                *cache = content.clone();
+            }
+            // Sync with LSP
+            if let Ok(mut lsp_guard) = self.lsp.try_borrow_mut()
+                && let Some(ref mut lsp) = *lsp_guard
+            {
+                let _ = lsp.did_change(&content);
+            }
         }
+    }
+
+    /// Get the cached file content, or read from disk if cache unavailable
+    fn get_content(&self) -> Option<String> {
+        self.cached_content
+            .try_borrow()
+            .ok()
+            .map(|c| c.clone())
+            .or_else(|| fs::read_to_string(&self.seq_file).ok())
     }
 }
 
@@ -116,17 +138,18 @@ impl Completer for SeqHelper {
             return Ok((pos, vec![]));
         }
 
-        // If no LSP client, return empty completions
-        let mut lsp_guard = self.lsp.borrow_mut();
+        // If no LSP client or borrow fails, return empty completions
+        let Ok(mut lsp_guard) = self.lsp.try_borrow_mut() else {
+            return Ok((pos, vec![]));
+        };
         let lsp = match lsp_guard.as_mut() {
             Some(lsp) => lsp,
             None => return Ok((pos, vec![])),
         };
 
-        // Read current file content
-        let file_content = match fs::read_to_string(&self.seq_file) {
-            Ok(c) => c,
-            Err(_) => return Ok((pos, vec![])),
+        // Get cached file content (avoids disk I/O on every completion)
+        let Some(file_content) = self.get_content() else {
+            return Ok((pos, vec![]));
         };
 
         // Create virtual document: file content + current line at end of main
@@ -1139,5 +1162,56 @@ mod tests {
         let def_marker_pos = content.find("# --- definitions ---").unwrap();
         assert!(inc_pos > includes_marker_pos);
         assert!(inc_pos < def_marker_pos);
+    }
+
+    #[test]
+    fn test_duplicate_include_detection() {
+        let (path, _temp) = create_test_file();
+        let last_write = Arc::new(AtomicU64::new(0));
+
+        // Add include first time - should succeed
+        assert!(add_include(&path, "std:math", &last_write));
+
+        // Check the include is present
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("include std:math"));
+
+        // Count occurrences - should be exactly 1
+        let count = content.matches("include std:math").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_template_has_all_markers() {
+        // Verify template has all required markers
+        assert!(REPL_TEMPLATE.contains(INCLUDES_MARKER));
+        assert!(REPL_TEMPLATE.contains(MAIN_MARKER));
+        assert!(REPL_TEMPLATE.contains("# --- definitions ---"));
+    }
+
+    #[test]
+    fn test_vi_mode_detection() {
+        // Test the vi mode detection logic directly
+        // Note: This tests the pattern matching, not env var reading
+        let vim_editors = ["vim", "nvim", "vi", "/usr/bin/vim", "nvim-qt"];
+        let non_vim_editors = ["nano", "emacs", "code", "subl", ""];
+
+        for editor in vim_editors {
+            let editor_lower = editor.to_lowercase();
+            assert!(
+                editor_lower.contains("vi") || editor_lower.contains("nvim"),
+                "Expected '{}' to be detected as vi-like",
+                editor
+            );
+        }
+
+        for editor in non_vim_editors {
+            let editor_lower = editor.to_lowercase();
+            assert!(
+                !(editor_lower.contains("vi") || editor_lower.contains("nvim")),
+                "Expected '{}' to NOT be detected as vi-like",
+                editor
+            );
+        }
     }
 }

@@ -1954,6 +1954,7 @@ dependencies = [
  "notify",
  "rustyline",
  "seq-compiler",
+ "seq-tui",
  "serde",
  "serde_json",
  "tempfile",

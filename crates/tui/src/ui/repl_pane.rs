@@ -145,8 +145,9 @@ impl ReplState {
             None => {
                 // First time navigating up - save current input and go to last history entry
                 self.saved_input = self.input.clone();
-                self.history_index = Some(self.history.len() - 1);
-                self.input = self.history.last().unwrap().input.clone();
+                let last_idx = self.history.len() - 1;
+                self.history_index = Some(last_idx);
+                self.input = self.history[last_idx].input.clone();
             }
             Some(idx) if idx > 0 => {
                 // Navigate further back

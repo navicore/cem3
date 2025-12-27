@@ -77,12 +77,30 @@ jobs:
               { print }
             ' crates/repl/Cargo.toml > crates/repl/Cargo.toml.tmp && mv crates/repl/Cargo.toml.tmp crates/repl/Cargo.toml
 
+            # Update seq-tui dependency version in crates/repl/Cargo.toml
+            # This ensures the REPL pins to the exact TUI version
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /^seq-tui = \{ path = "\.\.\/tui"/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' crates/repl/Cargo.toml > crates/repl/Cargo.toml.tmp && mv crates/repl/Cargo.toml.tmp crates/repl/Cargo.toml
+
+            # Update seq-compiler dependency version in crates/tui/Cargo.toml
+            # This ensures the TUI pins to the exact compiler version
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /^seq-compiler = \{ path = "\.\.\/compiler"/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' crates/tui/Cargo.toml > crates/tui/Cargo.toml.tmp && mv crates/tui/Cargo.toml.tmp crates/tui/Cargo.toml
+
             cargo generate-lockfile
 
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
 
-            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml crates/repl/Cargo.toml Cargo.lock
+            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml crates/repl/Cargo.toml crates/tui/Cargo.toml Cargo.lock
             git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
             git push origin HEAD:main
 
@@ -100,7 +118,7 @@ jobs:
           echo "Workspace version: $WORKSPACE_VERSION"
 
           # Check each crate uses workspace version
-          for crate in runtime compiler lsp repl; do
+          for crate in runtime compiler lsp repl tui; do
             CRATE_VERSION=$(grep -A10 '^\[package\]' crates/$crate/Cargo.toml | grep '^version' | head -1)
             if ! echo "$CRATE_VERSION" | grep -q "version.workspace = true"; then
               echo "ERROR: crates/$crate/Cargo.toml does not use workspace version!"
@@ -137,7 +155,27 @@ jobs:
             echo "Found: $REPL_DEP"
             exit 1
           fi
-          echo "✓ repl dependency pinned to exact version: $REPL_DEP"
+          echo "✓ repl seq-compiler dependency pinned to exact version: $REPL_DEP"
+
+          # Verify repl's dependency on tui has exact version match
+          REPL_TUI_DEP=$(grep 'seq-tui.*path.*tui' crates/repl/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          if [ "$REPL_TUI_DEP" != "=$WORKSPACE_VERSION" ]; then
+            echo "ERROR: repl's seq-tui dependency version doesn't match!"
+            echo "Expected: =$WORKSPACE_VERSION"
+            echo "Found: $REPL_TUI_DEP"
+            exit 1
+          fi
+          echo "✓ repl seq-tui dependency pinned to exact version: $REPL_TUI_DEP"
+
+          # Verify tui's dependency on compiler has exact version match
+          TUI_DEP=$(grep 'seq-compiler.*path.*compiler' crates/tui/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          if [ "$TUI_DEP" != "=$WORKSPACE_VERSION" ]; then
+            echo "ERROR: tui's seq-compiler dependency version doesn't match!"
+            echo "Expected: =$WORKSPACE_VERSION"
+            echo "Found: $TUI_DEP"
+            exit 1
+          fi
+          echo "✓ tui dependency pinned to exact version: $TUI_DEP"
 
           echo "✓ All version checks passed!"
 
@@ -158,6 +196,14 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       - name: Wait for crates.io to index seq-compiler
+        run: sleep 30
+
+      - name: Publish seq-tui to crates.io
+        run: cargo publish -p seq-tui --token ${{ secrets.CRATES_IO_TOKEN }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Wait for crates.io to index seq-tui
         run: sleep 30
 
       - name: Publish seq-lsp to crates.io

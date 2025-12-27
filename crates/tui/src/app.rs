@@ -20,6 +20,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
@@ -112,7 +113,7 @@ impl App {
         fs::write(&session_path, format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE))
             .expect("Failed to write session file");
 
-        Self {
+        let mut app = Self {
             repl_state: ReplState::new(),
             ir_content: IrContent::new(),
             ir_mode: IrViewMode::default(),
@@ -126,7 +127,9 @@ impl App {
             status_message: None,
             session_path,
             _temp_file: Some(temp_file),
-        }
+        };
+        app.load_history();
+        app
     }
 
     /// Create application with an existing file
@@ -139,7 +142,7 @@ impl App {
                 .expect("Failed to create session file");
         }
 
-        Self {
+        let mut app = Self {
             repl_state: ReplState::new(),
             ir_content: IrContent::new(),
             ir_mode: IrViewMode::default(),
@@ -153,13 +156,57 @@ impl App {
             status_message: None,
             session_path: path,
             _temp_file: None,
-        }
+        };
+        app.load_history();
+        app
     }
 
     /// Set the display filename (legacy method for compatibility)
     pub fn with_filename(mut self, name: impl Into<String>) -> Self {
         self.filename = name.into();
         self
+    }
+
+    /// Get the history file path (shared with original REPL)
+    fn history_file_path() -> Option<PathBuf> {
+        dirs::data_local_dir().map(|d| d.join("seqr_history"))
+    }
+
+    /// Load history from file
+    fn load_history(&mut self) {
+        if let Some(path) = Self::history_file_path() {
+            if path.exists() {
+                if let Ok(file) = fs::File::open(&path) {
+                    let reader = BufReader::new(file);
+                    for line in reader.lines().map_while(Result::ok) {
+                        if !line.is_empty() {
+                            // Add as history entry (no output - it's from a previous session)
+                            self.repl_state.add_entry(
+                                HistoryEntry::new(line).with_output("(previous session)"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Save history to file
+    pub fn save_history(&self) {
+        if let Some(path) = Self::history_file_path() {
+            // Ensure parent directory exists
+            if let Some(parent) = path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+
+            if let Ok(mut file) = fs::File::create(&path) {
+                // Save the last 1000 entries
+                let start = self.repl_state.history.len().saturating_sub(1000);
+                for entry in &self.repl_state.history[start..] {
+                    let _ = writeln!(file, "{}", entry.input);
+                }
+            }
+        }
     }
 
     /// Handle a key event
@@ -234,7 +281,7 @@ impl App {
             KeyCode::Char('x') => {
                 self.repl_state.delete();
             }
-            KeyCode::Char('d') => {
+            KeyCode::Char('d') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 // dd would need multi-key, for now just clear line
                 self.repl_state.clear_input();
             }
@@ -264,8 +311,11 @@ impl App {
                 self.execute_input();
             }
 
-            // Quit
+            // Quit (q or Ctrl+D)
             KeyCode::Char('q') => {
+                self.should_quit = true;
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
             }
 
@@ -320,6 +370,10 @@ impl App {
                 self.repl_state.insert_char(' ');
                 self.repl_state.insert_char(' ');
                 self.repl_state.insert_char(' ');
+            }
+            // Ctrl+D exits (like EOF in terminal)
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.should_quit = true;
             }
             KeyCode::Char(c) => {
                 self.repl_state.insert_char(c);

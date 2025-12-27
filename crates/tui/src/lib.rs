@@ -69,5 +69,8 @@ fn run_app(
         }
     }
 
+    // Save history before exiting
+    app.save_history();
+
     Ok(())
 }

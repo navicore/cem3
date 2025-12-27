@@ -6,7 +6,7 @@
 //! Session file management is ported from the original REPL (crates/repl/src/main.rs).
 //! Expressions accumulate in a temp file with `stack.dump` to show values.
 
-use crate::engine::{AnalysisResult, analyze};
+use crate::engine::{AnalysisResult, analyze, analyze_expression};
 use crate::ir::stack_art::{Stack, StackEffect, StackValue, render_transition};
 use crate::lsp_client::LspClient;
 use crate::ui::ir_pane::{IrContent, IrPane, IrViewMode};
@@ -19,7 +19,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -105,6 +105,8 @@ pub struct App {
     completion_index: usize,
     /// Whether completion popup is visible
     show_completions: bool,
+    /// Accumulated horizontal swipe delta (for gesture sensitivity)
+    swipe_accumulator: i16,
 }
 
 // Note: App intentionally does not implement Default because App::new() can fail
@@ -147,6 +149,7 @@ impl App {
             completions: Vec::new(),
             completion_index: 0,
             show_completions: false,
+            swipe_accumulator: 0,
         };
         app.load_history();
         Ok(app)
@@ -186,6 +189,7 @@ impl App {
             completions: Vec::new(),
             completion_index: 0,
             show_completions: false,
+            swipe_accumulator: 0,
         };
         app.load_history();
         Ok(app)
@@ -380,6 +384,7 @@ impl App {
             KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.show_ir_pane {
                     self.ir_mode = self.ir_mode.next();
+                    self.ir_scroll = 0; // Reset scroll when switching views
                 }
             }
 
@@ -993,10 +998,86 @@ impl App {
             llvm_ir: vec!["(compile with Enter to see LLVM IR)".to_string()],
             errors: vec![],
         };
+        // Reset scroll when content changes
+        self.ir_scroll = 0;
+    }
+
+    /// Scroll the IR pane by delta lines (positive = down, negative = up)
+    pub fn scroll_ir(&mut self, delta: i16) {
+        if !self.show_ir_pane {
+            return;
+        }
+
+        let content_len = self.ir_content_len();
+        if content_len == 0 {
+            return;
+        }
+
+        let new_scroll = if delta < 0 {
+            self.ir_scroll.saturating_sub((-delta) as u16)
+        } else {
+            self.ir_scroll.saturating_add(delta as u16)
+        };
+
+        // Clamp to content length (leave some visible at the end)
+        self.ir_scroll = new_scroll.min(content_len.saturating_sub(1) as u16);
+    }
+
+    /// Get the current IR content length (number of lines)
+    fn ir_content_len(&self) -> usize {
+        self.ir_content.content_for(self.ir_mode).len()
+    }
+
+    /// Swipe gesture threshold (accumulate this many events before triggering)
+    const SWIPE_THRESHOLD: i16 = 10;
+
+    /// Handle swipe right gesture: open IR pane or cycle to next view
+    /// Flow: (closed) → Stack Effects → Typed AST → LLVM IR (stop)
+    pub fn swipe_right(&mut self) {
+        self.swipe_accumulator += 1;
+        if self.swipe_accumulator < Self::SWIPE_THRESHOLD {
+            return;
+        }
+        self.swipe_accumulator = 0;
+
+        if !self.show_ir_pane {
+            // Open IR pane (starts at Stack Effects)
+            self.show_ir_pane = true;
+            self.ir_mode = IrViewMode::StackArt;
+            self.ir_scroll = 0;
+        } else if self.ir_mode != IrViewMode::LlvmIr {
+            // Cycle to next view (but stop at LLVM IR)
+            self.ir_mode = self.ir_mode.next();
+            self.ir_scroll = 0;
+        }
+        // If already on LLVM IR, do nothing
+    }
+
+    /// Handle swipe left gesture: cycle to previous view or close IR pane
+    /// Flow: LLVM IR → Typed AST → Stack Effects → (closed)
+    pub fn swipe_left(&mut self) {
+        self.swipe_accumulator -= 1;
+        if self.swipe_accumulator > -Self::SWIPE_THRESHOLD {
+            return;
+        }
+        self.swipe_accumulator = 0;
+
+        if !self.show_ir_pane {
+            return;
+        }
+
+        if self.ir_mode == IrViewMode::StackArt {
+            // Close IR pane
+            self.show_ir_pane = false;
+        } else {
+            // Cycle to previous view
+            self.ir_mode = self.ir_mode.prev();
+            self.ir_scroll = 0;
+        }
     }
 
     /// Update IR content from analysis result
-    fn update_ir_from_result(&mut self, result: &AnalysisResult, input: &str) {
+    fn update_ir_from_result(&mut self, _result: &AnalysisResult, input: &str) {
         // Generate stack art for the expression
         let stack_art = self.generate_stack_art(input);
 
@@ -1007,13 +1088,9 @@ impl App {
             "Types inferred successfully".to_string(),
         ];
 
-        // LLVM IR
-        let llvm_ir = if let Some(ir) = &result.llvm_ir {
-            // Extract just the __repl__ function
-            self.extract_repl_ir(ir)
-        } else {
-            vec![]
-        };
+        // LLVM IR - compile the expression standalone for clean, focused IR
+        let llvm_ir = analyze_expression(input)
+            .unwrap_or_else(|| vec!["(expression could not be compiled standalone)".to_string()]);
 
         self.ir_content = IrContent {
             stack_art,
@@ -1021,6 +1098,9 @@ impl App {
             llvm_ir,
             errors: vec![],
         };
+
+        // Reset scroll for fresh content
+        self.ir_scroll = 0;
     }
 
     /// Generate stack art for an expression
@@ -1220,33 +1300,6 @@ impl App {
             )),
 
             _ => None,
-        }
-    }
-
-    /// Extract __repl__ function from LLVM IR
-    fn extract_repl_ir(&self, ir: &str) -> Vec<String> {
-        let mut lines = Vec::new();
-        let mut in_seq_main = false;
-
-        for line in ir.lines() {
-            // Look for seq_main function - this has the actual user code
-            // (not @main which is just the scheduler bootstrap)
-            if line.contains("define") && line.contains("@seq_main") {
-                in_seq_main = true;
-            }
-            if in_seq_main {
-                lines.push(line.to_string());
-                if line.trim() == "}" {
-                    break;
-                }
-            }
-        }
-
-        if lines.is_empty() {
-            // Fall back to showing all IR if seq_main not found
-            ir.lines().map(String::from).collect()
-        } else {
-            lines
         }
     }
 
@@ -1458,12 +1511,30 @@ impl App {
             });
         frame.render_widget(&repl_pane, layout.repl);
 
-        // Render IR pane (if enabled and space available)
+        // Render IR pane with scrollbar (if enabled and space available)
         if self.show_ir_pane && layout.ir_visible() {
             let ir_pane = IrPane::new(&self.ir_content)
                 .mode(self.ir_mode)
                 .scroll(self.ir_scroll);
             frame.render_widget(&ir_pane, layout.ir);
+
+            // Render scrollbar if content is scrollable
+            let content_len = self.ir_content_len();
+            let viewport_height = layout.ir.height.saturating_sub(2) as usize; // account for borders
+            if content_len > viewport_height {
+                let mut scrollbar_state = ScrollbarState::new(content_len)
+                    .position(self.ir_scroll as usize)
+                    .viewport_content_length(viewport_height);
+
+                // Render scrollbar inside the IR pane area (on the right edge)
+                frame.render_stateful_widget(
+                    Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                        .begin_symbol(Some("↑"))
+                        .end_symbol(Some("↓")),
+                    layout.ir,
+                    &mut scrollbar_state,
+                );
+            }
         }
 
         // Render status bar

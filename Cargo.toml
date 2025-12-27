@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/runtime", "crates/compiler", "crates/lsp", "crates/repl"]
+members = ["crates/runtime", "crates/compiler", "crates/lsp", "crates/repl", "crates/tui"]
 resolver = "2"
 
 [workspace.package]
@@ -37,6 +37,10 @@ notify = "8"
 # LSP
 tower-lsp = "0.20"
 lsp-types = "0.97"
+
+# TUI
+ratatui = "0.30"
+crossterm = "0.28"
 
 # Logging/tracing
 tracing = "0.1"

@@ -68,10 +68,14 @@ pub unsafe extern "C" fn patch_seq_time_nanos(stack: Stack) -> Stack {
 
 /// Get raw monotonic nanoseconds from the system clock.
 ///
-/// Uses `clock_gettime(CLOCK_MONOTONIC)` directly to get absolute
-/// nanoseconds since boot. This is thread-independent - the same
-/// value is returned regardless of which OS thread calls it.
+/// On Unix: Uses `clock_gettime(CLOCK_MONOTONIC)` directly to get absolute
+/// nanoseconds since boot. This is thread-independent - the same value is
+/// returned regardless of which OS thread calls it.
+///
+/// On Windows: Falls back to `Instant::now()` with a process-wide base time.
+/// This has a one-time initialization cost but is still thread-safe.
 #[inline]
+#[cfg(unix)]
 fn monotonic_nanos() -> i64 {
     let mut ts = libc::timespec {
         tv_sec: 0,
@@ -85,6 +89,19 @@ fn monotonic_nanos() -> i64 {
     ts.tv_sec
         .saturating_mul(1_000_000_000)
         .saturating_add(ts.tv_nsec)
+}
+
+/// Windows fallback using Instant with a process-wide base time.
+/// Uses OnceLock for thread-safe one-time initialization.
+#[inline]
+#[cfg(not(unix))]
+fn monotonic_nanos() -> i64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
+    static BASE: OnceLock<Instant> = OnceLock::new();
+    let base = BASE.get_or_init(Instant::now);
+    base.elapsed().as_nanos().try_into().unwrap_or(i64::MAX)
 }
 
 /// Sleep for a specified number of milliseconds

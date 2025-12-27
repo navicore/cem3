@@ -111,20 +111,25 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to create default App")
     }
 }
 
+/// Maximum history entries to keep in memory
+const MAX_HISTORY_IN_MEMORY: usize = 1000;
+
 impl App {
     /// Create a new application with a temp session file
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, String> {
         // Create temp file for session
-        let temp_file = NamedTempFile::with_suffix(".seq").expect("Failed to create temp file");
+        let temp_file = NamedTempFile::with_suffix(".seq")
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
         let session_path = temp_file.path().to_path_buf();
 
         // Initialize with template
         let initial_content = format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE);
-        fs::write(&session_path, &initial_content).expect("Failed to write session file");
+        fs::write(&session_path, &initial_content)
+            .map_err(|e| format!("Failed to write session file: {}", e))?;
 
         // Try to start LSP client (like old REPL)
         let lsp_client = Self::try_start_lsp(&session_path, &initial_content);
@@ -150,17 +155,17 @@ impl App {
             show_completions: false,
         };
         app.load_history();
-        app
+        Ok(app)
     }
 
     /// Create application with an existing file
-    pub fn with_file(path: PathBuf) -> Self {
+    pub fn with_file(path: PathBuf) -> Result<Self, String> {
         let filename = path.display().to_string();
 
         // Check if file exists, create if not
         let content = if !path.exists() {
             let c = format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE);
-            fs::write(&path, &c).expect("Failed to create session file");
+            fs::write(&path, &c).map_err(|e| format!("Failed to create session file: {}", e))?;
             c
         } else {
             fs::read_to_string(&path).unwrap_or_default()
@@ -190,7 +195,7 @@ impl App {
             show_completions: false,
         };
         app.load_history();
-        app
+        Ok(app)
     }
 
     /// Set the display filename (legacy method for compatibility)
@@ -226,12 +231,19 @@ impl App {
             && let Ok(file) = fs::File::open(&path)
         {
             let reader = BufReader::new(file);
-            for line in reader.lines().map_while(Result::ok) {
-                if !line.is_empty() {
-                    // Add as history entry (no output - it's from a previous session)
-                    self.repl_state
-                        .add_entry(HistoryEntry::new(line).with_output("(previous session)"));
-                }
+            // Collect lines, then take only the last MAX_HISTORY_IN_MEMORY entries
+            let lines: Vec<String> = reader
+                .lines()
+                .map_while(Result::ok)
+                .filter(|line| !line.is_empty())
+                .collect();
+
+            // Only load the most recent entries to prevent memory exhaustion
+            let start = lines.len().saturating_sub(MAX_HISTORY_IN_MEMORY);
+            for line in &lines[start..] {
+                // Add as history entry (no output - it's from a previous session)
+                self.repl_state
+                    .add_entry(HistoryEntry::new(line.clone()).with_output("(previous session)"));
             }
         }
     }
@@ -463,38 +475,53 @@ impl App {
         }
     }
 
-    /// Move cursor forward by word
+    /// Move cursor forward by word (Unicode-safe)
     fn move_word_forward(&mut self) {
         let input = &self.repl_state.input;
-        let mut pos = self.repl_state.cursor;
+        let chars: Vec<char> = input.chars().collect();
+        let mut char_pos = self.byte_to_char_pos(input, self.repl_state.cursor);
 
         // Skip current word
-        while pos < input.len() && !input[pos..].starts_with(' ') {
-            pos += 1;
+        while char_pos < chars.len() && !chars[char_pos].is_whitespace() {
+            char_pos += 1;
         }
         // Skip whitespace
-        while pos < input.len() && input[pos..].starts_with(' ') {
-            pos += 1;
+        while char_pos < chars.len() && chars[char_pos].is_whitespace() {
+            char_pos += 1;
         }
 
-        self.repl_state.cursor = pos;
+        self.repl_state.cursor = self.char_to_byte_pos(input, char_pos);
     }
 
-    /// Move cursor backward by word
+    /// Move cursor backward by word (Unicode-safe)
     fn move_word_backward(&mut self) {
         let input = &self.repl_state.input;
-        let mut pos = self.repl_state.cursor;
+        let chars: Vec<char> = input.chars().collect();
+        let mut char_pos = self.byte_to_char_pos(input, self.repl_state.cursor);
 
         // Skip whitespace before cursor
-        while pos > 0 && input[..pos].ends_with(' ') {
-            pos -= 1;
+        while char_pos > 0 && chars[char_pos - 1].is_whitespace() {
+            char_pos -= 1;
         }
         // Skip word
-        while pos > 0 && !input[..pos].ends_with(' ') {
-            pos -= 1;
+        while char_pos > 0 && !chars[char_pos - 1].is_whitespace() {
+            char_pos -= 1;
         }
 
-        self.repl_state.cursor = pos;
+        self.repl_state.cursor = self.char_to_byte_pos(input, char_pos);
+    }
+
+    /// Convert byte position to character position (Unicode-safe)
+    fn byte_to_char_pos(&self, s: &str, byte_pos: usize) -> usize {
+        s[..byte_pos.min(s.len())].chars().count()
+    }
+
+    /// Convert character position to byte position (Unicode-safe)
+    fn char_to_byte_pos(&self, s: &str, char_pos: usize) -> usize {
+        s.char_indices()
+            .nth(char_pos)
+            .map(|(i, _)| i)
+            .unwrap_or(s.len())
     }
 
     /// Execute the current input
@@ -1547,7 +1574,7 @@ mod tests {
 
     #[test]
     fn test_app_creation() {
-        let app = App::new();
+        let app = App::new().expect("App creation should succeed");
         assert_eq!(app.vi_mode, ViMode::Normal);
         assert_eq!(app.focused, FocusedPane::Repl);
         assert!(!app.should_quit);
@@ -1555,7 +1582,7 @@ mod tests {
 
     #[test]
     fn test_mode_switching() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
 
         // i enters insert mode
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
@@ -1568,7 +1595,7 @@ mod tests {
 
     #[test]
     fn test_insert_mode_typing() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
 
         app.handle_key(KeyEvent::from(KeyCode::Char('h')));
@@ -1579,7 +1606,7 @@ mod tests {
 
     #[test]
     fn test_normal_mode_navigation() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
         app.repl_state.input = "hello".to_string();
         app.repl_state.cursor = 2;
 
@@ -1602,7 +1629,7 @@ mod tests {
 
     #[test]
     fn test_history_navigation() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
 
         // Add some history entries manually
         app.repl_state
@@ -1625,14 +1652,14 @@ mod tests {
 
     #[test]
     fn test_quit_command() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
         app.handle_key(KeyEvent::from(KeyCode::Char('q')));
         assert!(app.should_quit);
     }
 
     #[test]
     fn test_repl_command() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
         app.handle_key(KeyEvent::from(KeyCode::Char(':')));
         app.handle_key(KeyEvent::from(KeyCode::Char('q')));
@@ -1642,7 +1669,7 @@ mod tests {
 
     #[test]
     fn test_word_effect_lookup() {
-        let app = App::new();
+        let app = App::new().expect("App creation should succeed");
         assert!(app.get_word_effect("dup").is_some());
         assert!(app.get_word_effect("swap").is_some());
         assert!(app.get_word_effect("unknown").is_none());
@@ -1650,7 +1677,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_c_quits() {
-        let mut app = App::new();
+        let mut app = App::new().expect("App creation should succeed");
         let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         app.handle_key(key);
         assert!(app.should_quit);

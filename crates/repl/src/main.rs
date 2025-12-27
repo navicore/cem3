@@ -7,6 +7,7 @@
 //! Usage:
 //!   seqr                    # Start with temp file
 //!   seqr myprogram.seq      # Start with existing file
+//!   seqr --tui              # TUI mode with IR visualization
 //!
 //! Commands:
 //!   :quit, :q               # Exit
@@ -21,6 +22,11 @@
 //!
 //! Vi Mode:
 //!   Set SEQR_VI_MODE=1 or have $EDITOR contain vi/vim/nvim
+//!
+//! TUI Mode (--tui):
+//!   Split-pane interface with real-time IR visualization.
+//!   Left pane: REPL input, Right pane: Stack effects / AST / LLVM IR
+//!   Vi-style editing, Tab to switch panes, h/l to cycle IR views
 
 mod lsp_client;
 
@@ -226,6 +232,10 @@ struct Args {
     /// Don't run on startup (just open the REPL)
     #[arg(long)]
     no_run: bool,
+
+    /// Use TUI mode with split-pane IR visualization
+    #[arg(long)]
+    tui: bool,
 }
 
 /// REPL template for new sessions
@@ -251,6 +261,15 @@ const MAIN_MARKER: &str = "# --- main ---";
 
 fn main() {
     let args = Args::parse();
+
+    // TUI mode: delegate to seq-tui
+    if args.tui {
+        if let Err(e) = seq_tui::run(args.file.as_deref()) {
+            eprintln!("TUI error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
 
     // Create or use existing file
     let (seq_file, _temp_file) = match &args.file {

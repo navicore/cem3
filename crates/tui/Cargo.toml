@@ -1,30 +1,36 @@
 [package]
-name = "seq-repl"
+name = "seq-tui"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Watch-style REPL for the Seq programming language"
+description = "TUI REPL for the Seq programming language with IR visualization"
 repository = "https://github.com/navicore/patch-seq"
-keywords = ["repl", "language", "seq"]
+keywords = ["tui", "repl", "language", "seq"]
 categories = ["development-tools"]
 
-[[bin]]
-name = "seqr"
-path = "src/main.rs"
+[lib]
+name = "seq_tui"
+path = "src/lib.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
 seq-compiler = { path = "../compiler", version = "=0.13.0" }
-# TUI mode (optional, enabled by --tui flag)
-seq-tui = { path = "../tui", version = "=0.13.0" }
-clap.workspace = true
-rustyline.workspace = true
+
+# TUI framework - using latest v0.30 (consult https://ratatui.rs/)
+ratatui.workspace = true
+crossterm.workspace = true
+
+# Session file management
 tempfile.workspace = true
-notify.workspace = true
+
+# History persistence
 dirs.workspace = true
 
-# LSP client
+# LSP client for completions
 lsp-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+# Safe shell command parsing for $EDITOR
+shlex = "1.3"

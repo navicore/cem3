@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_analyze_word_with_effect() {
+    fn test_analyze_word_with_effect() -> Result<(), String> {
         let source = r#"
 : double ( Int -- Int )
     dup add
@@ -322,11 +322,14 @@ mod tests {
         assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
 
         // Find the double word
-        let double = result.word_effects.iter().find(|w| w.name == "double");
-        assert!(double.is_some());
+        let double = result
+            .word_effects
+            .iter()
+            .find(|w| w.name == "double")
+            .ok_or("double word not found")?;
 
-        let effect = &double.unwrap().effect;
-        assert_eq!(effect.name, "double");
+        assert_eq!(double.effect.name, "double");
+        Ok(())
     }
 
     #[test]
@@ -342,15 +345,19 @@ mod tests {
     }
 
     #[test]
-    fn test_builtin_effects() {
+    fn test_builtin_effects() -> Result<(), String> {
         let effects = builtin_effects();
         assert!(!effects.is_empty());
 
         // Check that dup has correct signature
-        let dup = effects.iter().find(|w| w.name == "dup").unwrap();
+        let dup = effects
+            .iter()
+            .find(|w| w.name == "dup")
+            .ok_or("dup not found in builtins")?;
         let sig = dup.effect.render_signature();
         assert!(sig.contains("dup"));
         assert!(sig.contains("..a"));
+        Ok(())
     }
 
     #[test]

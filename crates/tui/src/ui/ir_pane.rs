@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ir_pane_render() {
+    fn test_ir_pane_render() -> Result<(), String> {
         let content = IrContent {
             stack_art: vec![
                 "┌───┐".to_string(),
@@ -436,7 +436,8 @@ mod tests {
         (&pane).render(area, &mut buf);
 
         // Verify the title is rendered
-        let title_cell = buf.cell((1, 0)).expect("cell should exist");
+        let title_cell = buf.cell((1, 0)).ok_or("cell (1,0) should exist")?;
         assert!(title_cell.symbol().chars().next().is_some());
+        Ok(())
     }
 }

@@ -109,11 +109,8 @@ pub struct App {
     show_completions: bool,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new().expect("Failed to create default App")
-    }
-}
+// Note: App intentionally does not implement Default because App::new() can fail
+// (temp file creation, file I/O). Use App::new() directly and handle the Result.
 
 /// Maximum history entries to keep in memory
 const MAX_HISTORY_IN_MEMORY: usize = 1000;
@@ -948,7 +945,8 @@ impl App {
                 self.show_ir_pane = true;
             }
             _ if cmd.starts_with(":include ") => {
-                let module = cmd.strip_prefix(":include ").unwrap().trim();
+                // Safe: we just verified the prefix exists
+                let module = &cmd[":include ".len()..].trim();
                 if module.is_empty() {
                     self.status_message = Some("Usage: :include <module>".to_string());
                 } else {
@@ -1573,16 +1571,17 @@ mod tests {
     }
 
     #[test]
-    fn test_app_creation() {
-        let app = App::new().expect("App creation should succeed");
+    fn test_app_creation() -> Result<(), String> {
+        let app = App::new()?;
         assert_eq!(app.vi_mode, ViMode::Normal);
         assert_eq!(app.focused, FocusedPane::Repl);
         assert!(!app.should_quit);
+        Ok(())
     }
 
     #[test]
-    fn test_mode_switching() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_mode_switching() -> Result<(), String> {
+        let mut app = App::new()?;
 
         // i enters insert mode
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
@@ -1591,22 +1590,24 @@ mod tests {
         // Esc returns to normal
         app.handle_key(KeyEvent::from(KeyCode::Esc));
         assert_eq!(app.vi_mode, ViMode::Normal);
+        Ok(())
     }
 
     #[test]
-    fn test_insert_mode_typing() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_insert_mode_typing() -> Result<(), String> {
+        let mut app = App::new()?;
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
 
         app.handle_key(KeyEvent::from(KeyCode::Char('h')));
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
 
         assert_eq!(app.repl_state.input, "hi");
+        Ok(())
     }
 
     #[test]
-    fn test_normal_mode_navigation() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_normal_mode_navigation() -> Result<(), String> {
+        let mut app = App::new()?;
         app.repl_state.input = "hello".to_string();
         app.repl_state.cursor = 2;
 
@@ -1625,11 +1626,12 @@ mod tests {
         // $ goes to end
         app.handle_key(KeyEvent::from(KeyCode::Char('$')));
         assert_eq!(app.repl_state.cursor, 5);
+        Ok(())
     }
 
     #[test]
-    fn test_history_navigation() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_history_navigation() -> Result<(), String> {
+        let mut app = App::new()?;
 
         // Add some history entries manually
         app.repl_state
@@ -1648,38 +1650,43 @@ mod tests {
         // j goes back down
         app.handle_key(KeyEvent::from(KeyCode::Char('j')));
         assert_eq!(app.repl_state.input, "second");
+        Ok(())
     }
 
     #[test]
-    fn test_quit_command() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_quit_command() -> Result<(), String> {
+        let mut app = App::new()?;
         app.handle_key(KeyEvent::from(KeyCode::Char('q')));
         assert!(app.should_quit);
+        Ok(())
     }
 
     #[test]
-    fn test_repl_command() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_repl_command() -> Result<(), String> {
+        let mut app = App::new()?;
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
         app.handle_key(KeyEvent::from(KeyCode::Char(':')));
         app.handle_key(KeyEvent::from(KeyCode::Char('q')));
         app.handle_key(KeyEvent::from(KeyCode::Enter));
         assert!(app.should_quit);
+        Ok(())
     }
 
     #[test]
-    fn test_word_effect_lookup() {
-        let app = App::new().expect("App creation should succeed");
+    fn test_word_effect_lookup() -> Result<(), String> {
+        let app = App::new()?;
         assert!(app.get_word_effect("dup").is_some());
         assert!(app.get_word_effect("swap").is_some());
         assert!(app.get_word_effect("unknown").is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_ctrl_c_quits() {
-        let mut app = App::new().expect("App creation should succeed");
+    fn test_ctrl_c_quits() -> Result<(), String> {
+        let mut app = App::new()?;
         let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         app.handle_key(key);
         assert!(app.should_quit);
+        Ok(())
     }
 }

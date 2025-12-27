@@ -102,8 +102,6 @@ pub struct IrPane<'a> {
     mode: IrViewMode,
     /// Content to display
     content: &'a IrContent,
-    /// Whether this pane is focused
-    focused: bool,
     /// Scroll offset
     scroll: u16,
 }
@@ -114,7 +112,6 @@ impl<'a> IrPane<'a> {
         Self {
             mode: IrViewMode::default(),
             content,
-            focused: false,
             scroll: 0,
         }
     }
@@ -122,12 +119,6 @@ impl<'a> IrPane<'a> {
     /// Set the view mode
     pub fn mode(mut self, mode: IrViewMode) -> Self {
         self.mode = mode;
-        self
-    }
-
-    /// Set whether the pane is focused
-    pub fn focused(mut self, focused: bool) -> Self {
-        self.focused = focused;
         self
     }
 
@@ -286,16 +277,11 @@ impl Widget for &IrPane<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Create the border with title showing current mode
         let title = format!(" {} ", self.mode.name());
-        let border_style = if self.focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
 
         let block = Block::default()
             .title(title)
             .borders(Borders::ALL)
-            .border_style(border_style);
+            .border_style(Style::default().fg(Color::DarkGray));
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -348,9 +334,8 @@ mod tests {
     #[test]
     fn test_ir_pane_creation() {
         let content = IrContent::new();
-        let pane = IrPane::new(&content).mode(IrViewMode::LlvmIr).focused(true);
+        let pane = IrPane::new(&content).mode(IrViewMode::LlvmIr);
         assert_eq!(pane.mode, IrViewMode::LlvmIr);
-        assert!(pane.focused);
     }
 
     #[test]

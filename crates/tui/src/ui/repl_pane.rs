@@ -11,7 +11,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 /// A single entry in the REPL history
@@ -58,8 +58,12 @@ pub struct ReplState {
     pub input: String,
     /// Cursor position in the input
     pub cursor: usize,
-    /// Scroll offset for history
+    /// Scroll offset for history display
     pub scroll: u16,
+    /// History navigation index (None = current input, Some(i) = browsing history)
+    history_index: Option<usize>,
+    /// Saved input when browsing history
+    saved_input: String,
 }
 
 impl ReplState {
@@ -73,10 +77,12 @@ impl ReplState {
         self.history.push(entry);
     }
 
-    /// Clear the current input
+    /// Clear the current input and reset history navigation
     pub fn clear_input(&mut self) {
         self.input.clear();
         self.cursor = 0;
+        self.history_index = None;
+        self.saved_input.clear();
     }
 
     /// Insert a character at the cursor
@@ -127,6 +133,51 @@ impl ReplState {
     /// Get the current input
     pub fn current_input(&self) -> &str {
         &self.input
+    }
+
+    /// Navigate to previous command in history (up arrow / k)
+    pub fn history_up(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+
+        match self.history_index {
+            None => {
+                // First time navigating up - save current input and go to last history entry
+                self.saved_input = self.input.clone();
+                self.history_index = Some(self.history.len() - 1);
+                self.input = self.history.last().unwrap().input.clone();
+            }
+            Some(idx) if idx > 0 => {
+                // Navigate further back
+                self.history_index = Some(idx - 1);
+                self.input = self.history[idx - 1].input.clone();
+            }
+            Some(_) => {
+                // Already at oldest entry
+            }
+        }
+        self.cursor = self.input.len();
+    }
+
+    /// Navigate to next command in history (down arrow / j)
+    pub fn history_down(&mut self) {
+        match self.history_index {
+            Some(idx) if idx + 1 < self.history.len() => {
+                // Navigate forward in history
+                self.history_index = Some(idx + 1);
+                self.input = self.history[idx + 1].input.clone();
+            }
+            Some(_) => {
+                // At newest history entry - restore saved input
+                self.history_index = None;
+                self.input = std::mem::take(&mut self.saved_input);
+            }
+            None => {
+                // Already at current input, nothing to do
+            }
+        }
+        self.cursor = self.input.len();
     }
 }
 
@@ -268,25 +319,12 @@ impl<'a> ReplPane<'a> {
 
 impl Widget for &ReplPane<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let border_style = if self.focused {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-
-        let block = Block::default()
-            .title(" REPL ")
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
+        // No border for REPL - it's the primary interface
         let lines = self.build_lines();
 
         // Calculate scroll to keep cursor visible
         let content_height = lines.len() as u16;
-        let visible_height = inner.height;
+        let visible_height = area.height;
         let scroll = if content_height > visible_height {
             content_height.saturating_sub(visible_height)
         } else {
@@ -297,7 +335,7 @@ impl Widget for &ReplPane<'_> {
         // Long lines will be clipped, which is fine for a REPL
         let paragraph = Paragraph::new(lines).scroll((scroll, 0));
 
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
     }
 }
 

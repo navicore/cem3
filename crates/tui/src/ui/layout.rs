@@ -78,7 +78,7 @@ pub struct ComputedLayout {
 
 impl ComputedLayout {
     /// Compute the layout for a given terminal area
-    pub fn compute(area: Rect, config: &LayoutConfig) -> Self {
+    pub fn compute(area: Rect, config: &LayoutConfig, show_ir: bool) -> Self {
         // First split: main content vs status bar
         let vertical_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -90,6 +90,15 @@ impl ComputedLayout {
 
         let main_area = vertical_chunks[0];
         let status_area = vertical_chunks[1];
+
+        // If IR pane is disabled, give all space to REPL
+        if !show_ir {
+            return Self {
+                repl: main_area,
+                ir: Rect::default(),
+                status: status_area,
+            };
+        }
 
         // Check if we have enough width for split view
         let total_width = main_area.width;
@@ -228,7 +237,7 @@ mod tests {
     fn test_computed_layout() {
         let area = Rect::new(0, 0, 100, 30);
         let config = LayoutConfig::default();
-        let layout = ComputedLayout::compute(area, &config);
+        let layout = ComputedLayout::compute(area, &config, true);
 
         // Status bar at bottom
         assert_eq!(layout.status.height, 1);
@@ -244,11 +253,23 @@ mod tests {
     fn test_narrow_layout() {
         let area = Rect::new(0, 0, 30, 30); // Too narrow for split
         let config = LayoutConfig::default();
-        let layout = ComputedLayout::compute(area, &config);
+        let layout = ComputedLayout::compute(area, &config, true);
 
-        // IR pane should be hidden
+        // IR pane should be hidden (too narrow)
         assert!(!layout.ir_visible());
         assert_eq!(layout.repl.width, 30);
+    }
+
+    #[test]
+    fn test_ir_hidden_layout() {
+        let area = Rect::new(0, 0, 100, 30);
+        let config = LayoutConfig::default();
+        let layout = ComputedLayout::compute(area, &config, false);
+
+        // IR pane should be hidden (disabled)
+        assert!(!layout.ir_visible());
+        // REPL gets full width
+        assert_eq!(layout.repl.width, 100);
     }
 
     #[test]

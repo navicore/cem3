@@ -17,9 +17,21 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, stdout};
+use std::panic;
 
 /// Run the TUI REPL with an optional file
 pub fn run(file: Option<&std::path::Path>) -> Result<(), String> {
+    // Install panic hook to restore terminal on panic
+    // This ensures the terminal is always left in a usable state
+    let original_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        // Restore terminal state before printing panic message
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        // Call original panic handler
+        original_hook(panic_info);
+    }));
+
     // Setup terminal
     enable_raw_mode().map_err(|e| format!("Failed to enable raw mode: {}", e))?;
     let mut stdout = stdout();
@@ -32,9 +44,9 @@ pub fn run(file: Option<&std::path::Path>) -> Result<(), String> {
 
     // Create app with file if provided, otherwise use temp file
     let app_state = if let Some(path) = file {
-        app::App::with_file(path.to_path_buf())
+        app::App::with_file(path.to_path_buf())?
     } else {
-        app::App::new()
+        app::App::new()?
     };
 
     // Run the app
@@ -96,16 +108,17 @@ fn open_in_editor(
     // Get editor from environment
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
 
-    // Split EDITOR into command and arguments (handles "code --wait", "emacs -nw", etc.)
-    let parts: Vec<&str> = editor.split_whitespace().collect();
-    let (cmd, args) = if parts.is_empty() {
-        ("vi", Vec::new())
-    } else {
-        (parts[0], parts[1..].to_vec())
+    // Use shlex for safe shell-aware parsing (handles quotes, escapes, etc.)
+    // This prevents command injection and handles edge cases like:
+    // - EDITOR="code --wait"
+    // - EDITOR="'/path with spaces/editor'"
+    let parts = match shlex::split(&editor) {
+        Some(p) if !p.is_empty() => p,
+        _ => vec!["vi".to_string()],
     };
 
     // Run editor
-    let status = Command::new(cmd).args(args).arg(path).status();
+    let status = Command::new(&parts[0]).args(&parts[1..]).arg(path).status();
 
     if let Err(e) = status {
         eprintln!("Failed to open editor: {}", e);

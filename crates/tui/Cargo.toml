@@ -31,3 +31,6 @@ dirs.workspace = true
 lsp-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+# Safe shell command parsing for $EDITOR
+shlex = "1.3"

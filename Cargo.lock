@@ -1984,6 +1984,7 @@ dependencies = [
  "seq-compiler",
  "serde",
  "serde_json",
+ "shlex",
  "tempfile",
 ]
 

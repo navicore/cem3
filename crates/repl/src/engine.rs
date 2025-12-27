@@ -394,8 +394,8 @@ mod tests {
         assert!(ir.iter().any(|l| l.contains("seq___expr__")));
 
         // Test arithmetic expression
-        let result = analyze_expression("5 10 add");
-        assert!(result.is_some(), "Should produce IR for '5 10 add'");
+        let result = analyze_expression("5 10 i.add");
+        assert!(result.is_some(), "Should produce IR for '5 10 i.add'");
     }
 
     #[test]

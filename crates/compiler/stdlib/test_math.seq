@@ -5,7 +5,7 @@
 # Absolute value
 : abs ( Int -- Int )
   dup 0 < if
-    0 swap subtract
+    0 swap i.subtract
   then
 ;
 
@@ -30,9 +30,9 @@
 # Modulo operation
 : mod ( Int Int -- Int )
   2dup
-  divide
-  multiply
-  subtract
+  i.divide
+  i.multiply
+  i.subtract
 ;
 
 # GCD using Euclidean algorithm
@@ -55,9 +55,9 @@
       drop
     else
       over
-      swap 1 subtract
+      swap 1 i.subtract
       pow
-      multiply
+      i.multiply
     then
   then
 ;
@@ -68,7 +68,7 @@
     drop 0
   else
     dup 0 < if
-      drop 0 1 subtract
+      drop 0 1 i.subtract
     else
       drop 1
     then
@@ -78,7 +78,7 @@
 # Tests
 : main ( -- )
   5 abs 5 = if "abs(5) = 5 ✓" io.write-line else "abs(5) FAILED" io.write-line then
-  0 5 subtract abs 5 = if "abs(-5) = 5 ✓" io.write-line else "abs(-5) FAILED" io.write-line then
+  0 5 i.subtract abs 5 = if "abs(-5) = 5 ✓" io.write-line else "abs(-5) FAILED" io.write-line then
 
   3 7 max 7 = if "max(3,7) = 7 ✓" io.write-line else "max(3,7) FAILED" io.write-line then
   9 2 max 9 = if "max(9,2) = 9 ✓" io.write-line else "max(9,2) FAILED" io.write-line then
@@ -93,7 +93,7 @@
   2 3 pow 8 = if "pow(2,3) = 8 ✓" io.write-line else "pow(2,3) FAILED" io.write-line then
   5 2 pow 25 = if "pow(5,2) = 25 ✓" io.write-line else "pow(5,2) FAILED" io.write-line then
 
-  0 5 subtract sign 0 1 subtract = if "sign(-5) = -1 ✓" io.write-line else "sign(-5) FAILED" io.write-line then
+  0 5 i.subtract sign 0 1 i.subtract = if "sign(-5) = -1 ✓" io.write-line else "sign(-5) FAILED" io.write-line then
   0 sign 0 = if "sign(0) = 0 ✓" io.write-line else "sign(0) FAILED" io.write-line then
   5 sign 1 = if "sign(5) = 1 ✓" io.write-line else "sign(5) FAILED" io.write-line then
 ;

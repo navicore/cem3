@@ -51,11 +51,9 @@ jobs:
         path: ~/.cargo/git
         key: linux-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Cache cargo build
-      uses: actions/cache@v4
-      with:
-        path: target
-        key: linux-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+    # NOTE: We intentionally do NOT cache target/ because compiled tests
+    # contain language semantics. When builtins change (e.g., add -> i.add),
+    # stale cached test binaries cause false failures.
 
     - name: Run CI checks (just ci)
       run: just ci

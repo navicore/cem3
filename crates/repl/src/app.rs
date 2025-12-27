@@ -1219,30 +1219,30 @@ impl App {
                     .push(StackValue::var("y")),
             )),
 
-            // Arithmetic
-            "add" => Some(StackEffect::new(
-                "add",
+            // Integer Arithmetic
+            "i.add" => Some(StackEffect::new(
+                "i.add",
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "subtract" => Some(StackEffect::new(
-                "subtract",
+            "i.subtract" => Some(StackEffect::new(
+                "i.subtract",
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "multiply" => Some(StackEffect::new(
-                "multiply",
+            "i.multiply" => Some(StackEffect::new(
+                "i.multiply",
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "divide" => Some(StackEffect::new(
-                "divide",
+            "i.divide" => Some(StackEffect::new(
+                "i.divide",
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
@@ -1399,10 +1399,10 @@ impl App {
             "rot",
             "nip",
             "tuck",
-            "add",
-            "subtract",
-            "multiply",
-            "divide",
+            "i.add",
+            "i.subtract",
+            "i.multiply",
+            "i.divide",
             "modulo",
             "negate",
             "equals",

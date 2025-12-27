@@ -11,7 +11,7 @@
     # Each call creates a new closure that captures n
     # and recurses via a fresh closure
     dup 0 > if
-        1 subtract
+        1 i.subtract
         dup [ drop recurse-with-closure ] call
     then
 ;

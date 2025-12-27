@@ -1055,7 +1055,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::WordCall {
-                    name: "add".to_string(),
+                    name: "i.add".to_string(),
                     span: None,
                 }],
                 source: None,
@@ -1240,11 +1240,11 @@ mod tests {
                 )),
                 body: vec![
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "multiply".to_string(),
+                        name: "i.multiply".to_string(),
                         span: None,
                     },
                 ],
@@ -1318,7 +1318,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::WordCall {
-                    name: "add".to_string(),
+                    name: "i.add".to_string(),
                     span: None,
                 }],
                 source: None,
@@ -1389,11 +1389,11 @@ mod tests {
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                 ],
@@ -1862,7 +1862,7 @@ mod tests {
                             else_branch: Some(vec![
                                 Statement::IntLiteral(1),
                                 Statement::WordCall {
-                                    name: "subtract".to_string(),
+                                    name: "i.subtract".to_string(),
                                     span: None,
                                 },
                                 Statement::WordCall {
@@ -1901,7 +1901,7 @@ mod tests {
                             else_branch: Some(vec![
                                 Statement::IntLiteral(1),
                                 Statement::WordCall {
-                                    name: "subtract".to_string(),
+                                    name: "i.subtract".to_string(),
                                     span: None,
                                 },
                                 Statement::WordCall {
@@ -1942,7 +1942,7 @@ mod tests {
                             span: None,
                         },
                         Statement::WordCall {
-                            name: "add".to_string(),
+                            name: "i.add".to_string(),
                             span: None,
                         },
                     ],
@@ -1991,39 +1991,39 @@ mod tests {
                 effect: Some(Effect::new(stack_type, StackType::singleton(Type::Int))),
                 body: vec![
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                 ],
@@ -2057,7 +2057,7 @@ mod tests {
                     body: vec![
                         Statement::IntLiteral(1),
                         Statement::WordCall {
-                            name: "add".to_string(),
+                            name: "i.add".to_string(),
                             span: None,
                         },
                     ],
@@ -2159,7 +2159,7 @@ mod tests {
                         body: vec![
                             Statement::IntLiteral(1),
                             Statement::WordCall {
-                                name: "add".to_string(),
+                                name: "i.add".to_string(),
                                 span: None,
                             },
                         ],

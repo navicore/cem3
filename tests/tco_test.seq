@@ -5,7 +5,7 @@
 
 : count-down ( Int -- )
     dup 0 > if
-        1 subtract count-down
+        1 i.subtract count-down
     else
         drop
     then

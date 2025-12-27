@@ -445,7 +445,7 @@
   dup 0 variant.field-at    # n PState str
   rot rot                   # str n PState
   1 variant.field-at        # str n pos
-  add                       # str newpos
+  i.add                       # str newpos
   make-pstate               # PState'
 ;
 
@@ -529,7 +529,7 @@
 # Advance position by n characters
 # Stack: ( str pos n -- str pos )
 : json-advance ( ..rest String Int Int -- ..rest String Int )
-  add
+  i.add
 ;
 
 # ============================================================================
@@ -668,7 +668,7 @@
 # Helper: Get substring from position to end
 # Stack: ( String Int -- String )
 : string-from ( ..rest String Int -- ..rest String )
-  over string.length over subtract
+  over string.length over i.subtract
   string.substring
 ;
 
@@ -710,7 +710,7 @@
     2dup                     # str pos str pos
 
     # startpos = pos + 1
-    1 add                    # str pos str startpos
+    1 i.add                  # str pos str startpos
 
     # Create PState for scanning
     2dup make-pstate    # str pos str startpos PState
@@ -724,7 +724,7 @@
       # Stack: str pos str startpos PState closepos
       # Drop PState, compute len = closepos - startpos
       nip                    # str pos str startpos closepos
-      over subtract          # str pos str startpos len
+      over i.subtract          # str pos str startpos len
 
       # Stack: str pos str startpos len
       # Call string.substring(str, startpos, len)
@@ -741,10 +741,10 @@
       # Save JsonString, scan original str from pos+1 for quote
       rot rot                # JsonString str pos
       2dup              # JsonString str pos str pos
-      1 add make-pstate      # JsonString str pos PState(at startpos)
+      1 i.add make-pstate    # JsonString str pos PState(at startpos)
       pstate-scan-for-quote  # JsonString str pos PState closepos
       nip                    # JsonString str pos closepos (drop PState)
-      1 add                  # JsonString str pos newpos
+      1 i.add                # JsonString str pos newpos
       nip                    # JsonString str newpos (drop old pos)
       swap                   # JsonString newpos str
       rot                    # newpos str JsonString
@@ -793,7 +793,7 @@
 # Stack: ( String Int Int -- String )
 # Takes str startpos endpos, returns str[startpos:endpos]
 : substr-by-range ( String Int Int -- String )
-  over subtract              # str startpos len
+  over i.subtract              # str startpos len
   string.substring           # numstr
 ;
 
@@ -833,7 +833,7 @@
   3 roll                     # PState' str startpos endpos
 
   # len = endpos - startpos
-  over subtract              # PState' str startpos len
+  over i.subtract              # PState' str startpos len
 
   # string.substring: str startpos len -> substring
   string.substring           # PState' numstr

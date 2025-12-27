@@ -5,7 +5,7 @@
 # Closures compile and run correctly, just without TCO.
 
 : add-n ( Int Int -- Int )
-    add
+    i.add
 ;
 
 : main ( -- )

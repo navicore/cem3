@@ -390,9 +390,9 @@ mod tests {
         let before_dup = Stack::new(vec![StackValue::val("5")]);
         let after_dup = Stack::new(vec![StackValue::val("5"), StackValue::val("5")]);
 
-        // multiply ( ..a Int Int -- ..a Int )
+        // i.multiply ( ..a Int Int -- ..a Int )
         let mult_effect = StackEffect::new(
-            "multiply",
+            "i.multiply",
             Stack::new(vec![
                 StackValue::rest("a"),
                 StackValue::ty("Int"),
@@ -413,7 +413,7 @@ mod tests {
         // Should contain both word signatures
         let text = lines.join("\n");
         assert!(text.contains("dup"));
-        assert!(text.contains("multiply"));
+        assert!(text.contains("i.multiply"));
         assert!(text.contains("5"));
         assert!(text.contains("25"));
     }

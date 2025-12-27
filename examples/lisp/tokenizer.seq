@@ -120,7 +120,7 @@ union TokState {
   else
     # Flush token and advance
     dup state-input
-    over state-pos 1 add
+    over state-pos 1 i.add
     2 pick state-list
     3 pick state-tok
     swap tcons
@@ -134,7 +134,7 @@ union TokState {
   dup state-tok string.empty? if
     # Just add "(" to list and advance
     dup state-input
-    over state-pos 1 add
+    over state-pos 1 i.add
     2 pick state-list
     "(" swap tcons
     "" swap
@@ -142,7 +142,7 @@ union TokState {
   else
     # Flush token, then add "("
     dup state-input
-    over state-pos 1 add
+    over state-pos 1 i.add
     2 pick state-list
     3 pick state-tok
     swap tcons
@@ -157,7 +157,7 @@ union TokState {
   dup state-tok string.empty? if
     # Just add ")" to list and advance
     dup state-input
-    over state-pos 1 add
+    over state-pos 1 i.add
     2 pick state-list
     ")" swap tcons
     "" swap
@@ -165,7 +165,7 @@ union TokState {
   else
     # Flush token, then add ")"
     dup state-input
-    over state-pos 1 add
+    over state-pos 1 i.add
     2 pick state-list
     3 pick state-tok
     swap tcons
@@ -179,7 +179,7 @@ union TokState {
 : handle-char ( TokState -- TokState )
   # Build (Input, Pos+1, Tok++Char, List)
   dup state-input
-  over state-pos 1 add
+  over state-pos 1 i.add
   2 pick state-list
   3 pick state-tok
   4 pick state-input
@@ -193,7 +193,7 @@ union TokState {
 # Just advance position
 : advance-pos ( TokState -- TokState )
   dup state-input
-  over state-pos 1 add
+  over state-pos 1 i.add
   2 pick state-tok
   3 pick state-list
   make-state nip

@@ -1034,13 +1034,14 @@ impl App {
     /// Extract __repl__ function from LLVM IR
     fn extract_repl_ir(&self, ir: &str) -> Vec<String> {
         let mut lines = Vec::new();
-        let mut in_repl = false;
+        let mut in_main = false;
 
         for line in ir.lines() {
-            if line.contains("define") && line.contains("__repl__") {
-                in_repl = true;
+            // Look for main function (session file uses main, not __repl__)
+            if line.contains("define") && line.contains("@main") {
+                in_main = true;
             }
-            if in_repl {
+            if in_main {
                 lines.push(line.to_string());
                 if line.trim() == "}" {
                     break;
@@ -1049,7 +1050,8 @@ impl App {
         }
 
         if lines.is_empty() {
-            vec!["(LLVM IR not available)".to_string()]
+            // Fall back to showing all IR if main not found
+            ir.lines().map(String::from).collect()
         } else {
             lines
         }

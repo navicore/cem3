@@ -1980,6 +1980,7 @@ dependencies = [
  "crossterm 0.28.1",
  "ratatui",
  "seq-compiler",
+ "tempfile",
 ]
 
 [[package]]

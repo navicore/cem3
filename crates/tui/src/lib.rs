@@ -29,11 +29,12 @@ pub fn run(file: Option<&std::path::Path>) -> Result<(), String> {
     let mut terminal =
         Terminal::new(backend).map_err(|e| format!("Failed to create terminal: {}", e))?;
 
-    // Create app with filename if provided
-    let mut app_state = app::App::new();
-    if let Some(path) = file {
-        app_state = app_state.with_filename(path.display().to_string());
-    }
+    // Create app with file if provided, otherwise use temp file
+    let app_state = if let Some(path) = file {
+        app::App::with_file(path.to_path_buf())
+    } else {
+        app::App::new()
+    };
 
     // Run the app
     let result = run_app(&mut terminal, app_state);

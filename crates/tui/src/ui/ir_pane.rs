@@ -128,28 +128,6 @@ impl<'a> IrPane<'a> {
         self
     }
 
-    /// Get styled lines for the current content
-    fn styled_lines(&self) -> Vec<Line<'a>> {
-        if self.content.has_errors() {
-            // Show errors in red
-            self.content
-                .errors
-                .iter()
-                .map(|e| Line::from(Span::styled(e.clone(), Style::default().fg(Color::Red))))
-                .collect()
-        } else {
-            let lines = self.content.content_for(self.mode);
-            if lines.is_empty() {
-                vec![Line::from(Span::styled(
-                    format!("No {} available", self.mode.name().to_lowercase()),
-                    Style::default().fg(Color::DarkGray),
-                ))]
-            } else {
-                self.style_content(lines)
-            }
-        }
-    }
-
     /// Apply syntax highlighting to content based on view mode
     fn style_content(&self, lines: &[String]) -> Vec<Line<'a>> {
         match self.mode {
@@ -286,13 +264,114 @@ impl Widget for &IrPane<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Render content
-        let lines = self.styled_lines();
+        // Get content and adapt to available width
+        let available_width = inner.width as usize;
+        let lines = self.width_adapted_lines(available_width);
+
         let paragraph = Paragraph::new(lines)
             .scroll((self.scroll, 0))
             .wrap(Wrap { trim: false });
 
         paragraph.render(inner, buf);
+    }
+}
+
+impl<'a> IrPane<'a> {
+    /// Get lines adapted to available width
+    fn width_adapted_lines(&self, available_width: usize) -> Vec<Line<'a>> {
+        if self.content.has_errors() {
+            return self
+                .content
+                .errors
+                .iter()
+                .map(|e| Line::from(Span::styled(e.clone(), Style::default().fg(Color::Red))))
+                .collect();
+        }
+
+        let lines = self.content.content_for(self.mode);
+        if lines.is_empty() {
+            return vec![Line::from(Span::styled(
+                format!("No {} available", self.mode.name().to_lowercase()),
+                Style::default().fg(Color::DarkGray),
+            ))];
+        }
+
+        // Check if content is too wide
+        let max_line_width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+
+        if max_line_width <= available_width {
+            // Content fits - use normal styled rendering
+            self.style_content(lines)
+        } else {
+            // Content too wide - use compact version
+            self.compact_content(lines, available_width)
+        }
+    }
+
+    /// Generate compact content for narrow windows
+    fn compact_content(&self, lines: &[String], available_width: usize) -> Vec<Line<'a>> {
+        lines
+            .iter()
+            .filter_map(|line| {
+                // Skip decorative box lines (help header box)
+                if line.contains('╭')
+                    || line.contains('╮')
+                    || line.contains('╰')
+                    || line.contains('╯')
+                {
+                    return None;
+                }
+                // Convert box header content to plain text
+                if line.starts_with('│') && line.ends_with('│') {
+                    let inner = line.trim_start_matches('│').trim_end_matches('│').trim();
+                    if !inner.is_empty() {
+                        return Some(Line::from(Span::styled(
+                            inner.to_string(),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        )));
+                    }
+                    return None;
+                }
+
+                // Skip ASCII art stack boxes if too wide
+                let has_box_chars = line.contains('┌')
+                    || line.contains('┐')
+                    || line.contains('└')
+                    || line.contains('┘')
+                    || line.contains('├')
+                    || line.contains('┤');
+
+                if has_box_chars && line.chars().count() > available_width {
+                    // For stack art, extract just the effect signature
+                    if line.contains('(') && line.contains(')') {
+                        // This is likely a signature line like "swap ( ..a x y -- ..a y x )"
+                        return Some(Line::from(Span::styled(
+                            line.clone(),
+                            Style::default().fg(Color::Yellow),
+                        )));
+                    }
+                    return None;
+                }
+
+                // Truncate other long lines
+                let display = if line.chars().count() > available_width {
+                    let truncated: String = line
+                        .chars()
+                        .take(available_width.saturating_sub(1))
+                        .collect();
+                    format!("{}…", truncated)
+                } else {
+                    line.clone()
+                };
+
+                Some(Line::from(Span::styled(
+                    display,
+                    Style::default().fg(Color::White),
+                )))
+            })
+            .collect()
     }
 }
 

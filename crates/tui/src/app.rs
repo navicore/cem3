@@ -8,19 +8,22 @@
 
 use crate::engine::{AnalysisResult, analyze};
 use crate::ir::stack_art::{Stack, StackEffect, StackValue, render_transition};
+use crate::lsp_client::LspClient;
 use crate::ui::ir_pane::{IrContent, IrPane, IrViewMode};
 use crate::ui::layout::{ComputedLayout, FocusedPane, LayoutConfig, StatusContent};
 use crate::ui::repl_pane::{HistoryEntry, ReplPane, ReplState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use lsp_types::CompletionItem;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
@@ -88,12 +91,22 @@ pub struct App {
     pub show_ir_pane: bool,
     /// Whether the app should quit
     pub should_quit: bool,
+    /// Whether the app should open editor
+    pub should_edit: bool,
     /// Status message (clears after next action)
     pub status_message: Option<String>,
     /// Session file path (temp file or user-provided file)
     pub session_path: PathBuf,
     /// Temp file handle (kept alive to prevent deletion)
     _temp_file: Option<NamedTempFile>,
+    /// LSP client for completions (None if unavailable)
+    lsp_client: Option<LspClient>,
+    /// Current completion items
+    completions: Vec<CompletionItem>,
+    /// Selected completion index
+    completion_index: usize,
+    /// Whether completion popup is visible
+    show_completions: bool,
 }
 
 impl Default for App {
@@ -110,8 +123,11 @@ impl App {
         let session_path = temp_file.path().to_path_buf();
 
         // Initialize with template
-        fs::write(&session_path, format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE))
-            .expect("Failed to write session file");
+        let initial_content = format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE);
+        fs::write(&session_path, &initial_content).expect("Failed to write session file");
+
+        // Try to start LSP client (like old REPL)
+        let lsp_client = Self::try_start_lsp(&session_path, &initial_content);
 
         let mut app = Self {
             repl_state: ReplState::new(),
@@ -124,9 +140,14 @@ impl App {
             ir_scroll: 0,
             show_ir_pane: false,
             should_quit: false,
+            should_edit: false,
             status_message: None,
             session_path,
             _temp_file: Some(temp_file),
+            lsp_client,
+            completions: Vec::new(),
+            completion_index: 0,
+            show_completions: false,
         };
         app.load_history();
         app
@@ -137,10 +158,16 @@ impl App {
         let filename = path.display().to_string();
 
         // Check if file exists, create if not
-        if !path.exists() {
-            fs::write(&path, format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE))
-                .expect("Failed to create session file");
-        }
+        let content = if !path.exists() {
+            let c = format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE);
+            fs::write(&path, &c).expect("Failed to create session file");
+            c
+        } else {
+            fs::read_to_string(&path).unwrap_or_default()
+        };
+
+        // Try to start LSP client
+        let lsp_client = Self::try_start_lsp(&path, &content);
 
         let mut app = Self {
             repl_state: ReplState::new(),
@@ -153,9 +180,14 @@ impl App {
             ir_scroll: 0,
             show_ir_pane: false,
             should_quit: false,
+            should_edit: false,
             status_message: None,
             session_path: path,
             _temp_file: None,
+            lsp_client,
+            completions: Vec::new(),
+            completion_index: 0,
+            show_completions: false,
         };
         app.load_history();
         app
@@ -167,6 +199,21 @@ impl App {
         self
     }
 
+    /// Try to start the LSP client (like old REPL's SeqHelper::new)
+    fn try_start_lsp(session_path: &Path, content: &str) -> Option<LspClient> {
+        match LspClient::new(session_path) {
+            Ok(mut client) => {
+                // Open the document (like old REPL)
+                if client.did_open(content).is_ok() {
+                    Some(client)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    }
+
     /// Get the history file path (shared with original REPL)
     fn history_file_path() -> Option<PathBuf> {
         dirs::data_local_dir().map(|d| d.join("seqr_history"))
@@ -174,18 +221,16 @@ impl App {
 
     /// Load history from file
     fn load_history(&mut self) {
-        if let Some(path) = Self::history_file_path() {
-            if path.exists() {
-                if let Ok(file) = fs::File::open(&path) {
-                    let reader = BufReader::new(file);
-                    for line in reader.lines().map_while(Result::ok) {
-                        if !line.is_empty() {
-                            // Add as history entry (no output - it's from a previous session)
-                            self.repl_state.add_entry(
-                                HistoryEntry::new(line).with_output("(previous session)"),
-                            );
-                        }
-                    }
+        if let Some(path) = Self::history_file_path()
+            && path.exists()
+            && let Ok(file) = fs::File::open(&path)
+        {
+            let reader = BufReader::new(file);
+            for line in reader.lines().map_while(Result::ok) {
+                if !line.is_empty() {
+                    // Add as history entry (no output - it's from a previous session)
+                    self.repl_state
+                        .add_entry(HistoryEntry::new(line).with_output("(previous session)"));
                 }
             }
         }
@@ -213,6 +258,44 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Clear status message on any key
         self.status_message = None;
+
+        // Handle completion popup navigation first
+        if self.show_completions {
+            match key.code {
+                KeyCode::Esc => {
+                    self.hide_completions();
+                    return;
+                }
+                KeyCode::Up | KeyCode::Char('k') if self.vi_mode == ViMode::Normal => {
+                    self.completion_up();
+                    return;
+                }
+                KeyCode::Down | KeyCode::Char('j') if self.vi_mode == ViMode::Normal => {
+                    self.completion_down();
+                    return;
+                }
+                KeyCode::Up => {
+                    self.completion_up();
+                    return;
+                }
+                KeyCode::Down => {
+                    self.completion_down();
+                    return;
+                }
+                KeyCode::Tab => {
+                    self.completion_down();
+                    return;
+                }
+                KeyCode::Enter => {
+                    self.accept_completion();
+                    return;
+                }
+                _ => {
+                    // Any other key hides completions and continues
+                    self.hide_completions();
+                }
+            }
+        }
 
         // Global shortcuts (work in any mode)
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -301,9 +384,9 @@ impl App {
                 }
             }
 
-            // Tab is reserved for completion (not implemented yet)
+            // Tab triggers completion
             KeyCode::Tab => {
-                // TODO: Tab completion
+                self.request_completions();
             }
 
             // Execute current input
@@ -365,11 +448,8 @@ impl App {
                 self.repl_state.cursor_end();
             }
             KeyCode::Tab => {
-                // Could trigger completion here
-                self.repl_state.insert_char(' ');
-                self.repl_state.insert_char(' ');
-                self.repl_state.insert_char(' ');
-                self.repl_state.insert_char(' ');
+                // Trigger completion
+                self.request_completions();
             }
             // Ctrl+D exits (like EOF in terminal)
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -791,6 +871,10 @@ impl App {
                 self.ir_mode = IrViewMode::LlvmIr;
                 self.status_message = Some("IR: LLVM IR".to_string());
             }
+            ":edit" | ":e" => {
+                // Signal that we need to open editor (handled by run loop)
+                self.should_edit = true;
+            }
             ":help" | ":h" => {
                 // Show help in the IR pane
                 self.ir_content = IrContent {
@@ -804,6 +888,7 @@ impl App {
                         "  :clear        Clear session and history".to_string(),
                         "  :pop          Remove last expression".to_string(),
                         "  :show         Show session file".to_string(),
+                        "  :edit, :e     Open in $EDITOR".to_string(),
                         "  :ir           Toggle IR pane".to_string(),
                         "  :ir stack     Show stack effects".to_string(),
                         "  :ir ast       Show typed AST".to_string(),
@@ -822,7 +907,9 @@ impl App {
                         "  d             Clear line".to_string(),
                         String::new(),
                         "KEYS".to_string(),
+                        "  Tab           Show completions".to_string(),
                         "  Ctrl+N        Cycle IR views".to_string(),
+                        "  Ctrl+D        Exit REPL".to_string(),
                         "  Enter         Execute expression".to_string(),
                         "  Up/Down       History navigation".to_string(),
                     ],
@@ -1124,14 +1211,15 @@ impl App {
     /// Extract __repl__ function from LLVM IR
     fn extract_repl_ir(&self, ir: &str) -> Vec<String> {
         let mut lines = Vec::new();
-        let mut in_main = false;
+        let mut in_seq_main = false;
 
         for line in ir.lines() {
-            // Look for main function (session file uses main, not __repl__)
-            if line.contains("define") && line.contains("@main") {
-                in_main = true;
+            // Look for seq_main function - this has the actual user code
+            // (not @main which is just the scheduler bootstrap)
+            if line.contains("define") && line.contains("@seq_main") {
+                in_seq_main = true;
             }
-            if in_main {
+            if in_seq_main {
                 lines.push(line.to_string());
                 if line.trim() == "}" {
                     break;
@@ -1140,11 +1228,204 @@ impl App {
         }
 
         if lines.is_empty() {
-            // Fall back to showing all IR if main not found
+            // Fall back to showing all IR if seq_main not found
             ir.lines().map(String::from).collect()
         } else {
             lines
         }
+    }
+
+    /// Request completions from LSP (mirrors old REPL's SeqHelper::complete)
+    fn request_completions(&mut self) {
+        let line = self.repl_state.input.clone();
+        let pos = self.repl_state.cursor;
+
+        // Find word start for replacement
+        let word_start = line[..pos]
+            .rfind(|c: char| c.is_whitespace())
+            .map(|i| i + 1)
+            .unwrap_or(0);
+
+        // Get the prefix the user has typed
+        let prefix = &line[word_start..pos];
+
+        // Don't show completions for empty prefix - too noisy
+        if prefix.is_empty() {
+            self.status_message = Some("Tab: type a prefix first".to_string());
+            return;
+        }
+
+        // If no LSP client, fall back to built-in completions
+        let Some(ref mut lsp) = self.lsp_client else {
+            self.builtin_completions(prefix);
+            return;
+        };
+
+        // Get file content
+        let Ok(file_content) = fs::read_to_string(&self.session_path) else {
+            self.builtin_completions(prefix);
+            return;
+        };
+
+        // Find where to insert (before stack.dump) - like old REPL
+        let Some(insert_pos) = file_content.find("  stack.dump") else {
+            self.builtin_completions(prefix);
+            return;
+        };
+
+        // Create virtual document: file content + current line at end of main
+        let virtual_content = format!(
+            "{}  {}\n{}",
+            &file_content[..insert_pos],
+            line,
+            &file_content[insert_pos..]
+        );
+
+        // Calculate line/column in virtual document
+        let lines_before: u32 = file_content[..insert_pos].matches('\n').count() as u32;
+        let line_num = lines_before; // 0-indexed
+        let col_num = pos as u32 + 2; // +2 for the "  " indent
+
+        // Sync virtual document and get completions
+        if lsp.did_change(&virtual_content).is_err() {
+            self.builtin_completions(prefix);
+            return;
+        }
+
+        let items = match lsp.completions(line_num, col_num) {
+            Ok(items) => items,
+            Err(_) => {
+                // Restore original and fall back
+                let _ = lsp.did_change(&file_content);
+                self.builtin_completions(prefix);
+                return;
+            }
+        };
+
+        // Restore original document
+        let _ = lsp.did_change(&file_content);
+
+        // Filter by prefix (case-insensitive)
+        let prefix_lower = prefix.to_lowercase();
+        self.completions = items
+            .into_iter()
+            .filter(|item| item.label.to_lowercase().starts_with(&prefix_lower))
+            .take(10)
+            .collect();
+
+        if !self.completions.is_empty() {
+            self.completion_index = 0;
+            self.show_completions = true;
+        } else {
+            self.status_message = Some("No completions".to_string());
+        }
+    }
+
+    /// Provide built-in completions when LSP is not available
+    fn builtin_completions(&mut self, prefix: &str) {
+        let builtins = [
+            "dup",
+            "drop",
+            "swap",
+            "over",
+            "rot",
+            "nip",
+            "tuck",
+            "add",
+            "subtract",
+            "multiply",
+            "divide",
+            "modulo",
+            "negate",
+            "equals",
+            "not-equals",
+            "less-than",
+            "greater-than",
+            "less-or-equal",
+            "greater-or-equal",
+            "and",
+            "or",
+            "not",
+            "apply",
+            "dip",
+            "if",
+            "when",
+            "unless",
+            "while",
+            "times",
+            "true",
+            "false",
+            "stack.dump",
+            "print",
+            "println",
+        ];
+
+        self.completions = builtins
+            .iter()
+            .filter(|b| b.starts_with(prefix) && **b != prefix)
+            .take(10)
+            .map(|s| CompletionItem {
+                label: s.to_string(),
+                ..Default::default()
+            })
+            .collect();
+
+        if !self.completions.is_empty() {
+            self.completion_index = 0;
+            self.show_completions = true;
+        } else if !prefix.is_empty() {
+            self.status_message = Some("No completions".to_string());
+        }
+    }
+
+    /// Move up in completion list
+    fn completion_up(&mut self) {
+        if !self.completions.is_empty() {
+            if self.completion_index > 0 {
+                self.completion_index -= 1;
+            } else {
+                self.completion_index = self.completions.len() - 1;
+            }
+        }
+    }
+
+    /// Move down in completion list
+    fn completion_down(&mut self) {
+        if !self.completions.is_empty() {
+            self.completion_index = (self.completion_index + 1) % self.completions.len();
+        }
+    }
+
+    /// Accept the current completion
+    fn accept_completion(&mut self) {
+        if let Some(item) = self.completions.get(self.completion_index) {
+            let input = &self.repl_state.input;
+            let cursor = self.repl_state.cursor;
+
+            // Find start of current word
+            let word_start = input[..cursor]
+                .rfind(|c: char| c.is_whitespace())
+                .map(|i| i + 1)
+                .unwrap_or(0);
+
+            // Replace current word with completion
+            let completion = &item.label;
+            let before = &input[..word_start];
+            let after = &input[cursor..];
+
+            self.repl_state.input = format!("{}{}{}", before, completion, after);
+            self.repl_state.cursor = word_start + completion.len();
+
+            self.hide_completions();
+            self.update_ir_preview();
+        }
+    }
+
+    /// Hide completion popup
+    fn hide_completions(&mut self) {
+        self.show_completions = false;
+        self.completions.clear();
+        self.completion_index = 0;
     }
 
     /// Render the application to a frame
@@ -1172,6 +1453,11 @@ impl App {
 
         // Render status bar
         self.render_status_bar(frame, layout.status);
+
+        // Render completion popup (on top of everything)
+        if self.show_completions && !self.completions.is_empty() {
+            self.render_completions(frame, layout.repl);
+        }
     }
 
     /// Render the status bar
@@ -1190,6 +1476,62 @@ impl App {
         let style = Style::default().bg(Color::DarkGray).fg(Color::White);
         let paragraph = Paragraph::new(Line::from(Span::styled(status_text, style)));
         frame.render_widget(paragraph, area);
+    }
+
+    /// Render the completion popup
+    fn render_completions(&self, frame: &mut Frame, repl_area: Rect) {
+        // Calculate popup position (above the input line)
+        let popup_height = (self.completions.len() + 2) as u16; // +2 for border
+        let popup_width = self
+            .completions
+            .iter()
+            .map(|c| c.label.len())
+            .max()
+            .unwrap_or(10) as u16
+            + 4; // +4 for padding and border
+
+        // Position popup near the cursor
+        let prompt_len = 5; // "seq> " or "seq: "
+        let x = repl_area.x + prompt_len + self.repl_state.cursor as u16;
+        let x = x.min(repl_area.right().saturating_sub(popup_width));
+
+        // Put it above the current line if possible
+        let y = if repl_area.bottom() > popup_height + 1 {
+            repl_area.bottom() - popup_height - 1
+        } else {
+            repl_area.y
+        };
+
+        let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+        // Clear the area first
+        frame.render_widget(Clear, popup_area);
+
+        // Build completion lines
+        let lines: Vec<Line> = self
+            .completions
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let style = if i == self.completion_index {
+                    Style::default()
+                        .bg(Color::Blue)
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                Line::from(Span::styled(format!(" {} ", item.label), style))
+            })
+            .collect();
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::Black));
+
+        let paragraph = Paragraph::new(lines).block(block);
+        frame.render_widget(paragraph, popup_area);
     }
 }
 

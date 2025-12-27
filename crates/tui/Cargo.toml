@@ -26,3 +26,8 @@ tempfile.workspace = true
 
 # History persistence
 dirs.workspace = true
+
+# LSP client for completions
+lsp-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -8,6 +8,7 @@
 pub mod app;
 pub mod engine;
 pub mod ir;
+pub mod lsp_client;
 pub mod ui;
 
 use crossterm::{
@@ -67,10 +68,55 @@ fn run_app(
         if app.should_quit {
             break;
         }
+
+        if app.should_edit {
+            app.should_edit = false;
+            open_in_editor(terminal, &app.session_path)?;
+        }
     }
 
     // Save history before exiting
     app.save_history();
+
+    Ok(())
+}
+
+/// Open the session file in $EDITOR
+fn open_in_editor(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    path: &std::path::Path,
+) -> io::Result<()> {
+    use std::process::Command;
+
+    // Leave TUI mode
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
+
+    // Get editor from environment
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+
+    // Split EDITOR into command and arguments (handles "code --wait", "emacs -nw", etc.)
+    let parts: Vec<&str> = editor.split_whitespace().collect();
+    let (cmd, args) = if parts.is_empty() {
+        ("vi", Vec::new())
+    } else {
+        (parts[0], parts[1..].to_vec())
+    };
+
+    // Run editor
+    let status = Command::new(cmd).args(args).arg(path).status();
+
+    if let Err(e) = status {
+        eprintln!("Failed to open editor: {}", e);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+
+    // Return to TUI mode
+    enable_raw_mode()?;
+    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+    terminal.hide_cursor()?;
+    terminal.clear()?;
 
     Ok(())
 }

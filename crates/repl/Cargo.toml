@@ -14,6 +14,26 @@ name = "seqr"
 path = "src/main.rs"
 
 [dependencies]
-# TUI REPL - version must EXACTLY match workspace version (enforced by CI)
-seq-tui = { path = "../tui", version = "=0.14.1" }
+# Seq compiler - version must EXACTLY match workspace version (enforced by CI)
+seq-compiler = { path = "../compiler", version = "=0.14.1" }
+
+# CLI
 clap.workspace = true
+
+# TUI framework
+ratatui.workspace = true
+crossterm.workspace = true
+
+# Session file management
+tempfile.workspace = true
+
+# History persistence
+dirs.workspace = true
+
+# LSP client for completions
+lsp-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Safe shell command parsing for $EDITOR
+shlex = "1.3"

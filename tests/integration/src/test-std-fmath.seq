@@ -1,0 +1,45 @@
+# std:fmath Integration Test
+
+include std:fmath
+
+: test-f-abs ( -- )
+  5.0 f.abs 5.0 f.= test.assert
+  -5.0 f.abs 5.0 f.= test.assert
+  0.0 f.abs 0.0 f.= test.assert
+;
+
+: test-f-max ( -- )
+  3.0 7.0 f.max 7.0 f.= test.assert
+  7.0 3.0 f.max 7.0 f.= test.assert
+  -10.0 -5.0 f.max -5.0 f.= test.assert
+;
+
+: test-f-min ( -- )
+  3.0 7.0 f.min 3.0 f.= test.assert
+  7.0 3.0 f.min 3.0 f.= test.assert
+  -10.0 -5.0 f.min -10.0 f.= test.assert
+;
+
+: test-f-sign ( -- )
+  5.0 f.sign 1.0 f.= test.assert
+  -5.0 f.sign -1.0 f.= test.assert
+  0.0 f.sign 0.0 f.= test.assert
+;
+
+: test-f-square ( -- )
+  5.0 f.square 25.0 f.= test.assert
+  -3.0 f.square 9.0 f.= test.assert
+  0.0 f.square 0.0 f.= test.assert
+;
+
+: test-f-neg ( -- )
+  5.0 f.neg -5.0 f.= test.assert
+  -3.0 f.neg 3.0 f.= test.assert
+  0.0 f.neg 0.0 f.= test.assert
+;
+
+: test-f-clamp ( -- )
+  50.0 0.0 100.0 f.clamp 50.0 f.= test.assert
+  -10.0 0.0 100.0 f.clamp 0.0 f.= test.assert
+  150.0 0.0 100.0 f.clamp 100.0 f.= test.assert
+;

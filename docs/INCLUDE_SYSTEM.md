@@ -13,7 +13,7 @@ Seq supports a simple include system for code reuse. The design prioritizes:
 ```seq
 # Standard library (ships with compiler)
 include std:http
-include std:math
+include std:imath
 
 # FFI bindings (C library wrappers)
 include ffi:libedit

@@ -6,7 +6,7 @@
 
 : single-branch-countdown ( Int -- Int )
     dup 0 > if
-        1 subtract single-branch-countdown
+        1 i.subtract single-branch-countdown
     then
 ;
 

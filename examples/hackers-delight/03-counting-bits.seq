@@ -7,14 +7,14 @@
 # This shows how popcount works internally
 : count-bits-parallel ( Int -- Int )
   # Sum pairs of bits
-  dup 1 shr 0x5555555555555555 band subtract
+  dup 1 shr 0x5555555555555555 band i.subtract
   # Sum groups of 4
   dup 0x3333333333333333 band
-  swap 2 shr 0x3333333333333333 band add
+  swap 2 shr 0x3333333333333333 band i.add
   # Sum groups of 8
-  dup 4 shr add 0x0F0F0F0F0F0F0F0F band
+  dup 4 shr i.add 0x0F0F0F0F0F0F0F0F band
   # Sum all bytes
-  0x0101010101010101 multiply
+  0x0101010101010101 i.multiply
   56 shr
 ;
 
@@ -24,8 +24,8 @@
   0 swap  # accumulator and value
   [ dup 0 <> ]
   [
-    swap 1 add swap           # increment count
-    dup 1 subtract band       # clear rightmost 1
+    swap 1 i.add swap           # increment count
+    dup 1 i.subtract band       # clear rightmost 1
   ]
   while
   drop  # drop the zero value, keep count
@@ -51,7 +51,7 @@
     [ dup 0 < not ]   # while high bit not set
     [
       1 shl           # shift left
-      swap 1 add swap # increment count
+      swap 1 i.add swap # increment count
     ]
     while
     drop  # drop the value
@@ -67,7 +67,7 @@
     [ dup 1 band 0 = ]  # while low bit not set
     [
       1 shr             # shift right
-      swap 1 add swap   # increment count
+      swap 1 i.add swap   # increment count
     ]
     while
     drop

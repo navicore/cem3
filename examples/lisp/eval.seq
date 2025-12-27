@@ -202,7 +202,7 @@ include "parser"
     # Get first element and eval it
     2 pick scar over eval-with-env snum-val
     # Stack: List Acc Env FirstVal
-    rot add
+    rot i.add
     # Stack: List Env NewAcc
     swap rot scdr rot rot
     # Stack: RestList NewAcc Env
@@ -220,7 +220,7 @@ include "parser"
     swap scdr
     dup snil? if
       # Unary minus: negate
-      drop nip 0 swap subtract snum
+      drop nip 0 swap i.subtract snum
     else
       # Binary minus: first - rest
       # Stack: Env FirstVal RestList -> need RestList FirstVal Env
@@ -238,7 +238,7 @@ include "parser"
     # Get first element and eval it
     2 pick scar over eval-with-env snum-val
     # Stack: List Acc Env FirstVal
-    rot swap subtract
+    rot swap i.subtract
     # Stack: List Env NewAcc
     swap rot scdr rot rot
     # Stack: RestList NewAcc Env
@@ -261,7 +261,7 @@ include "parser"
     # Get first element and eval it
     2 pick scar over eval-with-env snum-val
     # Stack: List Acc Env FirstVal
-    rot multiply
+    rot i.multiply
     # Stack: List Env NewAcc
     swap rot scdr rot rot
     # Stack: RestList NewAcc Env
@@ -295,7 +295,7 @@ include "parser"
     # Get first element and eval it
     2 pick scar over eval-with-env snum-val
     # Stack: List Acc Env FirstVal
-    rot swap divide
+    rot swap i.divide
     # Stack: List Env NewAcc
     swap rot scdr rot rot
     # Stack: RestList NewAcc Env

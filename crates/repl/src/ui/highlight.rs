@@ -34,7 +34,7 @@ pub enum TokenKind {
     Quotation,
     /// Include statements: include
     Include,
-    /// Module paths: std:math
+    /// Module paths: std:imath
     ModulePath,
     /// Regular identifiers/word references
     Identifier,
@@ -79,11 +79,11 @@ const BUILTINS: &[&str] = &[
     "tuck",
     "pick",
     "roll",
-    // Arithmetic
-    "add",
-    "subtract",
-    "multiply",
-    "divide",
+    // Integer Arithmetic
+    "i.add",
+    "i.subtract",
+    "i.multiply",
+    "i.divide",
     "modulo",
     "negate",
     // Comparison
@@ -250,7 +250,7 @@ pub fn tokenize(source: &str) -> Vec<Token> {
         if ch.is_alphabetic() || ch == '_' || ch == '-' {
             while pos < chars.len() {
                 let c = chars[pos];
-                if c.is_alphanumeric() || c == '_' || c == '-' || c == ':' {
+                if c.is_alphanumeric() || c == '_' || c == '-' || c == ':' || c == '.' {
                     pos += 1;
                 } else {
                     break;
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_definition() {
-        let tokens = tokenize_visible(": square dup multiply ;");
+        let tokens = tokenize_visible(": square dup i.multiply ;");
         assert_eq!(tokens.len(), 5);
         assert_eq!(tokens[0].kind, TokenKind::DefMarker);
         assert_eq!(tokens[1].kind, TokenKind::Identifier); // word name
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_quotation() {
-        let tokens = tokenize_visible("[ dup multiply ]");
+        let tokens = tokenize_visible("[ dup i.multiply ]");
         assert_eq!(tokens[0].kind, TokenKind::Quotation);
         assert_eq!(tokens[1].kind, TokenKind::Builtin);
         assert_eq!(tokens[2].kind, TokenKind::Builtin);
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_include() {
-        let tokens = tokenize_visible("include std:math");
+        let tokens = tokenize_visible("include std:imath");
         assert_eq!(tokens[0].kind, TokenKind::Include);
         assert_eq!(tokens[1].kind, TokenKind::ModulePath);
     }

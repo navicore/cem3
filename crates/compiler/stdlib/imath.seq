@@ -1,10 +1,10 @@
-# Math Standard Library for Seq
+# Integer Math Standard Library for Seq
 #
 # Common mathematical operations for integer arithmetic.
 #
 # ## Usage
 #
-#   include std:math
+#   include std:imath
 #
 #   : main ( -- Int )
 #     -5 abs int->string io.write-line
@@ -42,7 +42,7 @@
 : abs ( Int -- Int )
   dup dup 0 < if
     # Stack: n n, n < 0, so compute 0 - n
-    nip 0 swap subtract
+    nip 0 swap i.subtract
   else
     # Stack: n n, n >= 0, keep original
     drop
@@ -70,9 +70,9 @@
 # Modulo operation: a mod b
 : mod ( Int Int -- Int )
   2dup
-  divide
-  multiply
-  subtract
+  i.divide
+  i.multiply
+  i.subtract
 ;
 
 # Greatest common divisor (Euclidean algorithm)
@@ -95,9 +95,9 @@
       drop
     else
       over
-      swap 1 subtract
+      swap 1 i.subtract
       pow
-      multiply
+      i.multiply
     then
   then
 ;
@@ -108,7 +108,7 @@
     drop 0
   else
     dup 0 < if
-      drop 0 1 subtract
+      drop 0 1 i.subtract
     else
       drop 1
     then
@@ -117,7 +117,7 @@
 
 # Square
 : square ( Int -- Int )
-  dup multiply
+  dup i.multiply
 ;
 
 # Clamp value between min and max

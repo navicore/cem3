@@ -326,11 +326,11 @@ impl Program {
             "variant.make-2",
             "variant.make-3",
             "variant.make-4",
-            // Arithmetic operations
-            "add",
-            "subtract",
-            "multiply",
-            "divide",
+            // Integer arithmetic operations
+            "i.add",
+            "i.subtract",
+            "i.multiply",
+            "i.divide",
             // Comparison operations (return 0 or 1)
             "=",
             "<",
@@ -605,7 +605,7 @@ mod tests {
                     Statement::IntLiteral(2),
                     Statement::IntLiteral(3),
                     Statement::WordCall {
-                        name: "add".to_string(),
+                        name: "i.add".to_string(),
                         span: None,
                     },
                     Statement::WordCall {
@@ -617,7 +617,7 @@ mod tests {
             }],
         };
 
-        // Should succeed - add and io.write-line are built-ins
+        // Should succeed - i.add and io.write-line are built-ins
         assert!(program.validate_word_calls().is_ok());
     }
 

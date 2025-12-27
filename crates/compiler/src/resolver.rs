@@ -520,19 +520,19 @@ mod tests {
     // Integration tests for embedded stdlib
 
     #[test]
-    fn test_embedded_stdlib_math_available() {
-        assert!(stdlib_embed::has_stdlib("math"));
+    fn test_embedded_stdlib_imath_available() {
+        assert!(stdlib_embed::has_stdlib("imath"));
     }
 
     #[test]
     fn test_embedded_stdlib_resolution() {
         let resolver = Resolver::new(None);
-        let include = Include::Std("math".to_string());
+        let include = Include::Std("imath".to_string());
         let result = resolver.resolve_include(&include, Path::new("."));
         assert!(result.is_ok());
         match result.unwrap() {
             ResolvedInclude::Embedded(name, content) => {
-                assert_eq!(name, "math");
+                assert_eq!(name, "imath");
                 assert!(content.contains("abs"));
             }
             ResolvedInclude::FilePath(_) => panic!("Expected embedded, got file path"),
@@ -561,8 +561,8 @@ mod tests {
 
         // First include should work
         let result1 = resolver.process_embedded_include(
-            "math",
-            stdlib_embed::get_stdlib("math").unwrap(),
+            "imath",
+            stdlib_embed::get_stdlib("imath").unwrap(),
             Path::new("."),
         );
         assert!(result1.is_ok());
@@ -571,8 +571,8 @@ mod tests {
 
         // Second include of same module should return empty (already included)
         let result2 = resolver.process_embedded_include(
-            "math",
-            stdlib_embed::get_stdlib("math").unwrap(),
+            "imath",
+            stdlib_embed::get_stdlib("imath").unwrap(),
             Path::new("."),
         );
         assert!(result2.is_ok());

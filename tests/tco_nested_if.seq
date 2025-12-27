@@ -6,9 +6,9 @@
 : nested-countdown ( Int -- )
     dup 0 > if
         dup 2 > if
-            1 subtract nested-countdown
+            1 i.subtract nested-countdown
         else
-            1 subtract nested-countdown
+            1 i.subtract nested-countdown
         then
     else
         drop

@@ -17,14 +17,14 @@
 #   1. Takes values FROM the top of the stack
 #   2. Puts results BACK onto the stack
 #
-# The equivalent in Seq would be:  x 2 multiply 1 add
+# The equivalent in Seq would be:  x 2 i.multiply 1 i.add
 #
 # Reading left to right:
 #   x          -- push x onto stack
 #   2          -- push 2 onto stack
-#   multiply   -- pop two values, multiply them, push result
+#   i.multiply -- pop two values, multiply them, push result
 #   1          -- push 1 onto stack
-#   add        -- pop two values, add them, push result
+#   i.add      -- pop two values, add them, push result
 #
 # ============================================================================
 #                              THE STACK
@@ -42,9 +42,9 @@
 #   ---------     -----------
 #   5             ( 5 )
 #   3             ( 5 3 )
-#   add           ( 8 )         -- add pops 5 and 3, pushes 8
+#   i.add         ( 8 )         -- i.add pops 5 and 3, pushes 8
 #   2             ( 8 2 )
-#   multiply      ( 16 )        -- multiply pops 8 and 2, pushes 16
+#   i.multiply    ( 16 )        -- i.multiply pops 8 and 2, pushes 16
 #
 # ============================================================================
 #                         STACK EFFECT NOTATION
@@ -54,7 +54,7 @@
 # produces. We write this as: ( inputs -- outputs )
 #
 # Examples:
-#   add        ( a b -- sum )         Takes 2, produces 1
+#   i.add      ( a b -- sum )         Takes 2, produces 1
 #   dup        ( a -- a a )           Takes 1, produces 2 (duplicates)
 #   drop       ( a -- )               Takes 1, produces 0 (discards)
 #   swap       ( a b -- b a )         Takes 2, produces 2 (reorders)
@@ -99,14 +99,14 @@
 # Example - a word that squares a number:
 #
 #   : square ( n -- n*n )
-#     dup multiply
+#     dup i.multiply
 #   ;
 #
 # Trace of "5 square":
 #   5           ( 5 )
 #   square ->
-#     dup       ( 5 5 )
-#     multiply  ( 25 )
+#     dup        ( 5 5 )
+#     i.multiply ( 25 )
 #
 # ============================================================================
 #                    NOW LET'S BUILD AN HTTP SERVER!
@@ -472,7 +472,7 @@
 #                         EXERCISES FOR THE READER
 # ============================================================================
 #
-# 1. TRACE IT: Work through "3 4 add 2 multiply" by hand:
+# 1. TRACE IT: Work through "3 4 i.add 2 i.multiply" by hand:
 #      - Write the stack after each operation
 #      - What's the final result?
 #
@@ -480,7 +480,7 @@
 #      : double ( n -- n*2 )
 #        ???
 #      ;
-#    Hint: You can use "dup add" or "2 multiply"
+#    Hint: You can use "dup i.add" or "2 i.multiply"
 #
 # 3. ADD A ROUTE: Add a "/time" endpoint that returns a static message.
 #    Look at how /health works for the pattern.

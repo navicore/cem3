@@ -137,6 +137,56 @@ pub fn analyze(source: &str) -> AnalysisResult {
     analyze_with_config(source, &CompilerConfig::default())
 }
 
+/// Analyze a standalone expression for IR display
+/// Wraps the expression in a minimal function to generate clean IR
+pub fn analyze_expression(expr: &str) -> Option<Vec<String>> {
+    // Skip empty or whitespace-only expressions
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return None;
+    }
+
+    // Wrap expression in a standalone function with permissive stack effect
+    // ( ..a -- ..b ) allows any stack transformation
+    // Need a main word for codegen to work
+    let source = format!(
+        ": __expr__ ( ..a -- ..b )\n  {}\n;\n: main ( -- ) ;\n",
+        expr
+    );
+
+    let result = analyze(&source);
+
+    // Extract just the __expr__ function's IR (compiler adds seq_ prefix)
+    if let Some(ir) = result.llvm_ir {
+        let lines = extract_function_ir(&ir, "@seq___expr__");
+        if !lines.is_empty() {
+            return Some(lines);
+        }
+    }
+
+    None
+}
+
+/// Extract a specific function's IR from LLVM output
+fn extract_function_ir(ir: &str, func_name: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut in_function = false;
+
+    for line in ir.lines() {
+        if line.contains("define") && line.contains(func_name) {
+            in_function = true;
+        }
+        if in_function {
+            lines.push(line.to_string());
+            if line.trim() == "}" {
+                break;
+            }
+        }
+    }
+
+    lines
+}
+
 /// Analyze Seq source code with custom configuration
 pub fn analyze_with_config(source: &str, config: &CompilerConfig) -> AnalysisResult {
     let mut errors = Vec::new();
@@ -333,6 +383,19 @@ mod tests {
 
         assert_eq!(double.effect.name, "double");
         Ok(())
+    }
+
+    #[test]
+    fn test_analyze_expression_simple() {
+        // Test that analyze_expression works for simple literals
+        let result = analyze_expression("5");
+        assert!(result.is_some(), "Should produce IR for '5'");
+        let ir = result.unwrap();
+        assert!(ir.iter().any(|l| l.contains("seq___expr__")));
+
+        // Test arithmetic expression
+        let result = analyze_expression("5 10 add");
+        assert!(result.is_some(), "Should produce IR for '5 10 add'");
     }
 
     #[test]

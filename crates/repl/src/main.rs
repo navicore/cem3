@@ -13,16 +13,27 @@
 //!   :pop                    # Remove last expression (undo)
 //!   :clear                  # Clear the session (reset stack)
 //!   :show                   # Show current file contents
-//!   :edit                   # Open file in $EDITOR
+//!   :edit, :e               # Open file in $EDITOR
 //!   :run                    # Manually recompile and run
 //!   :repair                 # Validate/repair session file
 //!   :help                   # Show help
+//!
+//! Vi Mode:
+//!   Set SEQR_VI_MODE=1 or have $EDITOR contain vi/vim/nvim
+
+mod lsp_client;
 
 use clap::Parser as ClapParser;
+use lsp_client::LspClient;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use rustyline::completion::{Completer, Pair};
+use rustyline::config::Config;
 use rustyline::error::ReadlineError;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
 use rustyline::history::DefaultHistory;
-use rustyline::{DefaultEditor, Editor};
+use rustyline::validate::Validator;
+use rustyline::{Context, EditMode, Editor, Helper};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -37,8 +48,148 @@ use std::sync::{
 // - Use Ordering::Release on stores to ensure writes are visible to other threads
 // - Use Ordering::Acquire on loads to see writes from other threads
 // This is used for cross-thread communication between file watcher and main REPL loop
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
+
+/// Helper for rustyline that provides LSP-based completions
+struct SeqHelper {
+    /// LSP client for completions (optional - degrades gracefully if unavailable)
+    lsp: RefCell<Option<LspClient>>,
+    /// Path to the seq file being edited
+    seq_file: PathBuf,
+}
+
+impl SeqHelper {
+    fn new(seq_file: PathBuf) -> Self {
+        // Try to start LSP client, but don't fail if unavailable
+        let lsp = match LspClient::new(&seq_file) {
+            Ok(mut client) => {
+                // Open the document
+                let content = fs::read_to_string(&seq_file).unwrap_or_default();
+                if client.did_open(&content).is_ok() {
+                    Some(client)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        };
+
+        Self {
+            lsp: RefCell::new(lsp),
+            seq_file,
+        }
+    }
+
+    /// Sync the document content with the LSP after changes
+    fn sync_document(&self) {
+        if let Ok(content) = fs::read_to_string(&self.seq_file)
+            && let Some(ref mut lsp) = *self.lsp.borrow_mut()
+        {
+            let _ = lsp.did_change(&content);
+        }
+    }
+}
+
+impl Completer for SeqHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        // Find word start for replacement - we do this first to get the prefix
+        let word_start = line[..pos]
+            .rfind(|c: char| c.is_whitespace())
+            .map(|i| i + 1)
+            .unwrap_or(0);
+
+        // Get the prefix the user has typed (for filtering)
+        let prefix = &line[word_start..pos];
+
+        // Don't show completions for empty prefix - too noisy
+        if prefix.is_empty() {
+            return Ok((pos, vec![]));
+        }
+
+        // If no LSP client, return empty completions
+        let mut lsp_guard = self.lsp.borrow_mut();
+        let lsp = match lsp_guard.as_mut() {
+            Some(lsp) => lsp,
+            None => return Ok((pos, vec![])),
+        };
+
+        // Read current file content
+        let file_content = match fs::read_to_string(&self.seq_file) {
+            Ok(c) => c,
+            Err(_) => return Ok((pos, vec![])),
+        };
+
+        // Create virtual document: file content + current line at end of main
+        // Find where to insert (before stack.dump)
+        let insert_pos = match file_content.find("  stack.dump") {
+            Some(p) => p,
+            None => return Ok((pos, vec![])),
+        };
+
+        let virtual_content = format!(
+            "{}  {}\n{}",
+            &file_content[..insert_pos],
+            line,
+            &file_content[insert_pos..]
+        );
+
+        // Calculate line/column in virtual document
+        // Line count up to insert point + 1 for the user's line
+        let lines_before: u32 = file_content[..insert_pos].matches('\n').count() as u32;
+        let line_num = lines_before; // 0-indexed
+        let col_num = pos as u32 + 2; // +2 for the "  " indent
+
+        // Sync virtual document and get completions
+        if lsp.did_change(&virtual_content).is_err() {
+            return Ok((pos, vec![]));
+        }
+
+        let completions = match lsp.completions(line_num, col_num) {
+            Ok(items) => items,
+            Err(_) => return Ok((pos, vec![])),
+        };
+
+        // Filter and map completions - only show those matching the prefix
+        let prefix_lower = prefix.to_lowercase();
+        let pairs: Vec<Pair> = completions
+            .into_iter()
+            .filter(|item| {
+                // Match against label, case-insensitive prefix match
+                item.label.to_lowercase().starts_with(&prefix_lower)
+            })
+            .map(|item| {
+                let display = item.label.clone();
+                let replacement = item.insert_text.unwrap_or(item.label);
+                Pair {
+                    display,
+                    replacement,
+                }
+            })
+            .collect();
+
+        // Restore original document
+        let _ = lsp.did_change(&file_content);
+
+        Ok((word_start, pairs))
+    }
+}
+
+impl Hinter for SeqHelper {
+    type Hint = String;
+}
+
+impl Highlighter for SeqHelper {}
+impl Validator for SeqHelper {}
+impl Helper for SeqHelper {}
 
 #[derive(ClapParser)]
 #[command(name = "seqr")]
@@ -137,8 +288,37 @@ fn now_ms() -> u64 {
 }
 
 /// Main REPL loop
+/// Detect if vi mode should be enabled.
+/// Checks SEQR_VI_MODE=1 first, then falls back to checking if $EDITOR contains vi/vim/nvim.
+fn should_use_vi_mode() -> bool {
+    // Explicit override
+    if std::env::var("SEQR_VI_MODE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    // Check $EDITOR for vi/vim/nvim
+    if let Ok(editor) = std::env::var("EDITOR") {
+        let editor_lower = editor.to_lowercase();
+        return editor_lower.contains("vi") || editor_lower.contains("nvim");
+    }
+
+    false
+}
+
 fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>) {
-    let mut rl: Editor<(), DefaultHistory> = match DefaultEditor::new() {
+    let vi_mode = should_use_vi_mode();
+    let config = Config::builder()
+        .edit_mode(if vi_mode {
+            EditMode::Vi
+        } else {
+            EditMode::Emacs
+        })
+        .build();
+
+    let mut rl: Editor<SeqHelper, DefaultHistory> = match Editor::with_config(config) {
         Ok(editor) => editor,
         Err(e) => {
             eprintln!("Error initializing readline: {}", e);
@@ -146,13 +326,23 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
         }
     };
 
+    // Set up LSP-based completion helper
+    let helper = SeqHelper::new(seq_file.to_path_buf());
+    let has_lsp = helper.lsp.borrow().is_some();
+    rl.set_helper(Some(helper));
+
     // Load history if available
     let history_file = dirs_history_file();
     if let Some(ref path) = history_file {
         let _ = rl.load_history(path);
     }
 
-    println!("\nSeq REPL (seqr). Type :help for commands, :quit to exit.\n");
+    let mode_str = if vi_mode { "vi" } else { "emacs" };
+    let lsp_str = if has_lsp { ", Tab for completions" } else { "" };
+    println!(
+        "\nSeq REPL (seqr) [{} mode{}]. Type :help for commands, :quit to exit.\n",
+        mode_str, lsp_str
+    );
 
     loop {
         // Check for external file changes (debounce our own writes)
@@ -185,8 +375,16 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                         println!("Goodbye!");
                         break;
                     }
-                    ":edit" => {
+                    ":edit" | ":e" => {
                         open_in_editor(seq_file);
+                        // Drain any file watcher events from during the edit session
+                        while watch_rx.try_recv().is_ok() {}
+                        // Update last_write to prevent "external change" message
+                        last_write.store(now_ms(), Ordering::Release);
+                        // Sync LSP with new file contents
+                        if let Some(helper) = rl.helper() {
+                            helper.sync_document();
+                        }
                         // After editor closes, recompile
                         compile_and_run(seq_file);
                     }
@@ -195,10 +393,16 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                     }
                     ":clear" => {
                         clear_session(seq_file, &last_write);
+                        if let Some(helper) = rl.helper() {
+                            helper.sync_document();
+                        }
                         println!("Session cleared.");
                     }
                     ":pop" => {
                         if pop_last_expression(seq_file, &last_write) {
+                            if let Some(helper) = rl.helper() {
+                                helper.sync_document();
+                            }
                             // Show the new stack state
                             compile_and_run(seq_file);
                         }
@@ -221,6 +425,9 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                         if trimmed.starts_with(": ") || trimmed.starts_with(":\t") {
                             // Seq word definition - add to definitions section
                             try_definition(seq_file, line, &last_write);
+                            if let Some(helper) = rl.helper() {
+                                helper.sync_document();
+                            }
                         } else if trimmed.starts_with(':') && !trimmed.starts_with("::") {
                             // REPL command (no space after :)
                             println!(
@@ -230,6 +437,9 @@ fn repl_loop(seq_file: &Path, watch_rx: Receiver<()>, last_write: Arc<AtomicU64>
                         } else {
                             // Expression - replace current in main
                             try_expression(seq_file, line, &last_write);
+                            if let Some(helper) = rl.helper() {
+                                helper.sync_document();
+                            }
                         }
                     }
                 }
@@ -657,7 +867,7 @@ Seq REPL Commands:
   :pop          Remove last expression (undo)
   :clear        Clear the session (reset stack and expressions)
   :show         Show current file contents
-  :edit         Open file in $EDITOR
+  :edit, :e     Open file in $EDITOR (yank code from here)
   :run          Manually recompile and run
   :repair       Validate and repair malformed session file
   :help         Show this help
@@ -668,6 +878,10 @@ Usage:
   - Define words with ": name ( sig ) ... ;" - these persist in the session
   - Use :pop to undo the last expression
   - Use :clear to start fresh
+
+Vi Mode:
+  - Auto-enabled when $EDITOR contains vi/vim/nvim
+  - Or set SEQR_VI_MODE=1 to force vi mode
 
 Examples:
   seqr> 1 2

@@ -27,12 +27,7 @@
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-// Thread-local monotonic clock base for consistent nanosecond timing
-thread_local! {
-    static CLOCK_BASE: Instant = Instant::now();
-}
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Get current time in microseconds since Unix epoch
 ///
@@ -57,9 +52,9 @@ pub unsafe extern "C" fn patch_seq_time_now(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( -- Int )
 ///
-/// Returns nanoseconds from an arbitrary starting point (process start).
-/// Uses a monotonic clock - values always increase, unaffected by system
-/// clock changes. Perfect for measuring elapsed time.
+/// Returns nanoseconds from system boot (CLOCK_MONOTONIC).
+/// Uses raw clock_gettime for consistent values across all threads -
+/// critical for timing when coroutines migrate between OS threads.
 ///
 /// Note: Saturates at i64::MAX (~292 years of uptime) to prevent overflow.
 ///
@@ -67,8 +62,29 @@ pub unsafe extern "C" fn patch_seq_time_now(stack: Stack) -> Stack {
 /// - `stack` must be a valid stack pointer (may be null for empty stack)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_time_nanos(stack: Stack) -> Stack {
-    let nanos = CLOCK_BASE.with(|base| base.elapsed().as_nanos().try_into().unwrap_or(i64::MAX));
+    let nanos = monotonic_nanos();
     unsafe { push(stack, Value::Int(nanos)) }
+}
+
+/// Get raw monotonic nanoseconds from the system clock.
+///
+/// Uses `clock_gettime(CLOCK_MONOTONIC)` directly to get absolute
+/// nanoseconds since boot. This is thread-independent - the same
+/// value is returned regardless of which OS thread calls it.
+#[inline]
+fn monotonic_nanos() -> i64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: ts is a valid pointer to a timespec struct
+    unsafe {
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
+    }
+    // Convert to nanoseconds, saturating at i64::MAX
+    ts.tv_sec
+        .saturating_mul(1_000_000_000)
+        .saturating_add(ts.tv_nsec)
 }
 
 /// Sleep for a specified number of milliseconds
@@ -113,6 +129,7 @@ pub use patch_seq_time_sleep_ms as time_sleep_ms;
 mod tests {
     use super::*;
     use crate::stack::pop;
+    use std::time::Instant;
 
     #[test]
     fn test_time_now_returns_positive() {
@@ -152,6 +169,37 @@ mod tests {
                 _ => panic!("Expected Int values"),
             }
         }
+    }
+
+    #[test]
+    fn test_time_nanos_cross_thread() {
+        // Verify monotonic_nanos is consistent across threads
+        use std::sync::mpsc;
+        use std::thread;
+
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
+
+        // Get time on main thread
+        let t1 = monotonic_nanos();
+
+        // Spawn thread, get time there
+        let handle = thread::spawn(move || {
+            let t2 = monotonic_nanos();
+            tx1.send(t2).unwrap();
+            rx2.recv().unwrap() // wait for main to continue
+        });
+
+        let t2 = rx1.recv().unwrap();
+
+        // Get time on main thread again
+        let t3 = monotonic_nanos();
+        tx2.send(()).unwrap();
+        handle.join().unwrap();
+
+        // All times should be monotonically increasing
+        assert!(t2 > t1, "t2 ({}) should be > t1 ({})", t2, t1);
+        assert!(t3 > t2, "t3 ({}) should be > t2 ({})", t3, t2);
     }
 
     #[test]

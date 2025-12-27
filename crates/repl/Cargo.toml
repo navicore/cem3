@@ -21,3 +21,8 @@ rustyline.workspace = true
 tempfile.workspace = true
 notify.workspace = true
 dirs.workspace = true
+
+# LSP client
+lsp-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true

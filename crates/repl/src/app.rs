@@ -10,7 +10,7 @@ use crate::engine::{AnalysisResult, analyze};
 use crate::ir::stack_art::{Stack, StackEffect, StackValue, render_transition};
 use crate::lsp_client::LspClient;
 use crate::ui::ir_pane::{IrContent, IrPane, IrViewMode};
-use crate::ui::layout::{ComputedLayout, FocusedPane, LayoutConfig, StatusContent};
+use crate::ui::layout::{ComputedLayout, LayoutConfig, StatusContent};
 use crate::ui::repl_pane::{HistoryEntry, ReplPane, ReplState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use lsp_types::CompletionItem;
@@ -79,8 +79,6 @@ pub struct App {
     pub ir_mode: IrViewMode,
     /// Current Vi mode
     pub vi_mode: ViMode,
-    /// Which pane is focused
-    pub focused: FocusedPane,
     /// Layout configuration
     pub layout_config: LayoutConfig,
     /// Current filename (display name)
@@ -136,7 +134,6 @@ impl App {
             ir_content: IrContent::new(),
             ir_mode: IrViewMode::default(),
             vi_mode: ViMode::default(),
-            focused: FocusedPane::default(),
             layout_config: LayoutConfig::default(),
             filename: "(scratch)".to_string(),
             ir_scroll: 0,
@@ -176,7 +173,6 @@ impl App {
             ir_content: IrContent::new(),
             ir_mode: IrViewMode::default(),
             vi_mode: ViMode::default(),
-            focused: FocusedPane::default(),
             layout_config: LayoutConfig::default(),
             filename,
             ir_scroll: 0,
@@ -193,12 +189,6 @@ impl App {
         };
         app.load_history();
         Ok(app)
-    }
-
-    /// Set the display filename (legacy method for compatibility)
-    pub fn with_filename(mut self, name: impl Into<String>) -> Self {
-        self.filename = name.into();
-        self
     }
 
     /// Try to start the LSP client (like old REPL's SeqHelper::new)
@@ -1574,7 +1564,6 @@ mod tests {
     fn test_app_creation() -> Result<(), String> {
         let app = App::new()?;
         assert_eq!(app.vi_mode, ViMode::Normal);
-        assert_eq!(app.focused, FocusedPane::Repl);
         assert!(!app.should_quit);
         Ok(())
     }

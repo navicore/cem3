@@ -228,7 +228,6 @@ impl<'a> ReplPane<'a> {
                     TokenKind::DefMarker | TokenKind::DefEnd => Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
-                    TokenKind::WordName => Style::default().fg(Color::White),
                     TokenKind::Integer | TokenKind::Float => Style::default().fg(Color::Blue),
                     TokenKind::Boolean => Style::default().fg(Color::Magenta),
                     TokenKind::String => Style::default().fg(Color::Green),

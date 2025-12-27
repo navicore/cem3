@@ -9,7 +9,8 @@ use seqc::{CodeGen, CompilerConfig, Effect, Parser, StackType, Type, TypeChecker
 /// Result of analyzing Seq source code
 #[derive(Debug, Clone)]
 pub struct AnalysisResult {
-    /// Stack effects for all word definitions
+    /// Stack effects for all word definitions (for future IR display)
+    #[allow(dead_code)]
     pub word_effects: Vec<WordEffect>,
     /// Any errors encountered during analysis
     pub errors: Vec<String>,
@@ -17,7 +18,8 @@ pub struct AnalysisResult {
     pub llvm_ir: Option<String>,
 }
 
-/// A word and its stack effect
+/// A word and its stack effect (for future IR display)
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct WordEffect {
     /// Name of the word
@@ -207,7 +209,8 @@ pub fn analyze_with_config(source: &str, config: &CompilerConfig) -> AnalysisRes
     }
 }
 
-/// Get the builtin word effects for display
+/// Get the builtin word effects for display (for future IR display)
+#[allow(dead_code)]
 pub fn builtin_effects() -> Vec<WordEffect> {
     // Common stack manipulation words
     vec![

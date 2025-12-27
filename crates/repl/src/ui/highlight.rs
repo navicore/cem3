@@ -16,8 +16,6 @@ pub enum TokenKind {
     DefMarker,
     /// Definition end marker (;)
     DefEnd,
-    /// Word names in definitions
-    WordName,
     /// Integer literals: 42, -17
     Integer,
     /// Float literals: 3.14, -2.5
@@ -309,6 +307,7 @@ fn classify_identifier(text: &str) -> TokenKind {
 }
 
 /// Get tokens excluding whitespace (useful for rendering)
+#[allow(dead_code)]
 pub fn tokenize_visible(source: &str) -> Vec<Token> {
     tokenize(source)
         .into_iter()

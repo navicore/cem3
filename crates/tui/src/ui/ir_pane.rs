@@ -1,0 +1,378 @@
+//! IR Pane Widget
+//!
+//! Displays IR information in different views:
+//! - Stack Art: ASCII art stack effect diagrams
+//! - Typed AST: Full AST with type annotations
+//! - LLVM IR: Generated LLVM IR snippets
+
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph, Widget, Wrap},
+};
+
+/// The different IR view modes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IrViewMode {
+    /// ASCII art stack effect diagrams
+    #[default]
+    StackArt,
+    /// Full typed AST
+    TypedAst,
+    /// LLVM IR snippets
+    LlvmIr,
+}
+
+impl IrViewMode {
+    /// Get the next view mode (for cycling with arrow keys)
+    pub fn next(self) -> Self {
+        match self {
+            Self::StackArt => Self::TypedAst,
+            Self::TypedAst => Self::LlvmIr,
+            Self::LlvmIr => Self::StackArt,
+        }
+    }
+
+    /// Get the previous view mode
+    pub fn prev(self) -> Self {
+        match self {
+            Self::StackArt => Self::LlvmIr,
+            Self::TypedAst => Self::StackArt,
+            Self::LlvmIr => Self::TypedAst,
+        }
+    }
+
+    /// Get the display name for this mode
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::StackArt => "Stack Effects",
+            Self::TypedAst => "Typed AST",
+            Self::LlvmIr => "LLVM IR",
+        }
+    }
+}
+
+/// Content to display in the IR pane
+#[derive(Debug, Clone, Default)]
+pub struct IrContent {
+    /// Stack art lines (rendered ASCII art)
+    pub stack_art: Vec<String>,
+    /// Typed AST representation
+    pub typed_ast: Vec<String>,
+    /// LLVM IR snippet
+    pub llvm_ir: Vec<String>,
+    /// Any error messages
+    pub errors: Vec<String>,
+}
+
+impl IrContent {
+    /// Create empty IR content
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create content with an error message
+    pub fn with_error(error: impl Into<String>) -> Self {
+        Self {
+            errors: vec![error.into()],
+            ..Default::default()
+        }
+    }
+
+    /// Get the content for the given view mode
+    pub fn content_for(&self, mode: IrViewMode) -> &[String] {
+        match mode {
+            IrViewMode::StackArt => &self.stack_art,
+            IrViewMode::TypedAst => &self.typed_ast,
+            IrViewMode::LlvmIr => &self.llvm_ir,
+        }
+    }
+
+    /// Check if there are errors
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+}
+
+/// The IR pane widget
+pub struct IrPane<'a> {
+    /// Current view mode
+    mode: IrViewMode,
+    /// Content to display
+    content: &'a IrContent,
+    /// Whether this pane is focused
+    focused: bool,
+    /// Scroll offset
+    scroll: u16,
+}
+
+impl<'a> IrPane<'a> {
+    /// Create a new IR pane
+    pub fn new(content: &'a IrContent) -> Self {
+        Self {
+            mode: IrViewMode::default(),
+            content,
+            focused: false,
+            scroll: 0,
+        }
+    }
+
+    /// Set the view mode
+    pub fn mode(mut self, mode: IrViewMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Set whether the pane is focused
+    pub fn focused(mut self, focused: bool) -> Self {
+        self.focused = focused;
+        self
+    }
+
+    /// Set the scroll offset
+    pub fn scroll(mut self, scroll: u16) -> Self {
+        self.scroll = scroll;
+        self
+    }
+
+    /// Get styled lines for the current content
+    fn styled_lines(&self) -> Vec<Line<'a>> {
+        if self.content.has_errors() {
+            // Show errors in red
+            self.content
+                .errors
+                .iter()
+                .map(|e| Line::from(Span::styled(e.clone(), Style::default().fg(Color::Red))))
+                .collect()
+        } else {
+            let lines = self.content.content_for(self.mode);
+            if lines.is_empty() {
+                vec![Line::from(Span::styled(
+                    format!("No {} available", self.mode.name().to_lowercase()),
+                    Style::default().fg(Color::DarkGray),
+                ))]
+            } else {
+                self.style_content(lines)
+            }
+        }
+    }
+
+    /// Apply syntax highlighting to content based on view mode
+    fn style_content(&self, lines: &[String]) -> Vec<Line<'a>> {
+        match self.mode {
+            IrViewMode::StackArt => self.style_stack_art(lines),
+            IrViewMode::TypedAst => self.style_ast(lines),
+            IrViewMode::LlvmIr => self.style_llvm(lines),
+        }
+    }
+
+    /// Style stack art content
+    fn style_stack_art(&self, lines: &[String]) -> Vec<Line<'a>> {
+        lines
+            .iter()
+            .map(|line| {
+                let mut spans = Vec::new();
+                let chars: Vec<char> = line.chars().collect();
+                let mut i = 0;
+
+                while i < chars.len() {
+                    let ch = chars[i];
+                    // Box drawing characters in cyan
+                    if "┌┐└┘├┤─│".contains(ch) {
+                        spans.push(Span::styled(
+                            ch.to_string(),
+                            Style::default().fg(Color::Cyan),
+                        ));
+                        i += 1;
+                    }
+                    // Arrow in yellow
+                    else if ch == '→' {
+                        spans.push(Span::styled(
+                            "→",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                        i += 1;
+                    }
+                    // Type names (capitalized words) in green
+                    else if ch.is_uppercase() {
+                        let start = i;
+                        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                            i += 1;
+                        }
+                        let word: String = chars[start..i].iter().collect();
+                        spans.push(Span::styled(word, Style::default().fg(Color::Green)));
+                    }
+                    // Rest variables (..a) in magenta
+                    else if ch == '.' && i + 1 < chars.len() && chars[i + 1] == '.' {
+                        let start = i;
+                        i += 2; // Skip ..
+                        while i < chars.len() && chars[i].is_alphanumeric() {
+                            i += 1;
+                        }
+                        let word: String = chars[start..i].iter().collect();
+                        spans.push(Span::styled(word, Style::default().fg(Color::Magenta)));
+                    }
+                    // Default
+                    else {
+                        spans.push(Span::raw(ch.to_string()));
+                        i += 1;
+                    }
+                }
+
+                Line::from(spans)
+            })
+            .collect()
+    }
+
+    /// Style AST content
+    fn style_ast(&self, lines: &[String]) -> Vec<Line<'a>> {
+        lines
+            .iter()
+            .map(|line| {
+                // Simple styling: keywords in blue, types in green
+                Line::from(Span::styled(
+                    line.clone(),
+                    Style::default().fg(Color::White),
+                ))
+            })
+            .collect()
+    }
+
+    /// Style LLVM IR content
+    fn style_llvm(&self, lines: &[String]) -> Vec<Line<'a>> {
+        lines
+            .iter()
+            .map(|line| {
+                let mut spans = Vec::new();
+                let trimmed = line.trim_start();
+
+                // Comments in dark gray
+                if trimmed.starts_with(';') {
+                    spans.push(Span::styled(
+                        line.clone(),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+                // Definitions in yellow
+                else if trimmed.starts_with("define ") {
+                    spans.push(Span::styled(
+                        line.clone(),
+                        Style::default().fg(Color::Yellow),
+                    ));
+                }
+                // Labels in cyan
+                else if trimmed.ends_with(':') && !trimmed.contains(' ') {
+                    spans.push(Span::styled(line.clone(), Style::default().fg(Color::Cyan)));
+                }
+                // Default
+                else {
+                    spans.push(Span::styled(
+                        line.clone(),
+                        Style::default().fg(Color::White),
+                    ));
+                }
+
+                Line::from(spans)
+            })
+            .collect()
+    }
+}
+
+impl Widget for &IrPane<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // Create the border with title showing current mode
+        let title = format!(" {} ", self.mode.name());
+        let border_style = if self.focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(border_style);
+
+        let inner = block.inner(area);
+        block.render(area, buf);
+
+        // Render content
+        let lines = self.styled_lines();
+        let paragraph = Paragraph::new(lines)
+            .scroll((self.scroll, 0))
+            .wrap(Wrap { trim: false });
+
+        paragraph.render(inner, buf);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_view_mode_cycling() {
+        let mode = IrViewMode::StackArt;
+        assert_eq!(mode.next(), IrViewMode::TypedAst);
+        assert_eq!(mode.next().next(), IrViewMode::LlvmIr);
+        assert_eq!(mode.next().next().next(), IrViewMode::StackArt);
+
+        assert_eq!(mode.prev(), IrViewMode::LlvmIr);
+    }
+
+    #[test]
+    fn test_view_mode_names() {
+        assert_eq!(IrViewMode::StackArt.name(), "Stack Effects");
+        assert_eq!(IrViewMode::TypedAst.name(), "Typed AST");
+        assert_eq!(IrViewMode::LlvmIr.name(), "LLVM IR");
+    }
+
+    #[test]
+    fn test_ir_content_empty() {
+        let content = IrContent::new();
+        assert!(!content.has_errors());
+        assert!(content.content_for(IrViewMode::StackArt).is_empty());
+    }
+
+    #[test]
+    fn test_ir_content_with_error() {
+        let content = IrContent::with_error("test error");
+        assert!(content.has_errors());
+        assert_eq!(content.errors[0], "test error");
+    }
+
+    #[test]
+    fn test_ir_pane_creation() {
+        let content = IrContent::new();
+        let pane = IrPane::new(&content).mode(IrViewMode::LlvmIr).focused(true);
+        assert_eq!(pane.mode, IrViewMode::LlvmIr);
+        assert!(pane.focused);
+    }
+
+    #[test]
+    fn test_ir_pane_render() {
+        let content = IrContent {
+            stack_art: vec![
+                "┌───┐".to_string(),
+                "│ 5 │".to_string(),
+                "└───┘".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let pane = IrPane::new(&content);
+
+        // Create a buffer and render
+        let area = Rect::new(0, 0, 20, 10);
+        let mut buf = Buffer::empty(area);
+        (&pane).render(area, &mut buf);
+
+        // Verify the title is rendered
+        let title_cell = buf.cell((1, 0)).expect("cell should exist");
+        assert!(title_cell.symbol().chars().next().is_some());
+    }
+}

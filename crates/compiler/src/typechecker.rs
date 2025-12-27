@@ -309,7 +309,7 @@ impl TypeChecker {
             // Verify result matches declared output
             unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
                 format!(
-                    "Word '{}': declared output stack ({:?}) doesn't match inferred ({:?}): {}",
+                    "Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
                     word.name, declared_effect.outputs, result_stack, e
                 )
             })?;
@@ -843,7 +843,7 @@ impl TypeChecker {
         // Unify current stack with effect's input
         let subst = unify_stacks(&effect.inputs, &current_stack).map_err(|e| {
             format!(
-                "{}: stack type mismatch. Expected {:?}, got {:?}: {}",
+                "{}: stack type mismatch. Expected {}, got {}: {}",
                 operation, effect.inputs, current_stack, e
             )
         })?;

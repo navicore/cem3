@@ -20,3 +20,6 @@ seq-compiler = { path = "../compiler", version = "=0.13.0" }
 # TUI framework - using latest v0.30 (consult https://ratatui.rs/)
 ratatui.workspace = true
 crossterm.workspace = true
+
+# Session file management
+tempfile.workspace = true

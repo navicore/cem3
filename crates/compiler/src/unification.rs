@@ -227,10 +227,7 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
         }
 
         // Different concrete types don't unify
-        _ => Err(format!(
-            "Type mismatch: cannot unify {:?} with {:?}",
-            t1, t2
-        )),
+        _ => Err(format!("Type mismatch: cannot unify {} with {}", t1, t2)),
     }
 }
 
@@ -250,7 +247,7 @@ pub fn unify_stacks(s1: &StackType, s2: &StackType) -> Result<Subst, String> {
             // Occurs check: prevent infinite stack types
             if occurs_in_stack(name, stack) {
                 return Err(format!(
-                    "Occurs check failed: cannot unify {:?} with {:?} (would create infinite stack type)",
+                    "Occurs check failed: cannot unify {} with {} (would create infinite stack type)",
                     StackType::RowVar(name.clone()),
                     stack
                 ));
@@ -286,7 +283,7 @@ pub fn unify_stacks(s1: &StackType, s2: &StackType) -> Result<Subst, String> {
 
         // Empty doesn't unify with Cons
         _ => Err(format!(
-            "Stack shape mismatch: cannot unify {:?} with {:?}",
+            "Stack shape mismatch: cannot unify {} with {}",
             s1, s2
         )),
     }

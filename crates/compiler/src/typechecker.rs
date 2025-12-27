@@ -309,7 +309,7 @@ impl TypeChecker {
             // Verify result matches declared output
             unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
                 format!(
-                    "Word '{}': declared output stack ({:?}) doesn't match inferred ({:?}): {}",
+                    "Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
                     word.name, declared_effect.outputs, result_stack, e
                 )
             })?;

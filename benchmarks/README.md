@@ -2,6 +2,21 @@
 
 Benchmark suite comparing Seq strand performance against Go goroutines.
 
+## CI Integration
+
+**Benchmarks must be run within 24 hours of any commit.** The `just ci` command
+will fail if `LATEST_RUN.txt` is stale or missing. This ensures performance
+regressions are caught early.
+
+```bash
+# If CI fails with "Benchmarks are stale", run:
+just bench
+
+# Then commit the updated LATEST_RUN.txt
+git add benchmarks/LATEST_RUN.txt
+git commit -m "Update benchmark run timestamp"
+```
+
 ## Prerequisites
 
 - **Rust/Cargo**: For building seqc

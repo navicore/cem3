@@ -86,9 +86,11 @@ fn monotonic_nanos() -> i64 {
         libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
     }
     // Convert to nanoseconds, saturating at i64::MAX
-    ts.tv_sec
-        .saturating_mul(1_000_000_000)
-        .saturating_add(ts.tv_nsec)
+    // Explicit i64 casts for portability (tv_sec/tv_nsec types vary by platform)
+    #[allow(clippy::unnecessary_cast)] // Required for 32-bit platforms
+    let secs = (ts.tv_sec as i64).saturating_mul(1_000_000_000);
+    #[allow(clippy::unnecessary_cast)]
+    secs.saturating_add(ts.tv_nsec as i64)
 }
 
 /// Windows fallback using Instant with a process-wide base time.

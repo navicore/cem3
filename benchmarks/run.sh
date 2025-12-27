@@ -31,6 +31,10 @@ fi
 USE_HYPERFINE=false
 command -v hyperfine &> /dev/null && USE_HYPERFINE=true
 
+# Check for jq (optional, for robust JSON parsing)
+USE_JQ=false
+command -v jq &> /dev/null && USE_JQ=true
+
 # Build seqc in release mode
 echo -e "${GREEN}Building seqc (release mode)...${NC}"
 (cd .. && cargo build --release -p seq-compiler 2>/dev/null)
@@ -66,8 +70,16 @@ run_benchmark() {
             --export-json "$json_file"
 
         # Parse JSON to extract mean times (in seconds)
-        local seq_time=$(cat "$json_file" | grep -A20 '"command": "Seq"' | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
-        local go_time=$(cat "$json_file" | grep -A20 '"command": "Go"' | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
+        local seq_time go_time
+        if [ "$USE_JQ" = true ]; then
+            # Robust JSON parsing with jq
+            seq_time=$(jq -r '.results[] | select(.command == "Seq") | .mean' "$json_file")
+            go_time=$(jq -r '.results[] | select(.command == "Go") | .mean' "$json_file")
+        else
+            # Fallback to grep/sed (less robust but works without jq)
+            seq_time=$(grep -A20 '"command": "Seq"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
+            go_time=$(grep -A20 '"command": "Go"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
+        fi
         rm -f "$json_file"
 
         # Store results

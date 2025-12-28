@@ -305,12 +305,13 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtins_int_int_to_int!(sigs, "i.add", "i.subtract", "i.multiply", "i.divide");
+    builtins_int_int_to_int!(sigs, "i.+", "i.-", "i.*", "i./", "i.%");
 
     // =========================================================================
     // Integer Comparison ( a Int Int -- a Int )
     // =========================================================================
 
-    builtins_int_int_to_int!(sigs, "=", "<", ">", "<=", ">=", "<>");
+    builtins_int_int_to_int!(sigs, "i.=", "i.<", "i.>", "i.<=", "i.>=", "i.<>");
 
     // =========================================================================
     // Boolean Operations
@@ -605,6 +606,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtins_float_float_to_float!(sigs, "f.add", "f.subtract", "f.multiply", "f.divide");
+    builtins_float_float_to_float!(sigs, "f.+", "f.-", "f.*", "f./");
 
     // =========================================================================
     // Float Comparison ( a Float Float -- a Int )

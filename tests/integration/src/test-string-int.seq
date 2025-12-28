@@ -8,16 +8,16 @@
 
 : test-string-to-int-success ( -- )
   "42" string->int
-  swap 42 = and test.assert
+  swap 42 i.= and test.assert
 
   "-7" string->int
-  swap 0 7 i.subtract = and test.assert
+  swap 0 7 i.subtract i.= and test.assert
 
   "  123  " string->int
-  swap 123 = and test.assert
+  swap 123 i.= and test.assert
 
   "007" string->int
-  swap 7 = and test.assert
+  swap 7 i.= and test.assert
 ;
 
 : test-string-to-int-failure ( -- )
@@ -33,5 +33,5 @@
 : test-roundtrip ( -- )
   # int -> string -> int should round-trip
   12345 int->string string->int
-  swap 12345 = and test.assert
+  swap 12345 i.= and test.assert
 ;

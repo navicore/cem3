@@ -331,13 +331,19 @@ impl Program {
             "i.subtract",
             "i.multiply",
             "i.divide",
-            // Comparison operations (return 0 or 1)
-            "=",
-            "<",
-            ">",
-            "<=",
-            ">=",
-            "<>",
+            // Terse integer arithmetic
+            "i.+",
+            "i.-",
+            "i.*",
+            "i./",
+            "i.%",
+            // Integer comparison operations (return 0 or 1)
+            "i.=",
+            "i.<",
+            "i.>",
+            "i.<=",
+            "i.>=",
+            "i.<>",
             // Stack operations (simple - no parameters)
             "dup",
             "drop",

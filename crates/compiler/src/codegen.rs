@@ -86,13 +86,26 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("i.subtract", "patch_seq_subtract"),
         ("i.multiply", "patch_seq_multiply"),
         ("i.divide", "patch_seq_divide"),
-        // Comparison (symbolic -> named)
-        ("=", "patch_seq_eq"),
-        ("<", "patch_seq_lt"),
-        (">", "patch_seq_gt"),
-        ("<=", "patch_seq_lte"),
-        (">=", "patch_seq_gte"),
-        ("<>", "patch_seq_neq"),
+        // Terse integer arithmetic aliases
+        ("i.+", "patch_seq_add"),
+        ("i.-", "patch_seq_subtract"),
+        ("i.*", "patch_seq_multiply"),
+        ("i./", "patch_seq_divide"),
+        // Note: i.% (modulo) is fully inlined, no runtime function needed
+        // Integer comparison (symbol form)
+        ("i.=", "patch_seq_eq"),
+        ("i.<", "patch_seq_lt"),
+        ("i.>", "patch_seq_gt"),
+        ("i.<=", "patch_seq_lte"),
+        ("i.>=", "patch_seq_gte"),
+        ("i.<>", "patch_seq_neq"),
+        // Integer comparison (verbose form)
+        ("i.eq", "patch_seq_eq"),
+        ("i.lt", "patch_seq_lt"),
+        ("i.gt", "patch_seq_gt"),
+        ("i.lte", "patch_seq_lte"),
+        ("i.gte", "patch_seq_gte"),
+        ("i.neq", "patch_seq_neq"),
         // Boolean
         ("and", "patch_seq_and"),
         ("or", "patch_seq_or"),
@@ -213,7 +226,12 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("f.subtract", "patch_seq_f_subtract"),
         ("f.multiply", "patch_seq_f_multiply"),
         ("f.divide", "patch_seq_f_divide"),
-        // Float comparison (symbolic -> named)
+        // Terse float arithmetic aliases
+        ("f.+", "patch_seq_f_add"),
+        ("f.-", "patch_seq_f_subtract"),
+        ("f.*", "patch_seq_f_multiply"),
+        ("f./", "patch_seq_f_divide"),
+        // Float comparison
         ("f.=", "patch_seq_f_eq"),
         ("f.<", "patch_seq_f_lt"),
         ("f.>", "patch_seq_f_gt"),
@@ -2353,14 +2371,14 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
-            // i.add: ( a b -- a+b )
-            "i.add" => self.codegen_inline_binary_op(stack_var, "add", "sub"),
+            // i.add / i.+: ( a b -- a+b )
+            "i.add" | "i.+" => self.codegen_inline_binary_op(stack_var, "add", "sub"),
 
-            // i.subtract: ( a b -- a-b )
-            "i.subtract" => self.codegen_inline_binary_op(stack_var, "sub", "add"),
+            // i.subtract / i.-: ( a b -- a-b )
+            "i.subtract" | "i.-" => self.codegen_inline_binary_op(stack_var, "sub", "add"),
 
-            // i.multiply: ( a b -- a*b )
-            "i.multiply" => {
+            // i.multiply / i.*: ( a b -- a*b )
+            "i.multiply" | "i.*" => {
                 // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -2426,9 +2444,9 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
-            // i.divide: ( a b -- a/b )
+            // i.divide / i./: ( a b -- a/b )
             // Matches runtime behavior: panic on zero, wrapping for i64::MIN/-1
-            "i.divide" => {
+            "i.divide" | "i./" => {
                 // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -2558,31 +2576,103 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
-            // Comparison operations - result is tagged bool (0=false, 1=true)
-            // =  (equal)
-            "=" => self.codegen_inline_comparison(stack_var, "eq"),
+            // i.%: ( a b -- a%b ) - integer modulo/remainder
+            "i.%" => {
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, stack_var
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, stack_var
+                )?;
 
-            // <> (not equal)
-            "<>" => self.codegen_inline_comparison(stack_var, "ne"),
+                let slot1_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_a, ptr_a
+                )?;
+                let slot1_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr i64, ptr %{}, i64 1",
+                    slot1_b, ptr_b
+                )?;
 
-            // < (less than)
-            "<" => self.codegen_inline_comparison(stack_var, "slt"),
+                let val_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_a, slot1_a
+                )?;
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load i64, ptr %{}",
+                    val_b, slot1_b
+                )?;
 
-            // > (greater than)
-            ">" => self.codegen_inline_comparison(stack_var, "sgt"),
+                // Check for division by zero
+                let is_zero = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = icmp eq i64 %{}, 0",
+                    is_zero, val_b
+                )?;
 
-            // <= (less than or equal)
-            "<=" => self.codegen_inline_comparison(stack_var, "sle"),
+                let ok_label = self.fresh_block("mod_ok");
+                let trap_label = self.fresh_block("mod_trap");
+                writeln!(
+                    &mut self.output,
+                    "  br i1 %{}, label %{}, label %{}",
+                    is_zero, trap_label, ok_label
+                )?;
+                writeln!(&mut self.output, "{}:", trap_label)?;
+                writeln!(&mut self.output, "  call void @llvm.trap()")?;
+                writeln!(&mut self.output, "  unreachable")?;
+                writeln!(&mut self.output, "{}:", ok_label)?;
 
-            // >= (greater than or equal)
-            ">=" => self.codegen_inline_comparison(stack_var, "sge"),
+                // Signed remainder
+                let remainder = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = srem i64 %{}, %{}",
+                    remainder, val_a, val_b
+                )?;
+
+                writeln!(
+                    &mut self.output,
+                    "  store i64 %{}, ptr %{}",
+                    remainder, slot1_a
+                )?;
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // Integer comparison operations - result is tagged bool (0=false, 1=true)
+            "i.=" | "i.eq" => self.codegen_inline_comparison(stack_var, "eq"),
+            "i.<>" | "i.neq" => self.codegen_inline_comparison(stack_var, "ne"),
+            "i.<" | "i.lt" => self.codegen_inline_comparison(stack_var, "slt"),
+            "i.>" | "i.gt" => self.codegen_inline_comparison(stack_var, "sgt"),
+            "i.<=" | "i.lte" => self.codegen_inline_comparison(stack_var, "sle"),
+            "i.>=" | "i.gte" => self.codegen_inline_comparison(stack_var, "sge"),
 
             // Float arithmetic operations
             // Values are stored as f64 bits in slot1, discriminant 1 (Float)
-            "f.add" => self.codegen_inline_float_binary_op(stack_var, "fadd"),
-            "f.subtract" => self.codegen_inline_float_binary_op(stack_var, "fsub"),
-            "f.multiply" => self.codegen_inline_float_binary_op(stack_var, "fmul"),
-            "f.divide" => self.codegen_inline_float_binary_op(stack_var, "fdiv"),
+            "f.add" | "f.+" => self.codegen_inline_float_binary_op(stack_var, "fadd"),
+            "f.subtract" | "f.-" => self.codegen_inline_float_binary_op(stack_var, "fsub"),
+            "f.multiply" | "f.*" => self.codegen_inline_float_binary_op(stack_var, "fmul"),
+            "f.divide" | "f./" => self.codegen_inline_float_binary_op(stack_var, "fdiv"),
 
             // Float comparison operations - result is tagged bool
             "f.=" => self.codegen_inline_float_comparison(stack_var, "oeq"),

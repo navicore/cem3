@@ -15,7 +15,7 @@
 
 # Test list.filter: keep strings longer than 5 chars
 : test-list.filter ( -- )
-  make-string-list [ string.length 5 > ] list.filter
+  make-string-list [ string.length 5 i.> ] list.filter
   # Result should be ["banana", "cherry"] (both > 5 chars)
   dup list.length 2 test.assert-eq
   0 variant.field-at "banana" string.equal? test.assert

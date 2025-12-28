@@ -37,17 +37,17 @@ union ParseResult {
   ")" string.equal? ;
 
 : is-digit ( Int -- Int )
-  dup 48 >= swap 57 <= and ;
+  dup 48 i.>= swap 57 i.<= and ;
 
 : is-number-token ( String -- Int )
   # Check if first char is a digit or minus followed by digit
-  dup string.length 0 = if
+  dup string.length 0 i.= if
     drop 0
   else
     dup 0 string.char-at
-    dup 45 = if
+    dup 45 i.= if
       # Starts with minus - check if length > 1 and second char is digit
-      drop dup string.length 1 > if
+      drop dup string.length 1 i.> if
         1 string.char-at is-digit
       else
         drop 0

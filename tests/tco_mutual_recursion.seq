@@ -4,7 +4,7 @@
 # Without TCO, this would cause a stack overflow.
 
 : is-even ( Int -- Int )
-    dup 0 = if
+    dup 0 i.= if
         drop 1
     else
         1 i.subtract is-odd
@@ -12,7 +12,7 @@
 ;
 
 : is-odd ( Int -- Int )
-    dup 0 = if
+    dup 0 i.= if
         drop 0
     else
         1 i.subtract is-even
@@ -22,13 +22,13 @@
 : main ( -- )
     "Testing TCO with mutual recursion (100000 calls)..." io.write-line
     100000 is-even
-    1 = if
+    1 i.= if
         "Success! 100000 is even." io.write-line
     else
         "ERROR: 100000 should be even!" io.write-line
     then
     99999 is-odd
-    1 = if
+    1 i.= if
         "Success! 99999 is odd." io.write-line
     else
         "ERROR: 99999 should be odd!" io.write-line

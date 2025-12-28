@@ -11,7 +11,7 @@
 # Pong: receive from ping-chan, send to pong-chan, repeat N times
 # ( ping-chan pong-chan count -- )
 : pong ( Int Int Int -- )
-  dup 0 > if
+  dup 0 i.> if
     # ( ping-chan pong-chan count )
     2 pick chan.receive  # receive value from ping
     2 pick chan.send     # send value to pong
@@ -25,7 +25,7 @@
 # Ping: send to ping-chan, receive from pong-chan, repeat N times
 # ( ping-chan pong-chan count -- )
 : ping ( Int Int Int -- )
-  dup 0 > if
+  dup 0 i.> if
     # ( ping-chan pong-chan count )
     dup                  # value to send (the count itself)
     3 pick chan.send     # send to ping-chan

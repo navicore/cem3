@@ -168,7 +168,7 @@
     # The split result is a Variant with fields
     # For "/echo/hello" split on "/echo/", we get ["", "hello"]
     # We want field 1 (the part after the prefix)
-    dup variant.field-count 2 < if
+    dup variant.field-count 2 i.< if
       # Not enough parts, return empty string
       drop drop ""
     else

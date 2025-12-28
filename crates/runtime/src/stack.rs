@@ -915,20 +915,20 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
     let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
 
     if depth == 0 {
-        println!("[]");
+        println!("stack:");
     } else {
         use std::io::Write;
-        print!("[");
+        print!("stack: ");
         for i in 0..depth {
             if i > 0 {
-                print!(", ");
+                print!(" ");
             }
             unsafe {
                 let sv = *base.add(i);
                 print_stack_value(&sv);
             }
         }
-        println!("]");
+        println!();
         // Flush stdout to ensure output is visible immediately
         // This prevents partial output if the program terminates unexpectedly
         let _ = std::io::stdout().flush();

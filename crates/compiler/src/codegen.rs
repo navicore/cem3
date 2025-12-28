@@ -231,13 +231,20 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("f.-", "patch_seq_f_subtract"),
         ("f.*", "patch_seq_f_multiply"),
         ("f./", "patch_seq_f_divide"),
-        // Float comparison
+        // Float comparison (symbol form)
         ("f.=", "patch_seq_f_eq"),
         ("f.<", "patch_seq_f_lt"),
         ("f.>", "patch_seq_f_gt"),
         ("f.<=", "patch_seq_f_lte"),
         ("f.>=", "patch_seq_f_gte"),
         ("f.<>", "patch_seq_f_neq"),
+        // Float comparison (verbose form)
+        ("f.eq", "patch_seq_f_eq"),
+        ("f.lt", "patch_seq_f_lt"),
+        ("f.gt", "patch_seq_f_gt"),
+        ("f.lte", "patch_seq_f_lte"),
+        ("f.gte", "patch_seq_f_gte"),
+        ("f.neq", "patch_seq_f_neq"),
         // Float type conversions
         ("int->float", "patch_seq_int_to_float"),
         ("float->int", "patch_seq_float_to_int"),
@@ -2675,12 +2682,12 @@ impl CodeGen {
             "f.divide" | "f./" => self.codegen_inline_float_binary_op(stack_var, "fdiv"),
 
             // Float comparison operations - result is tagged bool
-            "f.=" => self.codegen_inline_float_comparison(stack_var, "oeq"),
-            "f.<>" => self.codegen_inline_float_comparison(stack_var, "one"),
-            "f.<" => self.codegen_inline_float_comparison(stack_var, "olt"),
-            "f.>" => self.codegen_inline_float_comparison(stack_var, "ogt"),
-            "f.<=" => self.codegen_inline_float_comparison(stack_var, "ole"),
-            "f.>=" => self.codegen_inline_float_comparison(stack_var, "oge"),
+            "f.=" | "f.eq" => self.codegen_inline_float_comparison(stack_var, "oeq"),
+            "f.<>" | "f.neq" => self.codegen_inline_float_comparison(stack_var, "one"),
+            "f.<" | "f.lt" => self.codegen_inline_float_comparison(stack_var, "olt"),
+            "f.>" | "f.gt" => self.codegen_inline_float_comparison(stack_var, "ogt"),
+            "f.<=" | "f.lte" => self.codegen_inline_float_comparison(stack_var, "ole"),
+            "f.>=" | "f.gte" => self.codegen_inline_float_comparison(stack_var, "oge"),
 
             // Boolean operations - values are in slot1, discriminant 2 (Bool)
             // and: ( a b -- a&&b )

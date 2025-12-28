@@ -59,6 +59,17 @@ seqc --version
 cargo test --all
 ```
 
+## Learn Seq
+
+The best way to learn Seq is through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step:
+
+```bash
+cargo install seqlings
+seqlings
+```
+
+Work through progressive exercises covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
+
 ## Interactive REPL
 
 The `seqr` REPL provides an interactive environment for exploring Seq:
@@ -70,15 +81,15 @@ seqr
 **Stack persists across lines:**
 ```
 seqr> 1 2
-[1, 2]
-seqr> add
-[3]
+stack: 1 2
+seqr> i.+
+stack: 3
 seqr> 5
-[3, 5]
-seqr> : square ( Int -- Int ) dup multiply ;
+stack: 3 5
+seqr> : square ( Int -- Int ) dup i.* ;
 Defined.
 seqr> square
-[9, 25]
+stack: 9 25
 ```
 
 **Commands:**

@@ -91,7 +91,7 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("i.-", "patch_seq_subtract"),
         ("i.*", "patch_seq_multiply"),
         ("i./", "patch_seq_divide"),
-        ("i.%", "patch_seq_modulo"),
+        // Note: i.% (modulo) is fully inlined, no runtime function needed
         // Integer comparison (symbol form)
         ("i.=", "patch_seq_eq"),
         ("i.<", "patch_seq_lt"),

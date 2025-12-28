@@ -92,13 +92,20 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("i.*", "patch_seq_multiply"),
         ("i./", "patch_seq_divide"),
         ("i.%", "patch_seq_modulo"),
-        // Integer comparison
+        // Integer comparison (symbol form)
         ("i.=", "patch_seq_eq"),
         ("i.<", "patch_seq_lt"),
         ("i.>", "patch_seq_gt"),
         ("i.<=", "patch_seq_lte"),
         ("i.>=", "patch_seq_gte"),
         ("i.<>", "patch_seq_neq"),
+        // Integer comparison (verbose form)
+        ("i.eq", "patch_seq_eq"),
+        ("i.lt", "patch_seq_lt"),
+        ("i.gt", "patch_seq_gt"),
+        ("i.lte", "patch_seq_lte"),
+        ("i.gte", "patch_seq_gte"),
+        ("i.neq", "patch_seq_neq"),
         // Boolean
         ("and", "patch_seq_and"),
         ("or", "patch_seq_or"),
@@ -2653,12 +2660,12 @@ impl CodeGen {
             }
 
             // Integer comparison operations - result is tagged bool (0=false, 1=true)
-            "i.=" => self.codegen_inline_comparison(stack_var, "eq"),
-            "i.<>" => self.codegen_inline_comparison(stack_var, "ne"),
-            "i.<" => self.codegen_inline_comparison(stack_var, "slt"),
-            "i.>" => self.codegen_inline_comparison(stack_var, "sgt"),
-            "i.<=" => self.codegen_inline_comparison(stack_var, "sle"),
-            "i.>=" => self.codegen_inline_comparison(stack_var, "sge"),
+            "i.=" | "i.eq" => self.codegen_inline_comparison(stack_var, "eq"),
+            "i.<>" | "i.neq" => self.codegen_inline_comparison(stack_var, "ne"),
+            "i.<" | "i.lt" => self.codegen_inline_comparison(stack_var, "slt"),
+            "i.>" | "i.gt" => self.codegen_inline_comparison(stack_var, "sgt"),
+            "i.<=" | "i.lte" => self.codegen_inline_comparison(stack_var, "sle"),
+            "i.>=" | "i.gte" => self.codegen_inline_comparison(stack_var, "sge"),
 
             // Float arithmetic operations
             // Values are stored as f64 bits in slot1, discriminant 1 (Float)

@@ -312,6 +312,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtins_int_int_to_int!(sigs, "i.=", "i.<", "i.>", "i.<=", "i.>=", "i.<>");
+    builtins_int_int_to_int!(sigs, "i.eq", "i.lt", "i.gt", "i.lte", "i.gte", "i.neq");
 
     // =========================================================================
     // Boolean Operations

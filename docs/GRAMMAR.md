@@ -186,10 +186,10 @@ union Result {
 }
 
 : safe-divide ( Int Int -- Result )
-  dup 0 = if
+  dup 0 i.= if
     drop drop "Division by zero" Make-Error
   else
-    divide Make-Ok
+    i.divide Make-Ok
   then
 ;
 
@@ -206,10 +206,10 @@ union Result {
 
 ```seq
 # Simple transformation
-: double ( Int -- Int ) 2 multiply ;
+: double ( Int -- Int ) 2 i.* ;
 
 # Multiple inputs/outputs
-: divmod ( Int Int -- Int Int ) over over divide rot rot modulo ;
+: divmod ( Int Int -- Int Int ) over over i./ rot rot i.% ;
 
 # Row-polymorphic (preserves rest of stack)
 : swap ( ..a T U -- ..a U T ) ... ;
@@ -218,5 +218,5 @@ union Result {
 : apply-twice ( Int [Int -- Int] -- Int ) dup dip call ;
 
 # Closure type
-: make-adder ( Int -- Closure[Int -- Int] ) [ add ] ;
+: make-adder ( Int -- Closure[Int -- Int] ) [ i.+ ] ;
 ```

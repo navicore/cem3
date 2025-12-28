@@ -67,7 +67,7 @@ Everything in Seq operates on an implicit stack. Literals push values; words
 consume and produce values:
 
 ```seq
-1 2 add    # Push 1, push 2, add consumes both, pushes 3
+1 2 i.+    # Push 1, push 2, add consumes both, pushes 3
 ```
 
 The stack replaces variables. Instead of:
@@ -81,7 +81,7 @@ let z = x + y
 You write:
 
 ```seq
-1 2 add
+1 2 i.+
 ```
 
 The stack *is* your working memory.
@@ -92,7 +92,7 @@ Words are the building blocks. A word is a named sequence of operations:
 
 ```seq
 : square ( Int -- Int )
-  dup multiply
+  dup i.*
 ;
 ```
 
@@ -110,13 +110,13 @@ Calling a word is just writing its name:
 Quotations are deferred code - blocks that can be passed around and executed later:
 
 ```seq
-[ 2 multiply ]    # Pushes a quotation onto the stack
+[ 2 i.* ]    # Pushes a quotation onto the stack
 ```
 
 Quotations enable higher-order programming:
 
 ```seq
-5 [ 2 multiply ] call    # Result: 10
+5 [ 2 i.* ] call    # Result: 10
 ```
 
 They're essential for combinators like `list.map`, `list.filter`, and control flow.
@@ -137,8 +137,8 @@ The condition is popped from the stack. Non-zero means true:
 
 ```seq
 : abs ( Int -- Int )
-  dup 0 < if
-    -1 multiply
+  dup 0 i.< if
+    0 1 i.- i.*
   then
 ;
 ```
@@ -178,8 +178,8 @@ Master these and you can express any data flow without variables.
 The key insight: in Seq, *juxtaposition is composition*.
 
 ```seq
-: double  2 multiply ;
-: square  dup multiply ;
+: double  2 i.* ;
+: square  dup i.* ;
 : quad    double double ;    # Composition by juxtaposition
 ```
 
@@ -408,7 +408,7 @@ The standard pattern for lists using low-level variants:
 ```seq
 : nil ( -- Variant )  0 variant.make-0 ;
 : cons ( head tail -- Variant )  1 variant.make-2 ;
-: nil? ( Variant -- Int )  variant.tag 0 = ;
+: nil? ( Variant -- Int )  variant.tag 0 i.= ;
 : car ( Variant -- head )  0 variant.field-at ;
 : cdr ( Variant -- tail )  1 variant.field-at ;
 
@@ -432,10 +432,10 @@ union IntResult {
 }
 
 : safe-divide ( Int Int -- IntResult )
-  dup 0 = if
+  dup 0 i.= if
     drop "Division by zero" Make-Err
   else
-    divide Make-Ok
+    i.divide Make-Ok
   then
 ;
 ```
@@ -460,7 +460,7 @@ The `result-bind` combinator enables elegant point-free chaining:
 ```seq
 : parse-positive ( String -- IntResult )
   string->int if
-    dup 0 > if Make-Ok else drop "not positive" Make-Err then
+    dup 0 i.> if Make-Ok else drop "not positive" Make-Err then
   else
     drop "not a number" Make-Err
   then
@@ -468,8 +468,8 @@ The `result-bind` combinator enables elegant point-free chaining:
 
 # Chain fallible operations - errors short-circuit automatically
 "5" parse-positive
-  [ 2 multiply Make-Ok ] result-bind
-  [ 3 add Make-Ok ] result-bind
+  [ 2 i.* Make-Ok ] result-bind
+  [ 3 i.+ Make-Ok ] result-bind
 # Result: Ok(13) or Err if any step fails
 ```
 
@@ -551,9 +551,9 @@ Seq has no loop keywords. Iteration is recursion:
 ```seq
 # Count down
 : countdown ( Int -- )
-    dup 0 > if
+    dup 0 i.> if
         dup int->string io.write-line
-        1 - countdown
+        1 i.- countdown
     else
         drop
     then
@@ -564,7 +564,7 @@ Seq has no loop keywords. Iteration is recursion:
     dup nil? if
         drop 0
     else
-        dup car swap cdr sum-list +
+        dup car swap cdr sum-list i.+
     then
 ;
 ```
@@ -608,15 +608,15 @@ For hot loops that need guaranteed TCO, use a named word rather than a quotation
 ```seq
 # TCO works here
 : loop ( Int -- )
-    dup 0 > if
-        1 - loop
+    dup 0 i.> if
+        1 i.- loop
     else
         drop
     then
 ;
 
 # TCO does NOT work here (quotation)
-[ dup 0 > ] [ 1 - ] while
+[ dup 0 i.> ] [ 1 i.- ] while
 ```
 
 The `while`, `until`, and `times` combinators handle their own iteration
@@ -626,7 +626,7 @@ internally, so this distinction rarely matters in practice.
 
 ```seq
 : main ( -- )
-    args.count 1 > if
+    args.count 1 i.> if
         1 args.at          # First argument (0 is program name)
         process-file
     else
@@ -759,11 +759,20 @@ Operations are grouped by functionality:
 Fundamental operations remain unnamespaced for conciseness:
 
 - **Stack:** `dup`, `swap`, `over`, `rot`, `nip`, `tuck`, `drop`, `pick`, `roll`
-- **Arithmetic:** `add`, `subtract`, `multiply`, `divide`
-- **Comparison:** `=`, `<`, `>`, `<=`, `>=`, `<>`
 - **Boolean:** `and`, `or`, `not`
 - **Bitwise:** `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
 - **Control:** `call`, `times`, `while`, `until`, `spawn`, `cond`
+
+### Type-Prefixed Arithmetic and Comparison
+
+Integer and float operations use explicit type prefixes for clarity:
+
+- **Integer arithmetic:** `i.add`, `i.subtract`, `i.multiply`, `i.divide` (or terse: `i.+`, `i.-`, `i.*`, `i./`, `i.%`)
+- **Integer comparison:** `i.=`, `i.<`, `i.>`, `i.<=`, `i.>=`, `i.<>` (or verbose: `i.eq`, `i.lt`, `i.gt`, `i.lte`, `i.gte`, `i.neq`)
+- **Float arithmetic:** `f.add`, `f.subtract`, `f.multiply`, `f.divide` (or terse: `f.+`, `f.-`, `f.*`, `f./`)
+- **Float comparison:** `f.=`, `f.<`, `f.>`, `f.<=`, `f.>=`
+
+This removes ambiguity about which type an operation applies to and makes code self-documenting.
 
 ### Rationale
 
@@ -791,13 +800,13 @@ map.keys                    # ( Map -- Variant ) list of keys
 
 ```seq
 # Map over a list
-my-list [ 2 * ] list.map
+my-list [ 2 i.* ] list.map
 
 # Filter a list
-my-list [ 0 > ] list.filter
+my-list [ 0 i.> ] list.filter
 
 # Fold (reduce)
-my-list 0 [ + ] list.fold
+my-list 0 [ i.+ ] list.fold
 
 # Execute N times
 10 [ "hello" io.write-line ] times
@@ -944,10 +953,10 @@ A **stack type** describes what *is* - the current stack contents.
 Type errors occur when your stack type doesn't satisfy a word's input requirements:
 
 ```
-divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float): Type mismatch: cannot unify Int with Float
+i.divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float): Type mismatch: cannot unify Int with Float
 ```
 
-Here, `divide` has stack effect `( Int Int -- Int )`. The compiler checks:
+Here, `i.divide` has stack effect `( Int Int -- Int )`. The compiler checks:
 "Does the current stack type have two `Int` values on top?" Your stack type
 `(..rest Float Float)` has two `Float` values instead - mismatch.
 
@@ -967,14 +976,14 @@ So `(..a$0 Int Int)` means: "any stack with two `Int` values on top."
 ### Visual Breakdown
 
 ```
-divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float)
-                                       │     │   │           │      │     │
-                                       │     │   └── top     │      │     └── top
-                                       │     └── 2nd         │      └── 2nd
-                                       └── rest of stack     └── rest of stack
+i.divide: stack type mismatch. Expected (..a$0 Int Int), got (..rest Float Float)
+                                         │     │   │           │      │     │
+                                         │     │   └── top     │      │     └── top
+                                         │     └── 2nd         │      └── 2nd
+                                         └── rest of stack     └── rest of stack
 
 Translation:
-  divide expects: ( ..a Int Int -- ..a Int )  ← two Ints in, one Int out
+  i.divide expects: ( ..a Int Int -- ..a Int )  ← two Ints in, one Int out
   You provided:   ( ..rest Float Float )      ← two Floats
   Problem:        Int ≠ Float
 ```

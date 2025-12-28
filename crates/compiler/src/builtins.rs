@@ -614,6 +614,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtins_float_float_to_int!(sigs, "f.=", "f.<", "f.>", "f.<=", "f.>=", "f.<>");
+    builtins_float_float_to_int!(sigs, "f.eq", "f.lt", "f.gt", "f.lte", "f.gte", "f.neq");
 
     // =========================================================================
     // Test Framework

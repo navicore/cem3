@@ -422,13 +422,20 @@ impl Program {
             "f.-",
             "f.*",
             "f./",
-            // Float comparison operations
+            // Float comparison operations (symbol form)
             "f.=",
             "f.<",
             "f.>",
             "f.<=",
             "f.>=",
             "f.<>",
+            // Float comparison operations (verbose form)
+            "f.eq",
+            "f.lt",
+            "f.gt",
+            "f.lte",
+            "f.gte",
+            "f.neq",
             // Type conversions
             "int->float",
             "float->int",

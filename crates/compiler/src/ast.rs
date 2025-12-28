@@ -344,6 +344,13 @@ impl Program {
             "i.<=",
             "i.>=",
             "i.<>",
+            // Integer comparison operations (verbose form)
+            "i.eq",
+            "i.lt",
+            "i.gt",
+            "i.lte",
+            "i.gte",
+            "i.neq",
             // Stack operations (simple - no parameters)
             "dup",
             "drop",

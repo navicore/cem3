@@ -101,7 +101,7 @@ union Message {
       swap 1 i.add             # ( parent my count+1 pending+1 )
 
       # Check if we should report to parent
-      dup report-threshold >= if
+      dup report-threshold i.>= if
         # Time to report! Send delta to parent
         dup                  # ( parent my count pending pending )
         2 pick               # ( parent my count pending pending count )
@@ -335,7 +335,7 @@ union Message {
 # Pad a string with leading zeros
 # Stack: ( str count -- padded-str )
 : pad-zeros ( String Int -- String )
-  dup 0 <= if
+  dup 0 i.<= if
     drop
   else
     "0" rot string.concat swap
@@ -424,7 +424,7 @@ union Message {
 # Helper: Generate stores for a district (recursive)
 # Stack: ( parent-chan prefix counter registry -- registry' )
 : gen-stores-loop ( Int String Int Variant -- Variant )
-  over 0 <= if
+  over 0 i.<= if
     nip nip nip
   else
     over int->string 4 pad-to-width
@@ -505,7 +505,7 @@ union Message {
 # Stack: ( path -- count )
 : count-path-segments ( String -- Int )
   # Strip leading / if present
-  dup 0 string.char-at 47 = if  # 47 = '/'
+  dup 0 string.char-at 47 i.= if  # 47 = '/'
     1 over string.length 1 i.subtract string.substring
   then
   "/" string.split variant.field-count
@@ -538,19 +538,19 @@ union Message {
     drop                     # ( registry socket path )
     # Count segments to determine resource level
     dup count-path-segments  # ( registry socket path segments )
-    dup 4 = if
+    dup 4 i.= if
       # 4 segments = store query
       drop do-get-store
     else
-      dup 3 = if
+      dup 3 i.= if
         # 3 segments = district aggregate
         drop do-get-actor
       else
-        dup 2 = if
+        dup 2 i.= if
           # 2 segments = region aggregate
           drop do-get-actor
         else
-          dup 1 = if
+          dup 1 i.= if
             # 1 segment = company aggregate
             drop do-get-actor
           else
@@ -572,7 +572,7 @@ union Message {
   dup string.length         # ( str suffix suffix-len )
   rot dup string.length     # ( suffix suffix-len str str-len )
   rot                       # ( suffix str str-len suffix-len )
-  2dup < if
+  2dup i.< if
     # suffix longer than string - can't match
     3drop drop 0
   else
@@ -588,7 +588,7 @@ union Message {
 # Stack: ( registry socket path -- registry )
 : do-get-store ( Variant Int String -- Variant )
   # Strip leading / if present
-  dup 0 string.char-at 47 = if  # 47 = '/'
+  dup 0 string.char-at 47 i.= if  # 47 = '/'
     1 over string.length 1 i.subtract string.substring
   then
 
@@ -596,7 +596,7 @@ union Message {
   # Stack: ( registry socket path )
   2 pick swap lookup-store  # ( registry socket chan found? )
 
-  0 = if
+  0 i.= if
     # Store not found
     drop                    # ( registry socket )
     "Store not found" http-not-found
@@ -615,7 +615,7 @@ union Message {
 # Stack: ( registry socket path -- registry )
 : do-increment ( Variant Int String -- Variant )
   # Strip leading / if present
-  dup 0 string.char-at 47 = if
+  dup 0 string.char-at 47 i.= if
     1 over string.length 1 i.subtract string.substring
   then
 
@@ -623,7 +623,7 @@ union Message {
   # Stack: ( registry socket path )
   2 pick swap lookup-store  # ( registry socket chan found? )
 
-  0 = if
+  0 i.= if
     drop                    # ( registry socket )
     "Store not found" http-not-found
     over tcp.write
@@ -641,7 +641,7 @@ union Message {
 # Stack: ( registry socket path -- registry )
 : do-get-actor ( Variant Int String -- Variant )
   # Strip leading / if present
-  dup 0 string.char-at 47 = if  # 47 = '/'
+  dup 0 string.char-at 47 i.= if  # 47 = '/'
     1 over string.length 1 i.subtract string.substring
   then
 
@@ -649,7 +649,7 @@ union Message {
   # Stack: ( registry socket path )
   2 pick swap lookup-store  # ( registry socket chan found? )
 
-  0 = if
+  0 i.= if
     # Actor not found
     drop                    # ( registry socket )
     "Actor not found" http-not-found
@@ -763,7 +763,7 @@ union Message {
   # Start listening
   8080 tcp.listen           # ( registry listener )
 
-  dup 0 < if
+  dup 0 i.< if
     drop drop
     "Failed to start server" io.write-line
     1

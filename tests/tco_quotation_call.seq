@@ -5,7 +5,7 @@
 # With Phase 2 TCO, quotations are called directly via musttail.
 
 : recurse-via-quotation ( Int -- )
-    dup 0 > if
+    dup 0 i.> if
         1 i.subtract [ recurse-via-quotation ] call
     else
         drop

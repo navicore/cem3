@@ -2,7 +2,7 @@
 
 # Factorial using recursion
 : factorial ( Int -- Int )
-  dup 1 <= if
+  dup 1 i.<= if
     drop 1
   else
     dup 1 i.subtract factorial i.multiply
@@ -17,7 +17,7 @@
 
 # Fibonacci using recursion
 : fib ( Int -- Int )
-  dup 2 < if
+  dup 2 i.< if
     drop 1
   else
     dup 1 i.subtract fib
@@ -34,7 +34,7 @@
 
 # Tail-recursive countdown for TCO stress test
 : countdown ( Int -- Int )
-  dup 0 <= if
+  dup 0 i.<= if
     drop 0
   else
     1 i.subtract countdown

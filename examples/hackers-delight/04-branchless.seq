@@ -8,7 +8,7 @@
 
 # Create a mask: -1 if x < 0, else 0
 : negative-mask ( Int -- Int )
-  0 <                  # 1 if negative, 0 if not
+  0 i.<                  # 1 if negative, 0 if not
   0 swap i.subtract      # -1 or 0
 ;
 
@@ -24,8 +24,8 @@
 
 # Sign of x: returns -1, 0, or 1
 : sign ( Int -- Int )
-  dup 0 >              # x pos?
-  swap 0 <             # pos? neg?
+  dup 0 i.>              # x pos?
+  swap 0 i.<             # pos? neg?
   0 swap i.subtract      # pos? -neg?
   i.add                  # pos - neg = 1, -1, or 0
 ;
@@ -34,7 +34,7 @@
 # min(a, b) = b + ((a - b) & mask)  where mask = -1 if a < b, else 0
 : min-branchless ( Int Int -- Int )
   2dup i.subtract   # a b (a-b)
-  dup 0 <              # a b diff (diff<0)?
+  dup 0 i.<              # a b diff (diff<0)?
   0 swap i.subtract      # a b diff mask
   band                 # a b (diff & mask)
   i.add                  # a (b + masked_diff)
@@ -45,7 +45,7 @@
 # max(a, b) = a - ((a - b) & mask)  where mask = -1 if a < b, else 0
 : max-branchless ( Int Int -- Int )
   2dup i.subtract   # a b (a-b)
-  dup 0 <              # a b diff (diff<0)?
+  dup 0 i.<              # a b diff (diff<0)?
   0 swap i.subtract      # a b diff mask
   band                 # a b (diff & mask)
   rot swap             # b a masked_diff

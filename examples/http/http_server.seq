@@ -240,7 +240,7 @@
     # Split "/echo/hello" on "/echo/" gives: Variant["", "hello"]
     # Stack: ( variant )
 
-    dup variant.field-count 2 < if
+    dup variant.field-count 2 i.< if
       # Edge case: not enough parts (shouldn't happen if starts-with was true)
       drop drop ""
     else

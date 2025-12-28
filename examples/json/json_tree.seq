@@ -60,7 +60,7 @@ include std:json
 
 # Get JSON input - from file, command line, or stdin
 : get-json-input ( -- String )
-  args.count 1 > if
+  args.count 1 i.> if
     # Have an argument
     1 args.at process-arg
   else
@@ -76,7 +76,7 @@ include std:json
 
   get-json-input
 
-  dup string.length 0 = if
+  dup string.length 0 i.= if
     drop
     "No input." io.write-line
     1
@@ -85,7 +85,7 @@ include std:json
     "" io.write-line
 
     json-parse
-    0 = if
+    0 i.= if
       drop
       "Parse error!" io.write-line
       1

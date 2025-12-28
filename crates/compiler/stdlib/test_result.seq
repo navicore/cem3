@@ -71,7 +71,7 @@ union IntOption {
 : test-unwrap-ok ( -- )
   42 Make-Ok
   result-ok? if
-    0 variant.field-at 42 = if
+    0 variant.field-at 42 i.= if
       "unwrap Ok value" test-pass
     else
       "unwrap Ok value" test-fail
@@ -96,7 +96,7 @@ union IntOption {
 
 : test-result-unwrap-or-ok ( -- )
   42 Make-Ok 99 result-unwrap-or
-  42 = if
+  42 i.= if
     "result-unwrap-or on Ok" test-pass
   else
     "result-unwrap-or on Ok" test-fail
@@ -105,7 +105,7 @@ union IntOption {
 
 : test-result-unwrap-or-err ( -- )
   "error" Make-Err 99 result-unwrap-or
-  99 = if
+  99 i.= if
     "result-unwrap-or on Err returns default" test-pass
   else
     "result-unwrap-or on Err" test-fail
@@ -123,7 +123,7 @@ union IntOption {
 
 # Helper: return Err if not positive
 : positive-or-err ( Int -- IntResult )
-  dup 0 > if
+  dup 0 i.> if
     Make-Ok
   else
     drop "not positive" Make-Err
@@ -133,7 +133,7 @@ union IntOption {
 : test-result-bind-ok-ok ( -- )
   5 Make-Ok [ double-ok ] result-bind
   result-ok? if
-    0 variant.field-at 10 = if
+    0 variant.field-at 10 i.= if
       "result-bind Ok->Ok" test-pass
     else
       "result-bind Ok->Ok value" test-fail
@@ -168,7 +168,7 @@ union IntOption {
 : test-result-map-ok ( -- )
   5 Make-Ok [ 2 i.multiply ] result-map
   result-ok? if
-    0 variant.field-at 10 = if
+    0 variant.field-at 10 i.= if
       "result-map Ok" test-pass
     else
       "result-map Ok value" test-fail
@@ -230,7 +230,7 @@ union IntOption {
 : test-unwrap-some ( -- )
   42 Make-Some
   option-some? if
-    0 variant.field-at 42 = if
+    0 variant.field-at 42 i.= if
       "unwrap Some value" test-pass
     else
       "unwrap Some value" test-fail
@@ -242,7 +242,7 @@ union IntOption {
 
 : test-option-unwrap-or-some ( -- )
   42 Make-Some 99 option-unwrap-or
-  42 = if
+  42 i.= if
     "option-unwrap-or on Some" test-pass
   else
     "option-unwrap-or on Some" test-fail
@@ -251,7 +251,7 @@ union IntOption {
 
 : test-option-unwrap-or-none ( -- )
   Make-None 99 option-unwrap-or
-  99 = if
+  99 i.= if
     "option-unwrap-or on None returns default" test-pass
   else
     "option-unwrap-or on None" test-fail
@@ -264,7 +264,7 @@ union IntOption {
 
 # Helper: return Some if positive, None otherwise
 : positive-or-none ( Int -- IntOption )
-  dup 0 > if
+  dup 0 i.> if
     Make-Some
   else
     drop Make-None
@@ -274,7 +274,7 @@ union IntOption {
 : test-option-bind-some-some ( -- )
   5 Make-Some [ positive-or-none ] option-bind
   option-some? if
-    0 variant.field-at 5 = if
+    0 variant.field-at 5 i.= if
       "option-bind Some->Some" test-pass
     else
       "option-bind Some->Some value" test-fail
@@ -305,7 +305,7 @@ union IntOption {
 : test-option-map-some ( -- )
   5 Make-Some [ 2 i.multiply ] option-map
   option-some? if
-    0 variant.field-at 10 = if
+    0 variant.field-at 10 i.= if
       "option-map Some" test-pass
     else
       "option-map Some value" test-fail
@@ -330,7 +330,7 @@ union IntOption {
 
 : parse-positive ( String -- IntResult )
   string->int if
-    dup 0 > if
+    dup 0 i.> if
       Make-Ok
     else
       drop "not positive" Make-Err
@@ -345,7 +345,7 @@ union IntOption {
   [ 2 i.multiply Make-Ok ] result-bind
   [ 3 i.add Make-Ok ] result-bind
   result-ok? if
-    0 variant.field-at 13 = if
+    0 variant.field-at 13 i.= if
       "chain success (5*2+3=13)" test-pass
     else
       "chain success value" test-fail

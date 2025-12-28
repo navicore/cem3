@@ -60,7 +60,7 @@
 
 # Check if a bit is set at position n
 : bit-set? ( Int Int -- Int )
-  1 swap shl band 0 <>
+  1 swap shl band 0 i.<>
 ;
 
 # Set bit at position n

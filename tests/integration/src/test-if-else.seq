@@ -2,7 +2,7 @@
 
 : test-if-else-true ( -- )
   # When condition is true, true branch executes
-  5 3 >
+  5 3 i.>
   if
     1
   else
@@ -13,7 +13,7 @@
 
 : test-if-else-false ( -- )
   # When condition is false, else branch executes
-  3 5 >
+  3 5 i.>
   if
     1
   else
@@ -23,6 +23,6 @@
 ;
 
 : test-equality ( -- )
-  5 5 = test.assert
-  5 3 = test.assert-not
+  5 5 i.= test.assert
+  5 3 i.= test.assert-not
 ;

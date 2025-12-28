@@ -4,8 +4,8 @@
 # with nested if statements.
 
 : nested-countdown ( Int -- )
-    dup 0 > if
-        dup 2 > if
+    dup 0 i.> if
+        dup 2 i.> if
             1 i.subtract nested-countdown
         else
             1 i.subtract nested-countdown

@@ -3,7 +3,7 @@
 
 # Test Int capture (already supported, baseline)
 : test-int-capture ( -- )
-  42 [ 42 = ] call test.assert
+  42 [ 42 i.= ] call test.assert
 ;
 
 # Test String capture (already supported, baseline)
@@ -28,5 +28,5 @@
 # Test Quotation capture
 : test-quotation-capture ( -- )
   # Capture [2 multiply] and apply it to 5, expect 10
-  [ 2 i.multiply ] [ 5 swap call 10 = test.assert ] call
+  [ 2 i.multiply ] [ 5 swap call 10 i.= test.assert ] call
 ;

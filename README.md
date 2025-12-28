@@ -92,10 +92,11 @@ seqr> square
 
 **Core Language:**
 - Stack operations: `dup`, `drop`, `swap`, `over`, `rot`, `nip`, `tuck`, `pick`, `2dup`, `3drop`
-- Arithmetic: `+`, `-`, `*`, `/` with overflow checking
+- Integer arithmetic: `i.add`, `i.subtract`, `i.multiply`, `i.divide` (or terse: `i.+`, `i.-`, `i.*`, `i./`, `i.%`)
+- Float arithmetic: `f.add`, `f.subtract`, `f.multiply`, `f.divide` (or terse: `f.+`, `f.-`, `f.*`, `f./`)
 - Bitwise: `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
 - Numeric literals: decimal, hex (`0xFF`), binary (`0b1010`)
-- Comparisons: `=`, `<`, `>`, `<=`, `>=`, `<>`
+- Integer comparisons: `i.=`, `i.<`, `i.>`, `i.<=`, `i.>=`, `i.<>` (or verbose: `i.eq`, `i.lt`, `i.gt`, `i.lte`, `i.gte`, `i.neq`)
 - Conditionals: `if`/`else`/`then`
 - Quotations: First-class functions with `call`, `times`, `while`, `until`
 - Closures: Captured environments with type-driven inference

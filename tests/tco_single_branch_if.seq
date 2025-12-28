@@ -5,7 +5,7 @@
 # as a whole doesn't fully "terminate" because the else path falls through.
 
 : single-branch-countdown ( Int -- Int )
-    dup 0 > if
+    dup 0 i.> if
         1 i.subtract single-branch-countdown
     then
 ;

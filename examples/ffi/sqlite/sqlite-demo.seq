@@ -16,7 +16,7 @@
 : SQLITE_OK ( -- Int ) 0 ;
 
 # Check if SQLite operation succeeded (returns 1 for success, 0 for failure)
-: db-ok? ( Int -- Int ) SQLITE_OK = ;
+: db-ok? ( Int -- Int ) SQLITE_OK i.= ;
 
 # Open database and check result
 : open-db ( String -- Int Int )

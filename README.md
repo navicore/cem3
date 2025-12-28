@@ -61,12 +61,7 @@ cargo test --all
 
 ## Learn Seq
 
-The best way to learn Seq is through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step:
-
-```bash
-cargo install seqlings
-seqlings
-```
+The best way to learn Seq is through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step.
 
 Work through progressive exercises covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
 

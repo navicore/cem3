@@ -412,11 +412,16 @@ impl Program {
             "os.exit",
             "os.name",
             "os.arch",
-            // Float arithmetic operations
+            // Float arithmetic operations (verbose form)
             "f.add",
             "f.subtract",
             "f.multiply",
             "f.divide",
+            // Float arithmetic operations (terse form)
+            "f.+",
+            "f.-",
+            "f.*",
+            "f./",
             // Float comparison operations
             "f.=",
             "f.<",

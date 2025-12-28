@@ -19,7 +19,7 @@
   dup 0 < if              # sentinel check (-1 means stop)
     drop swap chan.send drop
   else
-    drop 1 add worker-loop
+    drop 1 i.add worker-loop
   then
 ;
 
@@ -34,7 +34,7 @@
 : spawn-workers ( Int Int Int -- )
   dup 0 > if
     2 pick 2 pick [ worker ] spawn drop drop drop
-    1 subtract spawn-workers
+    1 i.subtract spawn-workers
   else
     drop drop drop
   then
@@ -44,7 +44,7 @@
 # ( done-chan total remaining -- total )
 : collect-results ( Int Int Int -- Int )
   dup 0 > if
-    2 pick chan.receive rot add swap 1 subtract collect-results
+    2 pick chan.receive rot i.add swap 1 i.subtract collect-results
   else
     drop swap drop
   then
@@ -55,7 +55,7 @@
 : producer ( Int Int -- )
   dup 0 > if
     dup 2 pick chan.send
-    1 subtract producer
+    1 i.subtract producer
   else
     drop drop
   then
@@ -66,7 +66,7 @@
 : send-sentinels ( Int Int -- )
   dup 0 > if
     -1 2 pick chan.send
-    1 subtract send-sentinels
+    1 i.subtract send-sentinels
   else
     drop drop
   then
@@ -101,8 +101,8 @@
   time.nanos              # ( done work start end )
 
   # Calculate elapsed time
-  swap subtract           # ( done work elapsed_ns )
-  1000000 divide          # ( done work ms )
+  swap i.subtract           # ( done work elapsed_ns )
+  1000000 i.divide          # ( done work ms )
 
   # Clean up channels
   swap drop               # ( done ms )
@@ -120,7 +120,7 @@
   dup 0 = if
     drop 0
   else
-    num-messages 1000 multiply swap divide
+    num-messages 1000 i.multiply swap i.divide
   then
 
   "Throughput: " swap int->string string.concat " msg/sec" string.concat io.write-line

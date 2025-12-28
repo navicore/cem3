@@ -15,7 +15,7 @@
     # ( ping-chan pong-chan count )
     2 pick chan.receive  # receive value from ping
     2 pick chan.send     # send value to pong
-    1 subtract           # decrement count
+    1 i.subtract           # decrement count
     pong                 # tail recurse
   else
     drop drop drop       # cleanup
@@ -31,7 +31,7 @@
     3 pick chan.send     # send to ping-chan
     1 pick chan.receive  # receive from pong-chan (at position 1)
     drop                 # discard received value
-    1 subtract           # decrement count
+    1 i.subtract           # decrement count
     ping                 # tail recurse
   else
     drop drop drop       # cleanup
@@ -58,8 +58,8 @@
   time.nanos              # ( start end )
 
   # Calculate elapsed time
-  swap subtract           # ( elapsed-nanos )
-  1000000 divide          # ( ms )
+  swap i.subtract           # ( elapsed-nanos )
+  1000000 i.divide          # ( ms )
 
   # Print results
   dup                     # ( ms ms )
@@ -68,8 +68,8 @@
   io.write-line           # ( ms )
 
   # Calculate throughput: (iterations * 2) * 1000 / ms = msg/sec
-  iterations 2 multiply 1000 multiply
-  swap divide
+  iterations 2 i.multiply 1000 i.multiply
+  swap i.divide
 
   # Print throughput
   "Throughput: " swap int->string string.concat " msg/sec" string.concat

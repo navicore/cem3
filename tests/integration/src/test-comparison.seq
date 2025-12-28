@@ -2,33 +2,33 @@
 # All comparisons return 1 (true) or 0 (false) as integers
 
 : test-eq ( -- )
-  5 5 = test.assert
-  5 3 = test.assert-not
+  5 5 i.= test.assert
+  5 3 i.= test.assert-not
 ;
 
 : test-lt ( -- )
-  3 5 < test.assert
-  5 3 < test.assert-not
+  3 5 i.< test.assert
+  5 3 i.< test.assert-not
 ;
 
 : test-gt ( -- )
-  5 3 > test.assert
-  3 5 > test.assert-not
+  5 3 i.> test.assert
+  3 5 i.> test.assert-not
 ;
 
 : test-lte ( -- )
-  3 5 <= test.assert
-  5 5 <= test.assert
-  5 3 <= test.assert-not
+  3 5 i.<= test.assert
+  5 5 i.<= test.assert
+  5 3 i.<= test.assert-not
 ;
 
 : test-gte ( -- )
-  5 3 >= test.assert
-  5 5 >= test.assert
-  3 5 >= test.assert-not
+  5 3 i.>= test.assert
+  5 5 i.>= test.assert
+  3 5 i.>= test.assert-not
 ;
 
 : test-neq ( -- )
-  5 3 <> test.assert
-  5 5 <> test.assert-not
+  5 3 i.<> test.assert
+  5 5 i.<> test.assert-not
 ;

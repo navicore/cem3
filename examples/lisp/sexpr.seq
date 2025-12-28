@@ -44,16 +44,16 @@ union SexprList {
 # ============================================
 
 : snum? ( Sexpr -- Int )
-  variant.tag 0 = ;
+  variant.tag 0 i.= ;
 
 : ssym? ( Sexpr -- Int )
-  variant.tag 1 = ;
+  variant.tag 1 i.= ;
 
 : slist? ( Sexpr -- Int )
-  variant.tag 2 = ;
+  variant.tag 2 i.= ;
 
 : snil? ( SexprList -- Int )
-  variant.tag 0 = ;
+  variant.tag 0 i.= ;
 
 # ============================================
 # Accessors

@@ -46,7 +46,7 @@ include "parser"
   60 variant.make-3 ;
 
 : closure? ( Variant -- Int )
-  variant.tag 60 = ;
+  variant.tag 60 i.= ;
 
 : closure-params ( Variant -- Variant )
   0 variant.field-at ;
@@ -317,7 +317,7 @@ include "parser"
   eval-with-env  # -> Env Args CondResult
   # Check if condition is numeric 0 (false)
   dup snum? if
-    snum-val 0 = if
+    snum-val 0 i.= if
       # False (0) - eval else branch
       # Stack: Env Args
       scdr scdr scar swap eval-with-env

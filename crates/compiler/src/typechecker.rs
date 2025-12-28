@@ -1134,7 +1134,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::WordCall {
-                        name: ">".to_string(),
+                        name: "i.>".to_string(),
                         span: None,
                     },
                     Statement::If {
@@ -1461,13 +1461,13 @@ mod tests {
                 )),
                 body: vec![
                     Statement::WordCall {
-                        name: ">".to_string(),
+                        name: "i.>".to_string(),
                         span: None,
                     },
                     Statement::If {
                         then_branch: vec![
                             Statement::WordCall {
-                                name: ">".to_string(),
+                                name: "i.>".to_string(),
                                 span: None,
                             },
                             Statement::If {
@@ -1519,7 +1519,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::WordCall {
-                        name: ">".to_string(),
+                        name: "i.>".to_string(),
                         span: None,
                     },
                     Statement::If {
@@ -1660,7 +1660,7 @@ mod tests {
                     Statement::IntLiteral(100),
                     Statement::IntLiteral(200),
                     Statement::WordCall {
-                        name: ">".to_string(),
+                        name: "i.>".to_string(),
                         span: None,
                     },
                     Statement::If {
@@ -1743,7 +1743,7 @@ mod tests {
                     Statement::IntLiteral(10),
                     Statement::IntLiteral(20),
                     Statement::WordCall {
-                        name: ">".to_string(),
+                        name: "i.>".to_string(),
                         span: None,
                     },
                     Statement::If {
@@ -1813,7 +1813,7 @@ mod tests {
                     StackType::singleton(Type::Int),
                 )),
                 body: vec![Statement::WordCall {
-                    name: "<=".to_string(),
+                    name: "i.<=".to_string(),
                     span: None,
                 }],
                 source: None,
@@ -1848,7 +1848,7 @@ mod tests {
                         },
                         Statement::IntLiteral(0),
                         Statement::WordCall {
-                            name: "=".to_string(),
+                            name: "i.=".to_string(),
                             span: None,
                         },
                         Statement::If {
@@ -1887,7 +1887,7 @@ mod tests {
                         },
                         Statement::IntLiteral(0),
                         Statement::WordCall {
-                            name: "=".to_string(),
+                            name: "i.=".to_string(),
                             span: None,
                         },
                         Statement::If {
@@ -2237,7 +2237,7 @@ mod tests {
                     },
                     Statement::IntLiteral(0),
                     Statement::WordCall {
-                        name: ">".to_string(),
+                        name: "i.>".to_string(),
                         span: None,
                     },
                     Statement::If {

@@ -40,7 +40,7 @@
 # Absolute value
 # Both branches must have identical stack effects for type checker
 : abs ( Int -- Int )
-  dup dup 0 < if
+  dup dup 0 i.< if
     # Stack: n n, n < 0, so compute 0 - n
     nip 0 swap i.subtract
   else
@@ -51,7 +51,7 @@
 
 # Maximum of two values
 : max ( Int Int -- Int )
-  2dup > if
+  2dup i.> if
     drop
   else
     nip
@@ -60,7 +60,7 @@
 
 # Minimum of two values
 : min ( Int Int -- Int )
-  2dup < if
+  2dup i.< if
     drop
   else
     nip
@@ -77,7 +77,7 @@
 
 # Greatest common divisor (Euclidean algorithm)
 : gcd ( Int Int -- Int )
-  dup 0 = if
+  dup 0 i.= if
     drop
   else
     2dup mod
@@ -88,10 +88,10 @@
 
 # Power (base^exp using recursion)
 : pow ( Int Int -- Int )
-  dup 0 = if
+  dup 0 i.= if
     drop drop 1
   else
-    dup 1 = if
+    dup 1 i.= if
       drop
     else
       over
@@ -104,10 +104,10 @@
 
 # Sign function: returns -1, 0, or 1
 : sign ( Int -- Int )
-  dup 0 = if
+  dup 0 i.= if
     drop 0
   else
-    dup 0 < if
+    dup 0 i.< if
       drop 0 1 i.subtract
     else
       drop 1
@@ -127,14 +127,14 @@
   # Stack: value min max
   rot rot
   # Stack: max value min
-  2dup < if
+  2dup i.< if
     # value < min, return min
     nip nip
   else
     # value >= min
     drop
     # Stack: max value
-    2dup > if
+    2dup i.> if
       # value > max, return max
       nip
     else

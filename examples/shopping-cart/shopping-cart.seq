@@ -38,8 +38,8 @@ include std:stack-utils
 : SQLITE_ROW  ( -- Int ) 100 ;
 : SQLITE_DONE ( -- Int ) 101 ;
 
-: db-ok? ( Int -- Int ) SQLITE_OK = ;
-: db-row? ( Int -- Int ) SQLITE_ROW = ;
+: db-ok? ( Int -- Int ) SQLITE_OK i.= ;
+: db-row? ( Int -- Int ) SQLITE_ROW i.= ;
 
 # =============================================================================
 # HTTP Response Builders
@@ -100,7 +100,7 @@ include std:stack-utils
   http-request-path
   dup "?" string.contains if
     "?" string.split
-    dup variant.field-count 1 > if
+    dup variant.field-count 1 i.> if
       1 variant.field-at
     else
       drop ""
@@ -117,7 +117,7 @@ include std:stack-utils
   "=" string.concat  # ( query-string "param-name=" )
   over swap          # ( query-string query-string "param-name=" )
   string.split       # ( query-string variant )
-  dup variant.field-count 1 > if
+  dup variant.field-count 1 i.> if
     # Found the param
     1 variant.field-at  # Get part after "param-name="
     "&" string.split 0 variant.field-at  # Get value before next &
@@ -139,7 +139,7 @@ include std:stack-utils
     name TEXT NOT NULL,
     price INTEGER NOT NULL,
     stock INTEGER NOT NULL
-  )" db-exec db-ok? 0 = if
+  )" db-exec db-ok? 0 i.= if
     0  # ( db 0 ) - failure
   else
     # Create cart_items table
@@ -148,7 +148,7 @@ include std:stack-utils
       product_id INTEGER NOT NULL,
       quantity INTEGER NOT NULL,
       FOREIGN KEY (product_id) REFERENCES products(id)
-    )" db-exec db-ok? 0 = if
+    )" db-exec db-ok? 0 i.= if
       0  # ( db 0 ) - failure
     else
       # Create orders table
@@ -157,7 +157,7 @@ include std:stack-utils
         total INTEGER NOT NULL,
         item_count INTEGER NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )" db-exec db-ok? 0 = if
+      )" db-exec db-ok? 0 i.= if
         0  # ( db 0 ) - failure
       else
         1  # ( db 1 ) - success
@@ -172,8 +172,8 @@ include std:stack-utils
   dup "SELECT COUNT(*) FROM products" db-prepare
   db-ok? if
     # Stack: ( db stmt )
-    dup db-step SQLITE_ROW = if
-      dup 0 db-column-int 0 = if
+    dup db-step SQLITE_ROW i.= if
+      dup 0 db-column-int 0 i.= if
         # Table is empty, seed it
         db-finalize drop
         dup "INSERT INTO products (name, price, stock) VALUES ('Apple', 100, 50)" db-exec drop
@@ -239,19 +239,19 @@ include std:stack-utils
 : collect-products ( Int String -- String )
   # Stack: ( stmt accumulated )
   over db-step
-  dup SQLITE_ROW = if
+  dup SQLITE_ROW i.= if
     drop  # drop step result
     # Get this row
     over format-product-row
     # Add newline if not first
-    over string.length 0 > if
+    over string.length 0 i.> if
       "\n" swap string.concat
     then
     # Append to accumulated
     string.concat
     collect-products  # Recurse
   else
-    SQLITE_DONE = if
+    SQLITE_DONE i.= if
       # Finalize and return
       swap db-finalize drop
     else
@@ -305,16 +305,16 @@ include std:stack-utils
 
 : collect-cart-items ( Int String -- String )
   over db-step
-  dup SQLITE_ROW = if
+  dup SQLITE_ROW i.= if
     drop
     over format-cart-row
-    over string.length 0 > if
+    over string.length 0 i.> if
       "\n" swap string.concat
     then
     string.concat
     collect-cart-items
   else
-    SQLITE_DONE = if
+    SQLITE_DONE i.= if
       swap db-finalize drop
     else
       # Error - finalize statement to prevent leak
@@ -339,7 +339,7 @@ include std:stack-utils
     dup "ERROR" string.equal? if
       drop "Error querying cart"
     else
-      dup string.length 0 = if
+      dup string.length 0 i.= if
         drop "Cart is empty"
       else
         "Cart:\n" swap string.concat
@@ -359,11 +359,11 @@ include std:stack-utils
   db-ok? if
     # Stack: ( db product_id qty stmt )
     dup 3 pick 1 swap db-bind-int drop  # bind product_id to param 1
-    dup db-step SQLITE_ROW = if
+    dup db-step SQLITE_ROW i.= if
       # Product exists, check stock
       dup 0 db-column-int  # ( db product_id qty stmt stock )
       3 pick               # ( db product_id qty stmt stock qty )
-      < if
+      i.< if
         # Not enough stock
         db-finalize 3drop
         "Insufficient stock"
@@ -425,7 +425,7 @@ include std:stack-utils
   # Stack: ( db stmt result )
   db-ok? if
     # Stack: ( db stmt )
-    dup db-step SQLITE_ROW = if
+    dup db-step SQLITE_ROW i.= if
       # Stack: ( db stmt )
       dup 0 db-column-int  # ( db stmt total )
       over 1 db-column-int # ( db stmt total count )
@@ -449,7 +449,7 @@ include std:stack-utils
        JOIN products p ON c.product_id = p.id
        WHERE c.quantity > p.stock" db-prepare
   db-ok? if
-    dup db-step SQLITE_ROW = if
+    dup db-step SQLITE_ROW i.= if
       dup 0 db-column-int 0 =  # True if count is 0 (no insufficient items)
       swap db-finalize drop
     else
@@ -503,7 +503,7 @@ include std:stack-utils
   calculate-cart-total
   # Stack: ( db total count )
 
-  dup 0 = if
+  dup 0 i.= if
     # Empty cart
     drop drop
     "Cart is empty - nothing to checkout"
@@ -582,11 +582,11 @@ include std:stack-utils
   # Stack: ( db request product_str qty_str )
 
   # Validate params present
-  over string.length 0 = if
+  over string.length 0 i.= if
     3drop
     "Missing 'product' parameter" http-bad-request
   else
-    dup string.length 0 = if
+    dup string.length 0 i.= if
       3drop
       "Missing 'qty' parameter" http-bad-request
     else
@@ -598,7 +598,7 @@ include std:stack-utils
           # product parsed successfully ( db request qty_int product_int )
           swap  # ( db request product_int qty_int )
           # Validate qty is positive
-          dup 0 > if
+          dup 0 i.> if
             rot drop  # ( db product_int qty_int )
             add-to-cart
             http-ok
@@ -620,7 +620,7 @@ include std:stack-utils
 
 : handle-remove-from-cart ( Int String -- Int String )
   dup http-query-string "id" query-param
-  dup string.length 0 = if
+  dup string.length 0 i.= if
     drop drop
     "Missing 'id' parameter" http-bad-request
   else
@@ -744,7 +744,7 @@ include std:stack-utils
 
   # Initialize DB schema and seed data, then close the setup connection
   init-db
-  dup 0 = if
+  dup 0 i.= if
     drop
     "Failed to initialize database" io.write-line
   else

@@ -16,7 +16,7 @@
 : worker-loop ( Int Int Int -- )
   2 pick chan.receive     # ( work done count value )
   chan.yield              # yield to let other workers compete
-  dup 0 < if              # sentinel check (-1 means stop)
+  dup 0 i.< if            # sentinel check (-1 means stop)
     drop swap chan.send drop
   else
     drop 1 i.add worker-loop
@@ -32,7 +32,7 @@
 # Spawn N workers recursively
 # ( work-chan done-chan n -- )
 : spawn-workers ( Int Int Int -- )
-  dup 0 > if
+  dup 0 i.> if
     2 pick 2 pick [ worker ] spawn drop drop drop
     1 i.subtract spawn-workers
   else
@@ -43,7 +43,7 @@
 # Collect N results recursively
 # ( done-chan total remaining -- total )
 : collect-results ( Int Int Int -- Int )
-  dup 0 > if
+  dup 0 i.> if
     2 pick chan.receive rot i.add swap 1 i.subtract collect-results
   else
     drop swap drop
@@ -53,7 +53,7 @@
 # Producer: send n messages (no yields - batched for performance)
 # ( work-chan n -- )
 : producer ( Int Int -- )
-  dup 0 > if
+  dup 0 i.> if
     dup 2 pick chan.send
     1 i.subtract producer
   else
@@ -64,7 +64,7 @@
 # Send N sentinel values to signal workers to stop
 # ( work-chan n -- )
 : send-sentinels ( Int Int -- )
-  dup 0 > if
+  dup 0 i.> if
     -1 2 pick chan.send
     1 i.subtract send-sentinels
   else
@@ -117,7 +117,7 @@
   dup "Time: " swap int->string string.concat " ms" string.concat io.write-line
 
   # Calculate throughput: messages * 1000 / ms
-  dup 0 = if
+  dup 0 i.= if
     drop 0
   else
     num-messages 1000 i.multiply swap i.divide

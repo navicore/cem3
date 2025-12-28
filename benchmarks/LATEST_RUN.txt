@@ -1,5 +1,5 @@
 # Benchmark run record - DO NOT EDIT MANUALLY
 # This file is checked by CI to ensure benchmarks are run regularly
-timestamp: 2025-12-27T00:40:39Z
-commit: b8dcad7
+timestamp: 2025-12-28T16:42:58Z
+commit: 4383e01
 benchmarks_run: all

@@ -21,7 +21,7 @@
     chan.make  # ( result-chan num size child-chan )
 
     # Calculate child size: size / 10
-    over 10 divide  # ( result-chan num size child-chan child-size )
+    over 10 i.divide  # ( result-chan num size child-chan child-size )
 
     # We need to spawn 10 children with:
     #   child's result-chan = our child-chan
@@ -29,63 +29,63 @@
     #   child's size = child-size
 
     # Spawn child 0
-    3 pick 10 multiply 0 add  # compute num*10+0 ( ... child-num0 )
+    3 pick 10 i.multiply 0 i.add  # compute num*10+0 ( ... child-num0 )
     2 pick                     # get child-chan ( ... child-num0 child-chan )
     swap                       # ( ... child-chan child-num0 )
     2 pick                     # get child-size ( ... child-chan child-num0 child-size )
     [ skynet ] spawn drop      # spawn and drop strand-id
-    drop drop drop             # cleanup the 3 spawn args we added
+    drop drop drop             # cleanup the 3 spawn args we i.added
 
     # Spawn child 1
-    3 pick 10 multiply 1 add
+    3 pick 10 i.multiply 1 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 2
-    3 pick 10 multiply 2 add
+    3 pick 10 i.multiply 2 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 3
-    3 pick 10 multiply 3 add
+    3 pick 10 i.multiply 3 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 4
-    3 pick 10 multiply 4 add
+    3 pick 10 i.multiply 4 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 5
-    3 pick 10 multiply 5 add
+    3 pick 10 i.multiply 5 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 6
-    3 pick 10 multiply 6 add
+    3 pick 10 i.multiply 6 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 7
-    3 pick 10 multiply 7 add
+    3 pick 10 i.multiply 7 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 8
-    3 pick 10 multiply 8 add
+    3 pick 10 i.multiply 8 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
 
     # Spawn child 9
-    3 pick 10 multiply 9 add
+    3 pick 10 i.multiply 9 i.add
     2 pick swap 2 pick
     [ skynet ] spawn drop
     drop drop drop
@@ -98,15 +98,15 @@
 
     # Receive and sum 10 results
     dup chan.receive  # ( result-chan child-chan sum )
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
-    over chan.receive add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
+    over chan.receive i.add
 
     # Stack: ( result-chan child-chan sum )
     # Send sum to parent's result-chan
@@ -131,8 +131,8 @@
 
   # ( start result end )
   rot           # ( result end start )
-  subtract      # ( result end-start = elapsed )
-  1000000 divide  # ( result ms )
+  i.subtract    # ( result end-start = elapsed )
+  1000000 i.divide  # ( result ms )
 
   # Print results
   swap          # ( ms result )

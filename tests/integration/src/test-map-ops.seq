@@ -8,26 +8,28 @@
   map.size 2 test.assert-eq
 ;
 
-# Test map.get
+# Test map.get (now returns value and success flag)
 : test-map.get ( -- )
   map.make
   "key" "value" map.set
-  "key" map.get "value" string.equal? test.assert
+  "key" map.get         # ( value Bool )
+  test.assert           # success flag should be true
+  "value" string.equal? test.assert
 ;
 
-# Test map.get-safe found
-: test-map.get-safe-found ( -- )
+# Test map.get found
+: test-map.get-found ( -- )
   map.make "x" 42 map.set
-  "x" map.get-safe
+  "x" map.get
   test.assert  # success flag
   42 test.assert-eq
 ;
 
-# Test map.get-safe not found
-: test-map.get-safe-not-found ( -- )
+# Test map.get not found
+: test-map.get-not-found ( -- )
   map.make
-  "missing" map.get-safe
-  test.assert-not  # returns 0 when not found
+  "missing" map.get
+  test.assert-not  # returns false when not found
   drop  # drop placeholder value
 ;
 
@@ -72,7 +74,8 @@
   1 "one" map.set
   2 "two" map.set
   3 "three" map.set
-  2 map.get "two" string.equal? test.assert
+  2 map.get drop  # drop success flag
+  "two" string.equal? test.assert
 ;
 
 # Test with boolean keys
@@ -80,7 +83,8 @@
   map.make
   true "yes" map.set
   false "no" map.set
-  true map.get "yes" string.equal? test.assert
+  true map.get drop  # drop success flag
+  "yes" string.equal? test.assert
 ;
 
 # Test key overwrite behavior
@@ -89,7 +93,8 @@
   "key" 100 map.set
   "key" 200 map.set
   dup map.size 1 test.assert-eq
-  "key" map.get 200 test.assert-eq
+  "key" map.get drop  # drop success flag
+  200 test.assert-eq
 ;
 
 # Test mixed key types in same map

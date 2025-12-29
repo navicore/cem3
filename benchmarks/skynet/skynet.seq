@@ -3,6 +3,10 @@
 # Spawns strands in a tree structure.
 # Tests: spawn overhead, message passing.
 #
+# NOTE: Success flags from channel operations are intentionally not checked
+# in benchmarks to measure raw throughput. Production code should always
+# check the Bool return from chan.send/chan.receive.
+#
 # Reduced size for testing: 100000 = 10^5
 
 # Skynet worker: if size=1, send my num. Otherwise spawn 10 children.

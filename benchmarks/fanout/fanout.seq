@@ -4,6 +4,10 @@
 # Uses MPMC channels - multiple workers receive from the same channel.
 # Workers yield after each receive to enable fair work distribution.
 #
+# NOTE: Success flags from channel operations are intentionally not checked
+# in benchmarks to measure raw throughput. Production code should always
+# check the Bool return from chan.send/chan.receive.
+#
 # Default: 1,000,000 messages, 100 workers
 
 # Configuration

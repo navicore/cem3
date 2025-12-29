@@ -81,3 +81,42 @@ severity = "hint"
 # NOTE: "immediate-drop" pattern ([ drop) removed - it incorrectly matches
 # across statement boundaries. Will be re-added when quotation-specific
 # linting is implemented in Phase 2.
+
+# =============================================================================
+# Unchecked Error Returns
+# =============================================================================
+# Operations that return success flags should have their flags checked.
+# Dropping the flag without checking can hide errors.
+#
+# NOTE: These are "hint" severity for now because:
+# 1. The type checker can't express divergent early-exit patterns (#134)
+# 2. We don't have a lint suppression mechanism yet (#135)
+# Once those are addressed, consider upgrading to "warning".
+
+[[lint]]
+id = "unchecked-chan-send"
+pattern = "chan.send drop"
+replacement = ""
+message = "`chan.send` returns a success flag - dropping it hides send failures"
+severity = "hint"
+
+[[lint]]
+id = "unchecked-chan-receive"
+pattern = "chan.receive drop"
+replacement = ""
+message = "`chan.receive` returns (value Bool) - check the Bool before using the value"
+severity = "hint"
+
+[[lint]]
+id = "unchecked-map-get"
+pattern = "map.get drop"
+replacement = ""
+message = "`map.get` returns (value Bool) - check the Bool before using the value"
+severity = "hint"
+
+[[lint]]
+id = "unchecked-file-slurp"
+pattern = "file.slurp drop"
+replacement = ""
+message = "`file.slurp` returns (content Bool) - check the Bool before using the content"
+severity = "hint"

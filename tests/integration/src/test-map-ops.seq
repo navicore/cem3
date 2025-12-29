@@ -74,7 +74,8 @@
   1 "one" map.set
   2 "two" map.set
   3 "three" map.set
-  2 map.get drop  # drop success flag
+  2 map.get
+  test.assert  # check success flag
   "two" string.equal? test.assert
 ;
 
@@ -83,7 +84,8 @@
   map.make
   true "yes" map.set
   false "no" map.set
-  true map.get drop  # drop success flag
+  true map.get
+  test.assert  # check success flag
   "yes" string.equal? test.assert
 ;
 
@@ -93,7 +95,8 @@
   "key" 100 map.set
   "key" 200 map.set
   dup map.size 1 test.assert-eq
-  "key" map.get drop  # drop success flag
+  "key" map.get
+  test.assert  # check success flag
   200 test.assert-eq
 ;
 

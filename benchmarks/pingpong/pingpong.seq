@@ -3,6 +3,10 @@
 # Two strands exchange messages N times.
 # Tests: channel round-trip latency, context switch overhead.
 #
+# NOTE: Success flags from channel operations are intentionally not checked
+# in benchmarks to measure raw throughput. Production code should always
+# check the Bool return from chan.send/chan.receive.
+#
 # Default: 1,000,000 round trips
 
 # Number of round trips

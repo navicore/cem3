@@ -59,8 +59,13 @@
 ;
 
 # Check if a bit is set at position n
-: bit-set? ( Int Int -- Int )
+: bit-set? ( Int Int -- Bool )
   1 swap shl band 0 i.<>
+;
+
+# Convert bool to string for display
+: bool->str ( Bool -- String )
+  if "true" else "false" then
 ;
 
 # Set bit at position n
@@ -105,8 +110,8 @@
   "Bit operations:" io.write-line
   "  value = 0b1010 (10)" io.write-line
   "" io.write-line
-  "  bit 1 set? " io.write-line 0b1010 1 bit-set? int->string io.write-line
-  "  bit 2 set? " io.write-line 0b1010 2 bit-set? int->string io.write-line
+  "  bit 1 set? " io.write-line 0b1010 1 bit-set? bool->str io.write-line
+  "  bit 2 set? " io.write-line 0b1010 2 bit-set? bool->str io.write-line
   "" io.write-line
   "  set bit 0:    " io.write-line 0b1010 0 bit-set int->string io.write-line
   "  clear bit 1:  " io.write-line 0b1010 1 bit-clear int->string io.write-line

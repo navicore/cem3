@@ -186,13 +186,13 @@
 ;
 
 # Parse a simple "key: value" line
-# Stack: ( String -- YamlValue Int )
+# Stack: ( String -- YamlValue Bool )
 # Returns an object with one key-value pair, and success flag
-: yaml-parse-line ( ..rest String -- ..rest Variant Int )
+: yaml-parse-line ( ..rest String -- ..rest Variant Bool )
   dup yaml-find-colon
   dup 0 i.< if
     # No colon found - not a valid key-value
-    drop drop yaml-empty-object 0
+    drop drop yaml-empty-object false
   else
     # Found colon at position
     # Stack: str colonpos
@@ -204,7 +204,7 @@
     yaml-empty-object           # keystr value obj
     rot rot                     # obj keystr value
     yaml-obj-with               # obj'
-    1
+    true
   then
 ;
 
@@ -219,15 +219,15 @@
 ;
 
 # Check if string is empty or whitespace-only
-: yaml-is-blank-line ( ..rest String -- ..rest Int )
+: yaml-is-blank-line ( ..rest String -- ..rest Bool )
   string.trim string.empty?
 ;
 
 # Check if string starts with # (comment)
-: yaml-is-comment ( ..rest String -- ..rest Int )
+: yaml-is-comment ( ..rest String -- ..rest Bool )
   string.trim
   dup string.empty? if
-    drop 0
+    drop false
   else
     0 string.char-at 35 i.=
   then
@@ -296,9 +296,9 @@
 ;
 
 # Parse YAML (flat) - handles single or multi-line documents without nesting
-: yaml-parse-flat ( ..rest String -- ..rest Variant Int )
+: yaml-parse-flat ( ..rest String -- ..rest Variant Bool )
   yaml-empty-object swap yaml-parse-lines
-  dup variant.field-count 0 i.> if 1 else 0 then
+  dup variant.field-count 0 i.> if true else false then
 ;
 
 # ============================================================================
@@ -321,17 +321,17 @@
 ;
 
 # Check if a line is "key-only" (has colon with nothing after)
-# Stack: ( String -- Int )
-: yaml-is-key-only? ( ..rest String -- ..rest Int )
+# Stack: ( String -- Bool )
+: yaml-is-key-only? ( ..rest String -- ..rest Bool )
   string.trim
   dup yaml-find-colon
   dup 0 i.< if
-    drop drop 0
+    drop drop false
   else
     # Check what's after the colon
     1 i.add
     over string.length over i.<= if
-      drop drop 1  # colon is at end
+      drop drop true  # colon is at end
     else
       over string.length over i.subtract
       string.substring string.trim string.empty?
@@ -537,7 +537,7 @@
 ;
 
 # Check if first line is blank
-: yaml-first-line-is-blank? ( ..rest String -- ..rest Int )
+: yaml-first-line-is-blank? ( ..rest String -- ..rest Bool )
   dup yaml-find-newline
   dup 0 i.< if
     drop yaml-is-blank-line
@@ -547,7 +547,7 @@
 ;
 
 # Check if first line is a comment
-: yaml-first-line-is-comment? ( ..rest String -- ..rest Int )
+: yaml-first-line-is-comment? ( ..rest String -- ..rest Bool )
   dup yaml-find-newline
   dup 0 i.< if
     drop yaml-is-comment
@@ -603,10 +603,10 @@
 ;
 
 # Parse nested YAML content recursively
-# Stack: ( String -- Variant Int )
-: yaml-parse-nested ( ..rest String -- ..rest Variant Int )
+# Stack: ( String -- Variant Bool )
+: yaml-parse-nested ( ..rest String -- ..rest Variant Bool )
   yaml-empty-object swap yaml-parse-nested-lines
-  dup variant.field-count 0 i.> if 1 else 0 then
+  dup variant.field-count 0 i.> if true else false then
 ;
 
 # Parse multiple lines with nesting support
@@ -648,8 +648,8 @@
 ;
 
 # Check if first line of a string is key-only
-# Stack: ( String -- Int )
-: yaml-first-line-is-key-only? ( ..rest String -- ..rest Int )
+# Stack: ( String -- Bool )
+: yaml-first-line-is-key-only? ( ..rest String -- ..rest Bool )
   dup yaml-find-newline
   dup 0 i.< if
     drop yaml-is-key-only?
@@ -659,7 +659,7 @@
 ;
 
 # Main entry point - handles nested YAML
-: yaml-parse ( ..rest String -- ..rest Variant Int )
+: yaml-parse ( ..rest String -- ..rest Variant Bool )
   yaml-parse-nested
 ;
 

@@ -45,7 +45,7 @@ include "parser"
 : make-closure ( Variant Variant Variant -- Variant )
   60 variant.make-3 ;
 
-: closure? ( Variant -- Int )
+: closure? ( Variant -- Bool )
   variant.tag 60 i.= ;
 
 : closure-params ( Variant -- Variant )

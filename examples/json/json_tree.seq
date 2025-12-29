@@ -36,7 +36,7 @@ include std:json
 
 # Check if argument looks like a file (ends with .json)
 # Non-destructive: keeps the string on stack
-: is-json-file? ( String -- String Int )
+: is-json-file? ( String -- String Bool )
   dup ".json" string.contains
 ;
 
@@ -85,7 +85,7 @@ include std:json
     "" io.write-line
 
     json-parse
-    0 i.= if
+    not if
       drop
       "Parse error!" io.write-line
       1

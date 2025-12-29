@@ -120,12 +120,12 @@ pub unsafe extern "C" fn patch_seq_list_map(stack: Stack) -> Stack {
     }
 }
 
-/// Filter a list, keeping elements where quotation returns non-zero
+/// Filter a list, keeping elements where quotation returns true
 ///
 /// Stack effect: ( Variant Quotation -- Variant )
 ///
-/// The quotation should have effect ( elem -- Int )
-/// Elements are kept if the quotation returns non-zero.
+/// The quotation should have effect ( elem -- Bool )
+/// Elements are kept if the quotation returns true.
 ///
 /// # Safety
 /// Stack must have a Quotation/Closure on top and a Variant below
@@ -160,15 +160,15 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
             let temp_base = crate::stack::alloc_stack();
             let temp_stack = call_with_value(temp_base, field.clone(), &callable);
 
-            // Pop result - quotation should have effect ( elem -- Int )
+            // Pop result - quotation should have effect ( elem -- Bool )
             if temp_stack <= temp_base {
                 panic!("list-filter: quotation consumed element without producing result");
             }
             let (remaining, result) = pop(temp_stack);
 
             let keep = match result {
-                Value::Int(n) => n != 0,
-                _ => panic!("list-filter: quotation must return Int, got {:?}", result),
+                Value::Bool(b) => b,
+                _ => panic!("list-filter: quotation must return Bool, got {:?}", result),
             };
 
             if keep {
@@ -325,9 +325,9 @@ pub unsafe extern "C" fn patch_seq_list_length(stack: Stack) -> Stack {
 
 /// Check if a list is empty
 ///
-/// Stack effect: ( Variant -- Int )
+/// Stack effect: ( Variant -- Bool )
 ///
-/// Returns 1 if the list has no elements, 0 otherwise.
+/// Returns true if the list has no elements, false otherwise.
 ///
 /// # Safety
 /// Stack must have a Variant on top
@@ -337,17 +337,11 @@ pub unsafe extern "C" fn patch_seq_list_empty(stack: Stack) -> Stack {
         let (stack, list_val) = pop(stack);
 
         let is_empty = match list_val {
-            Value::Variant(v) => {
-                if v.fields.is_empty() {
-                    1i64
-                } else {
-                    0i64
-                }
-            }
+            Value::Variant(v) => v.fields.is_empty(),
             _ => panic!("list-empty?: expected Variant (list), got {:?}", list_val),
         };
 
-        push(stack, Value::Int(is_empty))
+        push(stack, Value::Bool(is_empty))
     }
 }
 
@@ -379,7 +373,7 @@ mod tests {
         unsafe {
             let (stack, val) = pop(stack);
             match val {
-                Value::Int(n) => push(stack, Value::Int(if n > 0 { 1 } else { 0 })),
+                Value::Int(n) => push(stack, Value::Bool(n > 0)),
                 _ => panic!("Expected Int"),
             }
         }
@@ -554,7 +548,7 @@ mod tests {
             let stack = list_empty(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -568,7 +562,7 @@ mod tests {
             let stack = list_empty(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 

@@ -267,7 +267,7 @@ union Message {
 
 # Look up in a registry
 # Stack: ( registry path -- channel-id found? )
-: lookup-store ( Variant String -- Int Int )
+: lookup-store ( Variant String -- Int Bool )
   map.get-safe   # ( value found? )
 ;
 
@@ -568,13 +568,13 @@ union Message {
 
 # Check if string ends with suffix
 # Stack: ( str suffix -- bool )
-: string-ends-with? ( String String -- Int )
+: string-ends-with? ( String String -- Bool )
   dup string.length         # ( str suffix suffix-len )
   rot dup string.length     # ( suffix suffix-len str str-len )
   rot                       # ( suffix str str-len suffix-len )
   2dup i.< if
     # suffix longer than string - can't match
-    3drop drop 0
+    3drop drop false
   else
     # Get the end of the string
     i.subtract                # ( suffix str offset )
@@ -596,7 +596,7 @@ union Message {
   # Stack: ( registry socket path )
   2 pick swap lookup-store  # ( registry socket chan found? )
 
-  0 i.= if
+  not if
     # Store not found
     drop                    # ( registry socket )
     "Store not found" http-not-found
@@ -623,7 +623,7 @@ union Message {
   # Stack: ( registry socket path )
   2 pick swap lookup-store  # ( registry socket chan found? )
 
-  0 i.= if
+  not if
     drop                    # ( registry socket )
     "Store not found" http-not-found
     over tcp.write
@@ -649,7 +649,7 @@ union Message {
   # Stack: ( registry socket path )
   2 pick swap lookup-store  # ( registry socket chan found? )
 
-  0 i.= if
+  not if
     # Actor not found
     drop                    # ( registry socket )
     "Actor not found" http-not-found

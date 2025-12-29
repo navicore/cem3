@@ -136,8 +136,8 @@ pub unsafe extern "C" fn patch_seq_test_finish(stack: Stack) -> Stack {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_test_has_failures(stack: Stack) -> Stack {
     let ctx = TEST_CONTEXT.lock().unwrap();
-    let has_failures = if ctx.has_failures() { 1 } else { 0 };
-    unsafe { push(stack, Value::Int(has_failures)) }
+    let has_failures = ctx.has_failures();
+    unsafe { push(stack, Value::Bool(has_failures)) }
 }
 
 /// Assert that a value is truthy (non-zero)

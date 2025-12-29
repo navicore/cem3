@@ -30,19 +30,19 @@ union ParseResult {
 # Token Predicates
 # ============================================
 
-: is-lparen ( String -- Int )
+: is-lparen ( String -- Bool )
   "(" string.equal? ;
 
-: is-rparen ( String -- Int )
+: is-rparen ( String -- Bool )
   ")" string.equal? ;
 
-: is-digit ( Int -- Int )
+: is-digit ( Int -- Bool )
   dup 48 i.>= swap 57 i.<= and ;
 
-: is-number-token ( String -- Int )
+: is-number-token ( String -- Bool )
   # Check if first char is a digit or minus followed by digit
   dup string.length 0 i.= if
-    drop 0
+    drop false
   else
     dup 0 string.char-at
     dup 45 i.= if
@@ -50,7 +50,7 @@ union ParseResult {
       drop dup string.length 1 i.> if
         1 string.char-at is-digit
       else
-        drop 0
+        drop false
       then
     else
       is-digit nip

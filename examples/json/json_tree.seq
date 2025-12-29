@@ -70,7 +70,12 @@ include std:json
   else
     # No argument - read from stdin
     "Paste JSON and press Enter:" io.write-line
-    io.read-line string.chomp
+    io.read-line  # ( String Bool )
+    if
+      string.chomp
+    else
+      drop ""  # I/O error or EOF - return empty string
+    then
   then
 ;
 

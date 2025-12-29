@@ -74,13 +74,8 @@ pub unsafe extern "C" fn patch_seq_file_exists(stack: Stack) -> Stack {
 
     match value {
         Value::String(path) => {
-            let exists = if Path::new(path.as_str()).exists() {
-                1i64
-            } else {
-                0i64
-            };
-
-            unsafe { push(rest, Value::Int(exists)) }
+            let exists = Path::new(path.as_str()).exists();
+            unsafe { push(rest, Value::Bool(exists)) }
         }
         _ => panic!(
             "file-exists?: expected String path on stack, got {:?}",
@@ -91,10 +86,10 @@ pub unsafe extern "C" fn patch_seq_file_exists(stack: Stack) -> Stack {
 
 /// Read entire file contents as a string, with error handling
 ///
-/// Stack effect: ( String -- String Int )
+/// Stack effect: ( String -- String Bool )
 ///
 /// Takes a file path, attempts to read the entire file.
-/// Returns (contents 1) on success, or ("" 0) on failure.
+/// Returns (contents true) on success, or ("" false) on failure.
 /// Failure cases: file not found, permission denied, not valid UTF-8, etc.
 ///
 /// # Safety
@@ -110,11 +105,11 @@ pub unsafe extern "C" fn patch_seq_file_slurp_safe(stack: Stack) -> Stack {
         Value::String(path) => match fs::read_to_string(path.as_str()) {
             Ok(contents) => {
                 let stack = unsafe { push(rest, Value::String(contents.into())) };
-                unsafe { push(stack, Value::Int(1)) }
+                unsafe { push(stack, Value::Bool(true)) }
             }
             Err(_) => {
                 let stack = unsafe { push(rest, Value::String("".into())) };
-                unsafe { push(stack, Value::Int(0)) }
+                unsafe { push(stack, Value::Bool(false)) }
             }
         },
         _ => panic!(
@@ -239,14 +234,14 @@ pub unsafe extern "C" fn patch_seq_file_for_each_line_plus(stack: Stack) -> Stac
             Err(e) => {
                 // I/O error mid-file
                 let stack = unsafe { push(current_stack, Value::String(e.to_string().into())) };
-                return unsafe { push(stack, Value::Int(0)) };
+                return unsafe { push(stack, Value::Bool(false)) };
             }
         }
     }
 
-    // Success: ( "" 1 )
+    // Success: ( "" true )
     let stack = unsafe { push(current_stack, Value::String("".into())) };
-    unsafe { push(stack, Value::Int(1)) }
+    unsafe { push(stack, Value::Bool(true)) }
 }
 
 // Public re-exports
@@ -292,7 +287,7 @@ mod tests {
             let stack = patch_seq_file_exists(stack);
 
             let (_stack, value) = pop(stack);
-            assert_eq!(value, Value::Int(1));
+            assert_eq!(value, Value::Bool(true));
         }
     }
 
@@ -304,7 +299,7 @@ mod tests {
             let stack = patch_seq_file_exists(stack);
 
             let (_stack, value) = pop(stack);
-            assert_eq!(value, Value::Int(0));
+            assert_eq!(value, Value::Bool(false));
         }
     }
 
@@ -358,7 +353,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, contents) = pop(stack);
-            assert_eq!(success, Value::Int(1));
+            assert_eq!(success, Value::Bool(true));
             match contents {
                 Value::String(s) => assert_eq!(s.as_str().trim(), "Safe read!"),
                 _ => panic!("Expected String"),
@@ -375,7 +370,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, contents) = pop(stack);
-            assert_eq!(success, Value::Int(0));
+            assert_eq!(success, Value::Bool(false));
             match contents {
                 Value::String(s) => assert_eq!(s.as_str(), ""),
                 _ => panic!("Expected String"),
@@ -395,7 +390,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, contents) = pop(stack);
-            assert_eq!(success, Value::Int(1)); // Empty file is still success
+            assert_eq!(success, Value::Bool(true)); // Empty file is still success
             match contents {
                 Value::String(s) => assert_eq!(s.as_str(), ""),
                 _ => panic!("Expected String"),

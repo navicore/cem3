@@ -3369,9 +3369,8 @@ impl CodeGen {
             zext, cmp_result
         )?;
 
-        // Store result as Value::Int (discriminant 0 at slot0, value at slot1)
-        // Comparison results are Forth-style: 0 for false, 1 for true
-        writeln!(&mut self.output, "  store i64 0, ptr %{}", ptr_a)?;
+        // Store result as Value::Bool (discriminant 2 at slot0, 0/1 at slot1)
+        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
         writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
 
         // SP = SP - 1 (consumed b)
@@ -3638,9 +3637,8 @@ impl CodeGen {
             zext, cmp_result
         )?;
 
-        // Store result as Value::Int (discriminant 0 at slot0, value at slot1)
-        // Comparison results are Forth-style: 0 for false, 1 for true
-        writeln!(&mut self.output, "  store i64 0, ptr %{}", ptr_a)?;
+        // Store result as Value::Bool (discriminant 2 at slot0, 0/1 at slot1)
+        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
         writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
 
         // SP = SP - 1 (consumed b)

@@ -126,28 +126,28 @@
 
 # Check if request is GET method
 # Stack effect: ( request -- bool )
-: http-is-get ( String -- Int )
+: http-is-get ( String -- Bool )
   http-request-method
   "GET" string.equal?
 ;
 
 # Check if request is POST method
 # Stack effect: ( request -- bool )
-: http-is-post ( String -- Int )
+: http-is-post ( String -- Bool )
   http-request-method
   "POST" string.equal?
 ;
 
 # Check if request path matches
 # Stack effect: ( request path -- bool )
-: http-path-is ( String String -- Int )
+: http-path-is ( String String -- Bool )
   swap http-request-path
   swap string.equal?
 ;
 
 # Check if request path starts with prefix
 # Stack effect: ( request prefix -- bool )
-: http-path-starts-with ( String String -- Int )
+: http-path-starts-with ( String String -- Bool )
   swap http-request-path
   swap string.starts-with
 ;

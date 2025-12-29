@@ -1,0 +1,66 @@
+# Cond Combinator Example
+#
+# The `cond` combinator provides multi-way conditional branching using
+# quotation pairs. It's a concatenative alternative to match/case statements.
+#
+# Stack effect: ( value [pred1] [body1] ... [predN] [bodyN] N -- result )
+#
+# How it works:
+#   1. Push the value to test
+#   2. Push N predicate/body quotation pairs
+#   3. Push the count N
+#   4. Call cond - tries predicates in order, runs first matching body
+#
+# Each predicate: ( value -- value Bool ) - KEEPS value, ADDS true or false
+# Each body:      ( value -- result )     - consumes value, produces result
+#
+# Default case pattern: [ true ] [ body ] - always matches
+
+# Example 1: Classify a number as negative, zero, or positive
+: classify ( Int -- String )
+  [ dup 0 i.< ]  [ drop "negative" ]
+  [ dup 0 i.= ]  [ drop "zero" ]
+  [ true ]       [ drop "positive" ]  # default case: always matches
+  3 cond
+;
+
+# Example 2: FizzBuzz logic using cond
+: fizzbuzz ( Int -- String )
+  [ dup 15 i.% 0 i.= ]  [ drop "FizzBuzz" ]
+  [ dup 3 i.% 0 i.= ]   [ drop "Fizz" ]
+  [ dup 5 i.% 0 i.= ]   [ drop "Buzz" ]
+  [ true ]              [ int->string ]
+  4 cond
+;
+
+# Example 3: Grade letter from score
+: grade ( Int -- String )
+  [ dup 90 i.>= ]  [ drop "A" ]
+  [ dup 80 i.>= ]  [ drop "B" ]
+  [ dup 70 i.>= ]  [ drop "C" ]
+  [ dup 60 i.>= ]  [ drop "D" ]
+  [ true ]         [ drop "F" ]
+  5 cond
+;
+
+: main ( -- )
+  "=== Classify Numbers ===" io.write-line
+  0 5 i.- classify io.write-line   # -5 -> "negative"
+  0 classify io.write-line          # 0  -> "zero"
+  42 classify io.write-line         # 42 -> "positive"
+
+  "" io.write-line
+  "=== FizzBuzz ===" io.write-line
+  1 fizzbuzz io.write-line    # 1
+  3 fizzbuzz io.write-line    # Fizz
+  5 fizzbuzz io.write-line    # Buzz
+  15 fizzbuzz io.write-line   # FizzBuzz
+
+  "" io.write-line
+  "=== Grades ===" io.write-line
+  95 grade io.write-line   # A
+  85 grade io.write-line   # B
+  75 grade io.write-line   # C
+  65 grade io.write-line   # D
+  55 grade io.write-line   # F
+;

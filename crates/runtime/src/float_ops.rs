@@ -259,11 +259,11 @@ pub unsafe extern "C" fn patch_seq_string_to_float(stack: Stack) -> Stack {
         Value::String(s) => match s.as_str().parse::<f64>() {
             Ok(f) => {
                 let stack = unsafe { push(stack, Value::Float(f)) };
-                unsafe { push(stack, Value::Int(1)) }
+                unsafe { push(stack, Value::Bool(true)) }
             }
             Err(_) => {
                 let stack = unsafe { push(stack, Value::Float(0.0)) };
-                unsafe { push(stack, Value::Int(0)) }
+                unsafe { push(stack, Value::Bool(false)) }
             }
         },
         _ => panic!("string->float: expected String on stack"),

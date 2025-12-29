@@ -686,15 +686,15 @@ impl TypeChecker {
         else_branch: &Option<Vec<Statement>>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst), String> {
-        // Pop condition (must be Int/Bool)
+        // Pop condition (must be Bool)
         let (stack_after_cond, cond_type) = self.pop_type(&current_stack, "if condition")?;
 
-        // Condition must be Int (Forth-style: 0 = false, non-zero = true)
+        // Condition must be Bool
         let cond_subst = unify_stacks(
-            &StackType::singleton(Type::Int),
+            &StackType::singleton(Type::Bool),
             &StackType::singleton(cond_type),
         )
-        .map_err(|e| format!("if condition must be Int: {}", e))?;
+        .map_err(|e| format!("if condition must be Bool: {}", e))?;
 
         let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
 
@@ -806,7 +806,7 @@ impl TypeChecker {
     ) -> Result<(StackType, Subst), String> {
         match statement {
             Statement::IntLiteral(_) => Ok((current_stack.push(Type::Int), Subst::empty())),
-            Statement::BoolLiteral(_) => Ok((current_stack.push(Type::Int), Subst::empty())),
+            Statement::BoolLiteral(_) => Ok((current_stack.push(Type::Bool), Subst::empty())),
             Statement::StringLiteral(_) => Ok((current_stack.push(Type::String), Subst::empty())),
             Statement::FloatLiteral(_) => Ok((current_stack.push(Type::Float), Subst::empty())),
             Statement::Match { arms } => self.infer_match(arms, current_stack),
@@ -1163,7 +1163,7 @@ mod tests {
                 name: "test".to_string(),
                 effect: None,
                 body: vec![
-                    Statement::IntLiteral(1),
+                    Statement::BoolLiteral(true),
                     Statement::If {
                         then_branch: vec![Statement::IntLiteral(42)],
                         else_branch: Some(vec![Statement::StringLiteral("string".to_string())]),
@@ -1705,8 +1705,8 @@ mod tests {
 
     #[test]
     fn test_bool_literal() {
-        // : test ( -- Int ) true ;
-        // Booleans are represented as Int in the type system
+        // : test ( -- Bool ) true ;
+        // Booleans are now properly typed as Bool
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1714,7 +1714,7 @@ mod tests {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
                     StackType::Empty,
-                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Bool),
                 )),
                 body: vec![Statement::BoolLiteral(true)],
                 source: None,
@@ -1800,9 +1800,9 @@ mod tests {
     #[test]
     fn test_comparison_operations() {
         // Test all comparison operators
-        // : test ( Int Int -- Int Int Int Int Int Int )
-        //   2dup = 2dup < 2dup > 2dup <= 2dup >= 2dup <> ;
-        // Simplified: just test that comparisons work
+        // : test ( Int Int -- Bool )
+        //   i.<= ;
+        // Simplified: just test that comparisons work and return Bool
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1810,7 +1810,7 @@ mod tests {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
                     StackType::Empty.push(Type::Int).push(Type::Int),
-                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Bool),
                 )),
                 body: vec![Statement::WordCall {
                     name: "i.<=".to_string(),

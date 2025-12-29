@@ -25,7 +25,7 @@ union TokState {
 : tcons ( String TokenList -- TokenList )
   Make-TCons ;
 
-: tnil? ( TokenList -- Int )
+: tnil? ( TokenList -- Bool )
   variant.tag 0 i.= ;
 
 : tcar ( TokenList -- String )

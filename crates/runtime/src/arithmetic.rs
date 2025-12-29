@@ -133,7 +133,7 @@ pub unsafe extern "C" fn patch_seq_eq(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "=") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Int(if a_val == b_val { 1 } else { 0 }))
+            push(rest, Value::Bool(a_val == b_val))
         },
         _ => panic!("=: expected two integers on stack"),
     }
@@ -150,9 +150,7 @@ pub unsafe extern "C" fn patch_seq_eq(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_lt(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "<") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Int(if a_val < b_val { 1 } else { 0 }))
-        },
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe { push(rest, Value::Bool(a_val < b_val)) },
         _ => panic!("<: expected two integers on stack"),
     }
 }
@@ -168,9 +166,7 @@ pub unsafe extern "C" fn patch_seq_lt(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_gt(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, ">") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Int(if a_val > b_val { 1 } else { 0 }))
-        },
+        (Value::Int(a_val), Value::Int(b_val)) => unsafe { push(rest, Value::Bool(a_val > b_val)) },
         _ => panic!(">: expected two integers on stack"),
     }
 }
@@ -187,7 +183,7 @@ pub unsafe extern "C" fn patch_seq_lte(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "<=") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Int(if a_val <= b_val { 1 } else { 0 }))
+            push(rest, Value::Bool(a_val <= b_val))
         },
         _ => panic!("<=: expected two integers on stack"),
     }
@@ -205,7 +201,7 @@ pub unsafe extern "C" fn patch_seq_gte(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, ">=") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Int(if a_val >= b_val { 1 } else { 0 }))
+            push(rest, Value::Bool(a_val >= b_val))
         },
         _ => panic!(">=: expected two integers on stack"),
     }
@@ -223,7 +219,7 @@ pub unsafe extern "C" fn patch_seq_neq(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "<>") };
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => unsafe {
-            push(rest, Value::Int(if a_val != b_val { 1 } else { 0 }))
+            push(rest, Value::Bool(a_val != b_val))
         },
         _ => panic!("<>: expected two integers on stack"),
     }
@@ -604,27 +600,27 @@ mod tests {
     #[test]
     fn test_comparisons() {
         unsafe {
-            // Test eq (returns 1 for true, 0 for false - Forth style)
+            // Test eq (returns true/false Bool)
             let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 5);
             let stack = push_int(stack, 5);
             let stack = eq(stack);
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1)); // 1 = true
+            assert_eq!(result, Value::Bool(true));
 
             // Test lt
             let stack = push_int(stack, 3);
             let stack = push_int(stack, 5);
             let stack = lt(stack);
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1)); // 1 = true
+            assert_eq!(result, Value::Bool(true));
 
             // Test gt
             let stack = push_int(stack, 7);
             let stack = push_int(stack, 5);
             let stack = gt(stack);
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1)); // 1 = true
+            assert_eq!(result, Value::Bool(true));
         }
     }
 

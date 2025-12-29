@@ -85,9 +85,9 @@ pub use scheduler::{
 };
 
 // Channel operations (exported for LLVM linking)
+// Note: All channel ops now return success flags (errors are values, not crashes)
 pub use channel::{
-    patch_seq_chan_receive as receive, patch_seq_chan_receive_safe as receive_safe,
-    patch_seq_chan_send as send, patch_seq_chan_send_safe as send_safe,
+    patch_seq_chan_receive as receive, patch_seq_chan_send as send,
     patch_seq_close_channel as close_channel, patch_seq_make_channel as make_channel,
 };
 
@@ -154,7 +154,7 @@ pub use args::{
 pub use file::{
     patch_seq_file_exists as file_exists,
     patch_seq_file_for_each_line_plus as file_for_each_line_plus,
-    patch_seq_file_slurp as file_slurp, patch_seq_file_slurp_safe as file_slurp_safe,
+    patch_seq_file_slurp as file_slurp,
 };
 
 // List operations (exported for LLVM linking)
@@ -167,10 +167,9 @@ pub use list_ops::{
 // Map operations (exported for LLVM linking)
 pub use map_ops::{
     patch_seq_make_map as make_map, patch_seq_map_empty as map_empty, patch_seq_map_get as map_get,
-    patch_seq_map_get_safe as map_get_safe, patch_seq_map_has as map_has,
-    patch_seq_map_keys as map_keys, patch_seq_map_remove as map_remove,
-    patch_seq_map_set as map_set, patch_seq_map_size as map_size,
-    patch_seq_map_values as map_values,
+    patch_seq_map_has as map_has, patch_seq_map_keys as map_keys,
+    patch_seq_map_remove as map_remove, patch_seq_map_set as map_set,
+    patch_seq_map_size as map_size, patch_seq_map_values as map_values,
 };
 
 // Test framework operations (exported for LLVM linking)

@@ -3,6 +3,10 @@
 # Spawns strands in a tree structure.
 # Tests: spawn overhead, message passing.
 #
+# NOTE: Success flags from channel operations are intentionally not checked
+# in benchmarks to measure raw throughput. Production code should always
+# check the Bool return from chan.send/chan.receive.
+#
 # Reduced size for testing: 100000 = 10^5
 
 # Skynet worker: if size=1, send my num. Otherwise spawn 10 children.
@@ -13,6 +17,7 @@
     drop       # drop size ( result-chan num )
     swap       # ( num result-chan )
     chan.send  # send num to channel
+    drop       # drop success flag
   else
     # Branch: spawn 10 children, collect results
     # Stack: ( result-chan num size )
@@ -97,21 +102,21 @@
     swap drop  # swap and drop num ( result-chan child-chan )
 
     # Receive and sum 10 results
-    dup chan.receive  # ( result-chan child-chan sum )
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
-    over chan.receive i.add
+    dup chan.receive drop  # ( result-chan child-chan sum )
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
 
     # Stack: ( result-chan child-chan sum )
     # Send sum to parent's result-chan
     swap drop  # ( result-chan sum )
-    swap chan.send  # sends sum to result-chan
+    swap chan.send drop  # sends sum to result-chan, drop success flag
   then
 ;
 
@@ -125,7 +130,8 @@
   dup 0 100000 [ skynet ] spawn drop drop drop drop
 
   # Wait for result
-  chan.receive  # ( start result )
+  chan.receive  # ( start result success )
+  drop          # drop success flag ( start result )
 
   time.nanos    # end time
 

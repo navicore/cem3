@@ -54,7 +54,8 @@ pub unsafe extern "C" fn patch_seq_variant_tag(stack: Stack) -> Stack {
 /// Stack effect: ( Variant Int -- Value )
 ///
 /// Returns a clone of the field value at the specified index.
-/// Panics if index is out of bounds.
+/// Panics if index is out of bounds (this is a programming bug, not recoverable).
+/// Use variant.field-count to check bounds first if needed.
 ///
 /// # Safety
 /// Stack must have a Variant and Int on top

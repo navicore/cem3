@@ -40,10 +40,14 @@ include std:json
   dup ".json" string.contains
 ;
 
-# Read file or return empty string if not found
+# Read file or return empty string if not found/unreadable
 : read-json-file ( String -- String )
   dup file.exists? if
-    file.slurp
+    file.slurp if
+      # success - content is on stack
+    else
+      drop ""  # failed to read - return empty string
+    then
   else
     drop ""
   then
@@ -66,7 +70,12 @@ include std:json
   else
     # No argument - read from stdin
     "Paste JSON and press Enter:" io.write-line
-    io.read-line string.chomp
+    io.read-line  # ( String Bool )
+    if
+      string.chomp
+    else
+      drop ""  # I/O error or EOF - return empty string
+    then
   then
 ;
 

@@ -79,9 +79,11 @@ pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
 
 /// Read a line from stdin
 ///
-/// Returns the line including trailing newline.
-/// Returns empty string "" at EOF.
-/// Use `string-chomp` to remove trailing newlines if needed.
+/// Returns the line and a success flag:
+/// - ( line true ) on success (line includes trailing newline)
+/// - ( "" false ) on I/O error or EOF
+///
+/// Use `string.chomp` to remove trailing newlines if needed.
 ///
 /// # Line Ending Normalization
 ///
@@ -89,7 +91,9 @@ pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
 /// `\r\n` endings are converted to `\n`. This ensures consistent behavior
 /// across different operating systems.
 ///
-/// Stack effect: ( -- str )
+/// Stack effect: ( -- String Bool )
+///
+/// Errors are values, not crashes.
 ///
 /// # Safety
 /// Always safe to call
@@ -100,30 +104,40 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
     let stdin = io::stdin();
     let mut line = String::new();
 
-    stdin
-        .lock()
-        .read_line(&mut line)
-        .expect("read_line: failed to read from stdin (I/O error or EOF)");
-
-    // Normalize line endings: \r\n -> \n
-    if line.ends_with("\r\n") {
-        line.pop(); // remove \n
-        line.pop(); // remove \r
-        line.push('\n'); // add back \n
+    match stdin.lock().read_line(&mut line) {
+        Ok(0) => {
+            // EOF - return empty string and false
+            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
+            unsafe { push(stack, Value::Bool(false)) }
+        }
+        Ok(_) => {
+            // Normalize line endings: \r\n -> \n
+            if line.ends_with("\r\n") {
+                line.pop(); // remove \n
+                line.pop(); // remove \r
+                line.push('\n'); // add back \n
+            }
+            let stack = unsafe { push(stack, Value::String(line.into())) };
+            unsafe { push(stack, Value::Bool(true)) }
+        }
+        Err(_) => {
+            // I/O error - return empty string and false
+            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
+            unsafe { push(stack, Value::Bool(false)) }
+        }
     }
-
-    unsafe { push(stack, Value::String(line.into())) }
 }
 
 /// Read a line from stdin with explicit EOF detection
 ///
 /// Returns the line and a status flag:
 /// - ( line 1 ) on success (line includes trailing newline)
-/// - ( "" 0 ) at EOF
+/// - ( "" 0 ) at EOF or I/O error
 ///
 /// Stack effect: ( -- String Int )
 ///
 /// The `+` suffix indicates this returns a result pattern (value + status).
+/// Errors are values, not crashes.
 ///
 /// # Line Ending Normalization
 ///
@@ -140,23 +154,28 @@ pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
     let stdin = io::stdin();
     let mut line = String::new();
 
-    let bytes_read = stdin
-        .lock()
-        .read_line(&mut line)
-        .expect("read_line_safe: failed to read from stdin");
-
-    // Normalize line endings: \r\n -> \n
-    if line.ends_with("\r\n") {
-        line.pop(); // remove \n
-        line.pop(); // remove \r
-        line.push('\n'); // add back \n
+    match stdin.lock().read_line(&mut line) {
+        Ok(0) => {
+            // EOF
+            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
+            unsafe { push(stack, Value::Int(0)) }
+        }
+        Ok(_) => {
+            // Normalize line endings: \r\n -> \n
+            if line.ends_with("\r\n") {
+                line.pop(); // remove \n
+                line.pop(); // remove \r
+                line.push('\n'); // add back \n
+            }
+            let stack = unsafe { push(stack, Value::String(line.into())) };
+            unsafe { push(stack, Value::Int(1)) }
+        }
+        Err(_) => {
+            // I/O error - treat like EOF
+            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
+            unsafe { push(stack, Value::Int(0)) }
+        }
     }
-
-    // bytes_read == 0 means EOF
-    let status = if bytes_read > 0 { 1i64 } else { 0i64 };
-
-    let stack = unsafe { push(stack, Value::String(line.into())) };
-    unsafe { push(stack, Value::Int(status)) }
 }
 
 /// Maximum bytes allowed for a single read_n call (10MB)
@@ -185,13 +204,15 @@ fn validate_read_n_count(value: &Value) -> Result<usize, String> {
 ///
 /// Returns the bytes read and a status flag:
 /// - ( string 1 ) on success (read all N bytes)
-/// - ( string 0 ) at EOF or partial read (string may be shorter than N)
+/// - ( string 0 ) at EOF, partial read, or error (string may be shorter than N)
 ///
 /// Stack effect: ( Int -- String Int )
 ///
 /// Like `io.read-line+`, this returns a result pattern (value + status) to allow
 /// explicit EOF detection. The function name omits the `+` suffix for brevity
 /// since byte-count reads are inherently status-oriented.
+///
+/// Errors are values, not crashes.
 ///
 /// This is used for protocols like LSP where message bodies are byte-counted
 /// and don't have trailing newlines.
@@ -211,7 +232,16 @@ pub unsafe extern "C" fn patch_seq_read_n(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "read_n: stack is empty");
 
     let (stack, value) = unsafe { pop(stack) };
-    let n = validate_read_n_count(&value).unwrap_or_else(|e| panic!("{}", e));
+
+    // Validate input - return error status for invalid input
+    let n = match validate_read_n_count(&value) {
+        Ok(n) => n,
+        Err(_) => {
+            // Invalid input - return empty string and error status
+            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
+            return unsafe { push(stack, Value::Int(0)) };
+        }
+    };
 
     let stdin = io::stdin();
     let mut buffer = vec![0u8; n];
@@ -224,7 +254,7 @@ pub unsafe extern "C" fn patch_seq_read_n(stack: Stack) -> Stack {
                 Ok(0) => break, // EOF
                 Ok(bytes_read) => total_read += bytes_read,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => panic!("read_n: failed to read from stdin: {}", e),
+                Err(_) => break, // I/O error - stop reading, return what we have
             }
         }
     }

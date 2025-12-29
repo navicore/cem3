@@ -23,15 +23,15 @@
 //! ## Stack Effects
 //!
 //! - `chan.make`: ( -- Channel ) - creates a new channel
-//! - `chan.send`: ( value Channel -- ) - sends value through channel
-//! - `chan.receive`: ( Channel -- value ) - receives value from channel
+//! - `chan.send`: ( value Channel -- Bool ) - sends value, returns success
+//! - `chan.receive`: ( Channel -- value Bool ) - receives value and success flag
 //!
 //! ## Error Handling
 //!
-//! Two variants are available for send/receive:
+//! All operations return success flags - errors are values, not crashes:
 //!
-//! - `send` / `receive` - Panic on errors (closed channel)
-//! - `send-safe` / `receive-safe` - Return success flag instead of panicking
+//! - `chan.send`: ( value Channel -- Bool ) - returns true on success, false on closed
+//! - `chan.receive`: ( Channel -- value Bool ) - returns value and success flag
 
 use crate::stack::{Stack, pop, push};
 use crate::value::{ChannelData, Value};
@@ -60,83 +60,6 @@ pub unsafe extern "C" fn patch_seq_make_channel(stack: Stack) -> Stack {
     unsafe { push(stack, Value::Channel(channel)) }
 }
 
-/// Send a value through a channel
-///
-/// Stack effect: ( value Channel -- )
-///
-/// Cooperatively blocks if the channel is full until space becomes available.
-/// The strand yields and May handles scheduling.
-///
-/// # Safety
-/// Stack must have a Channel on top and a value below it
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "send: stack is empty");
-
-    // Pop channel
-    let (stack, channel_value) = unsafe { pop(stack) };
-    let channel = match channel_value {
-        Value::Channel(ch) => ch,
-        _ => panic!("send: expected Channel on stack, got {:?}", channel_value),
-    };
-
-    assert!(!stack.is_null(), "send: stack has only one value");
-
-    // Pop value to send
-    let (rest, value) = unsafe { pop(stack) };
-
-    // Clone the value before sending to ensure arena strings are promoted to global
-    // This prevents use-after-free when sender's arena is reset before receiver accesses
-    let global_value = value.clone();
-
-    // Send the value directly - NO mutex, NO registry lookup
-    // May's scheduler will handle the blocking cooperatively
-    channel
-        .sender
-        .send(global_value)
-        .expect("send: channel closed");
-
-    rest
-}
-
-/// Receive a value from a channel
-///
-/// Stack effect: ( Channel -- value )
-///
-/// Cooperatively blocks until a value is available.
-/// The strand yields and May handles scheduling.
-///
-/// ## Multi-Consumer Support
-///
-/// Multiple strands can receive from the same channel concurrently (MPMC).
-/// Each message is delivered to exactly one receiver (work-stealing semantics).
-///
-/// # Safety
-/// Stack must have a Channel on top
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "receive: stack is empty");
-
-    // Pop channel
-    let (rest, channel_value) = unsafe { pop(stack) };
-    let channel = match channel_value {
-        Value::Channel(ch) => ch,
-        _ => panic!(
-            "receive: expected Channel on stack, got {:?}",
-            channel_value
-        ),
-    };
-
-    // Receive a value directly - NO mutex, NO registry lookup
-    // May's recv() yields to the scheduler, not blocking the OS thread
-    let value = match channel.receiver.recv() {
-        Ok(v) => v,
-        Err(_) => panic!("receive: channel closed"),
-    };
-
-    unsafe { push(rest, value) }
-}
-
 /// Close a channel (drop it from the stack)
 ///
 /// Stack effect: ( Channel -- )
@@ -163,18 +86,18 @@ pub unsafe extern "C" fn patch_seq_close_channel(stack: Stack) -> Stack {
     rest
 }
 
-/// Send a value through a channel, with error handling
+/// Send a value through a channel
 ///
-/// Stack effect: ( value Channel -- success_flag )
+/// Stack effect: ( value Channel -- Bool )
 ///
-/// Returns true on success, false on failure (closed channel or wrong type).
-/// Does not panic on errors - returns false instead.
+/// Returns true on success, false on failure (closed channel).
+/// Errors are values, not crashes.
 ///
 /// # Safety
 /// Stack must have a Channel on top and a value below it
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "send-safe: stack is empty");
+pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "chan.send: stack is empty");
 
     // Pop channel
     let (stack, channel_value) = unsafe { pop(stack) };
@@ -208,12 +131,12 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
     }
 }
 
-/// Receive a value from a channel, with error handling
+/// Receive a value from a channel
 ///
-/// Stack effect: ( Channel -- value success_flag )
+/// Stack effect: ( Channel -- value Bool )
 ///
-/// Returns (value, true) on success, (0, false) on failure (closed channel or wrong type).
-/// Does not panic on errors - returns (0, false) instead.
+/// Returns (value, true) on success, (0, false) on failure (closed channel).
+/// Errors are values, not crashes.
 ///
 /// ## Multi-Consumer Support
 ///
@@ -223,8 +146,8 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have a Channel on top
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "receive-safe: stack is empty");
+pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "chan.receive: stack is empty");
 
     // Pop channel
     let (rest, channel_value) = unsafe { pop(stack) };
@@ -252,9 +175,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
 
 // Public re-exports with short names for internal use
 pub use patch_seq_chan_receive as receive;
-pub use patch_seq_chan_receive_safe as receive_safe;
 pub use patch_seq_chan_send as send;
-pub use patch_seq_chan_send_safe as send_safe;
 pub use patch_seq_close_channel as close_channel;
 pub use patch_seq_make_channel as make_channel;
 
@@ -291,12 +212,18 @@ mod tests {
             stack = push(stack, channel_value.clone());
             stack = send(stack);
 
+            // Check send succeeded
+            let (stack, send_success) = pop(stack);
+            assert_eq!(send_success, Value::Bool(true));
+
             // Receive value
-            stack = push(stack, channel_value);
+            let mut stack = push(stack, channel_value);
             stack = receive(stack);
 
-            // Should have received value
+            // Check receive succeeded and got correct value
+            let (stack, recv_success) = pop(stack);
             let (_stack, received) = pop(stack);
+            assert_eq!(recv_success, Value::Bool(true));
             assert_eq!(received, Value::Int(42));
         }
     }
@@ -316,10 +243,15 @@ mod tests {
             stack = push(stack, ch1);
             stack = send(stack);
 
+            // Pop send success flag
+            let (stack, _) = pop(stack);
+
             // Receive on ch2
-            stack = push(stack, ch2);
+            let mut stack = push(stack, ch2);
             stack = receive(stack);
 
+            // Pop success flag then value
+            let (stack, _) = pop(stack);
             let (_, received) = pop(stack);
             assert_eq!(received, Value::Int(99));
         }
@@ -337,14 +269,18 @@ mod tests {
             for i in 1..=5 {
                 let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
                 stack = push(stack, channel_value.clone());
-                let _ = send(stack);
+                stack = send(stack);
+                let (_, success) = pop(stack);
+                assert_eq!(success, Value::Bool(true));
             }
 
             // Receive them back in order
             for i in 1..=5 {
                 let mut stack = push(crate::stack::alloc_test_stack(), channel_value.clone());
                 stack = receive(stack);
+                let (stack, success) = pop(stack);
                 let (_, received) = pop(stack);
+                assert_eq!(success, Value::Bool(true));
                 assert_eq!(received, Value::Int(i));
             }
         }
@@ -401,7 +337,10 @@ mod tests {
                     // Send through channel
                     let stack = push(crate::stack::alloc_test_stack(), Value::String(msg));
                     let stack = push(stack, Value::Channel(channel_clone));
-                    send(stack)
+                    let stack = send(stack);
+                    // Pop success flag (we trust it worked for this test)
+                    let (stack, _) = pop(stack);
+                    stack
                 }
             }
 
@@ -420,6 +359,8 @@ mod tests {
                         Value::Channel(channel_clone),
                     );
                     stack = receive(stack);
+                    // Pop success flag first
+                    let (stack, _) = pop(stack);
                     let (_, msg_val) = pop(stack);
 
                     match msg_val {
@@ -447,45 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_safe_success() {
-        unsafe {
-            let mut stack = crate::stack::alloc_test_stack();
-            stack = make_channel(stack);
-            let (_, channel_value) = pop(stack);
-
-            // Send using send-safe
-            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, channel_value.clone());
-            stack = send_safe(stack);
-
-            // Should return success (true)
-            let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(true));
-
-            // Receive to verify
-            let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
-            stack = receive(stack);
-            let (_, received) = pop(stack);
-            assert_eq!(received, Value::Int(42));
-        }
-    }
-
-    #[test]
-    fn test_send_safe_wrong_type() {
-        unsafe {
-            // Try to send with Int instead of Channel
-            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
-            stack = push(stack, Value::Int(999)); // Wrong type
-            stack = send_safe(stack);
-
-            // Should return failure (false)
-            let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Bool(false));
-        }
-    }
-
-    #[test]
-    fn test_receive_safe_success() {
+    fn test_send_success() {
         unsafe {
             let mut stack = crate::stack::alloc_test_stack();
             stack = make_channel(stack);
@@ -494,11 +397,52 @@ mod tests {
             // Send value
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
             stack = push(stack, channel_value.clone());
-            let _ = send(stack);
+            stack = send(stack);
 
-            // Receive using receive-safe
+            // Should return success (true)
+            let (stack, result) = pop(stack);
+            assert_eq!(result, Value::Bool(true));
+
+            // Receive to verify
+            let mut stack = push(stack, channel_value);
+            stack = receive(stack);
+            let (stack, success) = pop(stack);
+            let (_, received) = pop(stack);
+            assert_eq!(success, Value::Bool(true));
+            assert_eq!(received, Value::Int(42));
+        }
+    }
+
+    #[test]
+    fn test_send_wrong_type() {
+        unsafe {
+            // Try to send with Int instead of Channel
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
+            stack = push(stack, Value::Int(999)); // Wrong type
+            stack = send(stack);
+
+            // Should return failure (false)
+            let (_stack, result) = pop(stack);
+            assert_eq!(result, Value::Bool(false));
+        }
+    }
+
+    #[test]
+    fn test_receive_success() {
+        unsafe {
+            let mut stack = crate::stack::alloc_test_stack();
+            stack = make_channel(stack);
+            let (_, channel_value) = pop(stack);
+
+            // Send value
+            let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
+            stack = push(stack, channel_value.clone());
+            stack = send(stack);
+            let (_, _) = pop(stack); // pop send success
+
+            // Receive
             let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
-            stack = receive_safe(stack);
+            stack = receive(stack);
 
             // Should return (value, true)
             let (stack, success) = pop(stack);
@@ -509,11 +453,11 @@ mod tests {
     }
 
     #[test]
-    fn test_receive_safe_wrong_type() {
+    fn test_receive_wrong_type() {
         unsafe {
             // Try to receive with Int instead of Channel
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(999));
-            stack = receive_safe(stack);
+            stack = receive(stack);
 
             // Should return (0, false)
             let (stack, success) = pop(stack);
@@ -595,7 +539,7 @@ mod tests {
                             crate::stack::alloc_test_stack(),
                             Value::Channel(channel_clone.clone()),
                         );
-                        stack = receive_safe(stack);
+                        stack = receive(stack);
                         let (stack, success) = pop(stack);
                         let (_, value) = pop(stack);
 

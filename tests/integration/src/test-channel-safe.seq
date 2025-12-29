@@ -1,30 +1,32 @@
-# Test chan.send-safe and chan.receive-safe error handling
+# Test chan.send and chan.receive error handling
+# Note: All channel operations now return success flags (errors are values, not crashes)
 
-# Test chan.send-safe with valid channel
-: test-chan.send-safe-success ( -- )
+# Test chan.send with valid channel
+: test-chan.send-success ( -- )
   chan.make  # create channel, get ID
-  42 swap chan.send-safe
+  42 swap chan.send
   test.assert
 ;
 
-# Test chan.send-safe with invalid channel ID
-: test-chan.send-safe-invalid ( -- )
-  42 999999 chan.send-safe  # non-existent channel
-  test.assert-not  # should return 0 (failure)
+# Test chan.send with invalid channel ID
+: test-chan.send-invalid ( -- )
+  42 999999 chan.send  # non-existent channel
+  test.assert-not  # should return false (failure)
 ;
 
-# Test chan.receive-safe with valid channel
-: test-chan.receive-safe-success ( -- )
+# Test chan.receive with valid channel
+: test-chan.receive-success ( -- )
   chan.make  # create channel, get ID
-  dup 42 swap chan.send # send value
-  chan.receive-safe  # returns (value success_flag)
+  dup 42 swap chan.send  # send value, returns success flag
+  drop  # drop send success flag
+  chan.receive  # returns (value success_flag)
   test.assert  # success flag should be true
   42 test.assert-eq  # value should be 42
 ;
 
-# Test chan.receive-safe with invalid channel ID
-: test-chan.receive-safe-invalid ( -- )
-  999999 chan.receive-safe  # non-existent channel
-  test.assert-not  # should return 0 (failure)
+# Test chan.receive with invalid channel ID
+: test-chan.receive-invalid ( -- )
+  999999 chan.receive  # non-existent channel
+  test.assert-not  # should return false (failure)
   drop  # drop the placeholder value
 ;

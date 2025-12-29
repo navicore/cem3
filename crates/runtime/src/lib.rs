@@ -85,9 +85,9 @@ pub use scheduler::{
 };
 
 // Channel operations (exported for LLVM linking)
+// Note: All channel ops now return success flags (errors are values, not crashes)
 pub use channel::{
-    patch_seq_chan_receive as receive, patch_seq_chan_receive_safe as receive_safe,
-    patch_seq_chan_send as send, patch_seq_chan_send_safe as send_safe,
+    patch_seq_chan_receive as receive, patch_seq_chan_send as send,
     patch_seq_close_channel as close_channel, patch_seq_make_channel as make_channel,
 };
 

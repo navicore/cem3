@@ -370,13 +370,12 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
     // =========================================================================
     // Channel Operations (CSP-style concurrency)
+    // Errors are values, not crashes - all ops return success flags
     // =========================================================================
 
     builtin!(sigs, "chan.make", (a -- a Int));
-    builtin!(sigs, "chan.send", (a T Int -- a));
-    builtin!(sigs, "chan.send-safe", (a T Int -- a Bool));
-    builtin!(sigs, "chan.receive", (a Int -- a T));
-    builtin!(sigs, "chan.receive-safe", (a Int -- a T Bool));
+    builtin!(sigs, "chan.send", (a T Int -- a Bool)); // returns success flag
+    builtin!(sigs, "chan.receive", (a Int -- a T Bool)); // returns value and success flag
     builtin!(sigs, "chan.close", (a Int -- a));
     builtin!(sigs, "chan.yield", (a - -a));
 

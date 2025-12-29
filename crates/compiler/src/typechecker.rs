@@ -1336,7 +1336,8 @@ mod tests {
         // : test ( -- )
         //   chan.make     # ( -- Int )
         //   42 swap       # ( Int Int -- Int Int )
-        //   chan.send     # ( Int Int -- )
+        //   chan.send     # ( Int Int -- Bool )
+        //   drop          # ( Bool -- )
         // ;
         let program = Program {
             includes: vec![],
@@ -1356,6 +1357,10 @@ mod tests {
                     },
                     Statement::WordCall {
                         name: "chan.send".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
                         span: None,
                     },
                 ],

@@ -87,9 +87,9 @@ pub unsafe extern "C" fn patch_seq_map_get(stack: Stack) -> Stack {
 
 /// Get a value from the map by key, with error handling
 ///
-/// Stack effect: ( Map key -- value Int )
+/// Stack effect: ( Map key -- value Bool )
 ///
-/// Returns (value 1) if found, or (0 0) if not found.
+/// Returns (value true) if found, or (0 false) if not found.
 /// Panics if the key type is not hashable.
 ///
 /// # Safety
@@ -117,11 +117,11 @@ pub unsafe extern "C" fn patch_seq_map_get_safe(stack: Stack) -> Stack {
         match map.get(&key) {
             Some(value) => {
                 let stack = push(stack, value.clone());
-                push(stack, Value::Int(1))
+                push(stack, Value::Bool(true))
             }
             None => {
                 let stack = push(stack, Value::Int(0)); // placeholder value
-                push(stack, Value::Int(0)) // not found
+                push(stack, Value::Bool(false)) // not found
             }
         }
     }
@@ -193,8 +193,8 @@ pub unsafe extern "C" fn patch_seq_map_has(stack: Stack) -> Stack {
             _ => panic!("map-has?: expected Map, got {:?}", map_val),
         };
 
-        let has_key = if map.contains_key(&key) { 1i64 } else { 0i64 };
-        push(stack, Value::Int(has_key))
+        let has_key = map.contains_key(&key);
+        push(stack, Value::Bool(has_key))
     }
 }
 
@@ -318,8 +318,8 @@ pub unsafe extern "C" fn patch_seq_map_empty(stack: Stack) -> Stack {
             _ => panic!("map-empty?: expected Map, got {:?}", map_val),
         };
 
-        let is_empty = if map.is_empty() { 1i64 } else { 0i64 };
-        push(stack, Value::Int(is_empty))
+        let is_empty = map.is_empty();
+        push(stack, Value::Bool(is_empty))
     }
 }
 
@@ -408,13 +408,13 @@ mod tests {
             let stack = push(stack, Value::String("key".into()));
             let stack = map_has(stack);
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
 
             // Check non-existing key (map is still on stack)
             let stack = push(stack, Value::String("missing".into()));
             let stack = map_has(stack);
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -439,13 +439,13 @@ mod tests {
             let stack = push(stack, Value::String("a".into()));
             let stack = map_has(stack);
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
 
             // Check "b" is still there (map is still on stack)
             let stack = push(stack, Value::String("b".into()));
             let stack = map_has(stack);
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -483,7 +483,7 @@ mod tests {
 
             let stack = map_empty(stack);
             let (stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
 
             // Non-empty
             let stack = make_map(stack);
@@ -493,7 +493,7 @@ mod tests {
 
             let stack = map_empty(stack);
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -548,7 +548,7 @@ mod tests {
 
             let (stack, flag) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(flag, Value::Int(1));
+            assert_eq!(flag, Value::Bool(true));
             assert_eq!(value, Value::Int(42));
         }
     }
@@ -564,7 +564,7 @@ mod tests {
 
             let (stack, flag) = pop(stack);
             let (_stack, _value) = pop(stack); // placeholder
-            assert_eq!(flag, Value::Int(0));
+            assert_eq!(flag, Value::Bool(false));
         }
     }
 

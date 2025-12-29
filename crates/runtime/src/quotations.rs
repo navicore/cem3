@@ -378,8 +378,8 @@ pub unsafe extern "C" fn patch_seq_while_loop(mut stack: Stack) -> Stack {
             // Pop the condition result
             let (stack_after_cond, cond_result) = pop(stack);
             let is_true = match cond_result {
-                Value::Int(n) => n != 0,
-                _ => panic!("while: condition must return Int, got {:?}", cond_result),
+                Value::Bool(b) => b,
+                _ => panic!("while: condition must return Bool, got {:?}", cond_result),
             };
 
             if !is_true {
@@ -461,8 +461,8 @@ pub unsafe extern "C" fn patch_seq_until_loop(mut stack: Stack) -> Stack {
             // Pop the condition result
             let (stack_after_cond, cond_result) = pop(stack);
             let is_true = match cond_result {
-                Value::Int(n) => n != 0,
-                _ => panic!("until: condition must return Int, got {:?}", cond_result),
+                Value::Bool(b) => b,
+                _ => panic!("until: condition must return Bool, got {:?}", cond_result),
             };
 
             if is_true {

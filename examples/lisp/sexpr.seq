@@ -43,16 +43,16 @@ union SexprList {
 # Predicates
 # ============================================
 
-: snum? ( Sexpr -- Int )
+: snum? ( Sexpr -- Bool )
   variant.tag 0 i.= ;
 
-: ssym? ( Sexpr -- Int )
+: ssym? ( Sexpr -- Bool )
   variant.tag 1 i.= ;
 
-: slist? ( Sexpr -- Int )
+: slist? ( Sexpr -- Bool )
   variant.tag 2 i.= ;
 
-: snil? ( SexprList -- Int )
+: snil? ( SexprList -- Bool )
   variant.tag 0 i.= ;
 
 # ============================================

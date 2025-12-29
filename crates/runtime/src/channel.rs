@@ -167,8 +167,8 @@ pub unsafe extern "C" fn patch_seq_close_channel(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( value Channel -- success_flag )
 ///
-/// Returns 1 on success, 0 on failure (closed channel or wrong type).
-/// Does not panic on errors - returns 0 instead.
+/// Returns true on success, false on failure (closed channel or wrong type).
+/// Does not panic on errors - returns false instead.
 ///
 /// # Safety
 /// Stack must have a Channel on top and a value below it
@@ -184,15 +184,15 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
             // Wrong type - consume value and return failure
             if !stack.is_null() {
                 let (rest, _value) = unsafe { pop(stack) };
-                return unsafe { push(rest, Value::Int(0)) };
+                return unsafe { push(rest, Value::Bool(false)) };
             }
-            return unsafe { push(stack, Value::Int(0)) };
+            return unsafe { push(stack, Value::Bool(false)) };
         }
     };
 
     if stack.is_null() {
         // No value to send - return failure
-        return unsafe { push(stack, Value::Int(0)) };
+        return unsafe { push(stack, Value::Bool(false)) };
     }
 
     // Pop value to send
@@ -203,8 +203,8 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
 
     // Send the value
     match channel.sender.send(global_value) {
-        Ok(()) => unsafe { push(rest, Value::Int(1)) },
-        Err(_) => unsafe { push(rest, Value::Int(0)) },
+        Ok(()) => unsafe { push(rest, Value::Bool(true)) },
+        Err(_) => unsafe { push(rest, Value::Bool(false)) },
     }
 }
 
@@ -212,8 +212,8 @@ pub unsafe extern "C" fn patch_seq_chan_send_safe(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( Channel -- value success_flag )
 ///
-/// Returns (value, 1) on success, (0, 0) on failure (closed channel or wrong type).
-/// Does not panic on errors - returns (0, 0) instead.
+/// Returns (value, true) on success, (0, false) on failure (closed channel or wrong type).
+/// Does not panic on errors - returns (0, false) instead.
 ///
 /// ## Multi-Consumer Support
 ///
@@ -233,7 +233,7 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
         _ => {
             // Wrong type - return failure
             let stack = unsafe { push(rest, Value::Int(0)) };
-            return unsafe { push(stack, Value::Int(0)) };
+            return unsafe { push(stack, Value::Bool(false)) };
         }
     };
 
@@ -241,11 +241,11 @@ pub unsafe extern "C" fn patch_seq_chan_receive_safe(stack: Stack) -> Stack {
     match channel.receiver.recv() {
         Ok(value) => {
             let stack = unsafe { push(rest, value) };
-            unsafe { push(stack, Value::Int(1)) }
+            unsafe { push(stack, Value::Bool(true)) }
         }
         Err(_) => {
             let stack = unsafe { push(rest, Value::Int(0)) };
-            unsafe { push(stack, Value::Int(0)) }
+            unsafe { push(stack, Value::Bool(false)) }
         }
     }
 }
@@ -458,9 +458,9 @@ mod tests {
             stack = push(stack, channel_value.clone());
             stack = send_safe(stack);
 
-            // Should return success (1)
+            // Should return success (true)
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
 
             // Receive to verify
             let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
@@ -478,9 +478,9 @@ mod tests {
             stack = push(stack, Value::Int(999)); // Wrong type
             stack = send_safe(stack);
 
-            // Should return failure (0)
+            // Should return failure (false)
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -500,10 +500,10 @@ mod tests {
             let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
             stack = receive_safe(stack);
 
-            // Should return (value, 1)
+            // Should return (value, true)
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(1));
+            assert_eq!(success, Value::Bool(true));
             assert_eq!(value, Value::Int(42));
         }
     }
@@ -515,10 +515,10 @@ mod tests {
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(999));
             stack = receive_safe(stack);
 
-            // Should return (0, 0)
+            // Should return (0, false)
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(0));
+            assert_eq!(success, Value::Bool(false));
             assert_eq!(value, Value::Int(0));
         }
     }
@@ -600,7 +600,7 @@ mod tests {
                         let (_, value) = pop(stack);
 
                         match (success, value) {
-                            (Value::Int(1), Value::Int(v)) => {
+                            (Value::Bool(true), Value::Int(v)) => {
                                 if v < 0 {
                                     break; // Sentinel
                                 }

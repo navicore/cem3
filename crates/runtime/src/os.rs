@@ -32,11 +32,11 @@ pub unsafe extern "C" fn patch_seq_getenv(stack: Stack) -> Stack {
         match std::env::var(name.as_str()) {
             Ok(value) => {
                 let stack = push(stack, Value::String(global_string(value)));
-                push(stack, Value::Int(1)) // success
+                push(stack, Value::Bool(true)) // success
             }
             Err(_) => {
                 let stack = push(stack, Value::String(global_string(String::new())));
-                push(stack, Value::Int(0)) // failure
+                push(stack, Value::Bool(false)) // failure
             }
         }
     }
@@ -56,19 +56,19 @@ pub unsafe extern "C" fn patch_seq_home_dir(stack: Stack) -> Stack {
         // Try HOME env var first (works on Unix and some Windows configs)
         if let Ok(home) = std::env::var("HOME") {
             let stack = push(stack, Value::String(global_string(home)));
-            return push(stack, Value::Int(1));
+            return push(stack, Value::Bool(true));
         }
 
         // On Windows, try USERPROFILE
         #[cfg(windows)]
         if let Ok(home) = std::env::var("USERPROFILE") {
             let stack = push(stack, Value::String(global_string(home)));
-            return push(stack, Value::Int(1));
+            return push(stack, Value::Bool(true));
         }
 
         // Fallback: return empty string with failure flag
         let stack = push(stack, Value::String(global_string(String::new())));
-        push(stack, Value::Int(0))
+        push(stack, Value::Bool(false))
     }
 }
 
@@ -87,11 +87,11 @@ pub unsafe extern "C" fn patch_seq_current_dir(stack: Stack) -> Stack {
             Ok(path) => {
                 let path_str = path.to_string_lossy().into_owned();
                 let stack = push(stack, Value::String(global_string(path_str)));
-                push(stack, Value::Int(1)) // success
+                push(stack, Value::Bool(true)) // success
             }
             Err(_) => {
                 let stack = push(stack, Value::String(global_string(String::new())));
-                push(stack, Value::Int(0)) // failure
+                push(stack, Value::Bool(false)) // failure
             }
         }
     }
@@ -118,7 +118,7 @@ pub unsafe extern "C" fn patch_seq_path_exists(stack: Stack) -> Stack {
         };
 
         let exists = std::path::Path::new(path.as_str()).exists();
-        push(stack, Value::Int(if exists { 1 } else { 0 }))
+        push(stack, Value::Bool(exists))
     }
 }
 
@@ -143,7 +143,7 @@ pub unsafe extern "C" fn patch_seq_path_is_file(stack: Stack) -> Stack {
         };
 
         let is_file = std::path::Path::new(path.as_str()).is_file();
-        push(stack, Value::Int(if is_file { 1 } else { 0 }))
+        push(stack, Value::Bool(is_file))
     }
 }
 
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn patch_seq_path_is_dir(stack: Stack) -> Stack {
         };
 
         let is_dir = std::path::Path::new(path.as_str()).is_dir();
-        push(stack, Value::Int(if is_dir { 1 } else { 0 }))
+        push(stack, Value::Bool(is_dir))
     }
 }
 
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn patch_seq_path_join(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( path -- parent success )
 ///
-/// Returns the parent directory and 1 on success, "" and 0 if no parent.
+/// Returns the parent directory and true on success, "" and false if no parent.
 ///
 /// # Safety
 /// Stack must have a String (path) on top
@@ -235,11 +235,11 @@ pub unsafe extern "C" fn patch_seq_path_parent(stack: Stack) -> Stack {
             Some(parent) => {
                 let parent_str = parent.to_string_lossy().into_owned();
                 let stack = push(stack, Value::String(global_string(parent_str)));
-                push(stack, Value::Int(1)) // success
+                push(stack, Value::Bool(true)) // success
             }
             None => {
                 let stack = push(stack, Value::String(global_string(String::new())));
-                push(stack, Value::Int(0)) // no parent
+                push(stack, Value::Bool(false)) // no parent
             }
         }
     }
@@ -249,7 +249,7 @@ pub unsafe extern "C" fn patch_seq_path_parent(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( path -- filename success )
 ///
-/// Returns the filename and 1 on success, "" and 0 if no filename.
+/// Returns the filename and true on success, "" and false if no filename.
 ///
 /// # Safety
 /// Stack must have a String (path) on top
@@ -269,11 +269,11 @@ pub unsafe extern "C" fn patch_seq_path_filename(stack: Stack) -> Stack {
             Some(filename) => {
                 let filename_str = filename.to_string_lossy().into_owned();
                 let stack = push(stack, Value::String(global_string(filename_str)));
-                push(stack, Value::Int(1)) // success
+                push(stack, Value::Bool(true)) // success
             }
             None => {
                 let stack = push(stack, Value::String(global_string(String::new())));
-                push(stack, Value::Int(0)) // no filename
+                push(stack, Value::Bool(false)) // no filename
             }
         }
     }

@@ -1,34 +1,69 @@
 //! Conditional combinator for multi-way branching
 //!
 //! Provides `cond` - a concatenative alternative to match/case statements.
+//! Uses quotation pairs (predicate + body) evaluated in order until one matches.
 
 use crate::stack::{Stack, pop};
 use crate::value::Value;
 
 /// Multi-way conditional combinator
 ///
-/// Takes N predicate/body quotation pairs from the stack, plus a value to test.
-/// Tries each predicate in order (last to first on stack). When a predicate
-/// returns non-zero, executes its corresponding body and returns.
+/// # Stack Effect
 ///
-/// Stack effect: ( value [pred1] [body1] [pred2] [body2] ... [predN] [bodyN] count -- result )
+/// `( value [pred1] [body1] ... [predN] [bodyN] N -- result )`
 ///
-/// Each predicate quotation has effect: ( value -- value bool )
-/// Each body quotation has effect: ( value -- result )
+/// # How It Works
 ///
-/// Example:
-/// ```cem
-/// : route ( request -- response )
-///   [ dup "GET /" = ]           [ drop "Hello" ]
-///   [ dup "/api" starts-with ]  [ get-users ]
-///   [ drop 1 ]                  [ drop "Not Found" ]
-///   3 cond ;
+/// 1. Takes a value and N predicate/body quotation pairs from the stack
+/// 2. Tries each predicate in order (first pair = first tried)
+/// 3. When a predicate returns true, executes its body and returns
+/// 4. Panics if no predicate matches (always include a default case)
+///
+/// # Quotation Contracts
+///
+/// - **Predicate**: `( value -- value Bool )` - keeps value on stack, pushes true or false
+/// - **Body**: `( value -- result )` - consumes value, produces result
+///
+/// # Default Case Pattern
+///
+/// Use `[ true ]` as the last predicate to create an "otherwise" case that always matches:
+///
+/// ```text
+/// [ true ] [ drop "default result" ]
+/// ```
+///
+/// # Example: Classify a Number
+///
+/// ```text
+/// : classify ( Int -- String )
+///   [ dup 0 i.< ]  [ drop "negative" ]
+///   [ dup 0 i.= ]  [ drop "zero" ]
+///   [ true ]       [ drop "positive" ]
+///   3 cond
+/// ;
+///
+/// -5 classify   # "negative"
+/// 0 classify    # "zero"
+/// 42 classify   # "positive"
+/// ```
+///
+/// # Example: FizzBuzz Logic
+///
+/// ```text
+/// : fizzbuzz ( Int -- String )
+///   [ dup 15 i.% 0 i.= ]  [ drop "FizzBuzz" ]
+///   [ dup 3 i.% 0 i.= ]   [ drop "Fizz" ]
+///   [ dup 5 i.% 0 i.= ]   [ drop "Buzz" ]
+///   [ true ]              [ int->string ]
+///   4 cond
+/// ;
 /// ```
 ///
 /// # Safety
-/// - Stack must have at least (2*count + 2) values
+///
+/// - Stack must have at least (2*N + 1) values (value + N pairs)
 /// - All predicate/body values must be Quotations
-/// - Predicates must return Int (0 or non-zero)
+/// - Predicates must return Bool
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_cond(mut stack: Stack) -> Stack {
     unsafe {
@@ -87,9 +122,8 @@ pub unsafe extern "C" fn patch_seq_cond(mut stack: Stack) -> Stack {
             let (stack_after_pred, pred_result) = pop(stack);
 
             let matches = match pred_result {
-                Value::Int(0) => false,
-                Value::Int(_) => true,
-                _ => panic!("cond: predicate must return Int, got {:?}", pred_result),
+                Value::Bool(b) => b,
+                _ => panic!("cond: predicate must return Bool, got {:?}", pred_result),
             };
 
             if matches {

@@ -66,8 +66,7 @@ pub unsafe extern "C" fn patch_seq_string_empty(stack: Stack) -> Stack {
     match value {
         Value::String(s) => {
             let is_empty = s.as_str().is_empty();
-            let result = if is_empty { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
+            unsafe { push(stack, Value::Bool(is_empty)) }
         }
         _ => panic!("string_empty: expected String on stack"),
     }
@@ -90,8 +89,7 @@ pub unsafe extern "C" fn patch_seq_string_contains(stack: Stack) -> Stack {
     match (str_val, substring_val) {
         (Value::String(s), Value::String(sub)) => {
             let contains = s.as_str().contains(sub.as_str());
-            let result = if contains { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
+            unsafe { push(stack, Value::Bool(contains)) }
         }
         _ => panic!("string_contains: expected two strings on stack"),
     }
@@ -114,8 +112,7 @@ pub unsafe extern "C" fn patch_seq_string_starts_with(stack: Stack) -> Stack {
     match (str_val, prefix_val) {
         (Value::String(s), Value::String(prefix)) => {
             let starts = s.as_str().starts_with(prefix.as_str());
-            let result = if starts { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
+            unsafe { push(stack, Value::Bool(starts)) }
         }
         _ => panic!("string_starts_with: expected two strings on stack"),
     }
@@ -421,8 +418,7 @@ pub unsafe extern "C" fn patch_seq_string_equal(stack: Stack) -> Stack {
     match (str1_val, str2_val) {
         (Value::String(s1), Value::String(s2)) => {
             let equal = s1.as_str() == s2.as_str();
-            let result = if equal { 1 } else { 0 };
-            unsafe { push(stack, Value::Int(result)) }
+            unsafe { push(stack, Value::Bool(equal)) }
         }
         _ => panic!("string_equal: expected two strings on stack"),
     }
@@ -496,11 +492,11 @@ pub unsafe extern "C" fn patch_seq_string_to_int(stack: Stack) -> Stack {
         Value::String(s) => match s.as_str().trim().parse::<i64>() {
             Ok(i) => {
                 let stack = unsafe { push(stack, Value::Int(i)) };
-                unsafe { push(stack, Value::Int(1)) }
+                unsafe { push(stack, Value::Bool(true)) }
             }
             Err(_) => {
                 let stack = unsafe { push(stack, Value::Int(0)) };
-                unsafe { push(stack, Value::Int(0)) }
+                unsafe { push(stack, Value::Bool(false)) }
             }
         },
         _ => panic!("string->int: expected String on stack"),
@@ -711,7 +707,7 @@ mod tests {
             let stack = string_empty(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -724,7 +720,7 @@ mod tests {
             let stack = string_empty(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -741,7 +737,7 @@ mod tests {
             let stack = string_contains(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -758,7 +754,7 @@ mod tests {
             let stack = string_contains(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -775,7 +771,7 @@ mod tests {
             let stack = string_starts_with(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -792,7 +788,7 @@ mod tests {
             let stack = string_starts_with(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -841,7 +837,7 @@ mod tests {
             let stack = string_starts_with(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -976,7 +972,7 @@ mod tests {
             let stack = string_equal(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -990,7 +986,7 @@ mod tests {
             let stack = string_equal(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(0));
+            assert_eq!(result, Value::Bool(false));
         }
     }
 
@@ -1004,7 +1000,7 @@ mod tests {
             let stack = string_equal(stack);
 
             let (_stack, result) = pop(stack);
-            assert_eq!(result, Value::Int(1));
+            assert_eq!(result, Value::Bool(true));
         }
     }
 
@@ -1480,7 +1476,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(1));
+            assert_eq!(success, Value::Bool(true));
             assert_eq!(value, Value::Int(42));
         }
     }
@@ -1495,7 +1491,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(1));
+            assert_eq!(success, Value::Bool(true));
             assert_eq!(value, Value::Int(-99));
         }
     }
@@ -1510,7 +1506,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(1));
+            assert_eq!(success, Value::Bool(true));
             assert_eq!(value, Value::Int(123));
         }
     }
@@ -1528,7 +1524,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(0));
+            assert_eq!(success, Value::Bool(false));
             assert_eq!(value, Value::Int(0));
         }
     }
@@ -1543,7 +1539,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(0));
+            assert_eq!(success, Value::Bool(false));
             assert_eq!(value, Value::Int(0));
         }
     }
@@ -1558,7 +1554,7 @@ mod tests {
 
             let (stack, success) = pop(stack);
             let (_stack, value) = pop(stack);
-            assert_eq!(success, Value::Int(1));
+            assert_eq!(success, Value::Bool(true));
             assert_eq!(value, Value::Int(7));
         }
     }

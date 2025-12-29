@@ -133,12 +133,10 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("drop", "patch_seq_drop_op"),
         ("pick", "patch_seq_pick_op"),
         ("roll", "patch_seq_roll"),
-        // Channel operations
+        // Channel operations (errors are values, not crashes)
         ("chan.make", "patch_seq_make_channel"),
         ("chan.send", "patch_seq_chan_send"),
-        ("chan.send-safe", "patch_seq_chan_send_safe"),
         ("chan.receive", "patch_seq_chan_receive"),
-        ("chan.receive-safe", "patch_seq_chan_receive_safe"),
         ("chan.close", "patch_seq_close_channel"),
         ("chan.yield", "patch_seq_yield_strand"),
         // Quotation operations
@@ -188,7 +186,6 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("string->int", "patch_seq_string_to_int"),
         // File operations
         ("file.slurp", "patch_seq_file_slurp"),
-        ("file.slurp-safe", "patch_seq_file_slurp_safe"),
         ("file.exists?", "patch_seq_file_exists"),
         ("file.for-each-line+", "patch_seq_file_for_each_line_plus"),
         // List operations
@@ -201,7 +198,6 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         // Map operations
         ("map.make", "patch_seq_make_map"),
         ("map.get", "patch_seq_map_get"),
-        ("map.get-safe", "patch_seq_map_get_safe"),
         ("map.set", "patch_seq_map_set"),
         ("map.has?", "patch_seq_map_has"),
         ("map.remove", "patch_seq_map_remove"),
@@ -722,9 +718,7 @@ impl CodeGen {
         writeln!(&mut ir, "; Concurrency operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_make_channel(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_chan_send(ptr)")?;
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_send_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_chan_receive(ptr)")?;
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
         writeln!(&mut ir, "declare void @patch_seq_maybe_yield()")?;
@@ -738,7 +732,6 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_arg_at(ptr)")?;
         writeln!(&mut ir, "; File operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_file_slurp(ptr)")?;
-        writeln!(&mut ir, "declare ptr @patch_seq_file_slurp_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_file_exists(ptr)")?;
         writeln!(
             &mut ir,
@@ -754,7 +747,6 @@ impl CodeGen {
         writeln!(&mut ir, "; Map operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_make_map(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_map_get(ptr)")?;
-        writeln!(&mut ir, "declare ptr @patch_seq_map_get_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_map_set(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_map_has(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_map_remove(ptr)")?;
@@ -1098,9 +1090,7 @@ impl CodeGen {
         writeln!(ir, "; Concurrency operations")?;
         writeln!(ir, "declare ptr @patch_seq_make_channel(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_chan_send(ptr)")?;
-        writeln!(ir, "declare ptr @patch_seq_chan_send_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_chan_receive(ptr)")?;
-        writeln!(ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_close_channel(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
         writeln!(ir, "declare void @patch_seq_maybe_yield()")?;
@@ -1114,7 +1104,6 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_arg_at(ptr)")?;
         writeln!(ir, "; File operations")?;
         writeln!(ir, "declare ptr @patch_seq_file_slurp(ptr)")?;
-        writeln!(ir, "declare ptr @patch_seq_file_slurp_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_file_exists(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_file_for_each_line_plus(ptr)")?;
         writeln!(ir, "; List operations")?;
@@ -1127,7 +1116,6 @@ impl CodeGen {
         writeln!(ir, "; Map operations")?;
         writeln!(ir, "declare ptr @patch_seq_make_map(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_map_get(ptr)")?;
-        writeln!(ir, "declare ptr @patch_seq_map_get_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_map_set(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_map_has(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_map_remove(ptr)")?;

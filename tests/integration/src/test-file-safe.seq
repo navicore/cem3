@@ -1,9 +1,9 @@
-# Test file.slurp-safe error handling
+# Test file.slurp error handling
 
 # Test reading a file that doesn't exist
 : test-not-found ( -- )
-  "/nonexistent/path/to/file.txt" file.slurp-safe
-  test.assert-not  # should return 0 for missing file
+  "/nonexistent/path/to/file.txt" file.slurp
+  test.assert-not  # should return false for missing file
   drop  # drop empty string
 ;
 

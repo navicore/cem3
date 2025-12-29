@@ -272,8 +272,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtin!(sigs, "io.write-line", (a String -- a));
-    builtin!(sigs, "io.read-line", (a -- a String));
-    builtin!(sigs, "io.read-line+", (a -- a String Int)); // Returns line + status
+    builtin!(sigs, "io.read-line", (a -- a String Bool)); // Returns line + success flag
+    builtin!(sigs, "io.read-line+", (a -- a String Int)); // Returns line + status (legacy)
     builtin!(sigs, "io.read-n", (a Int -- a String Int)); // Read N bytes, returns bytes + status
 
     // =========================================================================
@@ -287,8 +287,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // File Operations
     // =========================================================================
 
-    builtin!(sigs, "file.slurp", (a String -- a String));
-    builtin!(sigs, "file.slurp-safe", (a String -- a String Bool));
+    builtin!(sigs, "file.slurp", (a String -- a String Bool)); // returns (content success) - errors are values
     builtin!(sigs, "file.exists?", (a String -- a Bool));
 
     // file.for-each-line+: Complex quotation type - defined manually
@@ -370,13 +369,12 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
     // =========================================================================
     // Channel Operations (CSP-style concurrency)
+    // Errors are values, not crashes - all ops return success flags
     // =========================================================================
 
     builtin!(sigs, "chan.make", (a -- a Int));
-    builtin!(sigs, "chan.send", (a T Int -- a));
-    builtin!(sigs, "chan.send-safe", (a T Int -- a Bool));
-    builtin!(sigs, "chan.receive", (a Int -- a T));
-    builtin!(sigs, "chan.receive-safe", (a Int -- a T Bool));
+    builtin!(sigs, "chan.send", (a T Int -- a Bool)); // returns success flag
+    builtin!(sigs, "chan.receive", (a Int -- a T Bool)); // returns value and success flag
     builtin!(sigs, "chan.close", (a Int -- a));
     builtin!(sigs, "chan.yield", (a - -a));
 
@@ -611,8 +609,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtin!(sigs, "map.make", (a -- a M));
-    builtin!(sigs, "map.get", (a M K -- a V));
-    builtin!(sigs, "map.get-safe", (a M K -- a V Bool));
+    builtin!(sigs, "map.get", (a M K -- a V Bool)); // returns (value success) - errors are values, not crashes
     builtin!(sigs, "map.set", (a M K V -- a M2));
     builtin!(sigs, "map.has?", (a M K -- a Bool));
     builtin!(sigs, "map.remove", (a M K -- a M2));

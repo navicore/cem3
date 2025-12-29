@@ -274,7 +274,6 @@ impl Program {
             "args.at",
             // File operations
             "file.slurp",
-            "file.slurp-safe",
             "file.exists?",
             "file.for-each-line+",
             // String operations
@@ -306,7 +305,6 @@ impl Program {
             // Map operations
             "map.make",
             "map.get",
-            "map.get-safe",
             "map.set",
             "map.has?",
             "map.remove",
@@ -381,9 +379,7 @@ impl Program {
             // Channel operations
             "chan.make",
             "chan.send",
-            "chan.send-safe",
             "chan.receive",
-            "chan.receive-safe",
             "chan.close",
             "chan.yield",
             // Quotation operations

@@ -84,21 +84,26 @@ union Message {
 # Stack: ( parent-chan my-chan count pending -- ) [never returns]
 : store-loop ( Int Int Int Int -- )
   # Receive on my-chan (which is at depth 2)
+  # NOTE: We drop the success flag because this is an infinite actor loop.
+  # If receive fails, there's no meaningful recovery - the actor dies.
+  # The type checker can't express divergent early-exit patterns.
   2 pick chan.receive             # ( parent my count pending msg success )
-  drop                            # drop success flag
+  drop                            # drop success flag (actor loop pattern)
 
   match
     Get { >response_chan } ->
       # Return current count on response channel
       # Stack: ( parent my count pending response_chan )
-      2 pick swap chan.send drop  # ( parent my count pending )
+      2 pick swap chan.send       # ( parent my count pending success )
+      drop                        # drop success flag (fire-and-forget response)
       store-loop
 
     Increment { >response_chan } ->
       # Increment counter and return new count
       # Stack: ( parent my count pending response_chan )
       rot 1 i.add              # ( parent my pending response_chan count+1 )
-      dup rot chan.send drop      # ( parent my pending count+1 ) - sent response
+      dup rot chan.send           # ( parent my pending count+1 success )
+      drop                        # drop success flag (fire-and-forget response)
       swap 1 i.add             # ( parent my count+1 pending+1 )
 
       # Check if we should report to parent
@@ -107,7 +112,8 @@ union Message {
         dup                  # ( parent my count pending pending )
         2 pick               # ( parent my count pending pending count )
         Make-Report          # ( parent my count pending report-msg )
-        4 pick chan.send drop     # ( parent my count pending ) - sent to parent
+        4 pick chan.send          # ( parent my count pending success )
+        drop                      # drop success flag (fire-and-forget to parent)
         drop 0               # ( parent my count 0 ) - reset pending
       then
       store-loop
@@ -140,14 +146,16 @@ union Message {
 # District actor main loop - simple: aggregate and forward immediately
 # Stack: ( parent-chan my-chan total -- ) [never returns]
 : district-loop ( Int Int Int -- )
+  # NOTE: Actor loop - drop success flag (see store-loop comment)
   over chan.receive               # ( parent my total msg success )
-  drop                            # drop success flag
+  drop                            # drop success flag (actor loop pattern)
 
   match
     Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( parent my total response_chan )
-      over swap chan.send drop    # ( parent my total ) - sent total
+      over swap chan.send         # ( parent my total success )
+      drop                        # drop success flag (fire-and-forget)
       district-loop
 
     Report { >delta } ->
@@ -156,7 +164,8 @@ union Message {
       dup rot i.add            # ( parent my delta total+delta )
       tuck                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
-      3 pick chan.send drop       # ( parent my total' ) - forwarded to region
+      3 pick chan.send            # ( parent my total' success )
+      drop                        # drop success flag (fire-and-forget)
       district-loop
 
     Increment ->
@@ -185,14 +194,16 @@ union Message {
 # Region actor main loop - simple: aggregate and forward immediately
 # Stack: ( parent-chan my-chan total -- ) [never returns]
 : region-loop ( Int Int Int -- )
+  # NOTE: Actor loop - drop success flag (see store-loop comment)
   over chan.receive               # ( parent my total msg success )
-  drop                            # drop success flag
+  drop                            # drop success flag (actor loop pattern)
 
   match
     Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( parent my total response_chan )
-      over swap chan.send drop    # ( parent my total )
+      over swap chan.send         # ( parent my total success )
+      drop                        # drop success flag (fire-and-forget)
       region-loop
 
     Report { >delta } ->
@@ -201,7 +212,8 @@ union Message {
       dup rot i.add            # ( parent my delta total+delta )
       tuck                   # ( parent my total' delta total' )
       Make-Report            # ( parent my total' report-msg )
-      3 pick chan.send drop       # ( parent my total' ) - forwarded to company
+      3 pick chan.send            # ( parent my total' success )
+      drop                        # drop success flag (fire-and-forget)
       region-loop
 
     Increment ->
@@ -229,14 +241,16 @@ union Message {
 # Company actor main loop
 # Stack: ( my-chan total -- ) [never returns]
 : company-loop ( Int Int -- )
+  # NOTE: Actor loop - drop success flag (see store-loop comment)
   over chan.receive               # ( my-chan total msg success )
-  drop                            # drop success flag
+  drop                            # drop success flag (actor loop pattern)
 
   match
     Get { >response_chan } ->
       # Return aggregate total on response channel
       # Stack: ( my-chan total response_chan )
-      over swap chan.send drop    # ( my-chan total )
+      over swap chan.send         # ( my-chan total success )
+      drop                        # drop success flag (fire-and-forget)
       company-loop
 
     Report { >delta } ->
@@ -673,9 +687,13 @@ union Message {
 : query-actor ( Int -- Int )
   chan.make              # ( chan-id resp-chan )
   dup Make-Get              # ( chan-id resp-chan msg )
-  rot chan.send drop             # ( resp-chan ) - sent msg to actor
-  dup chan.receive drop          # ( resp-chan count )
-  swap chan.close        # ( count ) - close response channel to avoid leak
+  rot chan.send               # ( resp-chan success )
+  not if drop 0 else          # return 0 if send failed
+    dup chan.receive          # ( resp-chan value success )
+    not if drop drop 0 else   # return 0 if receive failed
+      swap chan.close         # ( count ) - close response channel
+    then
+  then
 ;
 
 # Query an actor to increment and return new count
@@ -683,9 +701,13 @@ union Message {
 : query-actor-increment ( Int -- Int )
   chan.make              # ( chan-id resp-chan )
   dup Make-Increment        # ( chan-id resp-chan msg )
-  rot chan.send drop             # ( resp-chan ) - sent msg to actor
-  dup chan.receive drop          # ( resp-chan count )
-  swap chan.close        # ( count ) - close response channel to avoid leak
+  rot chan.send               # ( resp-chan success )
+  not if drop 0 else          # return 0 if send failed
+    dup chan.receive          # ( resp-chan value success )
+    not if drop drop 0 else   # return 0 if receive failed
+      swap chan.close         # ( count ) - close response channel
+    then
+  then
 ;
 
 # Build JSON response from count

@@ -40,10 +40,14 @@ include std:json
   dup ".json" string.contains
 ;
 
-# Read file or return empty string if not found
+# Read file or return empty string if not found/unreadable
 : read-json-file ( String -- String )
   dup file.exists? if
-    file.slurp drop  # drop success flag (file exists so slurp should succeed)
+    file.slurp if
+      # success - content is on stack
+    else
+      drop ""  # failed to read - return empty string
+    then
   else
     drop ""
   then

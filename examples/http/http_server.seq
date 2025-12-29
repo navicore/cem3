@@ -392,8 +392,11 @@
 #
 : worker ( Int -- )
   chan.receive                  # Block until we get a socket from the channel (returns value, success)
-  drop                          # Drop success flag
-  handle-connection             # Process the request
+  if                            # Check success flag
+    handle-connection           # Process the request if successful
+  else
+    drop                        # Drop placeholder value on failure
+  then
 ;
 
 # ============================================================================
@@ -431,9 +434,10 @@
   # We don't need the strand_id, and spawn leaves the extra dup'd channel
   # Stack: ( listener_socket client_socket channel_id )
 
-  chan.send drop
+  chan.send
   # Send client_socket through the channel to the worker
-  # Stack: ( listener_socket )
+  # Stack: ( listener_socket success )
+  not if "Failed to send socket to worker" io.write-line then
   # The worker receives the socket and handles the connection!
 
   accept-loop

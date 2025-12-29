@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
-seq-compiler = { path = "../compiler", version = "=0.16.0" }
+seq-compiler = { path = "../compiler", version = "=0.17.0" }
 
 # CLI
 clap.workspace = true

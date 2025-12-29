@@ -287,8 +287,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // File Operations
     // =========================================================================
 
-    builtin!(sigs, "file.slurp", (a String -- a String));
-    builtin!(sigs, "file.slurp-safe", (a String -- a String Bool));
+    builtin!(sigs, "file.slurp", (a String -- a String Bool)); // returns (content success) - errors are values
     builtin!(sigs, "file.exists?", (a String -- a Bool));
 
     // file.for-each-line+: Complex quotation type - defined manually
@@ -610,8 +609,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtin!(sigs, "map.make", (a -- a M));
-    builtin!(sigs, "map.get", (a M K -- a V));
-    builtin!(sigs, "map.get-safe", (a M K -- a V Bool));
+    builtin!(sigs, "map.get", (a M K -- a V Bool)); // returns (value success) - errors are values, not crashes
     builtin!(sigs, "map.set", (a M K V -- a M2));
     builtin!(sigs, "map.has?", (a M K -- a Bool));
     builtin!(sigs, "map.remove", (a M K -- a M2));

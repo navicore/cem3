@@ -20,11 +20,10 @@
 //! my-map map-values  # -> ["Alice", 30]
 //! ```
 //!
-//! # Panic Behavior
+//! # Error Handling
 //!
-//! - Operations panic on invalid key types (Float, Variant, Quotation, etc.)
-//! - `map-get` panics if key not found (use `map-get-safe` for error handling)
-//! - Type errors (e.g., calling map operations on non-Map values) cause panics
+//! - `map-get` returns (value Bool) - false if key not found (errors are values, not crashes)
+//! - Type errors (invalid key types, non-Map values) still panic (internal bugs)
 //!
 //! # Performance Notes
 //!
@@ -50,9 +49,11 @@ pub unsafe extern "C" fn patch_seq_make_map(stack: Stack) -> Stack {
 
 /// Get a value from the map by key
 ///
-/// Stack effect: ( Map key -- value )
+/// Stack effect: ( Map key -- value Bool )
 ///
-/// Panics if the key is not found or if the key type is not hashable.
+/// Returns (value true) if found, or (0 false) if not found.
+/// Errors are values, not crashes.
+/// Panics only for internal bugs (invalid key type, non-Map value).
 ///
 /// # Safety
 /// Stack must have a hashable key on top and a Map below
@@ -75,45 +76,7 @@ pub unsafe extern "C" fn patch_seq_map_get(stack: Stack) -> Stack {
             _ => panic!("map-get: expected Map, got {:?}", map_val),
         };
 
-        // Look up value
-        let value = map
-            .get(&key)
-            .unwrap_or_else(|| panic!("map-get: key {:?} not found", key))
-            .clone();
-
-        push(stack, value)
-    }
-}
-
-/// Get a value from the map by key, with error handling
-///
-/// Stack effect: ( Map key -- value Bool )
-///
-/// Returns (value true) if found, or (0 false) if not found.
-/// Panics if the key type is not hashable.
-///
-/// # Safety
-/// Stack must have a hashable key on top and a Map below
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_map_get_safe(stack: Stack) -> Stack {
-    unsafe {
-        // Pop key
-        let (stack, key_val) = pop(stack);
-        let key = MapKey::from_value(&key_val).unwrap_or_else(|| {
-            panic!(
-                "map-get-safe: key must be Int, String, or Bool, got {:?}",
-                key_val
-            )
-        });
-
-        // Pop map
-        let (stack, map_val) = pop(stack);
-        let map = match map_val {
-            Value::Map(m) => m,
-            _ => panic!("map-get-safe: expected Map, got {:?}", map_val),
-        };
-
-        // Look up value
+        // Look up value - return success flag instead of panicking
         match map.get(&key) {
             Some(value) => {
                 let stack = push(stack, value.clone());
@@ -327,7 +290,6 @@ pub unsafe extern "C" fn patch_seq_map_empty(stack: Stack) -> Stack {
 pub use patch_seq_make_map as make_map;
 pub use patch_seq_map_empty as map_empty;
 pub use patch_seq_map_get as map_get;
-pub use patch_seq_map_get_safe as map_get_safe;
 pub use patch_seq_map_has as map_has;
 pub use patch_seq_map_keys as map_keys;
 pub use patch_seq_map_remove as map_remove;
@@ -366,6 +328,9 @@ mod tests {
             let stack = push(stack, Value::String("name".into()));
             let stack = map_get(stack);
 
+            // map_get returns (value Bool)
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "Alice"),
@@ -386,6 +351,9 @@ mod tests {
             let stack = push(stack, Value::Int(42));
             let stack = map_get(stack);
 
+            // map_get returns (value Bool)
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "answer"),
@@ -535,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn test_map_get_safe_found() {
+    fn test_map_get_found() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
@@ -544,7 +512,7 @@ mod tests {
             let stack = map_set(stack);
 
             let stack = push(stack, Value::String("key".into()));
-            let stack = map_get_safe(stack);
+            let stack = map_get(stack);
 
             let (stack, flag) = pop(stack);
             let (_stack, value) = pop(stack);
@@ -554,13 +522,13 @@ mod tests {
     }
 
     #[test]
-    fn test_map_get_safe_not_found() {
+    fn test_map_get_not_found() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
             let stack = make_map(stack);
 
             let stack = push(stack, Value::String("missing".into()));
-            let stack = map_get_safe(stack);
+            let stack = map_get(stack);
 
             let (stack, flag) = pop(stack);
             let (_stack, _value) = pop(stack); // placeholder
@@ -582,6 +550,9 @@ mod tests {
 
             let stack = push(stack, Value::Bool(true));
             let stack = map_get(stack);
+            // map_get returns (value Bool)
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "yes"),
@@ -616,6 +587,9 @@ mod tests {
             // Verify value was updated
             let stack = push(stack, Value::String("key".into()));
             let stack = map_get(stack);
+            // map_get returns (value Bool)
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(200));
         }
@@ -650,9 +624,12 @@ mod tests {
             assert_eq!(size, Value::Int(3));
 
             // Verify each key retrieves correct value
+            // map_get returns (value Bool)
             let stack = crate::stack::dup(stack);
             let stack = push(stack, Value::String("name".into()));
             let stack = map_get(stack);
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "Alice"),
@@ -662,6 +639,8 @@ mod tests {
             let stack = crate::stack::dup(stack);
             let stack = push(stack, Value::Int(42));
             let stack = map_get(stack);
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "answer"),
@@ -670,6 +649,8 @@ mod tests {
 
             let stack = push(stack, Value::Bool(true));
             let stack = map_get(stack);
+            let (stack, flag) = pop(stack);
+            assert_eq!(flag, Value::Bool(true));
             let (_stack, result) = pop(stack);
             match result {
                 Value::String(s) => assert_eq!(s.as_str(), "yes"),

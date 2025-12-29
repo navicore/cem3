@@ -272,7 +272,7 @@ union Message {
 # Look up in a registry
 # Stack: ( registry path -- channel-id found? )
 : lookup-store ( Variant String -- Int Bool )
-  map.get-safe   # ( value found? )
+  map.get   # ( value found? ) - errors are values, not crashes
 ;
 
 # Create a company actor and register it

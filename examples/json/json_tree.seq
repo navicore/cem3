@@ -43,7 +43,7 @@ include std:json
 # Read file or return empty string if not found
 : read-json-file ( String -- String )
   dup file.exists? if
-    file.slurp
+    file.slurp drop  # drop success flag (file exists so slurp should succeed)
   else
     drop ""
   then

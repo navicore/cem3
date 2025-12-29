@@ -187,7 +187,13 @@ pub enum Statement {
 
     /// Word call: calls another word or built-in
     /// Contains the word name and optional source span for precise diagnostics
-    WordCall { name: String, span: Option<Span> },
+    WordCall {
+        name: String,
+        span: Option<Span>,
+        /// List of suppressed lint IDs for this statement
+        /// Populated by `@allow:<lint-id>` annotations in source code
+        suppressed_lints: Vec<String>,
+    },
 
     /// Conditional: if/else/then
     ///
@@ -575,6 +581,7 @@ impl Program {
                     Statement::WordCall {
                         name: format!("variant.make-{}", field_count),
                         span: None, // Generated code, no source span
+                        suppressed_lints: Vec::new(),
                     },
                 ];
 
@@ -628,10 +635,12 @@ mod tests {
                     Statement::WordCall {
                         name: "i.add".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "io.write-line".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                 ],
                 source: None,
@@ -660,6 +669,7 @@ mod tests {
                     body: vec![Statement::WordCall {
                         name: "helper".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     }],
                     source: None,
                 },
@@ -681,6 +691,7 @@ mod tests {
                 body: vec![Statement::WordCall {
                     name: "undefined_word".to_string(),
                     span: None,
+                    suppressed_lints: Vec::new(),
                 }],
                 source: None,
             }],
@@ -705,6 +716,7 @@ mod tests {
                 body: vec![Statement::WordCall {
                     name: "wrte_line".to_string(),
                     span: None,
+                    suppressed_lints: Vec::new(),
                 }], // typo
                 source: None,
             }],

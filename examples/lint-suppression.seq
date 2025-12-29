@@ -1,0 +1,17 @@
+# Example of lint suppression using @allow: syntax
+
+: intentional-drop ( Int -- )
+  # This would normally trigger "unchecked-chan-receive" lint
+  # But we're intentionally fire-and-forgetting for this actor pattern
+  @allow:unchecked-chan-receive chan.receive drop
+;
+
+: multiple-suppressions ( -- )
+  # You can chain multiple suppressions
+  @allow:prefer-nip swap drop
+;
+
+: no-suppression ( -- )
+  # This will still trigger the lint warning
+  swap drop
+;

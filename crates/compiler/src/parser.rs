@@ -394,12 +394,30 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
+        self.parse_statement_internal(Vec::new())
+    }
+
+    fn parse_statement_internal(
+        &mut self,
+        suppressed_lints: Vec<String>,
+    ) -> Result<Statement, String> {
         use crate::ast::Span;
         let tok = self.advance_token().ok_or("Unexpected end of file")?;
         let token = &tok.text;
         let tok_line = tok.line;
         let tok_column = tok.column;
         let tok_len = tok.text.len();
+
+        // Check for lint suppression annotation: @allow:lint-id
+        if let Some(lint_id) = token.strip_prefix("@allow:") {
+            if lint_id.is_empty() {
+                return Err("Expected lint ID after '@allow:' (e.g., @allow:unchecked-chan-receive)".to_string());
+            }
+            // Recursively parse the next statement with the suppression
+            let mut new_suppressions = suppressed_lints;
+            new_suppressions.push(lint_id.to_string());
+            return self.parse_statement_internal(new_suppressions);
+        }
 
         // Check if it looks like a float literal (contains . or scientific notation)
         // Must check this BEFORE integer parsing
@@ -475,6 +493,7 @@ impl Parser {
         Ok(Statement::WordCall {
             name: token.to_string(),
             span: Some(Span::new(tok_line, tok_column, tok_len)),
+            suppressed_lints,
         })
     }
 
@@ -2519,5 +2538,84 @@ union Data {
         let result = parser.parse();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("at least one arm"));
+    }
+
+    #[test]
+    fn test_parse_lint_suppression() {
+        let source = r#"
+: test ( -- )
+  @allow:unchecked-chan-receive chan.receive drop ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        assert_eq!(program.words.len(), 1);
+        assert_eq!(program.words[0].body.len(), 2);
+
+        // First statement should be chan.receive with suppression
+        match &program.words[0].body[0] {
+            Statement::WordCall {
+                name,
+                suppressed_lints,
+                ..
+            } => {
+                assert_eq!(name, "chan.receive");
+                assert_eq!(suppressed_lints.len(), 1);
+                assert_eq!(suppressed_lints[0], "unchecked-chan-receive");
+            }
+            _ => panic!("Expected WordCall for chan.receive"),
+        }
+
+        // Second statement should be drop with no suppression
+        match &program.words[0].body[1] {
+            Statement::WordCall {
+                name,
+                suppressed_lints,
+                ..
+            } => {
+                assert_eq!(name, "drop");
+                assert_eq!(suppressed_lints.len(), 0);
+            }
+            _ => panic!("Expected WordCall for drop"),
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_suppressions() {
+        let source = r#"
+: test ( -- )
+  @allow:lint-a @allow:lint-b word ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::WordCall {
+                name,
+                suppressed_lints,
+                ..
+            } => {
+                assert_eq!(name, "word");
+                assert_eq!(suppressed_lints.len(), 2);
+                assert_eq!(suppressed_lints[0], "lint-a");
+                assert_eq!(suppressed_lints[1], "lint-b");
+            }
+            _ => panic!("Expected WordCall"),
+        }
+    }
+
+    #[test]
+    fn test_parse_lint_suppression_empty_id_error() {
+        let source = r#"
+: test ( -- )
+  @allow: word ;
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Expected lint ID"));
     }
 }

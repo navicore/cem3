@@ -184,6 +184,7 @@ pub struct LintDiagnostic {
 struct WordInfo<'a> {
     name: &'a str,
     span: Option<&'a Span>,
+    suppressed_lints: &'a [String],
 }
 
 /// The linter engine
@@ -241,10 +242,16 @@ impl Linter {
     fn extract_word_sequence<'a>(&self, statements: &'a [Statement]) -> Vec<WordInfo<'a>> {
         let mut words = Vec::new();
         for stmt in statements {
-            if let Statement::WordCall { name, span } = stmt {
+            if let Statement::WordCall {
+                name,
+                span,
+                suppressed_lints,
+            } = stmt
+            {
                 words.push(WordInfo {
                     name: name.as_str(),
                     span: span.as_ref(),
+                    suppressed_lints: suppressed_lints.as_slice(),
                 });
             } else {
                 // Insert a marker for non-word statements to break up patterns.
@@ -253,6 +260,7 @@ impl Linter {
                 words.push(WordInfo {
                     name: "<non-word>",
                     span: None,
+                    suppressed_lints: &[],
                 });
             }
         }
@@ -302,7 +310,15 @@ impl Linter {
                         (None, None, None)
                     };
 
-                diagnostics.push(LintDiagnostic {
+                // Check if any word in the match has suppressed this lint
+                let is_suppressed = (i..i + match_len).any(|idx| {
+                    word_infos[idx]
+                        .suppressed_lints
+                        .contains(&pattern.rule.id)
+                });
+
+                if !is_suppressed {
+                    diagnostics.push(LintDiagnostic {
                     id: pattern.rule.id.clone(),
                     message: pattern.rule.message.clone(),
                     severity: pattern.rule.severity,
@@ -312,10 +328,11 @@ impl Linter {
                     end_line,
                     start_column,
                     end_column,
-                    word_name: word.name.clone(),
-                    start_index: i,
-                    end_index: i + match_len,
-                });
+                        word_name: word.name.clone(),
+                        start_index: i,
+                        end_index: i + match_len,
+                    });
+                }
                 // Skip past the match to avoid overlapping matches
                 i += match_len;
             } else {
@@ -578,10 +595,12 @@ severity = "warning"
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "drop".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                 ],
                 source: None,
@@ -610,10 +629,12 @@ severity = "warning"
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "dup".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                 ],
                 source: None,
@@ -640,22 +661,27 @@ severity = "warning"
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "drop".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "dup".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "drop".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                 ],
                 source: None,
@@ -711,11 +737,13 @@ severity = "warning"
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::IntLiteral(0), // This should break the pattern
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                 ],
                 source: None,
@@ -747,10 +775,12 @@ severity = "warning"
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                     Statement::WordCall {
                         name: "swap".to_string(),
                         span: None,
+                        suppressed_lints: Vec::new(),
                     },
                 ],
                 source: None,
@@ -760,5 +790,53 @@ severity = "warning"
         let diagnostics = linter.lint_program(&program, &PathBuf::from("test.seq"));
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].id, "redundant-swap-swap");
+    }
+
+    #[test]
+    fn test_lint_suppression() {
+        // Test that @allow: suppresses lints
+        let config = test_config();
+        let linter = Linter::new(&config).unwrap();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: None,
+                body: vec![
+                    // This swap drop is suppressed
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                        suppressed_lints: vec!["prefer-nip".to_string()],
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                        suppressed_lints: Vec::new(),
+                    },
+                    // This swap drop is NOT suppressed
+                    Statement::WordCall {
+                        name: "swap".to_string(),
+                        span: None,
+                        suppressed_lints: Vec::new(),
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                        suppressed_lints: Vec::new(),
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let diagnostics = linter.lint_program(&program, &PathBuf::from("test.seq"));
+        // Should only find ONE "prefer-nip" (the second swap drop)
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].id, "prefer-nip");
+        // The match should be at index 2-4 (the unsuppressed swap drop)
+        assert_eq!(diagnostics[0].start_index, 2);
     }
 }

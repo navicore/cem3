@@ -896,10 +896,11 @@ mod tests {
                         Value::Channel(channel_clone),
                     );
 
-                    // Receive message
+                    // Receive message (returns value, success_flag)
                     let stack = receive(stack);
 
-                    // Pop and verify message
+                    // Pop success flag first, then message
+                    let (stack, _success) = pop(stack);
                     let (_stack, msg_val) = pop(stack);
                     match msg_val {
                         Value::String(s) => {

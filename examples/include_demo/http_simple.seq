@@ -36,9 +36,9 @@ include std:http
 : accept-loop ( Int -- )
   dup tcp.accept          # ( listener client )
   chan.make            # ( listener client chan )
-  dup [ chan.receive handle-connection ] spawn  # ( listener client chan chan strand-id )
+  dup [ chan.receive drop handle-connection ] spawn  # ( listener client chan chan strand-id )
   drop drop               # ( listener client chan ) - drop strand-id AND extra chan
-  chan.send                    # ( listener ) - send client on chan
+  chan.send drop          # ( listener ) - send client on chan, drop success flag
   accept-loop             # tail call - runs forever, no stack growth
 ;
 

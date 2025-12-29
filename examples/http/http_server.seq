@@ -391,8 +391,9 @@
 # Stack effect: ( channel_id -- )
 #
 : worker ( Int -- )
-  chan.receive                  # Block until we get a socket from the channel
-  handle-connection        # Process the request
+  chan.receive                  # Block until we get a socket from the channel (returns value, success)
+  drop                          # Drop success flag
+  handle-connection             # Process the request
 ;
 
 # ============================================================================
@@ -430,7 +431,7 @@
   # We don't need the strand_id, and spawn leaves the extra dup'd channel
   # Stack: ( listener_socket client_socket channel_id )
 
-  chan.send
+  chan.send drop
   # Send client_socket through the channel to the worker
   # Stack: ( listener_socket )
   # The worker receives the socket and handles the connection!

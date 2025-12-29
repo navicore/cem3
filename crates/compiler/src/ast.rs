@@ -381,9 +381,7 @@ impl Program {
             // Channel operations
             "chan.make",
             "chan.send",
-            "chan.send-safe",
             "chan.receive",
-            "chan.receive-safe",
             "chan.close",
             "chan.yield",
             // Quotation operations

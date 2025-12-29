@@ -133,12 +133,10 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("drop", "patch_seq_drop_op"),
         ("pick", "patch_seq_pick_op"),
         ("roll", "patch_seq_roll"),
-        // Channel operations
+        // Channel operations (errors are values, not crashes)
         ("chan.make", "patch_seq_make_channel"),
         ("chan.send", "patch_seq_chan_send"),
-        ("chan.send-safe", "patch_seq_chan_send_safe"),
         ("chan.receive", "patch_seq_chan_receive"),
-        ("chan.receive-safe", "patch_seq_chan_receive_safe"),
         ("chan.close", "patch_seq_close_channel"),
         ("chan.yield", "patch_seq_yield_strand"),
         // Quotation operations
@@ -722,9 +720,7 @@ impl CodeGen {
         writeln!(&mut ir, "; Concurrency operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_make_channel(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_chan_send(ptr)")?;
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_send_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_chan_receive(ptr)")?;
-        writeln!(&mut ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_close_channel(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
         writeln!(&mut ir, "declare void @patch_seq_maybe_yield()")?;
@@ -1098,9 +1094,7 @@ impl CodeGen {
         writeln!(ir, "; Concurrency operations")?;
         writeln!(ir, "declare ptr @patch_seq_make_channel(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_chan_send(ptr)")?;
-        writeln!(ir, "declare ptr @patch_seq_chan_send_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_chan_receive(ptr)")?;
-        writeln!(ir, "declare ptr @patch_seq_chan_receive_safe(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_close_channel(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_yield_strand(ptr)")?;
         writeln!(ir, "declare void @patch_seq_maybe_yield()")?;

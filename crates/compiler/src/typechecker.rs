@@ -1780,7 +1780,8 @@ mod tests {
 
     #[test]
     fn test_read_line_operation() {
-        // : test ( -- String ) io.read-line ;
+        // : test ( -- String Bool ) io.read-line ;
+        // io.read-line now returns ( -- String Bool ) for error handling
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1788,7 +1789,7 @@ mod tests {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
                     StackType::Empty,
-                    StackType::singleton(Type::String),
+                    StackType::from_vec(vec![Type::String, Type::Bool]),
                 )),
                 body: vec![Statement::WordCall {
                     name: "io.read-line".to_string(),

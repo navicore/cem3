@@ -16,6 +16,9 @@ macro_rules! ty {
     (Int) => {
         Type::Int
     };
+    (Bool) => {
+        Type::Bool
+    };
     (String) => {
         Type::String
     };
@@ -206,6 +209,22 @@ macro_rules! builtins_int_int_to_int {
     };
 }
 
+macro_rules! builtins_int_int_to_bool {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a Int Int -- a Bool));
+        )+
+    };
+}
+
+macro_rules! builtins_bool_bool_to_bool {
+    ($sigs:ident, $($name:expr),+ $(,)?) => {
+        $(
+            builtin!($sigs, $name, (a Bool Bool -- a Bool));
+        )+
+    };
+}
+
 macro_rules! builtins_int_to_int {
     ($sigs:ident, $($name:expr),+ $(,)?) => {
         $(
@@ -230,10 +249,10 @@ macro_rules! builtins_float_float_to_float {
     };
 }
 
-macro_rules! builtins_float_float_to_int {
+macro_rules! builtins_float_float_to_bool {
     ($sigs:ident, $($name:expr),+ $(,)?) => {
         $(
-            builtin!($sigs, $name, (a Float Float -- a Int));
+            builtin!($sigs, $name, (a Float Float -- a Bool));
         )+
     };
 }
@@ -269,8 +288,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtin!(sigs, "file.slurp", (a String -- a String));
-    builtin!(sigs, "file.slurp-safe", (a String -- a String Int));
-    builtin!(sigs, "file.exists?", (a String -- a Int));
+    builtin!(sigs, "file.slurp-safe", (a String -- a String Bool));
+    builtin!(sigs, "file.exists?", (a String -- a Bool));
 
     // file.for-each-line+: Complex quotation type - defined manually
     sigs.insert(
@@ -284,7 +303,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
                 )))),
             StackType::RowVar("a".to_string())
                 .push(Type::String)
-                .push(Type::Int),
+                .push(Type::Bool),
         ),
     );
 
@@ -296,8 +315,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "int->float", (a Int -- a Float));
     builtin!(sigs, "float->int", (a Float -- a Int));
     builtin!(sigs, "float->string", (a Float -- a String));
-    builtin!(sigs, "string->int", (a String -- a Int Int)); // value + success flag
-    builtin!(sigs, "string->float", (a String -- a Float Int)); // value + success flag
+    builtin!(sigs, "string->int", (a String -- a Int Bool)); // value + success flag
+    builtin!(sigs, "string->float", (a String -- a Float Bool)); // value + success flag
     builtin!(sigs, "char->string", (a Int -- a String));
 
     // =========================================================================
@@ -308,18 +327,18 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtins_int_int_to_int!(sigs, "i.+", "i.-", "i.*", "i./", "i.%");
 
     // =========================================================================
-    // Integer Comparison ( a Int Int -- a Int )
+    // Integer Comparison ( a Int Int -- a Bool )
     // =========================================================================
 
-    builtins_int_int_to_int!(sigs, "i.=", "i.<", "i.>", "i.<=", "i.>=", "i.<>");
-    builtins_int_int_to_int!(sigs, "i.eq", "i.lt", "i.gt", "i.lte", "i.gte", "i.neq");
+    builtins_int_int_to_bool!(sigs, "i.=", "i.<", "i.>", "i.<=", "i.>=", "i.<>");
+    builtins_int_int_to_bool!(sigs, "i.eq", "i.lt", "i.gt", "i.lte", "i.gte", "i.neq");
 
     // =========================================================================
-    // Boolean Operations
+    // Boolean Operations ( a Bool Bool -- a Bool )
     // =========================================================================
 
-    builtins_int_int_to_int!(sigs, "and", "or");
-    builtin!(sigs, "not", (a Int -- a Int));
+    builtins_bool_bool_to_bool!(sigs, "and", "or");
+    builtin!(sigs, "not", (a Bool -- a Bool));
 
     // =========================================================================
     // Bitwise Operations
@@ -355,9 +374,9 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
     builtin!(sigs, "chan.make", (a -- a Int));
     builtin!(sigs, "chan.send", (a T Int -- a));
-    builtin!(sigs, "chan.send-safe", (a T Int -- a Int));
+    builtin!(sigs, "chan.send-safe", (a T Int -- a Bool));
     builtin!(sigs, "chan.receive", (a Int -- a T));
-    builtin!(sigs, "chan.receive-safe", (a Int -- a T Int));
+    builtin!(sigs, "chan.receive-safe", (a Int -- a T Bool));
     builtin!(sigs, "chan.close", (a Int -- a));
     builtin!(sigs, "chan.yield", (a - -a));
 
@@ -399,14 +418,14 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     );
 
     // while: ( a CondQuot BodyQuot -- a )
-    // CondQuot: ( a -- a Int ), BodyQuot: ( a -- a )
+    // CondQuot: ( a -- a Bool ), BodyQuot: ( a -- a )
     sigs.insert(
         "while".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string())
                 .push(Type::Quotation(Box::new(Effect::new(
                     StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()).push(Type::Int),
+                    StackType::RowVar("a".to_string()).push(Type::Bool),
                 ))))
                 .push(Type::Quotation(Box::new(Effect::new(
                     StackType::RowVar("a".to_string()),
@@ -417,7 +436,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     );
 
     // until: ( a BodyQuot CondQuot -- a )
-    // BodyQuot: ( a -- a ), CondQuot: ( a -- a Int )
+    // BodyQuot: ( a -- a ), CondQuot: ( a -- a Bool )
     sigs.insert(
         "until".to_string(),
         Effect::new(
@@ -428,7 +447,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
                 ))))
                 .push(Type::Quotation(Box::new(Effect::new(
                     StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()).push(Type::Int),
+                    StackType::RowVar("a".to_string()).push(Type::Bool),
                 )))),
             StackType::RowVar("a".to_string()),
         ),
@@ -460,15 +479,15 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // OS Operations
     // =========================================================================
 
-    builtin!(sigs, "os.getenv", (a String -- a String Int));
-    builtin!(sigs, "os.home-dir", (a -- a String Int));
-    builtin!(sigs, "os.current-dir", (a -- a String Int));
-    builtin!(sigs, "os.path-exists", (a String -- a Int));
-    builtin!(sigs, "os.path-is-file", (a String -- a Int));
-    builtin!(sigs, "os.path-is-dir", (a String -- a Int));
+    builtin!(sigs, "os.getenv", (a String -- a String Bool));
+    builtin!(sigs, "os.home-dir", (a -- a String Bool));
+    builtin!(sigs, "os.current-dir", (a -- a String Bool));
+    builtin!(sigs, "os.path-exists", (a String -- a Bool));
+    builtin!(sigs, "os.path-is-file", (a String -- a Bool));
+    builtin!(sigs, "os.path-is-dir", (a String -- a Bool));
     builtin!(sigs, "os.path-join", (a String String -- a String));
-    builtin!(sigs, "os.path-parent", (a String -- a String Int));
-    builtin!(sigs, "os.path-filename", (a String -- a String Int));
+    builtin!(sigs, "os.path-parent", (a String -- a String Bool));
+    builtin!(sigs, "os.path-filename", (a String -- a String Bool));
     builtin!(sigs, "os.exit", (a Int -- a)); // Never returns, but typed as identity
     builtin!(sigs, "os.name", (a -- a String));
     builtin!(sigs, "os.arch", (a -- a String));
@@ -484,10 +503,10 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "string.substring", (a String Int Int -- a String));
     builtin!(sigs, "string.find", (a String String -- a Int));
     builtin!(sigs, "string.split", (a String String -- a V)); // Returns Variant (list)
-    builtin!(sigs, "string.contains", (a String String -- a Int));
-    builtin!(sigs, "string.starts-with", (a String String -- a Int));
-    builtin!(sigs, "string.empty?", (a String -- a Int));
-    builtin!(sigs, "string.equal?", (a String String -- a Int));
+    builtin!(sigs, "string.contains", (a String String -- a Bool));
+    builtin!(sigs, "string.starts-with", (a String String -- a Bool));
+    builtin!(sigs, "string.empty?", (a String -- a Bool));
+    builtin!(sigs, "string.equal?", (a String String -- a Bool));
 
     // String transformations
     builtins_string_to_string!(
@@ -522,7 +541,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtin!(sigs, "list.length", (a V -- a Int));
-    builtin!(sigs, "list.empty?", (a V -- a Int));
+    builtin!(sigs, "list.empty?", (a V -- a Bool));
 
     // list.map: ( a Variant Quotation -- a Variant )
     // Quotation: ( b T -- b U )
@@ -540,7 +559,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     );
 
     // list.filter: ( a Variant Quotation -- a Variant )
-    // Quotation: ( b T -- b Int )
+    // Quotation: ( b T -- b Bool )
     sigs.insert(
         "list.filter".to_string(),
         Effect::new(
@@ -548,7 +567,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
                 .push(Type::Var("V".to_string()))
                 .push(Type::Quotation(Box::new(Effect::new(
                     StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
-                    StackType::RowVar("b".to_string()).push(Type::Int),
+                    StackType::RowVar("b".to_string()).push(Type::Bool),
                 )))),
             StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
         ),
@@ -593,14 +612,14 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
     builtin!(sigs, "map.make", (a -- a M));
     builtin!(sigs, "map.get", (a M K -- a V));
-    builtin!(sigs, "map.get-safe", (a M K -- a V Int));
+    builtin!(sigs, "map.get-safe", (a M K -- a V Bool));
     builtin!(sigs, "map.set", (a M K V -- a M2));
-    builtin!(sigs, "map.has?", (a M K -- a Int));
+    builtin!(sigs, "map.has?", (a M K -- a Bool));
     builtin!(sigs, "map.remove", (a M K -- a M2));
     builtin!(sigs, "map.keys", (a M -- a V));
     builtin!(sigs, "map.values", (a M -- a V));
     builtin!(sigs, "map.size", (a M -- a Int));
-    builtin!(sigs, "map.empty?", (a M -- a Int));
+    builtin!(sigs, "map.empty?", (a M -- a Bool));
 
     // =========================================================================
     // Float Arithmetic ( a Float Float -- a Float )
@@ -610,11 +629,11 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtins_float_float_to_float!(sigs, "f.+", "f.-", "f.*", "f./");
 
     // =========================================================================
-    // Float Comparison ( a Float Float -- a Int )
+    // Float Comparison ( a Float Float -- a Bool )
     // =========================================================================
 
-    builtins_float_float_to_int!(sigs, "f.=", "f.<", "f.>", "f.<=", "f.>=", "f.<>");
-    builtins_float_float_to_int!(sigs, "f.eq", "f.lt", "f.gt", "f.lte", "f.gte", "f.neq");
+    builtins_float_float_to_bool!(sigs, "f.=", "f.<", "f.>", "f.<=", "f.>=", "f.<>");
+    builtins_float_float_to_bool!(sigs, "f.eq", "f.lt", "f.gt", "f.lte", "f.gte", "f.neq");
 
     // =========================================================================
     // Test Framework
@@ -622,9 +641,9 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
     builtin!(sigs, "test.init", (a String -- a));
     builtin!(sigs, "test.finish", (a - -a));
-    builtin!(sigs, "test.has-failures", (a -- a Int));
-    builtin!(sigs, "test.assert", (a Int -- a));
-    builtin!(sigs, "test.assert-not", (a Int -- a));
+    builtin!(sigs, "test.has-failures", (a -- a Bool));
+    builtin!(sigs, "test.assert", (a Bool -- a));
+    builtin!(sigs, "test.assert-not", (a Bool -- a));
     builtin!(sigs, "test.assert-eq", (a Int Int -- a));
     builtin!(sigs, "test.assert-eq-str", (a String String -- a));
     builtin!(sigs, "test.fail", (a String -- a));

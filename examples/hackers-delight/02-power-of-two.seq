@@ -5,7 +5,7 @@
 # Check if x is a power of 2 (and x > 0)
 # Formula: x & (x - 1) == 0  (and x != 0)
 # Powers of 2 have exactly one bit set
-: power-of-2? ( Int -- Int )
+: power-of-2? ( Int -- Bool )
   dup 0 i.>                    # x > 0?
   swap dup 1 i.subtract band   # x & (x-1)
   0 i.=                        # == 0?
@@ -32,14 +32,14 @@
 ;
 
 # Check if x is a power of 2 (alternative using popcount)
-: power-of-2-alt? ( Int -- Int )
+: power-of-2-alt? ( Int -- Bool )
   dup 0 i.>              # x > 0?
   swap popcount 1 i.=    # exactly one bit set?
   and
 ;
 
 # Test helpers
-: bool->string ( Int -- )
+: bool->string ( Bool -- )
   if "true" io.write-line
   else "false" io.write-line
   then

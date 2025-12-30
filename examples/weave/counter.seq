@@ -6,19 +6,26 @@
 # - strand.weave creates a generator from a quotation
 # - yield sends a value to the caller and waits for a resume value
 # - strand.resume sends a value to the weave and receives the yielded value
+#
+# IMPORTANT: The quotation receives (WeaveCtx, first_resume_value) and must
+# thread the WeaveCtx through all yield calls. This is necessary because
+# there's no global registry - the context travels on the stack like channels.
 
 # Counter loop - yields current count, receives increment, adds, repeats
 # Uses tail recursion for the infinite loop (TCO prevents stack growth)
-: counter-loop ( Int -- )
-  dup yield      # yield current count, receive increment
-  i.add          # add increment to count
-  counter-loop   # tail recurse
+#
+# Stack: ( Ctx count -- ) divergent - never returns
+: counter-loop ( Ctx Int -- )
+  tuck           # ( count Ctx count )
+  yield          # yield count, receive increment -> ( count Ctx increment )
+  rot            # ( Ctx increment count )
+  i.add          # ( Ctx new_count )
+  counter-loop   # tail recurse - infinite loop
 ;
 
-# Simple counter generator that yields incrementing values
-# Each time it's resumed, it yields the current count then adds the increment
-: counter-body ( Int -- )
-  # Stack has the initial value from first resume
+# Counter generator entry point
+# Receives (Ctx, initial_value) and starts the loop
+: counter-body ( Ctx Int -- )
   counter-loop
 ;
 
@@ -27,21 +34,21 @@
   "" io.write-line
 
   # Create a weave from the counter body
-  [ counter-body ] strand.weave   # ( weave-id )
+  [ counter-body ] strand.weave   # ( handle )
 
   "Created counter weave" io.write-line
 
   # Resume with initial value 10
-  10 strand.resume                 # ( weave-id yielded-value has-more )
+  10 strand.resume                 # ( handle yielded-value has-more )
   if
     "First yield: " swap int->string string.concat io.write-line
   else
     drop "Weave ended unexpectedly" io.write-line
   then
-  # Stack: ( weave-id )
+  # Stack: ( handle )
 
   # Resume with increment 1
-  1 strand.resume                  # ( weave-id yielded-value has-more )
+  1 strand.resume                  # ( handle yielded-value has-more )
   if
     "After +1: " swap int->string string.concat io.write-line
   else
@@ -64,7 +71,7 @@
     drop "Weave ended unexpectedly" io.write-line
   then
 
-  drop  # drop weave-id
+  drop  # drop handle
 
   "" io.write-line
   "Done!" io.write-line

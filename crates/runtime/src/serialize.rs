@@ -190,6 +190,7 @@ impl TypedValue {
             Value::Quotation { .. } => Err(SerializeError::QuotationNotSerializable),
             Value::Closure { .. } => Err(SerializeError::ClosureNotSerializable),
             Value::Channel(_) => Err(SerializeError::ChannelNotSerializable),
+            Value::WeaveCtx { .. } => Err(SerializeError::ChannelNotSerializable), // Weaves contain channels
         }
     }
 

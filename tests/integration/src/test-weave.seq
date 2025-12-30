@@ -57,5 +57,24 @@
   drop drop                      # drop placeholder and handle
 ;
 
+# Test cancellation - weave should be cleanly cancelled without hanging
+: test-weave-cancel ( -- )
+  [ three-values ] strand.weave  # create weave
+  strand.weave-cancel            # cancel before first resume
+  # If we get here without hanging, cancellation worked!
+  true test.assert
+;
+
+# Test cancellation after partial resume
+: test-weave-cancel-after-resume ( -- )
+  [ three-values ] strand.weave  # create weave
+  0 strand.resume                # first resume
+  test.assert                    # should have more
+  1 test.assert-eq               # first yield is 1
+  strand.weave-cancel            # cancel after first yield
+  # If we get here without hanging, cancellation worked!
+  true test.assert
+;
+
 # NOTE: String yields would require explicit context threading for the string type.
 # The type signature ( Ctx a -- Ctx a ) means yielded and resumed values have same type.

@@ -94,7 +94,8 @@ pub use channel::{
 
 // Weave operations (generators/coroutines with yield/resume)
 pub use weave::{
-    patch_seq_resume as weave_resume, patch_seq_weave as weave_make, patch_seq_yield as weave_yield,
+    patch_seq_resume as weave_resume, patch_seq_weave as weave_make,
+    patch_seq_weave_cancel as weave_cancel, patch_seq_yield as weave_yield,
 };
 
 // String operations (exported for LLVM linking)

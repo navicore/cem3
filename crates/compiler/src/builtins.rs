@@ -509,6 +509,17 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
+    // strand.weave-cancel: ( a handle -- a ) - cancel a weave and release its resources
+    // Use this to clean up a weave that won't be resumed to completion.
+    // This prevents resource leaks from abandoned weaves.
+    sigs.insert(
+        "strand.weave-cancel".to_string(),
+        Effect::new(
+            StackType::RowVar("a".to_string()).push(Type::Var("handle".to_string())),
+            StackType::RowVar("a".to_string()),
+        ),
+    );
+
     // =========================================================================
     // TCP Operations
     // =========================================================================

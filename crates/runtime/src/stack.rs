@@ -120,7 +120,7 @@ pub fn value_to_stack_value(value: Value) -> StackValue {
             yield_chan,
             resume_chan,
         } => {
-            // Store both Arc<ChannelData> as raw pointers
+            // Store both Arc<WeaveChannelData> as raw pointers
             let yield_ptr = Arc::into_raw(yield_chan) as u64;
             let resume_ptr = Arc::into_raw(resume_chan) as u64;
             StackValue {
@@ -182,9 +182,9 @@ pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
                 Value::Channel(arc)
             }
             DISC_WEAVECTX => {
-                use crate::value::ChannelData;
-                let yield_chan = Arc::from_raw(sv.slot1 as *const ChannelData);
-                let resume_chan = Arc::from_raw(sv.slot2 as *const ChannelData);
+                use crate::value::WeaveChannelData;
+                let yield_chan = Arc::from_raw(sv.slot1 as *const WeaveChannelData);
+                let resume_chan = Arc::from_raw(sv.slot2 as *const WeaveChannelData);
                 Value::WeaveCtx {
                     yield_chan,
                     resume_chan,
@@ -330,9 +330,9 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
             }
             DISC_WEAVECTX => {
                 // Arc refcount increment for both channels - O(1) clone
-                use crate::value::ChannelData;
-                let yield_ptr = sv.slot1 as *const ChannelData;
-                let resume_ptr = sv.slot2 as *const ChannelData;
+                use crate::value::WeaveChannelData;
+                let yield_ptr = sv.slot1 as *const WeaveChannelData;
+                let resume_ptr = sv.slot2 as *const WeaveChannelData;
                 debug_assert!(!yield_ptr.is_null(), "WeaveCtx yield pointer is null");
                 debug_assert!(!resume_ptr.is_null(), "WeaveCtx resume pointer is null");
                 let yield_arc = Arc::from_raw(yield_ptr);
@@ -393,9 +393,9 @@ pub unsafe fn drop_stack_value(sv: StackValue) {
                 let _ = Arc::from_raw(sv.slot1 as *const ChannelData);
             }
             DISC_WEAVECTX => {
-                use crate::value::ChannelData;
-                let _ = Arc::from_raw(sv.slot1 as *const ChannelData);
-                let _ = Arc::from_raw(sv.slot2 as *const ChannelData);
+                use crate::value::WeaveChannelData;
+                let _ = Arc::from_raw(sv.slot1 as *const WeaveChannelData);
+                let _ = Arc::from_raw(sv.slot2 as *const WeaveChannelData);
             }
             _ => panic!("Invalid discriminant for drop: {}", sv.slot0),
         }

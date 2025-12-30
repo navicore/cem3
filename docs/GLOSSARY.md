@@ -192,7 +192,7 @@ union Option {
   match
     None -> "Nothing here" io.write-line
     Some { >value } ->
-      "Got: " value int->string string.concat io.write-line
+      int->string "Got: " swap string.concat io.write-line
   end
 ;
 ```

@@ -464,8 +464,9 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // strand.weave: ( a Quotation -- a Int ) - create a woven strand (generator)
-    // The quotation can yield values. Returns weave ID.
+    // strand.weave: ( a Quotation -- a handle ) - create a woven strand (generator)
+    // The quotation receives (WeaveCtx, first_resume_value) and must thread WeaveCtx through.
+    // Returns a handle (WeaveCtx) for use with strand.resume.
     sigs.insert(
         "strand.weave".to_string(),
         Effect::new(
@@ -473,32 +474,36 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
                 StackType::RowVar("weave_in".to_string()),
                 StackType::RowVar("weave_out".to_string()),
             )))),
-            StackType::RowVar("a".to_string()).push(Type::Int),
+            StackType::RowVar("a".to_string()).push(Type::Var("handle".to_string())),
         ),
     );
 
-    // strand.resume: ( a Int b -- a Int b Bool ) - resume weave with value
-    // Takes weave ID and value to send, returns (weave_id, yielded_value, has_more)
+    // strand.resume: ( a handle b -- a handle b Bool ) - resume weave with value
+    // Takes handle and value to send, returns (handle, yielded_value, has_more)
     sigs.insert(
         "strand.resume".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string())
-                .push(Type::Int)
+                .push(Type::Var("handle".to_string()))
                 .push(Type::Var("b".to_string())),
             StackType::RowVar("a".to_string())
-                .push(Type::Int)
+                .push(Type::Var("handle".to_string()))
                 .push(Type::Var("b".to_string()))
                 .push(Type::Bool),
         ),
     );
 
-    // yield: ( a b -- a b ) - yield value and receive resume value
-    // Only valid inside a weave. Yields the top value and receives a new value.
+    // yield: ( a ctx b -- a ctx b ) - yield value and receive resume value
+    // The WeaveCtx must be passed explicitly and threaded through.
     sigs.insert(
         "yield".to_string(),
         Effect::new(
-            StackType::RowVar("a".to_string()).push(Type::Var("b".to_string())),
-            StackType::RowVar("a".to_string()).push(Type::Var("b".to_string())),
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("ctx".to_string()))
+                .push(Type::Var("b".to_string())),
+            StackType::RowVar("a".to_string())
+                .push(Type::Var("ctx".to_string()))
+                .push(Type::Var("b".to_string())),
         ),
     );
 

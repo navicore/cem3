@@ -172,9 +172,62 @@ In Seq, point-free is the natural style because values live on the stack, not in
 
 ---
 
+## Pattern Matching
+
+A control flow mechanism that branches based on the *structure* of data, often extracting values in the process.
+
+Seq has two forms of pattern matching:
+
+### 1. `match` - ADT Destructuring
+
+Used with union types to branch on variants and extract fields:
+
+```seq
+union Option {
+  None
+  Some { value: Int }
+}
+
+: describe ( Option -- )
+  match
+    None -> "Nothing here" io.write-line
+    Some { >value } ->
+      "Got: " value int->string string.concat io.write-line
+  end
+;
+```
+
+The compiler verifies **exhaustiveness** - you must handle all variants. If you add a variant to the union, all `match` expressions must be updated.
+
+### 2. `cond` - Predicate-Based Dispatch
+
+Used for conditional branching based on boolean tests:
+
+```seq
+: classify ( Int -- String )
+  cond
+    [ dup 0 i.< ] -> drop "negative"
+    [ dup 0 i.= ] -> drop "zero"
+    [ true ]      -> drop "positive"
+  end
+;
+```
+
+Each branch has a quotation that produces a Bool. The first true branch executes. This is closer to Lisp's `cond` than structural pattern matching.
+
+**Why it matters:** Pattern matching replaces chains of if/else with declarative structure. The compiler can check exhaustiveness, catching bugs when data structures change.
+
+**History:** Pattern matching originated in ML (1970s) and became central to Haskell, OCaml, and Erlang. It's now spreading widely - Rust has `match`, Scala has `case`, Swift has `switch` with associated values, Python added structural pattern matching in 3.10, and Java added pattern matching in recent versions.
+
+**In other languages:** Rust has `match` with exhaustiveness checking. Haskell and OCaml have pattern matching as a core feature. Scala has `case` classes and `match`. Elixir inherits pattern matching from Erlang. Python 3.10+ has `match`/`case`. Java 21 has pattern matching for `switch`. JavaScript does not have pattern matching natively.
+
+See also: [ADT](#adt-algebraic-data-type)
+
+---
+
 ## Quotation
 
-A block of code that isn't executed immediately - it's a value you can pass around and execute later.
+A block of code that isn't executed immediately - it's a value you can pass around and execute later. Also known as an **anonymous function** or **lambda** in other languages.
 
 ```seq
 [ 1 i.+ ]           # A quotation that adds 1

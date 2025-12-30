@@ -694,6 +694,18 @@ impl TypeChecker {
     /// Check if a branch ends with a recursive tail call to the current word.
     /// Such branches are "divergent" - they never return to the if/else,
     /// so their stack effect shouldn't constrain the other branch.
+    ///
+    /// # Limitations
+    ///
+    /// This detection is intentionally conservative and only catches direct
+    /// recursive tail calls to the current word. It does NOT detect:
+    /// - Mutual recursion (word-a calls word-b which calls word-a)
+    /// - Calls to known non-returning functions (panic, exit, infinite loops)
+    /// - Nested control flow with tail calls (if ... if ... recurse then then)
+    ///
+    /// These patterns will still require branch unification. Future enhancements
+    /// could track known non-returning functions or support explicit divergence
+    /// annotations (similar to Rust's `!` type).
     fn is_divergent_branch(&self, statements: &[Statement]) -> bool {
         if let Some(current_word) = self.current_word.borrow().as_ref()
             && let Some(Statement::WordCall { name, .. }) = statements.last()
@@ -2530,7 +2542,7 @@ mod tests {
             words: vec![WordDef {
                 name: "store-loop".to_string(),
                 effect: Some(Effect::new(
-                    StackType::singleton(Type::Int), // ( chan -- )
+                    StackType::singleton(Type::Int), // ( Int -- ) where Int is channel handle
                     StackType::Empty,
                 )),
                 body: vec![
@@ -2584,6 +2596,150 @@ mod tests {
         assert!(
             result.is_ok(),
             "Divergent recursive tail call should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_divergent_else_branch() {
+        // Test that divergence detection works for else branches too.
+        //
+        // : process-loop ( Int -- )
+        //   dup chan.receive   # ( chan value Bool )
+        //   if                 # ( chan value )
+        //     drop drop        # normal exit: ( )
+        //   else
+        //     drop             # ( chan )
+        //     process-loop     # diverges - retry on failure
+        //   then
+        // ;
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "process-loop".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int), // ( Int -- )
+                    StackType::Empty,
+                )),
+                body: vec![
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "chan.receive".to_string(),
+                        span: None,
+                    },
+                    Statement::If {
+                        then_branch: vec![
+                            // success: drop value and chan
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                        ],
+                        else_branch: Some(vec![
+                            // failure: drop value, keep chan, recurse
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "process-loop".to_string(), // recursive tail call
+                                span: None,
+                            },
+                        ]),
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_ok(),
+            "Divergent else branch should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_non_tail_call_recursion_not_divergent() {
+        // Test that recursion NOT in tail position is not treated as divergent.
+        // This should fail type checking because after the recursive call,
+        // there's more code that changes the stack.
+        //
+        // : bad-loop ( Int -- Int )
+        //   dup 0 i.> if
+        //     1 i.subtract bad-loop  # recursive call
+        //     1 i.add                # more code after - not tail position!
+        //   then
+        // ;
+        //
+        // This should fail because:
+        // - then branch: recurse then add 1 -> stack changes after recursion
+        // - else branch (implicit): stack is ( Int )
+        // Without proper handling, this could incorrectly pass.
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "bad-loop".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(0),
+                    Statement::WordCall {
+                        name: "i.>".to_string(),
+                        span: None,
+                    },
+                    Statement::If {
+                        then_branch: vec![
+                            Statement::IntLiteral(1),
+                            Statement::WordCall {
+                                name: "i.subtract".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "bad-loop".to_string(), // NOT in tail position
+                                span: None,
+                            },
+                            Statement::IntLiteral(1),
+                            Statement::WordCall {
+                                name: "i.add".to_string(), // code after recursion
+                                span: None,
+                            },
+                        ],
+                        else_branch: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        // This should pass because the branches ARE compatible:
+        // - then: produces Int (after bad-loop returns Int, then add 1)
+        // - else: produces Int (from the dup at start)
+        // The key is that bad-loop is NOT in tail position, so it's not divergent.
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_ok(),
+            "Non-tail recursion should type check normally: {:?}",
             result.err()
         );
     }

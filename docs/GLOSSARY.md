@@ -449,10 +449,14 @@ Pausing a generator/weave and sending a value to the caller.
 
 When the generator executes `yield`, it:
 1. Sends a value to whoever called `strand.resume`
-2. Pauses execution
-3. Waits for the next `strand.resume` to continue
+2. Pauses execution at exactly that point
+3. Waits for the next `strand.resume` to continue *from that exact location*
 
-**Why it matters:** Yield enables lazy evaluation and producer/consumer patterns. The generator only does work when asked.
+The key insight: the yield point is both the **pause point** and the **resumption point**. When the generator resumes, it continues with all its local state intact - stack values, recursion depth, everything. This makes generators/coroutines inherently **stateful**.
+
+**Example: Game avatars.** Lua coroutines are famously used in MMOs to model player characters. Each avatar is a coroutine that knows its coordinates, inventory, and capabilities. The game loop resumes each avatar, it does a tick of work (move, attack, etc.), yields back, and suspends - all its state preserved until next tick. No external state management needed; the coroutine *is* the state.
+
+**Why it matters:** Yield enables lazy evaluation and producer/consumer patterns. The generator only does work when asked. More powerfully, the stateful nature lets you model complex behaviors (state machines, protocol handlers, simulations) as straightforward sequential code rather than callbacks or explicit state objects.
 
 **In other languages:** Python has `yield`. JavaScript has `yield` in generator functions. C# has `yield return`. Lua has `coroutine.yield()`. The concept is the same across languages - pause execution and emit a value.
 

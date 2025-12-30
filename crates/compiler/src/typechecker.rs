@@ -343,8 +343,8 @@ impl TypeChecker {
                 )
             })?;
 
-            // Verify computational effects match
-            // Check that each inferred effect has a matching declared effect (by kind)
+            // Verify computational effects match (bidirectional)
+            // 1. Check that each inferred effect has a matching declared effect (by kind)
             // Type variables in effects are matched by kind (Yield matches Yield)
             for inferred in &inferred_effects {
                 if !self.effect_matches_any(inferred, &declared_effect.effects) {
@@ -352,6 +352,18 @@ impl TypeChecker {
                         "Word '{}': body produces effect '{}' but no matching effect is declared.\n\
                          Hint: Add '| Yield <type>' to the word's stack effect declaration.",
                         word.name, inferred
+                    ));
+                }
+            }
+
+            // 2. Check that each declared effect is actually produced (effect soundness)
+            // This prevents declaring effects that don't occur
+            for declared in &declared_effect.effects {
+                if !self.effect_matches_any(declared, &inferred_effects) {
+                    return Err(format!(
+                        "Word '{}': declares effect '{}' but body doesn't produce it.\n\
+                         Hint: Remove the effect declaration or ensure the body uses yield.",
+                        word.name, declared
                     ));
                 }
             }

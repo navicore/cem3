@@ -1,0 +1,72 @@
+# Weave/Generator Example: Counter
+#
+# Demonstrates strand.weave - a generator that yields values.
+#
+# A weave is like a strand but with structured yield/resume semantics:
+# - strand.weave creates a generator from a quotation
+# - yield sends a value to the caller and waits for a resume value
+# - strand.resume sends a value to the weave and receives the yielded value
+
+# Counter loop - yields current count, receives increment, adds, repeats
+# Uses tail recursion for the infinite loop (TCO prevents stack growth)
+: counter-loop ( Int -- )
+  dup yield      # yield current count, receive increment
+  i.add          # add increment to count
+  counter-loop   # tail recurse
+;
+
+# Simple counter generator that yields incrementing values
+# Each time it's resumed, it yields the current count then adds the increment
+: counter-body ( Int -- )
+  # Stack has the initial value from first resume
+  counter-loop
+;
+
+: main ( -- Int )
+  "=== Weave Counter Example ===" io.write-line
+  "" io.write-line
+
+  # Create a weave from the counter body
+  [ counter-body ] strand.weave   # ( weave-id )
+
+  "Created counter weave" io.write-line
+
+  # Resume with initial value 10
+  10 strand.resume                 # ( weave-id yielded-value has-more )
+  if
+    "First yield: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+  # Stack: ( weave-id )
+
+  # Resume with increment 1
+  1 strand.resume                  # ( weave-id yielded-value has-more )
+  if
+    "After +1: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+
+  # Resume with increment 5
+  5 strand.resume
+  if
+    "After +5: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+
+  # Resume with increment 10
+  10 strand.resume
+  if
+    "After +10: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+
+  drop  # drop weave-id
+
+  "" io.write-line
+  "Done!" io.write-line
+  0
+;

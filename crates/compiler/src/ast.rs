@@ -388,6 +388,9 @@ impl Program {
             "while",
             "until",
             "strand.spawn",
+            "strand.weave",
+            "strand.resume",
+            "yield",
             "cond",
             // TCP operations
             "tcp.listen",

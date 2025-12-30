@@ -122,3 +122,30 @@ pattern = "io.read-line drop"
 replacement = ""
 message = "`io.read-line` returns (String Bool) - check the Bool before using the String"
 severity = "hint"
+
+# =============================================================================
+# Weave/Generator Resource Leaks
+# =============================================================================
+# Weaves must be either resumed to completion OR explicitly cancelled.
+# Dropping a WeaveHandle without doing either causes the coroutine to hang.
+
+[[lint]]
+id = "weave-immediate-drop"
+pattern = "strand.weave drop"
+replacement = ""
+message = "`strand.weave` handle dropped immediately - weave will hang forever. Use `strand.weave-cancel` or resume to completion."
+severity = "error"
+
+[[lint]]
+id = "unchecked-resume"
+pattern = "strand.resume drop drop drop"
+replacement = ""
+message = "`strand.resume` returns (handle value Bool) - check the Bool to detect weave completion and avoid resource leaks"
+severity = "warning"
+
+[[lint]]
+id = "unchecked-resume-result"
+pattern = "strand.resume drop drop"
+replacement = ""
+message = "`strand.resume` returns (handle value Bool) - the Bool indicates if the weave has more values"
+severity = "hint"

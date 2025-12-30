@@ -8,7 +8,7 @@ A guide to concepts in Seq and concatenative programming. Written for working pr
 
 A way to define custom types by combining simpler types. "Algebraic" because you build types using two operations:
 
-- **Sum types** ("or"): A value is one of several variants. Like an enum on steroids.
+- **Sum types** ("or"): A value is one of several variants. Like an enum.
 - **Product types** ("and"): A value contains multiple fields together. Like a struct.
 
 In Seq, you define ADTs with `union`:
@@ -28,6 +28,8 @@ union Option {
 ```
 
 **Why it matters:** ADTs let you model your domain precisely. Instead of using null, magic numbers, or stringly-typed data, you define exactly what shapes your data can take. The compiler then ensures you handle all cases.
+
+**History:** ADTs emerged from the ML family of languages in the 1970s (Robin Milner at Edinburgh). They became central to Haskell, OCaml, and F#. Rust's `enum` and Swift's `enum` with associated values are modern descendants. Most mainstream languages are only now catching up - Java added sealed classes and pattern matching in recent versions.
 
 **Contrast with mainstream:** In Java/C#, you'd use inheritance hierarchies or wrapper classes. In JavaScript, you'd use objects with type fields and hope for the best. ADTs give you the modeling power with compile-time guarantees.
 
@@ -66,6 +68,8 @@ Each word operates on whatever is on the stack. No variables, no argument lists 
 
 **Why it matters:** Concatenative code is highly composable. Any sequence of words can be extracted into a new word. Refactoring is trivial because there are no variable names to coordinate.
 
+**History:** Concatenative programming was pioneered by **Charles Moore** with **Forth** (1970). Moore designed Forth to control radio telescopes at the National Radio Astronomy Observatory - he needed something small, fast, and interactive. Forth became popular in embedded systems, early personal computers, and even spacecraft (it powered the guidance system on several NASA missions). Other concatenative languages include PostScript (the PDF predecessor), Factor, and Joy.
+
 **Contrast with mainstream:** Most languages are "applicative" - you apply functions to arguments: `print(add(1, double(x)))`. Notice how you read this inside-out. Concatenative code reads left-to-right, like a pipeline.
 
 ---
@@ -87,6 +91,8 @@ Regular functions run to completion - they start, do their work, and return. Cor
 
 **Why it matters:** Coroutines enable cooperative multitasking, generators, and async-like patterns without the complexity of threads.
 
+**History:** Coroutines were first described by **Melvin Conway** in 1963 - yes, the same Conway of "Conway's Law" (organizations design systems mirroring their communication structure). The concept predates threads! Simula (1967) had coroutines, and they were central to early Lisp implementations. Modern languages rediscovered coroutines: Python added generators in 2001, C# added iterators in 2005, and JavaScript added generators in 2015.
+
 **Contrast with mainstream:** JavaScript has `async/await` (a limited form of coroutines). Python has generators with `yield`. Go's goroutines are similar but preemptively scheduled.
 
 See also: [Generator](#generator-weave), [Yield](#yield), [Strand](#strand-green-thread)
@@ -107,6 +113,8 @@ chan.receive           # Receiver gets 42
 The key insight: instead of multiple threads reading/writing shared variables (and needing locks), each process has its own state and communicates through explicit message passing.
 
 **Why it matters:** CSP eliminates entire categories of concurrency bugs (race conditions, deadlocks from lock ordering). It's easier to reason about because communication points are explicit.
+
+**History:** CSP was formalized by **Tony Hoare** in his 1978 paper "Communicating Sequential Processes." Hoare is one of the giants of computer science - he also invented quicksort, developed Hoare logic for program verification, and received the Turing Award in 1980. CSP influenced the Occam language (1983) for parallel computing, and Erlang's actor model is a close relative. Despite CSP's elegance, it remained mostly academic until **Go** (2009) made channels and goroutines first-class features. Go's success finally brought CSP to mainstream programming.
 
 **Contrast with mainstream:** Java uses shared memory + locks. JavaScript is single-threaded with callbacks. Go popularized CSP with goroutines and channels. Seq follows Go's model.
 
@@ -212,6 +220,8 @@ The `..a` is a "row variable" representing "whatever else is on the stack." This
 
 **Why it matters:** Without row polymorphism, you'd need different versions of `add-one` for different stack depths, or lose type safety entirely. Row polymorphism gives you both flexibility and safety.
 
+**History:** Row polymorphism was developed in the 1990s for typing extensible records (Mitchell Wand, 1989; Didier Rémy, 1994). It was adapted for stack-based languages by researchers working on typed Forth and later Joy. The key insight: a stack is just a record where fields are positions rather than names. Seq's type system builds on this work to provide safety without sacrificing the flexibility that makes concatenative programming powerful.
+
 **Contrast with mainstream:** Most languages don't have this concept because they don't have stack-based semantics. It's similar to how generics let you write code that works with any type - row polymorphism lets you write code that works with any stack depth.
 
 ---
@@ -297,6 +307,8 @@ When a function's last action is calling another function (a "tail call"), TCO r
 
 **Why it matters:** TCO makes recursion as efficient as iteration. You can write elegant recursive algorithms without worrying about stack overflow.
 
+**History:** TCO was pioneered by **Guy Steele** and **Gerald Sussman** in the development of **Scheme** (1975). They proved that properly tail-recursive functions are equivalent to loops, making recursion a practical tool for iteration. Scheme was the first language to *require* TCO in its specification. This insight influenced functional programming for decades. Most mainstream languages still don't implement TCO - a 50-year-old optimization that remains cutting-edge!
+
 **Contrast with mainstream:** Most languages don't guarantee TCO. Java and Python never do it. JavaScript has it in the spec but most engines don't implement it. Scheme requires it. Seq guarantees TCO using LLVM's `musttail` directive.
 
 ---
@@ -327,6 +339,8 @@ greet                                    # Call the word
 ```
 
 **Why "word"?** In concatenative languages, a program is literally a sequence of words (tokens). When you write `1 2 i.+`, you're writing three words. User-defined words are indistinguishable from built-in ones in usage.
+
+**History:** The term comes from Forth, where Charles Moore conceived of programming as extending a language. In Forth, you build up a "dictionary" of words - starting with primitives and defining new words in terms of existing ones. Moore saw programming as fundamentally linguistic: you're not writing instructions for a machine, you're teaching the machine new vocabulary. This philosophy influenced Seq's design.
 
 **Contrast with mainstream:** Same as "function," "method," or "procedure" in other languages. Seq uses "word" to honor the Forth tradition and because it emphasizes the linguistic nature of concatenative programming.
 

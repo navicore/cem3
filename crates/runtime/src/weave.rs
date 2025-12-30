@@ -29,6 +29,29 @@
 //! 4. Coroutine wakes, receives value, runs until yield
 //! 5. yield uses WeaveCtx to send/receive, returns with new resume value
 //! 6. When quotation returns, WeaveCtx signals completion
+//!
+//! ## Resource Management
+//!
+//! **Important:** Weaves MUST be resumed until completion for proper cleanup.
+//! If a WeaveHandle is dropped without running the weave to completion, the
+//! spawned coroutine will hang forever waiting on resume_chan.
+//!
+//! Proper cleanup example:
+//! ```seq
+//! [ generator-body ] strand.weave  # Create weave
+//! 0 strand.resume                   # Resume until...
+//! if                                # ...has_more is false
+//!   # process value...
+//!   drop 0 strand.resume           # Keep resuming
+//! else
+//!   drop drop                       # Clean up when done
+//! then
+//! ```
+//!
+//! ## Limitations
+//!
+//! - Yielding `i64::MIN` (-9223372036854775808) is not supported as it's used
+//!   as the completion sentinel. This value will be interpreted as weave completion.
 
 use crate::stack::{Stack, pop, push};
 use crate::tagged_stack::StackValue;
@@ -36,7 +59,11 @@ use crate::value::{ChannelData, Value};
 use may::sync::mpmc;
 use std::sync::Arc;
 
-/// Sentinel value to signal weave completion
+/// Sentinel value to signal weave completion.
+///
+/// **Warning:** This means `i64::MIN` cannot be yielded from a weave.
+/// If a weave yields this exact value, it will be misinterpreted as completion.
+/// This is an extremely unlikely edge case (would require yielding -9223372036854775808).
 const DONE_SENTINEL: i64 = i64::MIN;
 
 /// Create a woven strand from a quotation

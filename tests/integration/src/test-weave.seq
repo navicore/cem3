@@ -78,3 +78,29 @@
 
 # NOTE: String yields would require explicit context threading for the string type.
 # The type signature ( Ctx a -- Ctx a ) means yielded and resumed values have same type.
+
+# Generator that yields extreme Int values (i64::MIN and i64::MIN+1)
+# These were previously reserved as sentinels but are now valid user values
+: extreme-values ( Ctx Int -- Ctx | Yield Int )
+  drop                            # ignore initial resume value
+  -9223372036854775808 yield drop # i64::MIN
+  -9223372036854775807 yield drop # i64::MIN + 1
+  9223372036854775807 yield drop  # i64::MAX
+;
+
+# Test that i64::MIN can be yielded (was previously a sentinel limitation)
+: test-yield-i64-min ( -- )
+  [ extreme-values ] strand.weave
+  0 strand.resume
+  test.assert                              # should have more
+  -9223372036854775808 test.assert-eq      # should be exactly i64::MIN
+  0 strand.resume
+  test.assert
+  -9223372036854775807 test.assert-eq      # i64::MIN + 1
+  0 strand.resume
+  test.assert
+  9223372036854775807 test.assert-eq       # i64::MAX
+  0 strand.resume
+  test.assert-not                          # weave should complete
+  drop drop
+;

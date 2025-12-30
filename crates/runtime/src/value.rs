@@ -31,6 +31,45 @@ impl PartialEq for ChannelData {
     }
 }
 
+/// Message type for weave channels.
+///
+/// Using an enum instead of sentinel values ensures no collision with user data.
+/// Any `Value` can be safely yielded/resumed, including `i64::MIN`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WeaveMessage {
+    /// Normal value being yielded or resumed
+    Value(Value),
+    /// Weave completed naturally (sent on yield_chan)
+    Done,
+    /// Cancellation requested (sent on resume_chan)
+    Cancel,
+}
+
+/// Channel data specifically for weave communication.
+///
+/// Uses `WeaveMessage` instead of raw `Value` to support typed control flow.
+#[derive(Debug)]
+pub struct WeaveChannelData {
+    pub sender: mpmc::Sender<WeaveMessage>,
+    pub receiver: mpmc::Receiver<WeaveMessage>,
+}
+
+impl Clone for WeaveChannelData {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            receiver: self.receiver.clone(),
+        }
+    }
+}
+
+// PartialEq by identity (Arc pointer comparison)
+impl PartialEq for WeaveChannelData {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
 // Note: Arc is used for both Closure.env and Variant to enable O(1) cloning.
 // This is essential for functional programming with recursive data structures.
 
@@ -145,9 +184,10 @@ pub enum Value {
     /// Weave context (generator/coroutine communication channels)
     /// Contains both yield and resume channels for bidirectional communication.
     /// Travels on the stack - no global registry needed.
+    /// Uses WeaveChannelData with WeaveMessage for type-safe control flow.
     WeaveCtx {
-        yield_chan: Arc<ChannelData>,
-        resume_chan: Arc<ChannelData>,
+        yield_chan: Arc<WeaveChannelData>,
+        resume_chan: Arc<WeaveChannelData>,
     },
 }
 

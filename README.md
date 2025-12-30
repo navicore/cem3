@@ -84,7 +84,7 @@ stack: 3 5
 seqr> : square ( Int -- Int ) dup i.* ;
 Defined.
 seqr> square
-stack: 9 25
+stack: 3 25
 ```
 
 **Commands:**

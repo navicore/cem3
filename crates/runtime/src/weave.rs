@@ -68,6 +68,21 @@
 //! Control flow (completion, cancellation) is handled via a type-safe `WeaveMessage`
 //! enum rather than sentinel values. This means **any** Value can be safely yielded
 //! and resumed, including edge cases like `i64::MIN`.
+//!
+//! ## Error Handling
+//!
+//! All weave functions are `extern "C"` and never panic (panicking across FFI is UB).
+//!
+//! - **Type mismatches** (e.g., `strand.resume` without a WeaveHandle): These indicate
+//!   a compiler bug or memory corruption. The function prints an error to stderr and
+//!   calls `std::process::abort()` to terminate immediately.
+//!
+//! - **Channel errors in `yield`**: If channels close unexpectedly while a coroutine
+//!   is yielding, the coroutine cleans up and blocks forever. The main program can
+//!   still terminate normally since the strand is marked as completed.
+//!
+//! - **Channel errors in `resume`**: Returns `(handle, placeholder, false)` to indicate
+//!   the weave has completed or failed. The caller should check the Bool result.
 
 use crate::stack::{Stack, pop, push};
 use crate::tagged_stack::StackValue;
@@ -85,10 +100,22 @@ use std::sync::Arc;
 ///
 /// Returns a WeaveHandle that the caller uses with strand.resume.
 ///
+/// # Error Handling
+///
+/// This function never panics (panicking in extern "C" is UB). On fatal error
+/// (null stack, null function pointer, type mismatch), it prints an error
+/// and aborts the process.
+///
 /// # Safety
 /// Stack must have a Quotation on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
+    // Note: We can't use assert! here (it panics). Use abort() for fatal errors.
+    if stack.is_null() {
+        eprintln!("strand.weave: stack is null (fatal programming error)");
+        std::process::abort();
+    }
+
     // Create the two internal channels - NO registry, just Arc values
     // Uses WeaveMessage for type-safe control flow (no sentinel values)
     let (yield_sender, yield_receiver) = mpmc::channel();
@@ -117,7 +144,10 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
     match quot_value {
         Value::Quotation { wrapper, .. } => {
             if wrapper == 0 {
-                panic!("strand.weave: quotation wrapper function pointer is null");
+                eprintln!(
+                    "strand.weave: quotation wrapper function pointer is null (compiler bug)"
+                );
+                std::process::abort();
             }
 
             use crate::scheduler::ACTIVE_STRANDS;
@@ -195,7 +225,8 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
         }
         Value::Closure { fn_ptr, env } => {
             if fn_ptr == 0 {
-                panic!("strand.weave: closure function pointer is null");
+                eprintln!("strand.weave: closure function pointer is null (compiler bug)");
+                std::process::abort();
             }
 
             use crate::scheduler::ACTIVE_STRANDS;
@@ -263,10 +294,13 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                 });
             }
         }
-        _ => panic!(
-            "strand.weave: expected Quotation or Closure, got {:?}",
-            quot_value
-        ),
+        _ => {
+            eprintln!(
+                "strand.weave: expected Quotation or Closure, got {:?} (compiler bug or memory corruption)",
+                quot_value
+            );
+            std::process::abort();
+        }
     }
 
     // Return WeaveHandle (contains both channels for resume to use)
@@ -275,6 +309,24 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
         resume_chan: handle_resume,
     };
     unsafe { push(stack, handle) }
+}
+
+/// Block the current coroutine forever without panicking.
+///
+/// This is used when an unrecoverable error occurs in an extern "C" function.
+/// We can't panic (UB across FFI) and we can't return (invalid state), so we
+/// clean up and block forever. The coroutine is already marked as completed
+/// via cleanup_strand(), so the program can still terminate normally.
+///
+/// # Safety
+/// Must only be called from within a spawned coroutine, never from the main thread.
+fn block_forever() -> ! {
+    let (_, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
+    let _ = rx.recv();
+    // This loop is a fallback in case recv() somehow returns (it shouldn't)
+    loop {
+        std::thread::park();
+    }
 }
 
 /// Helper to clean up strand on exit
@@ -302,11 +354,20 @@ fn cleanup_strand() {
 /// - has_more = true: weave yielded a value
 /// - has_more = false: weave completed
 ///
+/// # Error Handling
+///
+/// This function never panics (panicking in extern "C" is UB). On fatal error
+/// (null stack, type mismatch), it prints an error and aborts the process.
+///
 /// # Safety
 /// Stack must have a value on top and WeaveHandle below it
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_resume(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "strand.resume: stack is empty");
+    // Note: We can't use assert! here (it panics). Use abort() for fatal errors.
+    if stack.is_null() {
+        eprintln!("strand.resume: stack is null (fatal programming error)");
+        std::process::abort();
+    }
 
     // Pop the value to send
     let (stack, value) = unsafe { pop(stack) };
@@ -319,7 +380,10 @@ pub unsafe extern "C" fn patch_seq_resume(stack: Stack) -> Stack {
             yield_chan,
             resume_chan,
         } => (Arc::clone(yield_chan), Arc::clone(resume_chan)),
-        _ => panic!("strand.resume: expected WeaveHandle, got {:?}", handle),
+        _ => {
+            eprintln!("strand.resume: expected WeaveHandle, got {:?}", handle);
+            std::process::abort();
+        }
     };
 
     // Wrap value in WeaveMessage for sending
@@ -371,14 +435,27 @@ pub unsafe extern "C" fn patch_seq_resume(stack: Stack) -> Stack {
 /// Sends value `a` to the caller and waits for the next resume value.
 /// The WeaveCtx must be passed through - it contains the channels.
 ///
-/// # Panics
-/// Panics if WeaveCtx is not on the stack.
+/// # Error Handling
+///
+/// This function never panics (panicking in extern "C" is UB). On error:
+/// - Type mismatch: eprintln + cleanup + block forever
+/// - Channel closed: cleanup + block forever
+///
+/// The coroutine is marked as completed before blocking, so the program
+/// can still terminate normally.
 ///
 /// # Safety
 /// Stack must have a value on top and WeaveCtx below it
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "yield: stack is empty");
+    // Note: We can't use assert! here (it panics). A null stack is a fatal
+    // programming error, but we handle it gracefully to avoid UB.
+    if stack.is_null() {
+        eprintln!("yield: stack is null (fatal programming error)");
+        crate::arena::arena_reset();
+        cleanup_strand();
+        block_forever();
+    }
 
     // Pop the value to yield
     let (stack, value) = unsafe { pop(stack) };
@@ -391,10 +468,18 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
             yield_chan,
             resume_chan,
         } => (Arc::clone(yield_chan), Arc::clone(resume_chan)),
-        _ => panic!(
-            "yield: expected WeaveCtx on stack, got {:?}. yield can only be called inside strand.weave with context threaded through.",
-            ctx
-        ),
+        _ => {
+            // Type mismatch - yield called without WeaveCtx on stack
+            // This is a programming error but we can't panic (UB)
+            eprintln!(
+                "yield: expected WeaveCtx on stack, got {:?}. \
+                 yield can only be called inside strand.weave with context threaded through.",
+                ctx
+            );
+            crate::arena::arena_reset();
+            cleanup_strand();
+            block_forever();
+        }
     };
 
     // Wrap value in WeaveMessage for sending
@@ -402,29 +487,33 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
 
     // Send the yielded value
     if yield_chan.sender.send(msg_to_send).is_err() {
-        panic!("yield: yield channel closed unexpectedly");
+        // Channel unexpectedly closed - caller dropped the handle
+        // Clean up and block forever (can't panic in extern "C")
+        crate::arena::arena_reset();
+        cleanup_strand();
+        block_forever();
     }
 
     // Wait for resume value
     let resume_msg = match resume_chan.receiver.recv() {
         Ok(msg) => msg,
-        Err(_) => panic!("yield: resume channel closed unexpectedly"),
+        Err(_) => {
+            // Resume channel closed - caller dropped the handle
+            // Clean up and block forever (can't panic in extern "C")
+            crate::arena::arena_reset();
+            cleanup_strand();
+            block_forever();
+        }
     };
 
     // Handle the message
     match resume_msg {
         WeaveMessage::Cancel => {
-            // Weave was cancelled - signal completion and exit
+            // Weave was cancelled - signal completion and exit cleanly
             let _ = yield_chan.sender.send(WeaveMessage::Done);
             crate::arena::arena_reset();
             cleanup_strand();
-            // Block this coroutine forever - it's already marked as completed.
-            // We can't panic because that would cross an extern "C" boundary (UB).
-            // Instead, we block on an empty channel that will never receive.
-            let (_, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
-            let _ = rx.recv();
-            // Unreachable - but satisfy the compiler's return type
-            unreachable!("cancelled weave should block forever");
+            block_forever();
         }
         WeaveMessage::Value(resume_value) => {
             // Push WeaveCtx back, then resume value
@@ -432,8 +521,11 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
             unsafe { push(stack, resume_value) }
         }
         WeaveMessage::Done => {
-            // Shouldn't happen - Done is sent on yield_chan, not resume_chan
-            panic!("yield: received Done on resume channel (protocol error)");
+            // Protocol error - Done should only be sent on yield_chan
+            // Can't panic, so clean up and block
+            crate::arena::arena_reset();
+            cleanup_strand();
+            block_forever();
         }
     }
 }
@@ -451,11 +543,20 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
 /// - Waiting inside yield: receives cancel signal and can exit
 /// - Already completed: no effect (signal is ignored)
 ///
+/// # Error Handling
+///
+/// This function never panics (panicking in extern "C" is UB). On fatal error
+/// (null stack, type mismatch), it prints an error and aborts the process.
+///
 /// # Safety
 /// Stack must have a WeaveHandle (WeaveCtx) on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_weave_cancel(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "strand.weave-cancel: stack is null");
+    // Note: We can't use assert! here (it panics). Use abort() for fatal errors.
+    if stack.is_null() {
+        eprintln!("strand.weave-cancel: stack is null (fatal programming error)");
+        std::process::abort();
+    }
 
     // Pop the WeaveHandle
     let (stack, handle) = unsafe { pop(stack) };
@@ -466,10 +567,13 @@ pub unsafe extern "C" fn patch_seq_weave_cancel(stack: Stack) -> Stack {
             // Send cancel signal - if this fails, weave is already done (fine)
             let _ = resume_chan.sender.send(WeaveMessage::Cancel);
         }
-        _ => panic!(
-            "strand.weave-cancel: expected WeaveHandle, got {:?}",
-            handle
-        ),
+        _ => {
+            eprintln!(
+                "strand.weave-cancel: expected WeaveHandle, got {:?}",
+                handle
+            );
+            std::process::abort();
+        }
     }
 
     // Handle is consumed (dropped), stack returned without it

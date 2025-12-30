@@ -141,6 +141,14 @@ pub enum Value {
     /// Uses Arc for O(1) cloning - duplicating a channel shares the underlying handles.
     /// Send/receive operations use the handles directly with zero mutex overhead.
     Channel(Arc<ChannelData>),
+
+    /// Weave context (generator/coroutine communication channels)
+    /// Contains both yield and resume channels for bidirectional communication.
+    /// Travels on the stack - no global registry needed.
+    WeaveCtx {
+        yield_chan: Arc<ChannelData>,
+        resume_chan: Arc<ChannelData>,
+    },
 }
 
 // Safety: Value can be sent and shared between strands (green threads)

@@ -424,14 +424,14 @@
   # Creates a channel for sending the socket to the worker
   # Stack: ( listener_socket client_socket channel_id )
 
-  dup [ worker ] spawn
+  dup [ worker ] strand.spawn
   # dup:    ( listener_socket client_socket channel_id channel_id )
   # [ worker ]: Push the worker quotation
-  # spawn:  Start a new strand running "worker" with channel_id, passes stack to child
+  # strand.spawn: Start a new strand running "worker" with channel_id, passes stack to child
   # Stack: ( listener_socket client_socket channel_id channel_id strand_id )
 
   drop drop
-  # We don't need the strand_id, and spawn leaves the extra dup'd channel
+  # We don't need the strand_id, and strand.spawn leaves the extra dup'd channel
   # Stack: ( listener_socket client_socket channel_id )
 
   chan.send

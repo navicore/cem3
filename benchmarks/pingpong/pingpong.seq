@@ -55,7 +55,7 @@
   # Spawn pong strand: needs ( ping pong count ) on child stack
   2dup                    # ( start ping pong ping pong )
   iterations              # ( start ping pong ping pong count )
-  [ pong ] spawn          # ( start ping pong ping pong count strand-id )
+  [ pong ] strand.spawn   # ( start ping pong ping pong count strand-id )
   drop drop drop drop     # ( start ping pong ) - clean up copies
 
   # Run ping in main strand

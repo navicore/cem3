@@ -36,7 +36,7 @@ include std:http
 : accept-loop ( Int -- )
   dup tcp.accept          # ( listener client )
   chan.make            # ( listener client chan )
-  dup [ chan.receive if handle-connection else drop then ] spawn  # ( listener client chan chan strand-id )
+  dup [ chan.receive if handle-connection else drop then ] strand.spawn  # ( listener client chan chan strand-id )
   drop drop               # ( listener client chan ) - drop strand-id AND extra chan
   chan.send               # ( listener success ) - send client on chan
   not if "Failed to send client to handler" io.write-line then

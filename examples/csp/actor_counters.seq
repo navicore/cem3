@@ -296,7 +296,7 @@ union Message {
 : create-company ( Variant String -- Variant Int )
   chan.make               # ( registry name chan )
   dup                        # ( registry name chan chan )
-  [ company-actor ] spawn    # ( registry name chan chan strand-id )
+  [ company-actor ] strand.spawn    # ( registry name chan chan strand-id )
   drop drop                  # ( registry name chan )
 
   dup                        # ( registry name chan chan )
@@ -313,7 +313,7 @@ union Message {
   chan.make               # ( parent registry path chan )
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
-  [ region-actor ] spawn     # ( parent registry path chan chan parent strand-id )
+  [ region-actor ] strand.spawn     # ( parent registry path chan chan parent strand-id )
   3drop             # ( parent registry path chan )
 
   dup                        # ( parent registry path chan chan )
@@ -331,7 +331,7 @@ union Message {
   chan.make               # ( parent registry path chan )
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
-  [ district-actor ] spawn   # ( parent registry path chan chan parent strand-id )
+  [ district-actor ] strand.spawn   # ( parent registry path chan chan parent strand-id )
   3drop             # ( parent registry path chan )
 
   dup                        # ( parent registry path chan chan )
@@ -403,7 +403,7 @@ union Message {
   # Spawn the store actor: needs ( my-chan parent-chan ) on stack
   dup                        # ( parent path registry chan chan )
   4 pick                     # ( parent path registry chan chan parent )
-  [ store-actor ] spawn      # ( parent path registry chan chan parent strand-id )
+  [ store-actor ] strand.spawn      # ( parent path registry chan chan parent strand-id )
   3drop             # ( parent path registry chan )
 
   # Now: ( parent path registry chan )
@@ -754,7 +754,7 @@ union Message {
   swap                      # ( registry listener registry client )
 
   # Spawn handler - child gets copy of stack, runs connection-handler
-  [ connection-handler ] spawn  # child: ( registry listener registry client )
+  [ connection-handler ] strand.spawn  # child: ( registry listener registry client )
   # connection-handler takes top 2: ( registry client ), handles request
 
   # Parent cleanup: ( registry listener registry client strand-id )

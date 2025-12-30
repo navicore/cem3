@@ -387,7 +387,7 @@ impl Program {
             "times",
             "while",
             "until",
-            "spawn",
+            "strand.spawn",
             "cond",
             // TCP operations
             "tcp.listen",

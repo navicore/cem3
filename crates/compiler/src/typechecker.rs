@@ -25,6 +25,9 @@ pub struct TypeChecker {
     /// Expected quotation/closure type (from word signature, if any)
     /// Used during type-driven capture inference
     expected_quotation_type: std::cell::RefCell<Option<Type>>,
+    /// Current word being type-checked (for detecting recursive tail calls)
+    /// Used to identify divergent branches in if/else expressions
+    current_word: std::cell::RefCell<Option<String>>,
 }
 
 impl TypeChecker {
@@ -35,6 +38,7 @@ impl TypeChecker {
             fresh_counter: std::cell::Cell::new(0),
             quotation_types: std::cell::RefCell::new(HashMap::new()),
             expected_quotation_type: std::cell::RefCell::new(None),
+            current_word: std::cell::RefCell::new(None),
         }
     }
 
@@ -289,8 +293,11 @@ impl TypeChecker {
 
     /// Type check a word definition
     fn check_word(&self, word: &WordDef) -> Result<(), String> {
+        // Track current word for detecting recursive tail calls (divergent branches)
+        *self.current_word.borrow_mut() = Some(word.name.clone());
+
         // If word has declared effect, verify body matches it
-        if let Some(declared_effect) = &word.effect {
+        let result = if let Some(declared_effect) = &word.effect {
             // Check if the word's output type is a quotation or closure
             // If so, store it as the expected type for capture inference
             if let Some((_rest, top_type)) = declared_effect.outputs.clone().pop()
@@ -313,13 +320,18 @@ impl TypeChecker {
                     word.name, declared_effect.outputs, result_stack, e
                 )
             })?;
+            Ok(())
         } else {
             // No declared effect - just verify body is well-typed
             // Start from polymorphic input
             self.infer_statements_from(&word.body, &StackType::RowVar("input".to_string()))?;
-        }
+            Ok(())
+        };
 
-        Ok(())
+        // Clear current word
+        *self.current_word.borrow_mut() = None;
+
+        result
     }
 
     /// Infer the resulting stack type from a sequence of statements
@@ -679,6 +691,18 @@ impl TypeChecker {
         Ok(arm_stack)
     }
 
+    /// Check if a branch ends with a recursive tail call to the current word.
+    /// Such branches are "divergent" - they never return to the if/else,
+    /// so their stack effect shouldn't constrain the other branch.
+    fn is_divergent_branch(&self, statements: &[Statement]) -> bool {
+        if let Some(current_word) = self.current_word.borrow().as_ref()
+            && let Some(Statement::WordCall { name, .. }) = statements.last()
+        {
+            return name == current_word;
+        }
+        false
+    }
+
     /// Infer the stack effect of an if/else expression
     fn infer_if(
         &self,
@@ -698,6 +722,13 @@ impl TypeChecker {
 
         let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
 
+        // Check for divergent branches (recursive tail calls)
+        let then_diverges = self.is_divergent_branch(then_branch);
+        let else_diverges = else_branch
+            .as_ref()
+            .map(|stmts| self.is_divergent_branch(stmts))
+            .unwrap_or(false);
+
         // Infer branches directly from the actual stack
         let (then_result, then_subst) =
             self.infer_statements_from(then_branch, &stack_after_cond)?;
@@ -706,24 +737,35 @@ impl TypeChecker {
         let (else_result, else_subst) = if let Some(else_stmts) = else_branch {
             self.infer_statements_from(else_stmts, &stack_after_cond)?
         } else {
-            (stack_after_cond, Subst::empty())
+            (stack_after_cond.clone(), Subst::empty())
         };
 
-        // Both branches must produce compatible stacks
-        let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
-            format!(
-                "if/else branches have incompatible stack effects:\n\
-                 \x20 then branch produces: {}\n\
-                 \x20 else branch produces: {}\n\
-                 \x20 Both branches of an if/else must produce the same stack shape.\n\
-                 \x20 Hint: Make sure both branches push/pop the same number of values.\n\
-                 \x20 Error: {}",
-                then_result, else_result, e
-            )
-        })?;
-
-        // Apply branch unification to get the final result
-        let result = branch_subst.apply_stack(&then_result);
+        // Handle divergent branches: if one branch diverges (never returns),
+        // use the other branch's stack type without requiring unification.
+        // This supports patterns like:
+        //   chan.receive not if drop store-loop then
+        // where the then branch recurses and the else branch continues.
+        let (result, branch_subst) = if then_diverges && !else_diverges {
+            // Then branch diverges, use else branch's type
+            (else_result, Subst::empty())
+        } else if else_diverges && !then_diverges {
+            // Else branch diverges, use then branch's type
+            (then_result, Subst::empty())
+        } else {
+            // Both branches must produce compatible stacks (normal case)
+            let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
+                format!(
+                    "if/else branches have incompatible stack effects:\n\
+                     \x20 then branch produces: {}\n\
+                     \x20 else branch produces: {}\n\
+                     \x20 Both branches of an if/else must produce the same stack shape.\n\
+                     \x20 Hint: Make sure both branches push/pop the same number of values.\n\
+                     \x20 Error: {}",
+                    then_result, else_result, e
+                )
+            })?;
+            (branch_subst.apply_stack(&then_result), branch_subst)
+        };
 
         // Propagate all substitutions
         let total_subst = cond_subst
@@ -2456,6 +2498,93 @@ mod tests {
         assert!(
             checker.check_program(&program).is_ok(),
             "Union reference in field should be valid"
+        );
+    }
+
+    #[test]
+    fn test_divergent_recursive_tail_call() {
+        // Test that recursive tail calls in if/else branches are recognized as divergent.
+        // This pattern is common in actor loops:
+        //
+        // : store-loop ( Int -- )
+        //   dup           # ( chan chan )
+        //   chan.receive  # ( chan value Bool )
+        //   not if        # ( chan value )
+        //     drop        # ( chan ) - drop value, keep chan for recursion
+        //     store-loop  # diverges - never returns
+        //   then
+        //   # else: ( chan value ) - process msg normally
+        //   drop drop     # ( )
+        // ;
+        //
+        // The then branch ends with a recursive call (store-loop), so it diverges.
+        // The else branch (implicit empty) continues with the stack after the if.
+        // Without divergent branch detection, this would fail because:
+        //   - then branch produces: () (after drop store-loop)
+        //   - else branch produces: (chan value)
+        // But since then diverges, we should use else's type.
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "store-loop".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int), // ( chan -- )
+                    StackType::Empty,
+                )),
+                body: vec![
+                    // dup -> ( chan chan )
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    // chan.receive -> ( chan value Bool )
+                    Statement::WordCall {
+                        name: "chan.receive".to_string(),
+                        span: None,
+                    },
+                    // not -> ( chan value Bool )
+                    Statement::WordCall {
+                        name: "not".to_string(),
+                        span: None,
+                    },
+                    // if drop store-loop then
+                    Statement::If {
+                        then_branch: vec![
+                            // drop value -> ( chan )
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                            // store-loop -> diverges
+                            Statement::WordCall {
+                                name: "store-loop".to_string(), // recursive tail call
+                                span: None,
+                            },
+                        ],
+                        else_branch: None, // implicit else continues with ( chan value )
+                    },
+                    // After if: ( chan value ) - drop both
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_ok(),
+            "Divergent recursive tail call should be accepted: {:?}",
+            result.err()
         );
     }
 }

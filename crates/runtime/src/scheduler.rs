@@ -41,8 +41,8 @@ static SCHEDULER_INIT: Once = Once::new();
 // state with synchronization overhead on the hot path. The counter + condvar approach
 // keeps the hot path lock-free while providing proper shutdown synchronization.
 pub static ACTIVE_STRANDS: AtomicUsize = AtomicUsize::new(0);
-static SHUTDOWN_CONDVAR: Condvar = Condvar::new();
-static SHUTDOWN_MUTEX: Mutex<()> = Mutex::new(());
+pub(crate) static SHUTDOWN_CONDVAR: Condvar = Condvar::new();
+pub(crate) static SHUTDOWN_MUTEX: Mutex<()> = Mutex::new(());
 
 // Strand lifecycle statistics (for diagnostics)
 //

@@ -133,6 +133,7 @@ mod tests {
         Effect {
             inputs: make_stack(inputs),
             outputs: make_stack(outputs),
+            effects: Vec::new(),
         }
     }
 

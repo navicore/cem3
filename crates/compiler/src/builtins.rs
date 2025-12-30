@@ -8,7 +8,7 @@
 //! - Concrete types: `Int`, `String`, `Float`
 //! - Type variables: single uppercase letters like `T`, `U`, `V`
 
-use crate::types::{Effect, StackType, Type};
+use crate::types::{Effect, SideEffect, StackType, Type};
 use std::collections::HashMap;
 
 /// Convert a type token to a Type expression
@@ -493,17 +493,19 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // yield: ( a ctx b -- a ctx b ) - yield value and receive resume value
+    // yield: ( a ctx b -- a ctx b | Yield b ) - yield value and receive resume value
     // The WeaveCtx must be passed explicitly and threaded through.
+    // The Yield effect indicates this word produces yield semantics.
     sigs.insert(
         "yield".to_string(),
-        Effect::new(
+        Effect::with_effects(
             StackType::RowVar("a".to_string())
                 .push(Type::Var("ctx".to_string()))
                 .push(Type::Var("b".to_string())),
             StackType::RowVar("a".to_string())
                 .push(Type::Var("ctx".to_string()))
                 .push(Type::Var("b".to_string())),
+            vec![SideEffect::Yield(Box::new(Type::Var("b".to_string())))],
         ),
     );
 

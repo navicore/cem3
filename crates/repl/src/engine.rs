@@ -433,6 +433,7 @@ mod tests {
             outputs: StackType::RowVar("a".to_string())
                 .push(Type::Int)
                 .push(Type::Int),
+            effects: Vec::new(),
         };
 
         let effect = effect_to_stack_effect("dup-int", &compiler_effect);

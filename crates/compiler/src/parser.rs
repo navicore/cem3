@@ -12,7 +12,7 @@ use crate::ast::{
     Include, MatchArm, Pattern, Program, SourceLocation, Statement, UnionDef, UnionField,
     UnionVariant, WordDef,
 };
-use crate::types::{Effect, StackType, Type};
+use crate::types::{Effect, SideEffect, StackType, Type};
 
 /// A token with source position information
 #[derive(Debug, Clone)]
@@ -698,6 +698,7 @@ impl Parser {
     }
 
     /// Parse a stack effect declaration: ( ..a Int -- ..a Bool )
+    /// With optional computational effects: ( ..a Int -- ..a Bool | Yield Int )
     fn parse_stack_effect(&mut self) -> Result<Effect, String> {
         // Consume '('
         if !self.consume("(") {
@@ -713,9 +714,16 @@ impl Parser {
             return Err("Expected '--' separator in stack effect".to_string());
         }
 
-        // Parse output stack types (until ')')
+        // Parse output stack types (until ')' or '|')
         let (output_row_var, output_types) =
-            self.parse_type_list_until(&[")"], "stack effect outputs", 0)?;
+            self.parse_type_list_until(&[")", "|"], "stack effect outputs", 0)?;
+
+        // Parse optional computational effects after '|'
+        let effects = if self.consume("|") {
+            self.parse_effect_annotations()?
+        } else {
+            Vec::new()
+        };
 
         // Consume ')'
         if !self.consume(")") {
@@ -726,7 +734,47 @@ impl Parser {
         let inputs = self.build_stack_type(input_row_var, input_types);
         let outputs = self.build_stack_type(output_row_var, output_types);
 
-        Ok(Effect::new(inputs, outputs))
+        Ok(Effect::with_effects(inputs, outputs, effects))
+    }
+
+    /// Parse computational effect annotations after '|'
+    /// Example: | Yield Int
+    fn parse_effect_annotations(&mut self) -> Result<Vec<SideEffect>, String> {
+        let mut effects = Vec::new();
+
+        // Parse effects until we hit ')'
+        while let Some(token) = self.peek_at(0) {
+            if token == ")" {
+                break;
+            }
+
+            match token {
+                "Yield" => {
+                    self.advance(); // consume "Yield"
+                    // Parse the yield type
+                    if let Some(type_token) = self.peek_at(0) {
+                        if type_token == ")" {
+                            return Err("Expected type after 'Yield'".to_string());
+                        }
+                        let type_str = type_token.to_string();
+                        self.advance();
+                        let yield_type = self.parse_type(&type_str)?;
+                        effects.push(SideEffect::Yield(Box::new(yield_type)));
+                    } else {
+                        return Err("Expected type after 'Yield'".to_string());
+                    }
+                }
+                _ => {
+                    return Err(format!("Unknown effect '{}'. Expected 'Yield'", token));
+                }
+            }
+        }
+
+        if effects.is_empty() {
+            return Err("Expected at least one effect after '|'".to_string());
+        }
+
+        Ok(effects)
     }
 
     /// Parse a single type token into a Type

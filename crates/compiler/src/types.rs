@@ -2,6 +2,33 @@
 //!
 //! Based on cem2's row polymorphism design with improvements.
 //! Supports stack effect declarations like: ( ..a Int -- ..a Bool )
+//!
+//! ## Computational Effects
+//!
+//! Beyond stack effects, Seq tracks computational side effects using the `|` syntax:
+//! - `( a -- b | Yield T )` - may yield values of type T (generators)
+//! - Effects propagate through function calls
+//! - `strand.weave` handles the Yield effect, `strand.spawn` requires pure quotations
+
+/// Computational side effects (beyond stack transformation)
+///
+/// These track effects that go beyond the stack transformation:
+/// - Yield: generator/coroutine that yields values
+/// - Future: IO, Throw, Async, etc.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SideEffect {
+    /// Yields values of type T (generator effect)
+    /// Used by strand.weave quotations
+    Yield(Box<Type>),
+}
+
+impl std::fmt::Display for SideEffect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SideEffect::Yield(ty) => write!(f, "Yield {}", ty),
+        }
+    }
+}
 
 /// Base types in the language
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -152,12 +179,18 @@ pub enum StackType {
 /// Example: ( ..a Int -- ..a Bool ) means:
 ///   - Consumes an Int from stack with ..a underneath
 ///   - Produces a Bool on stack with ..a underneath
+///
+/// With computational effects: ( ..a Int -- ..a Bool | Yield Int )
+///   - Same stack transformation
+///   - May also yield Int values (generator effect)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Effect {
     /// Input stack type (before word executes)
     pub inputs: StackType,
     /// Output stack type (after word executes)
     pub outputs: StackType,
+    /// Computational side effects (Yield, etc.)
+    pub effects: Vec<SideEffect>,
 }
 
 impl StackType {
@@ -199,9 +232,44 @@ impl StackType {
 }
 
 impl Effect {
-    /// Create a new stack effect
+    /// Create a new stack effect (pure, no side effects)
     pub fn new(inputs: StackType, outputs: StackType) -> Self {
-        Effect { inputs, outputs }
+        Effect {
+            inputs,
+            outputs,
+            effects: Vec::new(),
+        }
+    }
+
+    /// Create a new stack effect with computational effects
+    pub fn with_effects(inputs: StackType, outputs: StackType, effects: Vec<SideEffect>) -> Self {
+        Effect {
+            inputs,
+            outputs,
+            effects,
+        }
+    }
+
+    /// Check if this effect is pure (no side effects)
+    pub fn is_pure(&self) -> bool {
+        self.effects.is_empty()
+    }
+
+    /// Check if this effect has a Yield effect
+    pub fn has_yield(&self) -> bool {
+        self.effects
+            .iter()
+            .any(|e| matches!(e, SideEffect::Yield(_)))
+    }
+
+    /// Get the yield type if this effect has one
+    pub fn yield_type(&self) -> Option<&Type> {
+        self.effects
+            .iter()
+            .map(|e| match e {
+                SideEffect::Yield(ty) => ty.as_ref(),
+            })
+            .next()
     }
 }
 
@@ -254,7 +322,18 @@ impl std::fmt::Display for StackType {
 
 impl std::fmt::Display for Effect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} -- {}", self.inputs, self.outputs)
+        if self.effects.is_empty() {
+            write!(f, "{} -- {}", self.inputs, self.outputs)
+        } else {
+            let effects_str: Vec<_> = self.effects.iter().map(|e| format!("{}", e)).collect();
+            write!(
+                f,
+                "{} -- {} | {}",
+                self.inputs,
+                self.outputs,
+                effects_str.join(" ")
+            )
+        }
     }
 }
 

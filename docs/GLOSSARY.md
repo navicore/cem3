@@ -29,9 +29,9 @@ union Option {
 
 **Why it matters:** ADTs let you model your domain precisely. Instead of using null, magic numbers, or stringly-typed data, you define exactly what shapes your data can take. The compiler then ensures you handle all cases.
 
-**History:** ADTs emerged from the ML family of languages in the 1970s (Robin Milner at Edinburgh). They became central to Haskell, OCaml, and F#. Rust's `enum` and Swift's `enum` with associated values are modern descendants. Most mainstream languages are only now catching up - Java added sealed classes and pattern matching in recent versions.
+**History:** ADTs emerged from the ML family of languages in the 1970s (Robin Milner at Edinburgh). They became central to Haskell, OCaml, and F#. Rust's `enum` and Swift's `enum` with associated values are modern descendants.
 
-**Contrast with mainstream:** In Java/C#, you'd use inheritance hierarchies or wrapper classes. In JavaScript, you'd use objects with type fields and hope for the best. ADTs give you the modeling power with compile-time guarantees.
+**In other languages:** Java traditionally uses inheritance hierarchies; Java 17+ added sealed classes and pattern matching. C# has similar recent additions. Rust and Swift have ADTs as core features. In JavaScript/TypeScript, discriminated unions with type fields achieve a similar pattern.
 
 ---
 
@@ -51,7 +51,7 @@ The quotation `[ i.+ ]` captures the `5` from the stack. When you `call` it late
 
 **Why it matters:** Closures enable functional patterns like callbacks, partial application, and higher-order functions. They're the building block for abstracting behavior.
 
-**Contrast with mainstream:** JavaScript closures work similarly. Java has lambdas (with some restrictions). The difference in Seq is that captured values come from the stack, not named variables.
+**In other languages:** JavaScript closures work similarly. Java 8+ has lambdas (with some restrictions on captured variables). Python has closures with `nonlocal`. The difference in Seq is that captured values come from the stack, not named variables.
 
 ---
 
@@ -70,7 +70,7 @@ Each word operates on whatever is on the stack. No variables, no argument lists 
 
 **History:** Concatenative programming was pioneered by **Charles Moore** with **Forth** (1970). Moore designed Forth to control radio telescopes at the National Radio Astronomy Observatory - he needed something small, fast, and interactive. Forth became popular in embedded systems, early personal computers, and even spacecraft (it powered the guidance system on several NASA missions). Other concatenative languages include PostScript (the PDF predecessor), Factor, and Joy.
 
-**Contrast with mainstream:** Most languages are "applicative" - you apply functions to arguments: `print(add(1, double(x)))`. Notice how you read this inside-out. Concatenative code reads left-to-right, like a pipeline.
+**In other languages:** Most languages are "applicative" - you apply functions to arguments: `print(add(1, double(x)))`. Notice how you read this inside-out. Concatenative code reads left-to-right. Unix pipes (`cat file | grep pattern | wc -l`) follow a similar compositional style. Elixir's `|>` operator and F#'s pipeline operator provide this within applicative languages.
 
 ---
 
@@ -93,7 +93,7 @@ Regular functions run to completion - they start, do their work, and return. Cor
 
 **History:** Coroutines were first described by **Melvin Conway** in 1963 - yes, the same Conway of "Conway's Law" (organizations design systems mirroring their communication structure). The concept predates threads! Simula (1967) had coroutines, and they were central to early Lisp implementations. Modern languages rediscovered coroutines: Python added generators in 2001, C# added iterators in 2005, and JavaScript added generators in 2015.
 
-**Contrast with mainstream:** JavaScript has `async/await` (a limited form of coroutines). Python has generators with `yield`. Go's goroutines are similar but preemptively scheduled.
+**In other languages:** Python has generators with `yield` and `async/await`. JavaScript has `async/await` and generator functions. C# has `yield return` for iterators and `async/await`. Go's goroutines are similar but preemptively scheduled. Kotlin has coroutines as a library feature.
 
 See also: [Generator](#generator-weave), [Yield](#yield), [Strand](#strand-green-thread)
 
@@ -114,9 +114,9 @@ The key insight: instead of multiple threads reading/writing shared variables (a
 
 **Why it matters:** CSP eliminates entire categories of concurrency bugs (race conditions, deadlocks from lock ordering). It's easier to reason about because communication points are explicit.
 
-**History:** CSP was formalized by **Tony Hoare** in his 1978 paper "Communicating Sequential Processes." Hoare is one of the giants of computer science - he also invented quicksort, developed Hoare logic for program verification, and received the Turing Award in 1980. CSP influenced the Occam language (1983) for parallel computing, and Erlang's actor model is a close relative. Despite CSP's elegance, it remained mostly academic until **Go** (2009) made channels and goroutines first-class features. Go's success finally brought CSP to mainstream programming.
+**History:** CSP was formalized by **Tony Hoare** in his 1978 paper "Communicating Sequential Processes." Hoare is one of the giants of computer science - he also invented quicksort, developed Hoare logic for program verification, and received the Turing Award in 1980. CSP influenced the Occam language (1983) for parallel computing, and Erlang's actor model is a close relative. **Go** (2009) made channels and goroutines first-class features, bringing CSP to wide adoption.
 
-**Contrast with mainstream:** Java uses shared memory + locks. JavaScript is single-threaded with callbacks. Go popularized CSP with goroutines and channels. Seq follows Go's model.
+**In other languages:** Go has goroutines and channels as core features. Erlang and Elixir use the related Actor model with message-passing processes. Rust has channels in its standard library. Java traditionally uses shared memory with locks; Java 21 added virtual threads. JavaScript is single-threaded and uses callbacks/promises for async work.
 
 ---
 
@@ -147,7 +147,7 @@ In Seq, generators are called **weaves**:
 
 **Why it matters:** Generators let you work with infinite or expensive sequences lazily. You only compute values as needed. Great for streaming data, pagination, or any producer/consumer pattern.
 
-**Contrast with mainstream:** Python has generators with `yield`. JavaScript has generator functions (`function*`). Java has `Stream` (less flexible). Seq's weaves are bidirectional - you can send values back to the generator.
+**In other languages:** Python has generators with `yield` and `send()` for bidirectional communication. JavaScript has generator functions (`function*`) with `next(value)`. C# has `IEnumerable` with `yield return`. Java has `Stream` for lazy sequences. Seq's weaves support bidirectional communication - you can send values back to the generator with each resume.
 
 ---
 
@@ -168,7 +168,7 @@ In Seq, point-free is the natural style because values live on the stack, not in
 
 **Why it matters:** Point-free code emphasizes the *transformation* rather than the *data*. It's often more composable and can be easier to reason about once you're fluent.
 
-**Contrast with mainstream:** Haskell programmers sometimes write point-free (using `.` for composition). Most languages require naming arguments. In Seq, you'd have to go out of your way to *not* be point-free.
+**In other languages:** Haskell supports point-free style using `.` for composition. APL and J are famously point-free. Most languages require naming arguments explicitly. In Seq, point-free is the default style since values live on the stack.
 
 ---
 
@@ -187,7 +187,7 @@ Quotations are Seq's equivalent of lambdas/anonymous functions, but simpler - th
 
 **Why it matters:** Quotations enable higher-order programming. You can pass behavior as data, store it, compose it, execute it conditionally or repeatedly.
 
-**Contrast with mainstream:** JavaScript arrow functions `x => x + 1`, Python lambdas `lambda x: x + 1`, Java lambdas `x -> x + 1`. The difference is Seq quotations don't declare parameters - they operate on whatever is on the stack.
+**In other languages:** JavaScript has arrow functions `x => x + 1`. Python has `lambda x: x + 1`. Java 8+ has lambdas `x -> x + 1`. Ruby has blocks and procs. The difference is Seq quotations don't declare parameters - they operate on whatever is on the stack.
 
 ---
 
@@ -204,7 +204,7 @@ Resume is the counterpart to yield. When the generator yields, it pauses. When y
 
 **Why it matters:** Bidirectional communication between caller and generator enables powerful patterns like coroutine-based state machines, interactive protocols, and pull-based data processing.
 
-**Contrast with mainstream:** Python's `generator.send(value)`, JavaScript's `iterator.next(value)`. Many languages only support one-way generators that yield out but don't receive values in.
+**In other languages:** Python has `generator.send(value)`. JavaScript has `iterator.next(value)`. Lua coroutines have `coroutine.resume(co, value)`. Some languages only support one-way generators that yield out but don't receive values in.
 
 ---
 
@@ -222,7 +222,7 @@ The `..a` is a "row variable" representing "whatever else is on the stack." This
 
 **History:** Row polymorphism was developed in the 1990s for typing extensible records (Mitchell Wand, 1989; Didier Rémy, 1994). It was adapted for stack-based languages by researchers working on typed Forth and later Joy. The key insight: a stack is just a record where fields are positions rather than names. Seq's type system builds on this work to provide safety without sacrificing the flexibility that makes concatenative programming powerful.
 
-**Contrast with mainstream:** Most languages don't have this concept because they don't have stack-based semantics. It's similar to how generics let you write code that works with any type - row polymorphism lets you write code that works with any stack depth.
+**In other languages:** PureScript and some ML variants have row polymorphism for extensible records. TypeScript's mapped types and excess property checks address similar problems differently. Most languages don't need this concept because they don't have stack-based semantics - it's analogous to how generics let you write code that works with any type.
 
 ---
 
@@ -241,7 +241,7 @@ The part before `--` is input (consumed from stack), after `--` is output (left 
 
 **Why it matters:** Stack effects are the contract of a function. The type checker verifies that functions compose correctly - if you chain `dup` then `i.+`, the types must line up.
 
-**Contrast with mainstream:** Function signatures in other languages like `int add(int a, int b)`. Stack effects describe the *stack transformation* rather than named parameters.
+**In other languages:** Function signatures like `int add(int a, int b)` in C/Java describe named parameters. Stack effects describe the *stack transformation* rather than named parameters. Forth uses stack effect comments by convention; Seq makes them part of the type system.
 
 ---
 
@@ -276,13 +276,14 @@ Strands are much cheaper than OS threads (thousands are fine), and they cooperat
 
 **Why it matters:** You can have massive concurrency without the overhead of OS threads. Great for I/O-bound work like servers handling many connections.
 
-**Contrast with mainstream:**
-- **OS Threads** (Java, C++): Heavy, limited to hundreds/thousands, preemptively scheduled
-- **Goroutines** (Go): Very similar to strands - lightweight, cooperatively scheduled
-- **Async/await** (JavaScript, Python): Single-threaded concurrency via callbacks/promises
-- **Fibers** (Ruby): Another name for the same concept
+**In other languages:**
+- **Go** has goroutines - very similar to strands, lightweight and cooperatively scheduled
+- **Erlang/Elixir** has processes - lightweight, isolated, message-passing
+- **Java** has OS threads (heavy) and virtual threads (Java 21+, lightweight)
+- **JavaScript/Python** use async/await for single-threaded concurrency via callbacks/promises
+- **Ruby** has fibers - another name for the same concept
 
-Seq's strands are most similar to Go's goroutines, running on top of the [May](https://github.com/Xudong-Huang/may) coroutine library.
+Seq's strands run on top of the [May](https://github.com/Xudong-Huang/may) coroutine library.
 
 ---
 
@@ -307,9 +308,9 @@ When a function's last action is calling another function (a "tail call"), TCO r
 
 **Why it matters:** TCO makes recursion as efficient as iteration. You can write elegant recursive algorithms without worrying about stack overflow.
 
-**History:** TCO was pioneered by **Guy Steele** and **Gerald Sussman** in the development of **Scheme** (1975). They proved that properly tail-recursive functions are equivalent to loops, making recursion a practical tool for iteration. Scheme was the first language to *require* TCO in its specification. This insight influenced functional programming for decades. Most mainstream languages still don't implement TCO - a 50-year-old optimization that remains cutting-edge!
+**History:** TCO was pioneered by **Guy Steele** and **Gerald Sussman** in the development of **Scheme** (1975). They proved that properly tail-recursive functions are equivalent to loops, making recursion a practical tool for iteration. Scheme was the first language to *require* TCO in its specification. This insight influenced functional programming for decades.
 
-**Contrast with mainstream:** Most languages don't guarantee TCO. Java and Python never do it. JavaScript has it in the spec but most engines don't implement it. Scheme requires it. Seq guarantees TCO using LLVM's `musttail` directive.
+**In other languages:** Scheme requires TCO by specification. Haskell, OCaml, and F# implement it. Scala has `@tailrec` annotation for verified tail recursion. JavaScript includes TCO in the ES6 spec, though Safari is currently the only major browser implementing it. Java and Python do not implement TCO. Seq guarantees TCO using LLVM's `musttail` directive.
 
 ---
 
@@ -342,7 +343,7 @@ greet                                    # Call the word
 
 **History:** The term comes from Forth, where Charles Moore conceived of programming as extending a language. In Forth, you build up a "dictionary" of words - starting with primitives and defining new words in terms of existing ones. Moore saw programming as fundamentally linguistic: you're not writing instructions for a machine, you're teaching the machine new vocabulary. This philosophy influenced Seq's design.
 
-**Contrast with mainstream:** Same as "function," "method," or "procedure" in other languages. Seq uses "word" to honor the Forth tradition and because it emphasizes the linguistic nature of concatenative programming.
+**In other languages:** Equivalent to "function," "method," or "procedure." Seq uses "word" to honor the Forth tradition and because it emphasizes the linguistic nature of concatenative programming - a program is a sentence of words.
 
 ---
 
@@ -371,7 +372,7 @@ When the generator executes `yield`, it:
 
 **Why it matters:** Yield enables lazy evaluation and producer/consumer patterns. The generator only does work when asked.
 
-**Contrast with mainstream:** Python's `yield`, JavaScript's `yield`, C#'s `yield return`. Same concept, different syntax.
+**In other languages:** Python has `yield`. JavaScript has `yield` in generator functions. C# has `yield return`. Lua has `coroutine.yield()`. The concept is the same across languages - pause execution and emit a value.
 
 ---
 

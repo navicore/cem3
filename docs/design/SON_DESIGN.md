@@ -2,6 +2,14 @@
 
 **Status:** Aspirational / Future Design
 
+## Roadmap Issues
+
+- [#147 - List type for Seq](https://github.com/navicore/patch-seq/issues/147)
+- [#148 - Symbol/keyword syntax (:name)](https://github.com/navicore/patch-seq/issues/148)
+- [#149 - Dynamic variant construction (wrap)](https://github.com/navicore/patch-seq/issues/149)
+- [#150 - SON security model](https://github.com/navicore/patch-seq/issues/150)
+- [#151 - Map builder word for SON](https://github.com/navicore/patch-seq/issues/151)
+
 ## Motivation
 
 The "JS" in JSON stands for JavaScript - JSON is a subset of JavaScript syntax that

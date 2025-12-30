@@ -208,6 +208,41 @@ Resume is the counterpart to yield. When the generator yields, it pauses. When y
 
 ---
 
+## Single Assignment / Immutable Bindings
+
+A language property where variables can only be bound once - you can't reassign them after the initial binding.
+
+```erlang
+% Erlang example - single assignment
+X = 5,
+X = 6.  % ERROR! X is already bound
+```
+
+This leads to a characteristic style where you thread transformed values through new names:
+
+```erlang
+X1 = transform(X),
+X2 = transform(X1),
+X3 = transform(X2).
+```
+
+**How Seq relates:** Seq takes this further - there are no variable names at all. Values live on the stack and flow through transformations without being named. The "juggling" that Erlang programmers do with variable names (`X1`, `X2`, `X3`) becomes stack manipulation in Seq (`dup`, `swap`, `rot`, `over`).
+
+```seq
+# No names to juggle - values flow through the stack
+transform transform transform
+```
+
+Both approaches enforce thinking about data flow rather than state mutation. The stack is essentially single-assignment taken to its logical conclusion: values don't even need names, they just flow.
+
+**Why it matters:** Understanding single assignment helps explain why concatenative programming feels different. You're not mutating variables - you're transforming values. Stack manipulation is the mechanism for managing those transformations without names.
+
+**History:** Single assignment was central to **Erlang** (1986, Ericsson) where immutability enables reliable concurrent systems. Haskell enforces immutability at the type level. Clojure brought immutable data structures to the JVM. The concept traces back to declarative and logic programming (Prolog).
+
+**In other languages:** Erlang and Elixir enforce single assignment. Haskell variables are immutable by default. Rust has immutable bindings by default (`let` vs `let mut`). JavaScript's `const` and Java's `final` provide opt-in immutability. Most languages allow reassignment by default.
+
+---
+
 ## Row Polymorphism
 
 A type system feature that lets functions work with stacks of any depth, as long as they have the right types on top.

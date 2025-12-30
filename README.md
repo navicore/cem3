@@ -4,19 +4,36 @@
 
 # Seq - Concatenative Language
 
-A concatenative, stack-based programming language with static typing, tail call optimization, and CSP-style concurrency.
+A concatenative, stack-based programming language that compiles to native executables. Seq combines the elegance of stack-based programming with a sophisticated type system, guaranteed tail call optimization, and CSP-style concurrency.
 
-## Status
+```seq
+: factorial ( Int -- Int )
+  dup 1 i.<= if
+    drop 1
+  else
+    dup 1 i.- factorial i.*
+  then
+;
 
-**Compiler:** Functional (compiles .seq source to native executables via LLVM IR)
-**Runtime:** Strands (green threads), channels, TCP I/O, arena allocation
-**Tail Call Optimization:** Guaranteed TCO for recursive functions via LLVM `musttail`
-**Type System:** Row polymorphic stack effects with type inference
-**Standard Library:** JSON, YAML, HTTP, math utilities
-**Editor Support:** LSP server with diagnostics and completions
-**REPL:** Interactive stack-based REPL with file watching
+: main ( -- ) 10 factorial int->string io.write-line ;
+```
 
-See `docs/ROADMAP.md` for the development plan.
+## Why Seq?
+
+**Stack-based simplicity.** No variable declarations, no argument lists - values flow through the stack. Code reads left-to-right as a pipeline of transformations.
+
+**Strongly typed with effect tracking.** Stack effects aren't just comments - they're enforced by the compiler. The type system tracks not only what goes on and off the stack, but also side effects like yielding from generators:
+
+```seq
+: counter ( Ctx Int -- Ctx | Yield Int )   # Yields integers, takes a context
+  dup yield drop
+  1 i.+ counter
+;
+```
+
+**Guaranteed tail call optimization.** Recursive functions run in constant stack space via LLVM's `musttail`. Write elegant recursive algorithms without stack overflow concerns.
+
+**CSP-style concurrency.** Lightweight strands (green threads) communicate through channels. No shared memory, no locks - just message passing.
 
 ## Installation
 
@@ -94,51 +111,87 @@ stack: 3 25
 - `:edit` - Open in $EDITOR
 - `:quit` - Exit
 
-## What Works
+## Language Features
 
-**Core Language:**
-- Stack operations: `dup`, `drop`, `swap`, `over`, `rot`, `nip`, `tuck`, `pick`, `2dup`, `3drop`
-- Integer arithmetic: `i.add`, `i.subtract`, `i.multiply`, `i.divide` (or terse: `i.+`, `i.-`, `i.*`, `i./`, `i.%`)
-- Float arithmetic: `f.add`, `f.subtract`, `f.multiply`, `f.divide` (or terse: `f.+`, `f.-`, `f.*`, `f./`)
-- Bitwise: `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
-- Numeric literals: decimal, hex (`0xFF`), binary (`0b1010`)
-- Integer comparisons: `i.=`, `i.<`, `i.>`, `i.<=`, `i.>=`, `i.<>` (or verbose: `i.eq`, `i.lt`, `i.gt`, `i.lte`, `i.gte`, `i.neq`)
-- Conditionals: `if`/`else`/`then`
-- Quotations: First-class functions with `call`, `times`, `while`, `until`
-- Closures: Captured environments with type-driven inference
+### Stack Operations & Arithmetic
 
-**Tail Call Optimization:**
-- Guaranteed TCO via LLVM's `musttail` and `tailcc` calling convention
-- Recursive functions execute in constant stack space (100k+ calls tested)
-- Mutual recursion fully supported
-- Quotation calls (`call` word) are TCO-eligible
-- Closures use Arc-based environments for efficient tail calls
+```seq
+dup drop swap over rot nip tuck pick 2dup 3drop   # Stack manipulation
+i.+ i.- i.* i./ i.%                               # Integer arithmetic
+f.+ f.- f.* f./                                   # Float arithmetic
+i.= i.< i.> i.<= i.>= i.<>                        # Comparisons
+band bor bxor bnot shl shr popcount               # Bitwise operations
+```
 
-**I/O and Strings:**
-- Console: `write_line`, `read_line`
-- Files: `file-read`, `file-write`, `file-exists?`
-- Strings: `concat`, `split`, `trim`, `length`, `contains`, `starts-with`, `to-upper`, `to-lower`
+Numeric literals support decimal, hex (`0xFF`), and binary (`0b1010`).
 
-**Concurrency:**
-- Strands: `spawn` (green threads)
-- Channels: `make-channel`, `send`, `receive`, `close-channel`
-- TCP: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`, `tcp-close`
+### Algebraic Data Types
 
-**Standard Library** (via `include std:module`):
-- `std:json` - JSON parsing and serialization
-- `std:yaml` - YAML parsing and serialization
-- `std:http` - HTTP request/response utilities
-- `std:math` - Mathematical functions
-- `std:stack-utils` - Stack manipulation utilities
+Define sum types with `union` and pattern match with `match`:
+
+```seq
+union Option { None, Some { value: Int } }
+
+: unwrap-or ( Option Int -- Int )
+  swap match
+    None ->
+    Some { >value } -> nip
+  end
+;
+```
+
+### Quotations & Higher-Order Programming
+
+Quotations are first-class functions. Use them with `call`, `times`, `while`, and `until`:
+
+```seq
+[ dup i.* ] 5 swap call    # Square 5 → 25
+[ "hi" io.write-line ] 3 times   # Print "hi" three times
+```
+
+### Concurrency
+
+Strands (green threads) communicate through channels:
+
+```seq
+make-channel
+[ 42 swap chan.send ] strand.spawn
+chan.receive    # Receives 42
+```
+
+Weaves provide generator-style coroutines with bidirectional communication:
+
+```seq
+[ my-generator ] strand.weave
+initial-value strand.resume   # Yields values back and forth
+```
+
+### Standard Library
+
+Import modules with `include std:module`:
+
+| Module | Purpose |
+|--------|---------|
+| `std:json` | JSON parsing and serialization |
+| `std:yaml` | YAML parsing and serialization |
+| `std:http` | HTTP request/response utilities |
+| `std:math` | Mathematical functions |
+| `std:stack-utils` | Stack manipulation utilities |
 
 ## Examples
 
-See `examples/` for working programs:
-- `hello-world.seq` - Basic I/O
-- `recursion/fibonacci.seq`, `recursion/factorial.seq` - Recursion
-- `json/json_tree.seq` - JSON parsing with the stdlib
-- `http/*.seq` - HTTP routing and TCP servers
-- `hackers-delight/*.seq` - Bit manipulation puzzles (rightmost bits, power of 2, popcount, branchless ops)
+The `examples/` directory contains programs demonstrating various features:
+
+| Directory | What it shows |
+|-----------|---------------|
+| `hello-world.seq` | Basic I/O |
+| `recursion/` | Tail-recursive algorithms (fibonacci, factorial) |
+| `json/` | JSON parsing with the standard library |
+| `http/` | HTTP routing and TCP servers |
+| `weave/` | Generator patterns and coroutines |
+| `csp/` | Channel-based actor patterns |
+| `hackers-delight/` | Bit manipulation puzzles |
+| `lisp/` | A Lisp interpreter in Seq |
 
 ## Editor Support
 
@@ -179,12 +232,13 @@ SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
 
 ## Documentation
 
-- **[Glossary](docs/GLOSSARY.md)** - Key concepts explained for working programmers
-- `docs/language-guide.md` - Language syntax and semantics
-- `docs/TYPE_SYSTEM_GUIDE.md` - Type system and stack effects
-- `docs/TCO_GUIDE.md` - Tail call optimization implementation
-- `docs/ARCHITECTURE.md` - System architecture and design decisions
-- `docs/ROADMAP.md` - Development phases and milestones
+| Document | Description |
+|----------|-------------|
+| **[Glossary](docs/GLOSSARY.md)** | Key concepts for working programmers new to concatenative languages |
+| [Language Guide](docs/language-guide.md) | Complete syntax and semantics reference |
+| [Type System Guide](docs/TYPE_SYSTEM_GUIDE.md) | Stack effects, row polymorphism, and effect tracking |
+| [TCO Guide](docs/TCO_GUIDE.md) | How tail call optimization works under the hood |
+| [Architecture](docs/ARCHITECTURE.md) | System design and implementation decisions |
 
 ## License
 

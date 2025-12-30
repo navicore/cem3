@@ -147,6 +147,7 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("strand.spawn", "patch_seq_spawn"),
         ("strand.weave", "patch_seq_weave"),
         ("strand.resume", "patch_seq_resume"),
+        ("strand.weave-cancel", "patch_seq_weave_cancel"),
         ("yield", "patch_seq_yield"),
         ("cond", "patch_seq_cond"),
         // TCP operations
@@ -687,6 +688,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_spawn(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_weave(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_resume(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_weave_cancel(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_yield(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_cond(ptr)")?;
         writeln!(&mut ir, "; Closure operations")?;
@@ -1075,6 +1077,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_spawn(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_weave(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_resume(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_weave_cancel(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_yield(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_cond(ptr)")?;
         writeln!(ir, "; Closure operations")?;

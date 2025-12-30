@@ -390,6 +390,7 @@ impl Program {
             "strand.spawn",
             "strand.weave",
             "strand.resume",
+            "strand.weave-cancel",
             "yield",
             "cond",
             // TCP operations

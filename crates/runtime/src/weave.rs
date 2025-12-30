@@ -14,6 +14,7 @@
 //!
 //! - `strand.weave`: ( Quotation -- WeaveHandle ) - creates a woven strand, returns handle
 //! - `strand.resume`: ( WeaveHandle a -- WeaveHandle a Bool ) - resume with value
+//! - `strand.weave-cancel`: ( WeaveHandle -- ) - cancel a weave and release its resources
 //! - `yield`: ( WeaveCtx a -- WeaveCtx a ) - yield a value (only valid inside weave)
 //!
 //! ## Architecture
@@ -32,11 +33,13 @@
 //!
 //! ## Resource Management
 //!
-//! **Important:** Weaves MUST be resumed until completion for proper cleanup.
-//! If a WeaveHandle is dropped without running the weave to completion, the
-//! spawned coroutine will hang forever waiting on resume_chan.
+//! **Important:** Weaves must either be resumed until completion OR explicitly
+//! cancelled with `strand.weave-cancel`. Dropping a WeaveHandle without doing
+//! either will cause the spawned coroutine to hang forever waiting on resume_chan.
 //!
-//! Proper cleanup example:
+//! Proper cleanup options:
+//!
+//! **Option 1: Resume until completion**
 //! ```seq
 //! [ generator-body ] strand.weave  # Create weave
 //! 0 strand.resume                   # Resume until...
@@ -48,10 +51,24 @@
 //! then
 //! ```
 //!
+//! **Option 2: Explicit cancellation**
+//! ```seq
+//! [ generator-body ] strand.weave  # Create weave
+//! 0 strand.resume                   # Get first value
+//! if
+//!   drop                           # We only needed the first value
+//!   strand.weave-cancel            # Cancel and clean up
+//! else
+//!   drop drop
+//! then
+//! ```
+//!
 //! ## Limitations
 //!
 //! - Yielding `i64::MIN` (-9223372036854775808) is not supported as it's used
 //!   as the completion sentinel. This value will be interpreted as weave completion.
+//! - Yielding `i64::MIN + 1` (-9223372036854775807) is not supported as it's used
+//!   as the cancellation sentinel.
 
 use crate::stack::{Stack, pop, push};
 use crate::tagged_stack::StackValue;
@@ -65,6 +82,10 @@ use std::sync::Arc;
 /// If a weave yields this exact value, it will be misinterpreted as completion.
 /// This is an extremely unlikely edge case (would require yielding -9223372036854775808).
 const DONE_SENTINEL: i64 = i64::MIN;
+
+/// Sentinel value to signal weave cancellation.
+/// Sent by strand.weave-cancel to wake a blocked weave and tell it to exit.
+const CANCEL_SENTINEL: i64 = i64::MIN + 1;
 
 /// Create a woven strand from a quotation
 ///
@@ -143,6 +164,16 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                         }
                     };
 
+                    // Check for cancellation before starting
+                    if let Value::Int(v) = &first_value
+                        && *v == CANCEL_SENTINEL
+                    {
+                        // Weave was cancelled before it started - clean exit
+                        crate::arena::arena_reset();
+                        cleanup_strand();
+                        return;
+                    }
+
                     // Push WeaveCtx onto stack (yield_chan, resume_chan as a pair)
                     // We use a Variant to bundle both channels
                     let weave_ctx = Value::WeaveCtx {
@@ -199,6 +230,16 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                             return;
                         }
                     };
+
+                    // Check for cancellation before starting
+                    if let Value::Int(v) = &first_value
+                        && *v == CANCEL_SENTINEL
+                    {
+                        // Weave was cancelled before it started - clean exit
+                        crate::arena::arena_reset();
+                        cleanup_strand();
+                        return;
+                    }
 
                     // Push WeaveCtx onto stack
                     let weave_ctx = Value::WeaveCtx {
@@ -364,12 +405,68 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
         Err(_) => panic!("yield: resume channel closed unexpectedly"),
     };
 
+    // Check for cancellation
+    if let Value::Int(v) = &resume_value
+        && *v == CANCEL_SENTINEL
+    {
+        // Weave was cancelled - signal completion and exit
+        let _ = yield_chan.sender.send(Value::Int(DONE_SENTINEL));
+        crate::arena::arena_reset();
+        cleanup_strand();
+        // Block this coroutine forever - it's already marked as completed.
+        // We can't panic because that would cross an extern "C" boundary (UB).
+        // Instead, we block on an empty channel that will never receive.
+        let (_, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
+        let _ = rx.recv();
+        // Unreachable - but satisfy the compiler's return type
+        unreachable!("cancelled weave should block forever");
+    }
+
     // Push WeaveCtx back, then resume value
     let stack = unsafe { push(stack, ctx) };
     unsafe { push(stack, resume_value) }
 }
 
+/// Cancel a weave, releasing its resources
+///
+/// Stack effect: ( WeaveHandle -- )
+///
+/// Sends a cancellation signal to the weave, causing it to exit cleanly.
+/// This is necessary to avoid resource leaks when abandoning a weave
+/// before it completes naturally.
+///
+/// If the weave is:
+/// - Waiting for first resume: exits immediately
+/// - Waiting inside yield: receives cancel signal and can exit
+/// - Already completed: no effect (signal is ignored)
+///
+/// # Safety
+/// Stack must have a WeaveHandle (WeaveCtx) on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_weave_cancel(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "strand.weave-cancel: stack is null");
+
+    // Pop the WeaveHandle
+    let (stack, handle) = unsafe { pop(stack) };
+
+    // Extract the resume channel to send cancel signal
+    match handle {
+        Value::WeaveCtx { resume_chan, .. } => {
+            // Send cancel signal - if this fails, weave is already done (fine)
+            let _ = resume_chan.sender.send(Value::Int(CANCEL_SENTINEL));
+        }
+        _ => panic!(
+            "strand.weave-cancel: expected WeaveHandle, got {:?}",
+            handle
+        ),
+    }
+
+    // Handle is consumed (dropped), stack returned without it
+    stack
+}
+
 // Public re-exports
 pub use patch_seq_resume as resume;
 pub use patch_seq_weave as weave;
+pub use patch_seq_weave_cancel as weave_cancel;
 pub use patch_seq_yield as weave_yield;

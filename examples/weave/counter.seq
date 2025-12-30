@@ -14,8 +14,8 @@
 # Counter loop - yields current count, receives increment, adds, repeats
 # Uses tail recursion for the infinite loop (TCO prevents stack growth)
 #
-# Stack: ( Ctx count -- ) divergent - never returns
-: counter-loop ( Ctx Int -- )
+# Stack: ( Ctx count -- | Yield Int ) divergent with Yield effect
+: counter-loop ( Ctx Int -- | Yield Int )
   tuck           # ( count Ctx count )
   yield          # yield count, receive increment -> ( count Ctx increment )
   rot            # ( Ctx increment count )
@@ -25,7 +25,8 @@
 
 # Counter generator entry point
 # Receives (Ctx, initial_value) and starts the loop
-: counter-body ( Ctx Int -- )
+# Propagates the Yield effect from counter-loop
+: counter-body ( Ctx Int -- | Yield Int )
   counter-loop
 ;
 

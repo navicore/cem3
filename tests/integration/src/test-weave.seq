@@ -5,7 +5,8 @@
 # The WeaveCtx must be explicitly threaded through yield calls.
 
 # Simple generator that yields three fixed values then completes
-: three-values ( Ctx Int -- Ctx )
+# Has Yield effect because it uses yield
+: three-values ( Ctx Int -- Ctx | Yield Int )
   drop       # ignore initial resume value
   1 yield drop
   2 yield drop

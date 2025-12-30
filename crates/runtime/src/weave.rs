@@ -63,29 +63,17 @@
 //! then
 //! ```
 //!
-//! ## Limitations
+//! ## Implementation Notes
 //!
-//! - Yielding `i64::MIN` (-9223372036854775808) is not supported as it's used
-//!   as the completion sentinel. This value will be interpreted as weave completion.
-//! - Yielding `i64::MIN + 1` (-9223372036854775807) is not supported as it's used
-//!   as the cancellation sentinel.
+//! Control flow (completion, cancellation) is handled via a type-safe `WeaveMessage`
+//! enum rather than sentinel values. This means **any** Value can be safely yielded
+//! and resumed, including edge cases like `i64::MIN`.
 
 use crate::stack::{Stack, pop, push};
 use crate::tagged_stack::StackValue;
-use crate::value::{ChannelData, Value};
+use crate::value::{Value, WeaveChannelData, WeaveMessage};
 use may::sync::mpmc;
 use std::sync::Arc;
-
-/// Sentinel value to signal weave completion.
-///
-/// **Warning:** This means `i64::MIN` cannot be yielded from a weave.
-/// If a weave yields this exact value, it will be misinterpreted as completion.
-/// This is an extremely unlikely edge case (would require yielding -9223372036854775808).
-const DONE_SENTINEL: i64 = i64::MIN;
-
-/// Sentinel value to signal weave cancellation.
-/// Sent by strand.weave-cancel to wake a blocked weave and tell it to exit.
-const CANCEL_SENTINEL: i64 = i64::MIN + 1;
 
 /// Create a woven strand from a quotation
 ///
@@ -102,14 +90,15 @@ const CANCEL_SENTINEL: i64 = i64::MIN + 1;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
     // Create the two internal channels - NO registry, just Arc values
+    // Uses WeaveMessage for type-safe control flow (no sentinel values)
     let (yield_sender, yield_receiver) = mpmc::channel();
-    let yield_chan = Arc::new(ChannelData {
+    let yield_chan = Arc::new(WeaveChannelData {
         sender: yield_sender,
         receiver: yield_receiver,
     });
 
     let (resume_sender, resume_receiver) = mpmc::channel();
-    let resume_chan = Arc::new(ChannelData {
+    let resume_chan = Arc::new(WeaveChannelData {
         sender: resume_sender,
         receiver: resume_receiver,
     });
@@ -156,8 +145,8 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     }
 
                     // Wait for first resume value before executing
-                    let first_value = match weave_ctx_resume.receiver.recv() {
-                        Ok(v) => v,
+                    let first_msg = match weave_ctx_resume.receiver.recv() {
+                        Ok(msg) => msg,
                         Err(_) => {
                             cleanup_strand();
                             return;
@@ -165,17 +154,22 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     };
 
                     // Check for cancellation before starting
-                    if let Value::Int(v) = &first_value
-                        && *v == CANCEL_SENTINEL
-                    {
-                        // Weave was cancelled before it started - clean exit
-                        crate::arena::arena_reset();
-                        cleanup_strand();
-                        return;
-                    }
+                    let first_value = match first_msg {
+                        WeaveMessage::Cancel => {
+                            // Weave was cancelled before it started - clean exit
+                            crate::arena::arena_reset();
+                            cleanup_strand();
+                            return;
+                        }
+                        WeaveMessage::Value(v) => v,
+                        WeaveMessage::Done => {
+                            // Shouldn't happen - Done is sent on yield_chan
+                            cleanup_strand();
+                            return;
+                        }
+                    };
 
                     // Push WeaveCtx onto stack (yield_chan, resume_chan as a pair)
-                    // We use a Variant to bundle both channels
                     let weave_ctx = Value::WeaveCtx {
                         yield_chan: weave_ctx_yield.clone(),
                         resume_chan: weave_ctx_resume.clone(),
@@ -191,7 +185,7 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     // Quotation returned - pop WeaveCtx and signal completion
                     let (_, ctx_value) = pop(final_stack);
                     if let Value::WeaveCtx { yield_chan, .. } = ctx_value {
-                        let _ = yield_chan.sender.send(Value::Int(DONE_SENTINEL));
+                        let _ = yield_chan.sender.send(WeaveMessage::Done);
                     }
 
                     crate::arena::arena_reset();
@@ -223,8 +217,8 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     crate::stack::patch_seq_set_stack_base(child_base);
 
                     // Wait for first resume value
-                    let first_value = match weave_ctx_resume.receiver.recv() {
-                        Ok(v) => v,
+                    let first_msg = match weave_ctx_resume.receiver.recv() {
+                        Ok(msg) => msg,
                         Err(_) => {
                             cleanup_strand();
                             return;
@@ -232,14 +226,20 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     };
 
                     // Check for cancellation before starting
-                    if let Value::Int(v) = &first_value
-                        && *v == CANCEL_SENTINEL
-                    {
-                        // Weave was cancelled before it started - clean exit
-                        crate::arena::arena_reset();
-                        cleanup_strand();
-                        return;
-                    }
+                    let first_value = match first_msg {
+                        WeaveMessage::Cancel => {
+                            // Weave was cancelled before it started - clean exit
+                            crate::arena::arena_reset();
+                            cleanup_strand();
+                            return;
+                        }
+                        WeaveMessage::Value(v) => v,
+                        WeaveMessage::Done => {
+                            // Shouldn't happen - Done is sent on yield_chan
+                            cleanup_strand();
+                            return;
+                        }
+                    };
 
                     // Push WeaveCtx onto stack
                     let weave_ctx = Value::WeaveCtx {
@@ -255,7 +255,7 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     // Signal completion
                     let (_, ctx_value) = pop(final_stack);
                     if let Value::WeaveCtx { yield_chan, .. } = ctx_value {
-                        let _ = yield_chan.sender.send(Value::Int(DONE_SENTINEL));
+                        let _ = yield_chan.sender.send(WeaveMessage::Done);
                     }
 
                     crate::arena::arena_reset();
@@ -322,11 +322,11 @@ pub unsafe extern "C" fn patch_seq_resume(stack: Stack) -> Stack {
         _ => panic!("strand.resume: expected WeaveHandle, got {:?}", handle),
     };
 
-    // Clone value for sending
-    let value_to_send = value.clone();
+    // Wrap value in WeaveMessage for sending
+    let msg_to_send = WeaveMessage::Value(value.clone());
 
     // Send resume value to the weave
-    if resume_chan.sender.send(value_to_send).is_err() {
+    if resume_chan.sender.send(msg_to_send).is_err() {
         // Channel closed - weave is done
         let stack = unsafe { push(stack, handle) };
         let stack = unsafe { push(stack, Value::Int(0)) };
@@ -335,20 +335,26 @@ pub unsafe extern "C" fn patch_seq_resume(stack: Stack) -> Stack {
 
     // Wait for yielded value
     match yield_chan.receiver.recv() {
-        Ok(yielded) => {
-            // Check for Done sentinel
-            if let Value::Int(DONE_SENTINEL) = yielded {
+        Ok(msg) => match msg {
+            WeaveMessage::Done => {
                 // Weave completed
                 let stack = unsafe { push(stack, handle) };
                 let stack = unsafe { push(stack, Value::Int(0)) };
                 unsafe { push(stack, Value::Bool(false)) }
-            } else {
+            }
+            WeaveMessage::Value(yielded) => {
                 // Normal yield
                 let stack = unsafe { push(stack, handle) };
                 let stack = unsafe { push(stack, yielded) };
                 unsafe { push(stack, Value::Bool(true)) }
             }
-        }
+            WeaveMessage::Cancel => {
+                // Shouldn't happen - Cancel is sent on resume_chan
+                let stack = unsafe { push(stack, handle) };
+                let stack = unsafe { push(stack, Value::Int(0)) };
+                unsafe { push(stack, Value::Bool(false)) }
+            }
+        },
         Err(_) => {
             // Channel closed unexpectedly
             let stack = unsafe { push(stack, handle) };
@@ -391,40 +397,45 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
         ),
     };
 
-    // Clone value for sending
-    let value_to_send = value.clone();
+    // Wrap value in WeaveMessage for sending
+    let msg_to_send = WeaveMessage::Value(value.clone());
 
     // Send the yielded value
-    if yield_chan.sender.send(value_to_send).is_err() {
+    if yield_chan.sender.send(msg_to_send).is_err() {
         panic!("yield: yield channel closed unexpectedly");
     }
 
     // Wait for resume value
-    let resume_value = match resume_chan.receiver.recv() {
-        Ok(v) => v,
+    let resume_msg = match resume_chan.receiver.recv() {
+        Ok(msg) => msg,
         Err(_) => panic!("yield: resume channel closed unexpectedly"),
     };
 
-    // Check for cancellation
-    if let Value::Int(v) = &resume_value
-        && *v == CANCEL_SENTINEL
-    {
-        // Weave was cancelled - signal completion and exit
-        let _ = yield_chan.sender.send(Value::Int(DONE_SENTINEL));
-        crate::arena::arena_reset();
-        cleanup_strand();
-        // Block this coroutine forever - it's already marked as completed.
-        // We can't panic because that would cross an extern "C" boundary (UB).
-        // Instead, we block on an empty channel that will never receive.
-        let (_, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
-        let _ = rx.recv();
-        // Unreachable - but satisfy the compiler's return type
-        unreachable!("cancelled weave should block forever");
+    // Handle the message
+    match resume_msg {
+        WeaveMessage::Cancel => {
+            // Weave was cancelled - signal completion and exit
+            let _ = yield_chan.sender.send(WeaveMessage::Done);
+            crate::arena::arena_reset();
+            cleanup_strand();
+            // Block this coroutine forever - it's already marked as completed.
+            // We can't panic because that would cross an extern "C" boundary (UB).
+            // Instead, we block on an empty channel that will never receive.
+            let (_, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
+            let _ = rx.recv();
+            // Unreachable - but satisfy the compiler's return type
+            unreachable!("cancelled weave should block forever");
+        }
+        WeaveMessage::Value(resume_value) => {
+            // Push WeaveCtx back, then resume value
+            let stack = unsafe { push(stack, ctx) };
+            unsafe { push(stack, resume_value) }
+        }
+        WeaveMessage::Done => {
+            // Shouldn't happen - Done is sent on yield_chan, not resume_chan
+            panic!("yield: received Done on resume channel (protocol error)");
+        }
     }
-
-    // Push WeaveCtx back, then resume value
-    let stack = unsafe { push(stack, ctx) };
-    unsafe { push(stack, resume_value) }
 }
 
 /// Cancel a weave, releasing its resources
@@ -453,7 +464,7 @@ pub unsafe extern "C" fn patch_seq_weave_cancel(stack: Stack) -> Stack {
     match handle {
         Value::WeaveCtx { resume_chan, .. } => {
             // Send cancel signal - if this fails, weave is already done (fine)
-            let _ = resume_chan.sender.send(Value::Int(CANCEL_SENTINEL));
+            let _ = resume_chan.sender.send(WeaveMessage::Cancel);
         }
         _ => panic!(
             "strand.weave-cancel: expected WeaveHandle, got {:?}",

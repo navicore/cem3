@@ -61,9 +61,9 @@ cargo test --all
 
 ## Learn Seq
 
-The best way to learn Seq is through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step.
+**New to concatenative programming?** Start with the [Glossary](docs/GLOSSARY.md) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms for working programmers.
 
-Work through progressive exercises covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
+**Learn by doing:** Work through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
 
 ## Interactive REPL
 
@@ -179,10 +179,11 @@ SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
 
 ## Documentation
 
-- `docs/ARCHITECTURE.md` - System architecture and design decisions
-- `docs/TCO_DESIGN.md` - Tail call optimization implementation
-- `docs/TYPE_SYSTEM_GUIDE.md` - Type system and stack effects
+- **[Glossary](docs/GLOSSARY.md)** - Key concepts explained for working programmers
 - `docs/language-guide.md` - Language syntax and semantics
+- `docs/TYPE_SYSTEM_GUIDE.md` - Type system and stack effects
+- `docs/TCO_GUIDE.md` - Tail call optimization implementation
+- `docs/ARCHITECTURE.md` - System architecture and design decisions
 - `docs/ROADMAP.md` - Development phases and milestones
 
 ## License

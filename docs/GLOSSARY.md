@@ -402,6 +402,48 @@ See [ADT](#adt-algebraic-data-type).
 
 ---
 
+## Variant
+
+A tagged value - an instance of a union type. Not to be confused with variables, records, or the loosely-typed "Variant" from COM/Visual Basic.
+
+```seq
+union Shape {
+  Circle { radius: Int }
+  Rectangle { width: Int, height: Int }
+}
+
+10 Make-Circle           # Creates a Variant with tag=Circle, one field
+5 10 Make-Rectangle      # Creates a Variant with tag=Rectangle, two fields
+```
+
+A Variant carries:
+- A **tag** identifying which union case it is (Circle vs Rectangle)
+- Zero or more **fields** containing the associated data
+
+You create Variants using generated constructors (`Make-Circle`, `Make-Rectangle`) and inspect them with `match`:
+
+```seq
+: area ( Shape -- Int )
+  match
+    Circle { >radius } -> dup i.*           # πr² simplified to r²
+    Rectangle { >width >height } -> i.*     # w × h
+  end
+;
+```
+
+**Why "variant"?** The term comes from type theory - a "variant type" is a type that can be one of several variants. Each variant is a tagged alternative. The value "varies" in which case it represents.
+
+**Common confusion:**
+- **Not a variable** - Variables hold changing values; Variants are immutable tagged data
+- **Not a record/struct** - Records have fixed fields; Variants are one-of-many alternatives
+- **Not COM Variant** - COM's Variant is a loosely-typed container; Seq's Variants are statically typed
+
+**In other languages:** Rust calls these `enum` values. Haskell calls them "data constructors." OCaml calls them "variant constructors." TypeScript's discriminated unions achieve similar patterns. The term "variant" is common in ML-family languages.
+
+See also: [ADT](#adt-algebraic-data-type), [Pattern Matching](#pattern-matching)
+
+---
+
 ## Weave
 
 Seq's term for a generator/coroutine that can yield values. See [Generator](#generator-weave).

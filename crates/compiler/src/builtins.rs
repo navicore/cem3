@@ -451,9 +451,10 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // spawn: ( a Quotation -- a Int ) - quotation can have any effect
+    // strand.spawn: ( a Quotation -- a Int ) - spawn a concurrent strand
+    // The quotation can have any stack effect - it runs independently
     sigs.insert(
-        "spawn".to_string(),
+        "strand.spawn".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string()).push(Type::Quotation(Box::new(Effect::new(
                 StackType::RowVar("spawn_in".to_string()),

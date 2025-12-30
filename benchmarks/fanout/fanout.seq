@@ -39,7 +39,7 @@
 # ( work-chan done-chan n -- )
 : spawn-workers ( Int Int Int -- )
   dup 0 i.> if
-    2 pick 2 pick [ worker ] spawn drop drop drop
+    2 pick 2 pick [ worker ] strand.spawn drop drop drop
     1 i.subtract spawn-workers
   else
     drop drop drop

@@ -840,8 +840,8 @@ impl TypeChecker {
         // Freshen the effect to avoid variable name clashes
         let fresh_effect = self.freshen_effect(&effect);
 
-        // Special handling for spawn: auto-convert Quotation to Closure if needed
-        let adjusted_stack = if name == "spawn" {
+        // Special handling for strand.spawn: auto-convert Quotation to Closure if needed
+        let adjusted_stack = if name == "strand.spawn" {
             self.adjust_stack_for_spawn(current_stack, &fresh_effect)?
         } else {
             current_stack
@@ -908,17 +908,17 @@ impl TypeChecker {
         Ok((result_stack, subst))
     }
 
-    /// Adjust stack for spawn operation by converting Quotation to Closure if needed
+    /// Adjust stack for strand.spawn operation by converting Quotation to Closure if needed
     ///
-    /// spawn expects Quotation(Empty -- Empty), but if we have Quotation(T... -- U...)
+    /// strand.spawn expects Quotation(Empty -- Empty), but if we have Quotation(T... -- U...)
     /// with non-empty inputs, we auto-convert it to a Closure that captures those inputs.
     fn adjust_stack_for_spawn(
         &self,
         current_stack: StackType,
         spawn_effect: &Effect,
     ) -> Result<StackType, String> {
-        // spawn expects: ( ..a Quotation(Empty -- Empty) -- ..a Int )
-        // Extract the expected quotation type from spawn's effect
+        // strand.spawn expects: ( ..a Quotation(Empty -- Empty) -- ..a Int )
+        // Extract the expected quotation type from strand.spawn's effect
         let expected_quot_type = match &spawn_effect.inputs {
             StackType::Cons { top, rest: _ } => {
                 if !matches!(top, Type::Quotation(_)) {
@@ -962,7 +962,7 @@ impl TypeChecker {
                         StackType::Cons { rest, .. } => rest.as_ref().clone(),
                         _ => {
                             return Err(format!(
-                                "spawn: not enough values on stack to capture. Need {} values",
+                                "strand.spawn: not enough values on stack to capture. Need {} values",
                                 captures.len()
                             ));
                         }

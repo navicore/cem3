@@ -1,7 +1,7 @@
 # Skynet Benchmark (simplified for testing)
 #
 # Spawns strands in a tree structure.
-# Tests: spawn overhead, message passing.
+# Tests: strand.spawn overhead, message passing.
 #
 # NOTE: Success flags from channel operations are intentionally not checked
 # in benchmarks to measure raw throughput. Production code should always
@@ -9,7 +9,7 @@
 #
 # Reduced size for testing: 100000 = 10^5
 
-# Skynet worker: if size=1, send my num. Otherwise spawn 10 children.
+# Skynet worker: if size=1, send my num. Otherwise strand.spawn 10 children.
 # ( result-chan num size -- )
 : skynet ( Int Int Int -- )
   dup 1 i.= if
@@ -38,61 +38,61 @@
     2 pick                     # get child-chan ( ... child-num0 child-chan )
     swap                       # ( ... child-chan child-num0 )
     2 pick                     # get child-size ( ... child-chan child-num0 child-size )
-    [ skynet ] spawn drop      # spawn and drop strand-id
+    [ skynet ] strand.spawn drop      # spawn and drop strand-id
     drop drop drop             # cleanup the 3 spawn args we i.added
 
     # Spawn child 1
     3 pick 10 i.multiply 1 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 2
     3 pick 10 i.multiply 2 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 3
     3 pick 10 i.multiply 3 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 4
     3 pick 10 i.multiply 4 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 5
     3 pick 10 i.multiply 5 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 6
     3 pick 10 i.multiply 6 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 7
     3 pick 10 i.multiply 7 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 8
     3 pick 10 i.multiply 8 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Spawn child 9
     3 pick 10 i.multiply 9 i.add
     2 pick swap 2 pick
-    [ skynet ] spawn drop
+    [ skynet ] strand.spawn drop
     drop drop drop
 
     # Now receive 10 results from child-chan and sum them
@@ -127,7 +127,7 @@
   chan.make     # ( start result-chan )
 
   # Spawn root: result-chan, num=0, size=100000
-  dup 0 100000 [ skynet ] spawn drop drop drop drop
+  dup 0 100000 [ skynet ] strand.spawn drop drop drop drop
 
   # Wait for result
   chan.receive  # ( start result success )

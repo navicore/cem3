@@ -144,7 +144,7 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("times", "patch_seq_times"),
         ("while", "patch_seq_while_loop"),
         ("until", "patch_seq_until_loop"),
-        ("spawn", "patch_seq_spawn"),
+        ("strand.spawn", "patch_seq_spawn"),
         ("cond", "patch_seq_cond"),
         // TCP operations
         ("tcp.listen", "patch_seq_tcp_listen"),

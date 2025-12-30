@@ -329,15 +329,7 @@ A function's type signature in Seq, describing what it takes from the stack and 
 
 The part before `--` is input (consumed from stack), after `--` is output (left on stack).
 
-**Why it matters:** Stack effects are the contract of a function. The type checker verifies that functions compose correctly - if you chain `dup` then `i.+`, the types must line up.
-
-**In other languages:** Function signatures like `int add(int a, int b)` in C/Java describe named parameters. Stack effects describe the *stack transformation* rather than named parameters. Forth uses stack effect comments by convention; Seq makes them part of the type system.
-
----
-
-## Stack Effect Chaining
-
-The compiler automatically verifies that when you compose functions, the stack types line up correctly.
+The compiler verifies that when you compose words, the stack types line up:
 
 ```seq
 # These compose: dup outputs match i.+'s inputs
@@ -348,9 +340,9 @@ The compiler automatically verifies that when you compose functions, the stack t
 # : broken ( Int -- Int ) dup concat ;  # ERROR: concat expects strings!
 ```
 
-The compiler traces the types through each operation, ensuring the pipeline is type-safe.
+**Why it matters:** Stack effects are the contract of a function. The compiler traces types through each operation, catching errors at compile time. This makes concatenative code both highly composable and type-safe.
 
-**Why it matters:** Concatenative code is extremely composable, but that power needs guardrails. Stack effect chaining catches type errors at compile time, even across complex compositions.
+**In other languages:** Function signatures like `int add(int a, int b)` in C/Java describe named parameters. Stack effects describe the *stack transformation* rather than named parameters. Forth uses stack effect comments by convention; Seq makes them part of the type system.
 
 ---
 

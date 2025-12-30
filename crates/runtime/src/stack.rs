@@ -27,6 +27,7 @@ pub const DISC_MAP: u64 = 5;
 pub const DISC_QUOTATION: u64 = 6;
 pub const DISC_CLOSURE: u64 = 7;
 pub const DISC_CHANNEL: u64 = 8;
+pub const DISC_WEAVECTX: u64 = 9;
 
 /// Convert a Value to a StackValue for pushing onto the tagged stack
 #[inline]
@@ -115,6 +116,21 @@ pub fn value_to_stack_value(value: Value) -> StackValue {
                 slot4: 0,
             }
         }
+        Value::WeaveCtx {
+            yield_chan,
+            resume_chan,
+        } => {
+            // Store both Arc<ChannelData> as raw pointers
+            let yield_ptr = Arc::into_raw(yield_chan) as u64;
+            let resume_ptr = Arc::into_raw(resume_chan) as u64;
+            StackValue {
+                slot0: DISC_WEAVECTX,
+                slot1: yield_ptr,
+                slot2: resume_ptr,
+                slot3: 0,
+                slot4: 0,
+            }
+        }
     }
 }
 
@@ -164,6 +180,15 @@ pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
                 use crate::value::ChannelData;
                 let arc = Arc::from_raw(sv.slot1 as *const ChannelData);
                 Value::Channel(arc)
+            }
+            DISC_WEAVECTX => {
+                use crate::value::ChannelData;
+                let yield_chan = Arc::from_raw(sv.slot1 as *const ChannelData);
+                let resume_chan = Arc::from_raw(sv.slot2 as *const ChannelData);
+                Value::WeaveCtx {
+                    yield_chan,
+                    resume_chan,
+                }
             }
             _ => panic!("Invalid discriminant: {}", sv.slot0),
         }
@@ -303,6 +328,27 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                     slot4: 0,
                 }
             }
+            DISC_WEAVECTX => {
+                // Arc refcount increment for both channels - O(1) clone
+                use crate::value::ChannelData;
+                let yield_ptr = sv.slot1 as *const ChannelData;
+                let resume_ptr = sv.slot2 as *const ChannelData;
+                debug_assert!(!yield_ptr.is_null(), "WeaveCtx yield pointer is null");
+                debug_assert!(!resume_ptr.is_null(), "WeaveCtx resume pointer is null");
+                let yield_arc = Arc::from_raw(yield_ptr);
+                let resume_arc = Arc::from_raw(resume_ptr);
+                let yield_cloned = Arc::clone(&yield_arc);
+                let resume_cloned = Arc::clone(&resume_arc);
+                std::mem::forget(yield_arc);
+                std::mem::forget(resume_arc);
+                StackValue {
+                    slot0: DISC_WEAVECTX,
+                    slot1: Arc::into_raw(yield_cloned) as u64,
+                    slot2: Arc::into_raw(resume_cloned) as u64,
+                    slot3: 0,
+                    slot4: 0,
+                }
+            }
             _ => panic!("Invalid discriminant for clone: {}", sv.slot0),
         }
     }
@@ -345,6 +391,11 @@ pub unsafe fn drop_stack_value(sv: StackValue) {
             DISC_CHANNEL => {
                 use crate::value::ChannelData;
                 let _ = Arc::from_raw(sv.slot1 as *const ChannelData);
+            }
+            DISC_WEAVECTX => {
+                use crate::value::ChannelData;
+                let _ = Arc::from_raw(sv.slot1 as *const ChannelData);
+                let _ = Arc::from_raw(sv.slot2 as *const ChannelData);
             }
             _ => panic!("Invalid discriminant for drop: {}", sv.slot0),
         }

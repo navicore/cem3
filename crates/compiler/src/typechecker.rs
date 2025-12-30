@@ -6,7 +6,9 @@
 use crate::ast::{Program, Statement, WordDef};
 use crate::builtins::builtin_signature;
 use crate::capture_analysis::calculate_captures;
-use crate::types::{Effect, StackType, Type, UnionTypeInfo, VariantFieldInfo, VariantInfo};
+use crate::types::{
+    Effect, SideEffect, StackType, Type, UnionTypeInfo, VariantFieldInfo, VariantInfo,
+};
 use crate::unification::{Subst, unify_stacks};
 use std::collections::HashMap;
 
@@ -128,7 +130,27 @@ impl TypeChecker {
         let fresh_inputs = self.freshen_stack(&effect.inputs, &mut type_map, &mut row_map);
         let fresh_outputs = self.freshen_stack(&effect.outputs, &mut type_map, &mut row_map);
 
-        Effect::new(fresh_inputs, fresh_outputs)
+        // Freshen the side effects too
+        let fresh_effects = effect
+            .effects
+            .iter()
+            .map(|e| self.freshen_side_effect(e, &mut type_map, &mut row_map))
+            .collect();
+
+        Effect::with_effects(fresh_inputs, fresh_outputs, fresh_effects)
+    }
+
+    fn freshen_side_effect(
+        &self,
+        effect: &SideEffect,
+        type_map: &mut HashMap<String, String>,
+        row_map: &mut HashMap<String, String>,
+    ) -> SideEffect {
+        match effect {
+            SideEffect::Yield(ty) => {
+                SideEffect::Yield(Box::new(self.freshen_type(ty, type_map, row_map)))
+            }
+        }
     }
 
     fn freshen_stack(
@@ -306,8 +328,8 @@ impl TypeChecker {
                 *self.expected_quotation_type.borrow_mut() = Some(top_type);
             }
 
-            // Infer the result stack starting from declared input
-            let (result_stack, _subst) =
+            // Infer the result stack and effects starting from declared input
+            let (result_stack, _subst, inferred_effects) =
                 self.infer_statements_from(&word.body, &declared_effect.inputs)?;
 
             // Clear expected type after checking
@@ -320,11 +342,51 @@ impl TypeChecker {
                     word.name, declared_effect.outputs, result_stack, e
                 )
             })?;
+
+            // Verify computational effects match (bidirectional)
+            // 1. Check that each inferred effect has a matching declared effect (by kind)
+            // Type variables in effects are matched by kind (Yield matches Yield)
+            for inferred in &inferred_effects {
+                if !self.effect_matches_any(inferred, &declared_effect.effects) {
+                    return Err(format!(
+                        "Word '{}': body produces effect '{}' but no matching effect is declared.\n\
+                         Hint: Add '| Yield <type>' to the word's stack effect declaration.",
+                        word.name, inferred
+                    ));
+                }
+            }
+
+            // 2. Check that each declared effect is actually produced (effect soundness)
+            // This prevents declaring effects that don't occur
+            for declared in &declared_effect.effects {
+                if !self.effect_matches_any(declared, &inferred_effects) {
+                    return Err(format!(
+                        "Word '{}': declares effect '{}' but body doesn't produce it.\n\
+                         Hint: Remove the effect declaration or ensure the body uses yield.",
+                        word.name, declared
+                    ));
+                }
+            }
+
             Ok(())
         } else {
             // No declared effect - just verify body is well-typed
             // Start from polymorphic input
-            self.infer_statements_from(&word.body, &StackType::RowVar("input".to_string()))?;
+            let (_, _, inferred_effects) =
+                self.infer_statements_from(&word.body, &StackType::RowVar("input".to_string()))?;
+
+            // If there are effects but no declaration, warn
+            if !inferred_effects.is_empty() {
+                let effects_str: Vec<_> =
+                    inferred_effects.iter().map(|e| format!("{}", e)).collect();
+                return Err(format!(
+                    "Word '{}': body produces effects [{}] but word has no declared effect.\n\
+                     Hint: Add a stack effect annotation with '| {}'.",
+                    word.name,
+                    effects_str.join(", "),
+                    effects_str.join(" ")
+                ));
+            }
             Ok(())
         };
 
@@ -336,13 +398,15 @@ impl TypeChecker {
 
     /// Infer the resulting stack type from a sequence of statements
     /// starting from a given input stack
+    /// Returns (final_stack, substitution, accumulated_effects)
     fn infer_statements_from(
         &self,
         statements: &[Statement],
         start_stack: &StackType,
-    ) -> Result<(StackType, Subst), String> {
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         let mut current_stack = start_stack.clone();
         let mut accumulated_subst = Subst::empty();
+        let mut accumulated_effects: Vec<SideEffect> = Vec::new();
         let mut skip_next = false;
 
         for (i, stmt) in statements.iter().enumerate() {
@@ -401,9 +465,16 @@ impl TypeChecker {
                 None
             };
 
-            let (new_stack, subst) = self.infer_statement(stmt, current_stack)?;
+            let (new_stack, subst, effects) = self.infer_statement(stmt, current_stack)?;
             current_stack = new_stack;
             accumulated_subst = accumulated_subst.compose(&subst);
+
+            // Accumulate side effects from this statement
+            for effect in effects {
+                if !accumulated_effects.contains(&effect) {
+                    accumulated_effects.push(effect);
+                }
+            }
 
             // Restore expected type after checking quotation
             if let Some(saved) = saved_expected_type {
@@ -411,7 +482,7 @@ impl TypeChecker {
             }
         }
 
-        Ok((current_stack, accumulated_subst))
+        Ok((current_stack, accumulated_subst, accumulated_effects))
     }
 
     /// Handle `n pick` where n is a literal integer
@@ -570,16 +641,21 @@ impl TypeChecker {
 
     /// Infer the stack effect of a sequence of statements
     /// Returns an Effect with both inputs and outputs normalized by applying discovered substitutions
+    /// Also includes any computational side effects (Yield, etc.)
     fn infer_statements(&self, statements: &[Statement]) -> Result<Effect, String> {
         let start = StackType::RowVar("input".to_string());
-        let (result, subst) = self.infer_statements_from(statements, &start)?;
+        let (result, subst, effects) = self.infer_statements_from(statements, &start)?;
 
         // Apply the accumulated substitution to both start and result
         // This ensures row variables are consistently named
         let normalized_start = subst.apply_stack(&start);
         let normalized_result = subst.apply_stack(&result);
 
-        Ok(Effect::new(normalized_start, normalized_result))
+        Ok(Effect::with_effects(
+            normalized_start,
+            normalized_result,
+            effects,
+        ))
     }
 
     /// Infer the stack effect of a match expression
@@ -587,7 +663,7 @@ impl TypeChecker {
         &self,
         arms: &[crate::ast::MatchArm],
         current_stack: StackType,
-    ) -> Result<(StackType, Subst), String> {
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         if arms.is_empty() {
             return Err("match expression must have at least one arm".to_string());
         }
@@ -599,6 +675,7 @@ impl TypeChecker {
         // Track all arm results for unification
         let mut arm_results: Vec<StackType> = Vec::new();
         let mut combined_subst = Subst::empty();
+        let mut merged_effects: Vec<SideEffect> = Vec::new();
 
         for arm in arms {
             // Get variant name from pattern
@@ -621,10 +698,18 @@ impl TypeChecker {
             )?;
 
             // Type check the arm body directly from the actual stack
-            let (arm_result, arm_subst) = self.infer_statements_from(&arm.body, &arm_stack)?;
+            let (arm_result, arm_subst, arm_effects) =
+                self.infer_statements_from(&arm.body, &arm_stack)?;
 
             combined_subst = combined_subst.compose(&arm_subst);
             arm_results.push(arm_result);
+
+            // Merge effects from this arm
+            for effect in arm_effects {
+                if !merged_effects.contains(&effect) {
+                    merged_effects.push(effect);
+                }
+            }
         }
 
         // Unify all arm results to ensure they're compatible
@@ -644,7 +729,7 @@ impl TypeChecker {
             final_result = arm_subst.apply_stack(&final_result);
         }
 
-        Ok((final_result, combined_subst))
+        Ok((final_result, combined_subst, merged_effects))
     }
 
     /// Push variant fields onto the stack based on the match pattern
@@ -721,7 +806,7 @@ impl TypeChecker {
         then_branch: &[Statement],
         else_branch: &Option<Vec<Statement>>,
         current_stack: StackType,
-    ) -> Result<(StackType, Subst), String> {
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Pop condition (must be Bool)
         let (stack_after_cond, cond_type) = self.pop_type(&current_stack, "if condition")?;
 
@@ -742,15 +827,23 @@ impl TypeChecker {
             .unwrap_or(false);
 
         // Infer branches directly from the actual stack
-        let (then_result, then_subst) =
+        let (then_result, then_subst, then_effects) =
             self.infer_statements_from(then_branch, &stack_after_cond)?;
 
         // Infer else branch (or use stack_after_cond if no else)
-        let (else_result, else_subst) = if let Some(else_stmts) = else_branch {
+        let (else_result, else_subst, else_effects) = if let Some(else_stmts) = else_branch {
             self.infer_statements_from(else_stmts, &stack_after_cond)?
         } else {
-            (stack_after_cond.clone(), Subst::empty())
+            (stack_after_cond.clone(), Subst::empty(), vec![])
         };
+
+        // Merge effects from both branches (if either yields, the whole if yields)
+        let mut merged_effects = then_effects;
+        for effect in else_effects {
+            if !merged_effects.contains(&effect) {
+                merged_effects.push(effect);
+            }
+        }
 
         // Handle divergent branches: if one branch diverges (never returns),
         // use the other branch's stack type without requiring unification.
@@ -784,17 +877,18 @@ impl TypeChecker {
             .compose(&then_subst)
             .compose(&else_subst)
             .compose(&branch_subst);
-        Ok((result, total_subst))
+        Ok((result, total_subst, merged_effects))
     }
 
     /// Infer the stack effect of a quotation
+    /// Quotations capture effects in their type - they don't propagate effects to the outer scope
     fn infer_quotation(
         &self,
         id: usize,
         body: &[Statement],
         current_stack: StackType,
-    ) -> Result<(StackType, Subst), String> {
-        // Infer the effect of the quotation body
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        // Infer the effect of the quotation body (includes computational effects)
         let body_effect = self.infer_statements(body)?;
 
         // Perform capture analysis
@@ -823,7 +917,10 @@ impl TypeChecker {
             _ => unreachable!("analyze_captures only returns Quotation or Closure"),
         };
 
-        Ok((result_stack, Subst::empty()))
+        // Quotations don't propagate effects - they capture them in the quotation type
+        // The effect annotation on the quotation type (e.g., [ ..a -- ..b | Yield Int ])
+        // indicates what effects the quotation may produce when called
+        Ok((result_stack, Subst::empty(), vec![]))
     }
 
     /// Infer the stack effect of a word call
@@ -831,7 +928,7 @@ impl TypeChecker {
         &self,
         name: &str,
         current_stack: StackType,
-    ) -> Result<(StackType, Subst), String> {
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Look up word's effect
         let effect = self
             .lookup_word_effect(name)
@@ -840,29 +937,42 @@ impl TypeChecker {
         // Freshen the effect to avoid variable name clashes
         let fresh_effect = self.freshen_effect(&effect);
 
-        // Special handling for spawn: auto-convert Quotation to Closure if needed
-        let adjusted_stack = if name == "spawn" {
+        // Special handling for strand.spawn: auto-convert Quotation to Closure if needed
+        let adjusted_stack = if name == "strand.spawn" {
             self.adjust_stack_for_spawn(current_stack, &fresh_effect)?
         } else {
             current_stack
         };
 
         // Apply the freshened effect to current stack
-        self.apply_effect(&fresh_effect, adjusted_stack, name)
+        let (result_stack, subst) = self.apply_effect(&fresh_effect, adjusted_stack, name)?;
+
+        // Propagate side effects from the called word
+        // Note: strand.weave "handles" Yield effects (consumes them from the quotation)
+        // strand.spawn requires pure quotations (checked separately)
+        let propagated_effects = fresh_effect.effects.clone();
+
+        Ok((result_stack, subst, propagated_effects))
     }
 
     /// Infer the resulting stack type after a statement
-    /// Takes current stack, returns (new stack, substitution) after statement
+    /// Takes current stack, returns (new stack, substitution, side effects) after statement
     fn infer_statement(
         &self,
         statement: &Statement,
         current_stack: StackType,
-    ) -> Result<(StackType, Subst), String> {
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         match statement {
-            Statement::IntLiteral(_) => Ok((current_stack.push(Type::Int), Subst::empty())),
-            Statement::BoolLiteral(_) => Ok((current_stack.push(Type::Bool), Subst::empty())),
-            Statement::StringLiteral(_) => Ok((current_stack.push(Type::String), Subst::empty())),
-            Statement::FloatLiteral(_) => Ok((current_stack.push(Type::Float), Subst::empty())),
+            Statement::IntLiteral(_) => Ok((current_stack.push(Type::Int), Subst::empty(), vec![])),
+            Statement::BoolLiteral(_) => {
+                Ok((current_stack.push(Type::Bool), Subst::empty(), vec![]))
+            }
+            Statement::StringLiteral(_) => {
+                Ok((current_stack.push(Type::String), Subst::empty(), vec![]))
+            }
+            Statement::FloatLiteral(_) => {
+                Ok((current_stack.push(Type::Float), Subst::empty(), vec![]))
+            }
             Statement::Match { arms } => self.infer_match(arms, current_stack),
             Statement::WordCall { name, .. } => self.infer_word_call(name, current_stack),
             Statement::If {
@@ -908,17 +1018,17 @@ impl TypeChecker {
         Ok((result_stack, subst))
     }
 
-    /// Adjust stack for spawn operation by converting Quotation to Closure if needed
+    /// Adjust stack for strand.spawn operation by converting Quotation to Closure if needed
     ///
-    /// spawn expects Quotation(Empty -- Empty), but if we have Quotation(T... -- U...)
+    /// strand.spawn expects Quotation(Empty -- Empty), but if we have Quotation(T... -- U...)
     /// with non-empty inputs, we auto-convert it to a Closure that captures those inputs.
     fn adjust_stack_for_spawn(
         &self,
         current_stack: StackType,
         spawn_effect: &Effect,
     ) -> Result<StackType, String> {
-        // spawn expects: ( ..a Quotation(Empty -- Empty) -- ..a Int )
-        // Extract the expected quotation type from spawn's effect
+        // strand.spawn expects: ( ..a Quotation(Empty -- Empty) -- ..a Int )
+        // Extract the expected quotation type from strand.spawn's effect
         let expected_quot_type = match &spawn_effect.inputs {
             StackType::Cons { top, rest: _ } => {
                 if !matches!(top, Type::Quotation(_)) {
@@ -962,7 +1072,7 @@ impl TypeChecker {
                         StackType::Cons { rest, .. } => rest.as_ref().clone(),
                         _ => {
                             return Err(format!(
-                                "spawn: not enough values on stack to capture. Need {} values",
+                                "strand.spawn: not enough values on stack to capture. Need {} values",
                                 captures.len()
                             ));
                         }
@@ -1043,6 +1153,15 @@ impl TypeChecker {
                 Ok(Type::Quotation(Box::new(body_effect.clone())))
             }
         }
+    }
+
+    /// Check if an inferred effect matches any of the declared effects
+    /// Effects match by kind (e.g., Yield matches Yield, regardless of type parameters)
+    /// Type parameters should unify, but for now we just check the effect kind
+    fn effect_matches_any(&self, inferred: &SideEffect, declared: &[SideEffect]) -> bool {
+        declared.iter().any(|decl| match (inferred, decl) {
+            (SideEffect::Yield(_), SideEffect::Yield(_)) => true,
+        })
     }
 
     /// Pop a type from a stack type, returning (rest, top)

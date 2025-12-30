@@ -240,6 +240,8 @@ Quotations are Seq's equivalent of lambdas/anonymous functions, but simpler - th
 
 **Why it matters:** Quotations enable higher-order programming. You can pass behavior as data, store it, compose it, execute it conditionally or repeatedly.
 
+**History:** The `[ ]` quotation syntax comes from **Factor** (2003, Slava Pestov), a modern concatenative language that refined many ideas from Forth. Factor demonstrated that concatenative languages could have rich type systems, garbage collection, and modern tooling. Joy (1990s, Manfred von Thun) also used quotations extensively and influenced Factor's design.
+
 **In other languages:** JavaScript has arrow functions `x => x + 1`. Python has `lambda x: x + 1`. Java 8+ has lambdas `x -> x + 1`. Ruby has blocks and procs. The difference is Seq quotations don't declare parameters - they operate on whatever is on the stack.
 
 ---

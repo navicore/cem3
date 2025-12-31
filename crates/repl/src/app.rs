@@ -1502,8 +1502,9 @@ impl App {
         let layout = ComputedLayout::compute(area, &self.layout_config, self.show_ir_pane);
 
         // Render REPL pane (always focused, no border)
+        // Cursor should always be visible in both Normal and Insert modes
         let repl_pane = ReplPane::new(&self.repl_state)
-            .focused(self.vi_mode == ViMode::Insert)
+            .focused(true)
             .prompt(if self.vi_mode == ViMode::Insert {
                 "seq> "
             } else {

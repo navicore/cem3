@@ -355,13 +355,19 @@ impl App {
                 }
                 Action::HistoryPrev => {
                     self.repl_state.history_up();
-                    // Sync editor cursor to end of new input
+                    // Reset editor state and move cursor to end of new input
                     self.editor.reset();
+                    self.editor
+                        .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+                    self.repl_state.cursor = self.editor.cursor();
                 }
                 Action::HistoryNext => {
                     self.repl_state.history_down();
-                    // Sync editor cursor to end of new input
+                    // Reset editor state and move cursor to end of new input
                     self.editor.reset();
+                    self.editor
+                        .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+                    self.repl_state.cursor = self.editor.cursor();
                 }
                 Action::Cancel => {
                     self.should_quit = true;
@@ -373,21 +379,6 @@ impl App {
         if had_edits {
             self.update_ir_preview();
         }
-    }
-
-    /// Unused - kept for reference during migration
-    #[allow(dead_code)]
-    fn byte_to_char_pos(&self, s: &str, byte_pos: usize) -> usize {
-        s[..byte_pos.min(s.len())].chars().count()
-    }
-
-    /// Unused - kept for reference during migration
-    #[allow(dead_code)]
-    fn char_to_byte_pos(&self, s: &str, char_pos: usize) -> usize {
-        s.char_indices()
-            .nth(char_pos)
-            .map(|(i, _)| i)
-            .unwrap_or(s.len())
     }
 
     /// Execute the current input
@@ -1591,8 +1582,7 @@ mod tests {
     #[test]
     fn test_quit_command() -> Result<(), String> {
         let mut app = App::new()?;
-        // q in normal mode should quit (vim-line doesn't handle q specially, we need to check)
-        // Actually vim-line doesn't have q for quit - let's use Ctrl+Q
+        // Ctrl+Q quits the application
         app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
         assert!(app.should_quit);
         Ok(())

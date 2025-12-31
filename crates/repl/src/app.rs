@@ -97,6 +97,23 @@ pub struct App {
 /// Maximum history entries to keep in memory
 const MAX_HISTORY_IN_MEMORY: usize = 1000;
 
+/// Find the largest byte index <= pos that is a valid char boundary.
+/// This is a stable implementation of the nightly `str::floor_char_boundary`.
+fn floor_char_boundary(s: &str, pos: usize) -> usize {
+    if pos >= s.len() {
+        s.len()
+    } else if s.is_char_boundary(pos) {
+        pos
+    } else {
+        // Walk backwards to find a valid boundary
+        let mut p = pos;
+        while p > 0 && !s.is_char_boundary(p) {
+            p -= 1;
+        }
+        p
+    }
+}
+
 impl App {
     /// Create a new application with a temp session file
     pub fn new() -> Result<Self, String> {
@@ -327,6 +344,34 @@ impl App {
             return;
         }
 
+        // Context-aware j/k in Normal mode: navigate history when at buffer boundaries
+        // This makes j/k intuitive for single-line inputs (the common case) while
+        // still supporting multi-line navigation when there are multiple lines
+        if self.editor.status() == "NORMAL" {
+            let input = &self.repl_state.input;
+            let cursor = floor_char_boundary(input, self.editor.cursor());
+
+            match key.code {
+                KeyCode::Char('k') => {
+                    // k at top line (or single line) → history prev
+                    let on_first_line = !input[..cursor].contains('\n');
+                    if on_first_line {
+                        self.navigate_history_prev();
+                        return;
+                    }
+                }
+                KeyCode::Char('j') => {
+                    // j at bottom line (or single line) → history next
+                    let on_last_line = !input[cursor..].contains('\n');
+                    if on_last_line {
+                        self.navigate_history_next();
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // Convert to vim-line key and process
         let vl_key = convert_key(key);
         let result = self.editor.handle_key(vl_key, &self.repl_state.input);
@@ -354,20 +399,10 @@ impl App {
                     self.execute_input();
                 }
                 Action::HistoryPrev => {
-                    self.repl_state.history_up();
-                    // Reset editor state and move cursor to end of new input
-                    self.editor.reset();
-                    self.editor
-                        .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
-                    self.repl_state.cursor = self.editor.cursor();
+                    self.navigate_history_prev();
                 }
                 Action::HistoryNext => {
-                    self.repl_state.history_down();
-                    // Reset editor state and move cursor to end of new input
-                    self.editor.reset();
-                    self.editor
-                        .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
-                    self.repl_state.cursor = self.editor.cursor();
+                    self.navigate_history_next();
                 }
                 Action::Cancel => {
                     self.should_quit = true;
@@ -865,6 +900,24 @@ impl App {
         };
         // Reset scroll when content changes
         self.ir_scroll = 0;
+    }
+
+    /// Navigate to previous history entry (older)
+    fn navigate_history_prev(&mut self) {
+        self.repl_state.history_up();
+        self.editor.reset();
+        self.editor
+            .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+        self.repl_state.cursor = self.editor.cursor();
+    }
+
+    /// Navigate to next history entry (newer)
+    fn navigate_history_next(&mut self) {
+        self.repl_state.history_down();
+        self.editor.reset();
+        self.editor
+            .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+        self.repl_state.cursor = self.editor.cursor();
     }
 
     /// Scroll the IR pane by delta lines (positive = down, negative = up)
@@ -1576,6 +1629,137 @@ mod tests {
         // Down goes back to newer entry
         app.handle_key(KeyEvent::from(KeyCode::Down));
         assert_eq!(app.repl_state.input, "second");
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_history_navigation() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add some history entries
+        app.repl_state
+            .add_entry(HistoryEntry::new("first").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("second").with_output("2"));
+
+        // In normal mode (default), k on single line goes to history
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "second");
+
+        // k again goes to older entry
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "first");
+
+        // j goes back to newer entry
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "second");
+
+        // j again returns to empty input (current line)
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "");
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_multiline_navigation() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history entries: oldest first, then multi-line, then newest
+        app.repl_state
+            .add_entry(HistoryEntry::new("oldest").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("line1\nline2\nline3").with_output("2"));
+
+        // Navigate to the multi-line history entry
+        app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // Go to newest (multi-line)
+        assert_eq!(app.repl_state.input, "line1\nline2\nline3");
+
+        // Cursor should be at end of last line after history navigation
+        // j on last line should go forward in history (to current empty input)
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "");
+
+        // k goes back to multi-line
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "line1\nline2\nline3");
+
+        // Now test navigation within the multi-line buffer
+        // Go to start of last line with 0
+        app.handle_key(KeyEvent::from(KeyCode::Char('0')));
+
+        // k should move up within buffer (to line2), not to history
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "line1\nline2\nline3"); // Still same input
+
+        // k again moves to line1 (now on first line)
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "line1\nline2\nline3"); // Still same input
+
+        // k on first line goes to older history
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "oldest");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_with_unicode() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history with emoji
+        app.repl_state
+            .add_entry(HistoryEntry::new("hello 👋").with_output("1"));
+
+        // k should navigate to history without panicking
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "hello 👋");
+
+        // j should navigate back
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_empty_input() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history so we have somewhere to navigate
+        app.repl_state
+            .add_entry(HistoryEntry::new("history").with_output("1"));
+
+        // With empty input, j/k should work without panic
+        assert_eq!(app.repl_state.input, "");
+        app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // Should go to history
+        assert_eq!(app.repl_state.input, "history");
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('j'))); // Should return to empty
+        assert_eq!(app.repl_state.input, "");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_insert_mode_no_history() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history
+        app.repl_state
+            .add_entry(HistoryEntry::new("history").with_output("1"));
+
+        // Enter insert mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        assert_eq!(app.editor.status(), "INSERT");
+
+        // j/k in insert mode should NOT navigate history - they should be passed
+        // to vim-line which handles them as cursor movement (no-op on single line)
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "j"); // j inserted as text
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "jk"); // k inserted as text
+
         Ok(())
     }
 

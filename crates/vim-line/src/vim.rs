@@ -515,11 +515,9 @@ impl VimLineEditor {
                 while start > 0 && !text.is_char_boundary(start) {
                     start -= 1;
                 }
+                let end = self.cursor; // Save original cursor before updating
                 self.cursor = start;
-                EditResult::edit(TextEdit::Delete {
-                    start,
-                    end: self.cursor + 1,
-                })
+                EditResult::edit(TextEdit::Delete { start, end })
             }
 
             KeyCode::Delete => self.delete_char(text),
@@ -895,5 +893,44 @@ mod tests {
         let sel = editor.selection().unwrap();
         assert_eq!(sel.start, 0);
         assert!(sel.end > 0);
+    }
+
+    #[test]
+    fn test_backspace_ascii() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("abc");
+
+        // Enter insert mode and go to end
+        editor.handle_key(Key::char('i'), &text);
+        editor.handle_key(Key::code(KeyCode::End), &text);
+        assert_eq!(editor.cursor(), 3);
+
+        // Backspace should delete 'c'
+        let result = editor.handle_key(Key::code(KeyCode::Backspace), &text);
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, "ab");
+        assert_eq!(editor.cursor(), 2);
+    }
+
+    #[test]
+    fn test_backspace_unicode() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("a😀b");
+
+        // Enter insert mode and position after emoji (byte position 5: 1 + 4)
+        editor.handle_key(Key::char('i'), &text);
+        editor.handle_key(Key::code(KeyCode::End), &text);
+        editor.handle_key(Key::code(KeyCode::Left), &text); // Move before 'b'
+        assert_eq!(editor.cursor(), 5); // After the 4-byte emoji
+
+        // Backspace should delete entire emoji (4 bytes), not just 1 byte
+        let result = editor.handle_key(Key::code(KeyCode::Backspace), &text);
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, "ab");
+        assert_eq!(editor.cursor(), 1);
     }
 }

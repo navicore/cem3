@@ -1,0 +1,12 @@
+[package]
+name = "vim-line"
+description = "A line-oriented vim motions library for TUI applications"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Intentionally minimal - this crate should be self-contained
+
+[dev-dependencies]

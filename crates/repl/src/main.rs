@@ -25,6 +25,7 @@
 mod app;
 mod engine;
 mod ir;
+mod keys;
 mod lsp_client;
 mod ui;
 

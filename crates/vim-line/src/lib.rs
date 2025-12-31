@@ -58,6 +58,9 @@ pub trait LineEditor {
 
     /// Reset editor state (call after submitting/clearing input).
     fn reset(&mut self);
+
+    /// Set cursor position, clamped to valid bounds within text.
+    fn set_cursor(&mut self, pos: usize, text: &str);
 }
 
 /// Result of processing a key event.

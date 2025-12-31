@@ -302,30 +302,34 @@ impl VimLineEditor {
     }
 
     /// Paste after cursor (p).
-    fn paste_after(&mut self, _text: &str) -> EditResult {
+    fn paste_after(&mut self, text: &str) -> EditResult {
         if self.yank_buffer.is_empty() {
             return EditResult::none();
         }
 
-        let insert_pos = self.cursor + 1;
+        let insert_pos = (self.cursor + 1).min(text.len());
         let to_insert = self.yank_buffer.clone();
-        self.cursor = insert_pos + to_insert.len() - 1;
+        // Position cursor at end of pasted text, safely handling edge cases
+        self.cursor = (insert_pos + to_insert.len())
+            .saturating_sub(1)
+            .min(text.len() + to_insert.len());
 
         EditResult::edit(TextEdit::Insert {
-            at: insert_pos.min(_text.len()),
+            at: insert_pos,
             text: to_insert,
         })
     }
 
     /// Paste before cursor (P).
-    fn paste_before(&mut self, _text: &str) -> EditResult {
+    fn paste_before(&mut self, text: &str) -> EditResult {
         if self.yank_buffer.is_empty() {
             return EditResult::none();
         }
 
         let to_insert = self.yank_buffer.clone();
-        let insert_pos = self.cursor;
-        self.cursor = insert_pos + to_insert.len();
+        let insert_pos = self.cursor.min(text.len());
+        // Position cursor at end of pasted text
+        self.cursor = (insert_pos + to_insert.len()).min(text.len() + to_insert.len());
 
         EditResult::edit(TextEdit::Insert {
             at: insert_pos,
@@ -804,6 +808,21 @@ impl LineEditor for VimLineEditor {
         self.visual_anchor = None;
         // Keep yank buffer across resets
     }
+
+    fn set_cursor(&mut self, pos: usize, text: &str) {
+        // Clamp to text length and ensure we're at a char boundary
+        let pos = pos.min(text.len());
+        self.cursor = if text.is_char_boundary(pos) {
+            pos
+        } else {
+            // Walk backwards to find a valid boundary
+            let mut p = pos;
+            while p > 0 && !text.is_char_boundary(p) {
+                p -= 1;
+            }
+            p
+        };
+    }
 }
 
 #[cfg(test)]
@@ -932,5 +951,82 @@ mod tests {
         }
         assert_eq!(text, "ab");
         assert_eq!(editor.cursor(), 1);
+    }
+
+    #[test]
+    fn test_yank_and_paste() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("hello world");
+
+        // Yank word with yw
+        editor.handle_key(Key::char('y'), &text);
+        let result = editor.handle_key(Key::char('w'), &text);
+        assert!(result.yanked.is_some());
+        assert_eq!(result.yanked.unwrap(), "hello ");
+
+        // Move to end and paste
+        editor.handle_key(Key::char('$'), &text);
+        let result = editor.handle_key(Key::char('p'), &text);
+
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, "hello worldhello ");
+    }
+
+    #[test]
+    fn test_visual_mode_delete() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("hello world");
+
+        // Enter visual mode at position 0
+        editor.handle_key(Key::char('v'), &text);
+        assert_eq!(editor.mode(), Mode::Visual);
+
+        // Extend selection with 'e' motion to end of word (stays on 'o' of hello)
+        editor.handle_key(Key::char('e'), &text);
+
+        // Delete selection with d - deletes "hello"
+        let result = editor.handle_key(Key::char('d'), &text);
+
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, " world");
+        assert_eq!(editor.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn test_operator_pending_escape() {
+        let mut editor = VimLineEditor::new();
+        let text = "hello world";
+
+        // Start delete operator
+        editor.handle_key(Key::char('d'), text);
+        assert!(matches!(editor.mode(), Mode::OperatorPending(_)));
+
+        // Cancel with Escape
+        editor.handle_key(Key::code(KeyCode::Escape), text);
+        assert_eq!(editor.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn test_paste_at_empty_buffer() {
+        let mut editor = VimLineEditor::new();
+
+        // First yank something from non-empty text
+        let yank_text = String::from("test");
+        editor.handle_key(Key::char('y'), &yank_text);
+        editor.handle_key(Key::char('w'), &yank_text);
+
+        // Now paste into empty buffer
+        let mut text = String::new();
+        editor.set_cursor(0, &text);
+        let result = editor.handle_key(Key::char('p'), &text);
+
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, "test");
     }
 }

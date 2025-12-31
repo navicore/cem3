@@ -327,6 +327,42 @@ impl App {
             return;
         }
 
+        // Context-aware j/k in Normal mode: navigate history when at buffer boundaries
+        // This makes j/k intuitive for single-line inputs (the common case) while
+        // still supporting multi-line navigation when there are multiple lines
+        if self.editor.status() == "NORMAL" {
+            let input = &self.repl_state.input;
+            let cursor = self.editor.cursor();
+
+            match key.code {
+                KeyCode::Char('k') => {
+                    // k at top line (or single line) → history prev
+                    let on_first_line = !input[..cursor.min(input.len())].contains('\n');
+                    if on_first_line {
+                        self.repl_state.history_up();
+                        self.editor.reset();
+                        self.editor
+                            .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+                        self.repl_state.cursor = self.editor.cursor();
+                        return;
+                    }
+                }
+                KeyCode::Char('j') => {
+                    // j at bottom line (or single line) → history next
+                    let on_last_line = !input[cursor.min(input.len())..].contains('\n');
+                    if on_last_line {
+                        self.repl_state.history_down();
+                        self.editor.reset();
+                        self.editor
+                            .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+                        self.repl_state.cursor = self.editor.cursor();
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // Convert to vim-line key and process
         let vl_key = convert_key(key);
         let result = self.editor.handle_key(vl_key, &self.repl_state.input);
@@ -1576,6 +1612,34 @@ mod tests {
         // Down goes back to newer entry
         app.handle_key(KeyEvent::from(KeyCode::Down));
         assert_eq!(app.repl_state.input, "second");
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_history_navigation() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add some history entries
+        app.repl_state
+            .add_entry(HistoryEntry::new("first").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("second").with_output("2"));
+
+        // In normal mode (default), k on single line goes to history
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "second");
+
+        // k again goes to older entry
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "first");
+
+        // j goes back to newer entry
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "second");
+
+        // j again returns to empty input (current line)
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "");
         Ok(())
     }
 

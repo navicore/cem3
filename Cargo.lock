@@ -1794,6 +1794,7 @@ dependencies = [
  "serde_json",
  "shlex",
  "tempfile",
+ "vim-line",
 ]
 
 [[package]]

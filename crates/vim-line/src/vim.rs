@@ -89,10 +89,7 @@ impl VimLineEditor {
     /// Move cursor to start of line (0).
     fn move_line_start(&mut self, text: &str) {
         // Find the start of the current line
-        self.cursor = text[..self.cursor]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        self.cursor = text[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
     }
 
     /// Move cursor to first non-whitespace of line (^).
@@ -179,10 +176,7 @@ impl VimLineEditor {
     /// Move cursor up one line (k).
     fn move_up(&mut self, text: &str) {
         // Find current line start
-        let line_start = text[..self.cursor]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        let line_start = text[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
         if line_start == 0 {
             // Already on first line, can't go up
@@ -209,10 +203,7 @@ impl VimLineEditor {
     /// Move cursor down one line (j).
     fn move_down(&mut self, text: &str) {
         // Find current line start
-        let line_start = text[..self.cursor]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        let line_start = text[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
         // Column offset
         let col = self.cursor - line_start;
@@ -287,10 +278,7 @@ impl VimLineEditor {
 
     /// Delete entire current line (dd).
     fn delete_line(&mut self, text: &str) -> EditResult {
-        let line_start = text[..self.cursor]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        let line_start = text[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
         let line_end = text[self.cursor..]
             .find('\n')
@@ -484,14 +472,9 @@ impl VimLineEditor {
                 })
             }
 
-            // Cancel (Escape when input is empty)
-            KeyCode::Escape => {
-                if text.is_empty() {
-                    EditResult::action(Action::Cancel)
-                } else {
-                    EditResult::none()
-                }
-            }
+            // Escape in Normal mode is a no-op (safe to spam like in vim)
+            // Use Ctrl+C to cancel/quit
+            KeyCode::Escape => EditResult::none(),
 
             _ => EditResult::none(),
         }
@@ -644,19 +627,15 @@ impl VimLineEditor {
     }
 
     /// Apply an operator to a range.
-    fn apply_operator(
-        &mut self,
-        op: Operator,
-        start: usize,
-        end: usize,
-        text: &str,
-    ) -> EditResult {
+    fn apply_operator(&mut self, op: Operator, start: usize, end: usize, text: &str) -> EditResult {
         let affected = text[start..end].to_string();
         self.yank_buffer = affected.clone();
         self.cursor = start;
 
         match op {
-            Operator::Delete => EditResult::edit_and_yank(TextEdit::Delete { start, end }, affected),
+            Operator::Delete => {
+                EditResult::edit_and_yank(TextEdit::Delete { start, end }, affected)
+            }
             Operator::Change => {
                 self.mode = Mode::Insert;
                 EditResult::edit_and_yank(TextEdit::Delete { start, end }, affected)
@@ -681,10 +660,7 @@ impl VimLineEditor {
                 result
             }
             Operator::Yank => {
-                let line_start = text[..self.cursor]
-                    .rfind('\n')
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
+                let line_start = text[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
                 let line_end = text[self.cursor..]
                     .find('\n')
                     .map(|i| self.cursor + i + 1)

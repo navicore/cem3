@@ -77,12 +77,21 @@ jobs:
               { print }
             ' crates/repl/Cargo.toml > crates/repl/Cargo.toml.tmp && mv crates/repl/Cargo.toml.tmp crates/repl/Cargo.toml
 
+            # Update vim-line dependency version in crates/repl/Cargo.toml
+            # This ensures the REPL pins to the exact vim-line version
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /^vim-line = \{ path = "\.\.\/vim-line"/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' crates/repl/Cargo.toml > crates/repl/Cargo.toml.tmp && mv crates/repl/Cargo.toml.tmp crates/repl/Cargo.toml
+
             cargo generate-lockfile
 
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
 
-            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml crates/repl/Cargo.toml Cargo.lock
+            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml crates/repl/Cargo.toml crates/vim-line/Cargo.toml Cargo.lock
             git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
             git push origin HEAD:main
 
@@ -100,7 +109,7 @@ jobs:
           echo "Workspace version: $WORKSPACE_VERSION"
 
           # Check each crate uses workspace version
-          for crate in runtime compiler lsp repl; do
+          for crate in runtime compiler lsp repl vim-line; do
             CRATE_VERSION=$(grep -A10 '^\[package\]' crates/$crate/Cargo.toml | grep '^version' | head -1)
             if ! echo "$CRATE_VERSION" | grep -q "version.workspace = true"; then
               echo "ERROR: crates/$crate/Cargo.toml does not use workspace version!"
@@ -139,6 +148,16 @@ jobs:
           fi
           echo "✓ repl seq-compiler dependency pinned to exact version: $REPL_DEP"
 
+          # Verify repl's dependency on vim-line has exact version match
+          VIMLINE_DEP=$(grep 'vim-line.*path.*vim-line' crates/repl/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          if [ "$VIMLINE_DEP" != "=$WORKSPACE_VERSION" ]; then
+            echo "ERROR: repl's vim-line dependency version doesn't match!"
+            echo "Expected: =$WORKSPACE_VERSION"
+            echo "Found: $VIMLINE_DEP"
+            exit 1
+          fi
+          echo "✓ repl vim-line dependency pinned to exact version: $VIMLINE_DEP"
+
           echo "✓ All version checks passed!"
 
       - name: Publish seq-runtime to crates.io
@@ -164,6 +183,14 @@ jobs:
         run: cargo publish -p seq-lsp --token ${{ secrets.CRATES_IO_TOKEN }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Publish vim-line to crates.io
+        run: cargo publish -p vim-line --token ${{ secrets.CRATES_IO_TOKEN }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Wait for crates.io to index vim-line
+        run: sleep 30
 
       - name: Publish seq-repl to crates.io
         run: cargo publish -p seq-repl --token ${{ secrets.CRATES_IO_TOKEN }}

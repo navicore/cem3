@@ -1722,6 +1722,48 @@ mod tests {
     }
 
     #[test]
+    fn test_jk_empty_input() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history so we have somewhere to navigate
+        app.repl_state
+            .add_entry(HistoryEntry::new("history").with_output("1"));
+
+        // With empty input, j/k should work without panic
+        assert_eq!(app.repl_state.input, "");
+        app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // Should go to history
+        assert_eq!(app.repl_state.input, "history");
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('j'))); // Should return to empty
+        assert_eq!(app.repl_state.input, "");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_jk_insert_mode_no_history() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history
+        app.repl_state
+            .add_entry(HistoryEntry::new("history").with_output("1"));
+
+        // Enter insert mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        assert_eq!(app.editor.status(), "INSERT");
+
+        // j/k in insert mode should NOT navigate history - they should be passed
+        // to vim-line which handles them as cursor movement (no-op on single line)
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.repl_state.input, "j"); // j inserted as text
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.repl_state.input, "jk"); // k inserted as text
+
+        Ok(())
+    }
+
+    #[test]
     fn test_quit_command() -> Result<(), String> {
         let mut app = App::new()?;
         // Ctrl+Q quits the application

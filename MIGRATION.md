@@ -8,6 +8,7 @@ This guide covers all breaking changes from early Seq versions (0.8.x and earlie
 |---------|--------|--------|
 | 0.9.0 | Built-in operations namespaced | `write-line` → `io.write-line` |
 | 0.15.0 | Arithmetic/comparison namespaced | `add` → `i.add`, `=` → `i.=` |
+| 0.16.0 | Bool type replaces Int for flags | `1`/`0` → `true`/`false` |
 | 0.18.0 | Concurrency renamed | `spawn` → `strand.spawn` |
 
 ## Quick Reference: What Changed
@@ -56,6 +57,94 @@ This guide covers all breaking changes from early Seq versions (0.8.x and earlie
 | (new) | `strand.weave` |
 | (new) | `strand.resume` |
 | (new) | `strand.weave-cancel` |
+
+### Bool Type (Replaces Int for Boolean Values)
+
+Seq now has a proper `Bool` type with `true` and `false` literals. Previously, integers `1` and `0` were used for boolean values.
+
+**Stack effect changes:**
+
+| Operation | Old Signature | New Signature |
+|-----------|---------------|---------------|
+| `i.=`, `i.<`, `i.>`, etc. | `( Int Int -- Int )` | `( Int Int -- Bool )` |
+| `f.=`, `f.<`, `f.>`, etc. | `( Float Float -- Int )` | `( Float Float -- Bool )` |
+| `and`, `or` | `( Int Int -- Int )` | `( Bool Bool -- Bool )` |
+| `not` | `( Int -- Int )` | `( Bool -- Bool )` |
+| `string.empty?` | `( String -- Int )` | `( String -- Bool )` |
+| `string.contains` | `( String String -- Int )` | `( String String -- Bool )` |
+| `string.starts-with` | `( String String -- Int )` | `( String String -- Bool )` |
+| `list.empty?` | `( List -- Int )` | `( List -- Bool )` |
+| `map.has?` | `( Map String -- Int )` | `( Map String -- Bool )` |
+| `map.empty?` | `( Map -- Int )` | `( Map -- Bool )` |
+| `file.exists?` | `( String -- Int )` | `( String -- Bool )` |
+| `os.path-exists` | `( String -- Int )` | `( String -- Bool )` |
+| `os.path-is-file` | `( String -- Int )` | `( String -- Bool )` |
+| `os.path-is-dir` | `( String -- Int )` | `( String -- Bool )` |
+| `chan.send-safe` | `( a Chan -- Int )` | `( a Chan -- Bool )` |
+| `chan.receive-safe` | `( Chan -- a Int )` | `( Chan -- a Bool )` |
+| `file.slurp-safe` | `( String -- String Int )` | `( String -- String Bool )` |
+
+**Code changes required:**
+
+```seq
+# Before: Using 1/0 as booleans
+: is-positive ( Int -- Int )
+  0 i.> ;
+
+: main ( -- Int )
+  5 is-positive if "yes" then  # Worked because if accepted Int
+  0 ;
+
+# After: Using true/false
+: is-positive ( Int -- Bool )
+  0 i.> ;
+
+: main ( -- Int )
+  5 is-positive if "yes" then  # if now expects Bool
+  0 ;
+```
+
+**Conditional expressions:**
+
+```seq
+# Before
+1 if "true branch" then    # 1 = true
+0 if "never" then          # 0 = false
+
+# After
+true if "true branch" then
+false if "never" then
+```
+
+**Boolean operations:**
+
+```seq
+# Before
+1 1 and  # Returns 1
+1 0 or   # Returns 1
+1 not    # Returns 0
+
+# After
+true true and   # Returns true
+true false or   # Returns true
+true not        # Returns false
+```
+
+**Checking safe operation results:**
+
+```seq
+# Before
+chan.receive-safe
+1 i.= if
+  # success - value is on stack
+then
+
+# After
+chan.receive-safe
+if
+  # success - value is on stack
+then
+```
 
 ### I/O Operations
 
@@ -318,7 +407,9 @@ find "$DIR" -name "*.seq" -exec sed -i '' \
 echo "Migration complete. Review changes with: git diff"
 ```
 
-### Comparison Operators (Manual Step Required)
+### Manual Steps Required
+
+#### 1. Comparison Operators
 
 The bare comparison operators (`=`, `<`, `>`, `<=`, `>=`, `<>`) cannot be reliably migrated with sed because they're single characters that appear in many contexts (strings, comments, stack effects).
 
@@ -339,6 +430,57 @@ a b i.<= if "a not greater" then
 **Tip:** Search for these patterns in your code:
 ```bash
 grep -n ' = \| < \| > \| <= \| >= \| <> ' *.seq
+```
+
+#### 2. Bool Type Changes
+
+Stack effect signatures that used `Int` for boolean results must be updated to `Bool`. The compiler will report type errors.
+
+**Update your word signatures:**
+
+```seq
+# Before
+: is-valid ( Int -- Int )
+  0 i.> ;
+
+# After
+: is-valid ( Int -- Bool )
+  0 i.> ;
+```
+
+**Update literal boolean values:**
+
+```seq
+# Before
+1 if "yes" then    # Using 1 as true
+0                  # Using 0 as false
+
+# After
+true if "yes" then
+false
+```
+
+**Update safe operation checks:**
+
+```seq
+# Before
+file.slurp-safe
+swap drop           # Get the success flag
+1 i.= if            # Check if 1
+  # handle content
+then
+
+# After
+file.slurp-safe
+swap drop           # Get the success flag (now Bool)
+if                  # if expects Bool directly
+  # handle content
+then
+```
+
+**Tip:** Search for patterns that may need Bool updates:
+```bash
+grep -n '1 i\.= if\|0 i\.= if\|-- Int )' *.seq
 ```
 
 ### Linux/GNU sed

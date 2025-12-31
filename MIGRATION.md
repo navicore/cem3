@@ -1,40 +1,74 @@
-# Migration Guide: 0.8.x to 0.9.0
+# Migration Guide: Pre-0.9 to 0.18.x
 
-Version 0.9.0 introduces a consistent naming convention for all built-in operations. This is a **breaking change** that requires updating existing Seq code.
+This guide covers all breaking changes from early Seq versions (0.8.x and earlier) to the current stable release (0.18.x). If you're migrating from any pre-0.18 version, this single document has everything you need.
 
-## Naming Convention
+## Summary of Breaking Changes
 
-The new naming convention uses three delimiters:
+| Version | Change | Impact |
+|---------|--------|--------|
+| 0.9.0 | Built-in operations namespaced | `write-line` → `io.write-line` |
+| 0.15.0 | Arithmetic/comparison namespaced | `add` → `i.add`, `=` → `i.=` |
+| 0.18.0 | Concurrency renamed | `spawn` → `strand.spawn` |
 
-| Delimiter | Usage | Example |
-|-----------|-------|---------|
-| `.` (dot) | Module/namespace prefix | `io.write-line`, `tcp.listen` |
-| `-` (hyphen) | Compound words within names | `home-dir`, `field-at` |
-| `->` (arrow) | Type conversions | `int->string`, `float->int` |
+## Quick Reference: What Changed
 
-**Core primitives remain unnamespaced:** `dup`, `swap`, `drop`, `add`, `subtract`, `=`, `<`, `>`, `and`, `or`, `not`, `if`, `call`, etc.
+### Arithmetic Operations
 
-## Quick Reference
+| Old | New (verbose) | New (terse) |
+|-----|---------------|-------------|
+| `add` | `i.add` | `i.+` |
+| `subtract` | `i.subtract` | `i.-` |
+| `multiply` | `i.multiply` | `i.*` |
+| `divide` | `i.divide` | `i./` |
+| (new) | `i.modulo` | `i.%` |
+
+### Comparison Operations
+
+| Old | New (symbol) | New (verbose) |
+|-----|--------------|---------------|
+| `=` | `i.=` | `i.eq` |
+| `<` | `i.<` | `i.lt` |
+| `>` | `i.>` | `i.gt` |
+| `<=` | `i.<=` | `i.lte` |
+| `>=` | `i.>=` | `i.gte` |
+| `<>` | `i.<>` | `i.neq` |
+
+### Float Operations
+
+| Old | New (verbose) | New (terse) |
+|-----|---------------|-------------|
+| `f-add` | `f.add` | `f.+` |
+| `f-subtract` | `f.subtract` | `f.-` |
+| `f-multiply` | `f.multiply` | `f.*` |
+| `f-divide` | `f.divide` | `f./` |
+| `f-=` | `f.=` | `f.eq` |
+| `f-<` | `f.<` | `f.lt` |
+| `f->` | `f.>` | `f.gt` |
+| `f-<=` | `f.<=` | `f.lte` |
+| `f->=` | `f.>=` | `f.gte` |
+| `f-<>` | `f.<>` | `f.neq` |
+
+### Concurrency Operations
+
+| Old | New |
+|-----|-----|
+| `spawn` | `strand.spawn` |
+| (new) | `strand.weave` |
+| (new) | `strand.resume` |
+| (new) | `strand.weave-cancel` |
 
 ### I/O Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `write-line` | `io.write-line` |
 | `read-line` | `io.read-line` |
 | `read-line+` | `io.read-line+` |
 
-### Command-Line Arguments
-
-| Old Name | New Name |
-|----------|----------|
-| `arg-count` | `args.count` |
-| `arg-at` | `args.at` |
-
 ### Channel Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `make-channel` | `chan.make` |
 | `send` | `chan.send` |
 | `send-safe` | `chan.send-safe` |
@@ -43,10 +77,17 @@ The new naming convention uses three delimiters:
 | `close-channel` | `chan.close` |
 | `yield` | `chan.yield` |
 
+### Command-Line Arguments
+
+| Old | New |
+|-----|-----|
+| `arg-count` | `args.count` |
+| `arg-at` | `args.at` |
+
 ### TCP Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `tcp-listen` | `tcp.listen` |
 | `tcp-accept` | `tcp.accept` |
 | `tcp-read` | `tcp.read` |
@@ -55,8 +96,8 @@ The new naming convention uses three delimiters:
 
 ### OS Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `getenv` | `os.getenv` |
 | `home-dir` | `os.home-dir` |
 | `current-dir` | `os.current-dir` |
@@ -69,8 +110,8 @@ The new naming convention uses three delimiters:
 
 ### File Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `file-slurp` | `file.slurp` |
 | `file-slurp-safe` | `file.slurp-safe` |
 | `file-exists?` | `file.exists?` |
@@ -78,8 +119,8 @@ The new naming convention uses three delimiters:
 
 ### String Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `string-concat` | `string.concat` |
 | `string-length` | `string.length` |
 | `string-byte-length` | `string.byte-length` |
@@ -99,8 +140,8 @@ The new naming convention uses three delimiters:
 
 ### Type Conversions
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `int-to-string` | `int->string` |
 | `string-to-int` | `string->int` |
 | `int-to-float` | `int->float` |
@@ -111,8 +152,8 @@ The new naming convention uses three delimiters:
 
 ### List Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `list-map` | `list.map` |
 | `list-filter` | `list.filter` |
 | `list-fold` | `list.fold` |
@@ -122,8 +163,8 @@ The new naming convention uses three delimiters:
 
 ### Map Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `make-map` | `map.make` |
 | `map-get` | `map.get` |
 | `map-get-safe` | `map.get-safe` |
@@ -137,8 +178,8 @@ The new naming convention uses three delimiters:
 
 ### Variant Operations
 
-| Old Name | New Name |
-|----------|----------|
+| Old | New |
+|-----|-----|
 | `variant-field-count` | `variant.field-count` |
 | `variant-tag` | `variant.tag` |
 | `variant-field-at` | `variant.field-at` |
@@ -151,53 +192,47 @@ The new naming convention uses three delimiters:
 | `make-variant-3` | `variant.make-3` |
 | `make-variant-4` | `variant.make-4` |
 
-### Float Operations
-
-| Old Name | New Name |
-|----------|----------|
-| `f-add` | `f.add` |
-| `f-subtract` | `f.subtract` |
-| `f-multiply` | `f.multiply` |
-| `f-divide` | `f.divide` |
-| `f-=` | `f.=` |
-| `f-<` | `f.<` |
-| `f->` | `f.>` |
-| `f-<=` | `f.<=` |
-| `f->=` | `f.>=` |
-| `f-<>` | `f.<>` |
-
 ## Unchanged Operations
 
-These operations keep their original names (no namespace prefix):
+These operations keep their original names:
 
-**Stack:** `dup`, `swap`, `over`, `rot`, `nip`, `tuck`, `drop`, `pick`, `roll`
-
-**Arithmetic:** `add`, `subtract`, `multiply`, `divide`
-
-**Comparison:** `=`, `<`, `>`, `<=`, `>=`, `<>`
+**Stack:** `dup`, `swap`, `over`, `rot`, `nip`, `tuck`, `drop`, `pick`, `roll`, `2dup`, `3drop`
 
 **Boolean:** `and`, `or`, `not`
 
 **Bitwise:** `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`, `int-bits`
 
-**Control Flow:** `call`, `times`, `while`, `until`, `spawn`, `cond`, `if`, `else`, `then`, `match`, `end`
+**Control Flow:** `call`, `times`, `while`, `until`, `cond`, `if`, `else`, `then`, `match`, `end`, `yield`
 
 ## Automated Migration
 
-### Using sed (macOS/BSD)
+### Full Migration Script (macOS/BSD)
+
+This script migrates from any pre-0.9 version to current 0.18.x:
 
 ```bash
-# Run from your project root
-find . -name "*.seq" -exec sed -i '' \
+#!/bin/bash
+# migrate-to-0.18.sh - Full Seq migration script
+# Usage: ./migrate-to-0.18.sh [directory]
+
+DIR="${1:-.}"
+
+find "$DIR" -name "*.seq" -exec sed -i '' \
+  -e 's/\badd\b/i.add/g' \
+  -e 's/\bsubtract\b/i.subtract/g' \
+  -e 's/\bmultiply\b/i.multiply/g' \
+  -e 's/\bdivide\b/i.divide/g' \
+  -e 's/\bspawn\b/strand.spawn/g' \
   -e 's/\bwrite-line\b/io.write-line/g' \
+  -e 's/\bread-line+\b/io.read-line+/g' \
   -e 's/\bread-line\b/io.read-line/g' \
   -e 's/\bmake-channel\b/chan.make/g' \
   -e 's/\bsend-safe\b/chan.send-safe/g' \
   -e 's/\breceive-safe\b/chan.receive-safe/g' \
   -e 's/\bclose-channel\b/chan.close/g' \
+  -e 's/\bchan\.yield\b/chan.yield/g' \
   -e 's/\bsend\b/chan.send/g' \
   -e 's/\breceive\b/chan.receive/g' \
-  -e 's/\byield\b/chan.yield/g' \
   -e 's/\btcp-listen\b/tcp.listen/g' \
   -e 's/\btcp-accept\b/tcp.accept/g' \
   -e 's/\btcp-read\b/tcp.read/g' \
@@ -279,70 +314,161 @@ find . -name "*.seq" -exec sed -i '' \
   -e 's/\barg-count\b/args.count/g' \
   -e 's/\barg-at\b/args.at/g' \
   {} \;
+
+echo "Migration complete. Review changes with: git diff"
 ```
 
-### Using sed (Linux/GNU)
+### Comparison Operators (Manual Step Required)
+
+The bare comparison operators (`=`, `<`, `>`, `<=`, `>=`, `<>`) cannot be reliably migrated with sed because they're single characters that appear in many contexts (strings, comments, stack effects).
+
+**You must manually update these:**
+
+```seq
+# Before
+5 3 = if "equal" then
+x 0 > if "positive" then
+a b <= if "a not greater" then
+
+# After
+5 3 i.= if "equal" then
+x 0 i.> if "positive" then
+a b i.<= if "a not greater" then
+```
+
+**Tip:** Search for these patterns in your code:
+```bash
+grep -n ' = \| < \| > \| <= \| >= \| <> ' *.seq
+```
+
+### Linux/GNU sed
+
+For Linux, remove the `''` after `-i`:
 
 ```bash
-# Same as above but without the '' after -i
-find . -name "*.seq" -exec sed -i \
-  -e 's/\bwrite-line\b/io.write-line/g' \
+find "$DIR" -name "*.seq" -exec sed -i \
+  -e 's/\badd\b/i.add/g' \
   # ... rest of patterns ...
   {} \;
 ```
 
 ## Example: Before and After
 
-### Before (0.8.x)
+### Before (pre-0.9)
 
 ```seq
-: greet ( String -- )
-  "Hello, " swap string-concat write-line ;
+: factorial ( Int -- Int )
+  dup 1 <= if
+    drop 1
+  else
+    dup 1 subtract factorial multiply
+  then
+;
 
 : main ( -- Int )
-  "Enter your name: " write-line
-  read-line string-trim
-  dup string-empty? if
-    drop "World"
+  "Enter a number: " write-line
+  read-line string-trim string-to-int
+  dup 0 < if
+    drop "Must be non-negative" write-line 1
+  else
+    factorial dup int-to-string write-line 0
   then
-  greet
-  0 ;
+;
 ```
 
-### After (0.9.0)
+### After (0.18.x)
 
 ```seq
-: greet ( String -- )
-  "Hello, " swap string.concat io.write-line ;
+: factorial ( Int -- Int )
+  dup 1 i.<= if
+    drop 1
+  else
+    dup 1 i.- factorial i.*
+  then
+;
 
 : main ( -- Int )
-  "Enter your name: " io.write-line
-  io.read-line string.trim
-  dup string.empty? if
-    drop "World"
+  "Enter a number: " io.write-line
+  io.read-line string.trim string->int
+  dup 0 i.< if
+    drop "Must be non-negative" io.write-line 1
+  else
+    factorial dup int->string io.write-line 0
   then
-  greet
-  0 ;
+;
 ```
 
-## Rationale
+### Concurrency Example
 
-The new naming convention provides:
+#### Before (pre-0.18)
 
-1. **Clear namespacing** - Operations are grouped by module (`io.`, `tcp.`, `os.`, etc.)
-2. **Consistency** - All compound names use the same delimiter patterns
-3. **Discoverability** - Related operations share a common prefix
-4. **Reduced collisions** - Module prefixes prevent name conflicts with user-defined words
+```seq
+: worker ( Chan -- )
+  "Working..." write-line
+  42 swap send
+;
 
-Core stack operations and arithmetic remain unnamespaced because:
-- They are fundamental primitives used in nearly every program
-- They have well-established names in concatenative programming
-- Namespacing them would add unnecessary verbosity
+: main ( -- Int )
+  make-channel
+  dup [ worker ] spawn drop
+  receive
+  int-to-string write-line
+  0
+;
+```
+
+#### After (0.18.x)
+
+```seq
+: worker ( Chan -- )
+  "Working..." io.write-line
+  42 swap chan.send
+;
+
+: main ( -- Int )
+  chan.make
+  dup [ worker ] strand.spawn drop
+  chan.receive
+  int->string io.write-line
+  0
+;
+```
+
+## Naming Convention Rationale
+
+The new naming uses three delimiters:
+
+| Delimiter | Usage | Example |
+|-----------|-------|---------|
+| `.` (dot) | Module/namespace prefix | `io.write-line`, `i.add` |
+| `-` (hyphen) | Compound words within names | `home-dir`, `field-at` |
+| `->` (arrow) | Type conversions | `int->string`, `float->int` |
+
+**Why namespace arithmetic?**
+
+1. **Type clarity** - `i.+` is clearly integer addition, `f.+` is float addition
+2. **Extensibility** - Room for future numeric types without collision
+3. **Consistency** - All operations follow the same `module.operation` pattern
+
+**Why keep stack operations unnamespaced?**
+
+Stack operations (`dup`, `swap`, `drop`, etc.) are fundamental primitives used constantly. Namespacing them would add noise without benefit.
+
+## Troubleshooting
+
+### "Unknown word" errors
+
+The compiler reports unknown words. Check this guide for the new name.
+
+### Comparison operators in strings
+
+If your strings contain `=`, `<`, `>` characters, the migration script won't affect them (they're inside quotes). Only bare operators in code need updating.
+
+### Mixed old/new code
+
+The compiler won't accept mixed naming. All code must use the new names.
 
 ## Getting Help
 
-If you encounter issues during migration:
-
-1. The compiler will report undefined words with suggestions for misspelled names
-2. Check this guide for the correct new name
-3. Report issues at https://github.com/navicore/patch-seq/issues
+- Report issues: https://github.com/navicore/patch-seq/issues
+- The compiler suggests corrections for misspelled words

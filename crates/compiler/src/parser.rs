@@ -752,13 +752,13 @@ impl Parser {
                 "Yield" => {
                     self.advance(); // consume "Yield"
                     // Parse the yield type
-                    if let Some(type_token) = self.peek_at(0) {
-                        if type_token == ")" {
+                    if let Some(type_token) = self.current_token() {
+                        if type_token.text == ")" {
                             return Err("Expected type after 'Yield'".to_string());
                         }
-                        let type_str = type_token.to_string();
+                        let type_token = type_token.clone();
                         self.advance();
-                        let yield_type = self.parse_type(&type_str)?;
+                        let yield_type = self.parse_type(&type_token)?;
                         effects.push(SideEffect::Yield(Box::new(yield_type)));
                     } else {
                         return Err("Expected type after 'Yield'".to_string());
@@ -778,25 +778,32 @@ impl Parser {
     }
 
     /// Parse a single type token into a Type
-    fn parse_type(&self, token: &str) -> Result<Type, String> {
-        match token {
+    fn parse_type(&self, token: &Token) -> Result<Type, String> {
+        match token.text.as_str() {
             "Int" => Ok(Type::Int),
             "Float" => Ok(Type::Float),
             "Bool" => Ok(Type::Bool),
             "String" => Ok(Type::String),
             _ => {
                 // Check if it's a type variable (starts with uppercase)
-                if let Some(first_char) = token.chars().next() {
+                if let Some(first_char) = token.text.chars().next() {
                     if first_char.is_uppercase() {
-                        Ok(Type::Var(token.to_string()))
+                        Ok(Type::Var(token.text.to_string()))
                     } else {
                         Err(format!(
-                            "Unknown type: '{}'. Expected Int, Bool, String, Closure, or a type variable (uppercase)",
-                            token
+                            "Unknown type: '{}' at line {}, column {}. Expected Int, Bool, String, Closure, or a type variable (uppercase)",
+                            token.text.escape_default(),
+                            token.line + 1, // 1-indexed for user display
+                            token.column + 1
                         ))
                     }
                 } else {
-                    Err(format!("Invalid type: '{}'", token))
+                    Err(format!(
+                        "Invalid type: '{}' at line {}, column {}",
+                        token.text.escape_default(),
+                        token.line + 1,
+                        token.column + 1
+                    ))
                 }
             }
         }
@@ -866,6 +873,14 @@ impl Parser {
         let mut row_var = None;
 
         while !terminators.iter().any(|t| self.check(t)) {
+            // Skip comments and blank lines within type lists
+            self.skip_comments();
+
+            // Re-check terminators after skipping comments
+            if terminators.iter().any(|t| self.check(t)) {
+                break;
+            }
+
             if self.is_at_end() {
                 return Err(format!(
                     "Unexpected end while parsing {} - expected one of: {}",
@@ -875,16 +890,16 @@ impl Parser {
             }
 
             let token = self
-                .advance()
+                .advance_token()
                 .ok_or_else(|| format!("Unexpected end in {}", context))?
                 .clone();
 
             // Check for row variable: ..name
-            if token.starts_with("..") {
-                let var_name = token.trim_start_matches("..").to_string();
+            if token.text.starts_with("..") {
+                let var_name = token.text.trim_start_matches("..").to_string();
                 self.validate_row_var_name(&var_name)?;
                 row_var = Some(var_name);
-            } else if token == "Closure" {
+            } else if token.text == "Closure" {
                 // Closure type: Closure[effect]
                 if !self.consume("[") {
                     return Err("Expected '[' after 'Closure' in type signature".to_string());
@@ -899,7 +914,7 @@ impl Parser {
                     }
                     _ => unreachable!("parse_quotation_type should return Quotation"),
                 }
-            } else if token == "[" {
+            } else if token.text == "[" {
                 // Nested quotation type
                 types.push(self.parse_quotation_type(depth)?);
             } else {

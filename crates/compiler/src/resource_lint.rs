@@ -18,12 +18,7 @@
 //! 4. **Escape Analysis**: Resources returned from a word are the caller's
 //!    responsibility - no warning emitted.
 //!
-//! # Known Limitations (Phase 2a)
-//!
-//! - **Branch merge uses then-state only**: After if/else analysis, we use
-//!   the then-branch state as continuation. A proper join would account for
-//!   resources in either branch, but this is conservative (may miss some leaks
-//!   in else-only paths). Phase 2b could implement proper lattice join.
+//! # Known Limitations
 //!
 //! - **`strand.resume` completion not tracked**: When `strand.resume` returns
 //!   false, the weave completed and handle is consumed. We can't determine this
@@ -216,6 +211,81 @@ impl StackState {
         }
 
         BranchMergeResult { inconsistent }
+    }
+
+    /// Compute a lattice join of two stack states for continuation after branches.
+    ///
+    /// The join is conservative:
+    /// - Resources present in EITHER branch are tracked (we don't know which path was taken)
+    /// - Resources are only marked consumed if consumed in BOTH branches
+    /// - The next_id is taken from the max of both states
+    ///
+    /// This ensures we don't miss potential leaks from either branch.
+    pub fn join(&self, other: &StackState) -> StackState {
+        // Collect resource IDs consumed in each branch
+        let other_consumed: std::collections::HashSet<usize> =
+            other.consumed.iter().map(|r| r.id).collect();
+
+        // Resources consumed in BOTH branches are definitely consumed
+        let definitely_consumed: Vec<TrackedResource> = self
+            .consumed
+            .iter()
+            .filter(|r| other_consumed.contains(&r.id))
+            .cloned()
+            .collect();
+
+        // For the stack, we need to be careful. After if/else, stacks should
+        // have the same depth (Seq requires balanced stack effects in branches).
+        // We take the union of resources - if a resource appears in either
+        // branch's stack, it should be tracked.
+        //
+        // Since we can't know which branch was taken, we use the then-branch
+        // stack structure but ensure any resource from either branch is present.
+        let mut joined_stack = self.stack.clone();
+
+        // Collect resources from other branch that might not be in self
+        let other_resources: HashMap<usize, TrackedResource> = other
+            .stack
+            .iter()
+            .filter_map(|v| match v {
+                StackValue::Resource(r) => Some((r.id, r.clone())),
+                StackValue::Unknown => None,
+            })
+            .collect();
+
+        // For each position, if other has a resource that self doesn't, use other's
+        for (i, val) in joined_stack.iter_mut().enumerate() {
+            if matches!(val, StackValue::Unknown)
+                && i < other.stack.len()
+                && let StackValue::Resource(r) = &other.stack[i]
+            {
+                *val = StackValue::Resource(r.clone());
+            }
+        }
+
+        // Also check if other branch has resources we should track
+        // (in case stacks have different structures due to analysis imprecision)
+        let self_resource_ids: std::collections::HashSet<usize> = joined_stack
+            .iter()
+            .filter_map(|v| match v {
+                StackValue::Resource(r) => Some(r.id),
+                StackValue::Unknown => None,
+            })
+            .collect();
+
+        for (id, resource) in other_resources {
+            if !self_resource_ids.contains(&id) && !definitely_consumed.iter().any(|r| r.id == id) {
+                // Resource from other branch not in our stack - add it
+                // This handles cases where branches have different stack shapes
+                joined_stack.push(StackValue::Resource(resource));
+            }
+        }
+
+        StackState {
+            stack: joined_stack,
+            consumed: definitely_consumed,
+            next_id: self.next_id.max(other.next_id),
+        }
     }
 }
 
@@ -588,10 +658,10 @@ impl ResourceAnalyzer {
             self.emit_branch_inconsistency_warning(&inconsistent, word);
         }
 
-        // After if/else, we need to merge the states
-        // For simplicity, we'll use the then_state as the continuation
-        // (A more sophisticated analysis would compute a join)
-        *state = then_state;
+        // Compute proper lattice join of both branch states
+        // This ensures we track resources from either branch and only
+        // consider resources consumed if consumed in BOTH branches
+        *state = then_state.join(&else_state);
     }
 
     /// Analyze a match statement
@@ -639,8 +709,9 @@ impl ResourceAnalyzer {
             }
         }
 
-        // Use first arm's state as continuation
-        if let Some(first) = arm_states.into_iter().next() {
+        // Compute proper lattice join of all arm states
+        // Resources are only consumed if consumed in ALL arms
+        if let Some(first) = arm_states.into_iter().reduce(|acc, s| acc.join(&s)) {
             *state = first;
         }
     }
@@ -972,5 +1043,100 @@ mod tests {
             "Expected no warnings when channel is transferred via strand.spawn: {:?}",
             diagnostics
         );
+    }
+
+    #[test]
+    fn test_else_branch_only_leak() {
+        // : test ( -- )
+        //   chan.make
+        //   true if chan.close else drop then ;
+        // The else branch drops without cleanup - should warn about inconsistency
+        // AND the join should track that the resource might not be consumed
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: None,
+            body: vec![
+                make_word_call("chan.make"),
+                Statement::BoolLiteral(true),
+                Statement::If {
+                    then_branch: vec![make_word_call("chan.close")],
+                    else_branch: Some(vec![make_word_call("drop")]),
+                },
+            ],
+            source: None,
+        };
+
+        let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_word(&word);
+
+        // Should have warnings: branch inconsistency + drop without cleanup
+        assert!(
+            !diagnostics.is_empty(),
+            "Expected warnings for else-branch leak: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_branch_join_both_consume() {
+        // : test ( -- )
+        //   chan.make
+        //   true if chan.close else chan.close then ;
+        // Both branches properly consume - no warnings
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: None,
+            body: vec![
+                make_word_call("chan.make"),
+                Statement::BoolLiteral(true),
+                Statement::If {
+                    then_branch: vec![make_word_call("chan.close")],
+                    else_branch: Some(vec![make_word_call("chan.close")]),
+                },
+            ],
+            source: None,
+        };
+
+        let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_word(&word);
+
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no warnings when both branches consume: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_branch_join_neither_consume() {
+        // : test ( -- )
+        //   chan.make
+        //   true if else then drop ;
+        // Neither branch consumes, then drop after - should warn
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: None,
+            body: vec![
+                make_word_call("chan.make"),
+                Statement::BoolLiteral(true),
+                Statement::If {
+                    then_branch: vec![],
+                    else_branch: Some(vec![]),
+                },
+                make_word_call("drop"), // drops the channel
+            ],
+            source: None,
+        };
+
+        let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_word(&word);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected warning for dropped channel: {:?}",
+            diagnostics
+        );
+        assert!(diagnostics[0].id.contains("channel"));
     }
 }

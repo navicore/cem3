@@ -269,7 +269,7 @@ fn run_lint(
 }
 
 fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::LintDiagnostic>) {
-    use seqc::Parser;
+    use seqc::{Parser, ResourceAnalyzer};
     use std::fs;
 
     let source = match fs::read_to_string(path) {
@@ -289,8 +289,16 @@ fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::
         }
     };
 
+    // Phase 1: Pattern-based linting
     let file_diagnostics = linter.lint_program(&program, path);
     diagnostics.extend(file_diagnostics);
+
+    // Phase 2: Resource leak detection (data flow analysis)
+    let mut resource_analyzer = ResourceAnalyzer::new(path);
+    for word in &program.words {
+        let word_diagnostics = resource_analyzer.analyze_word(word);
+        diagnostics.extend(word_diagnostics);
+    }
 }
 
 /// Simple recursive directory walker with error logging

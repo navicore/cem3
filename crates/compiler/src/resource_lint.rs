@@ -17,6 +17,25 @@
 //!
 //! 4. **Escape Analysis**: Resources returned from a word are the caller's
 //!    responsibility - no warning emitted.
+//!
+//! # Known Limitations (Phase 2a)
+//!
+//! - **Branch merge uses then-state only**: After if/else analysis, we use
+//!   the then-branch state as continuation. A proper join would account for
+//!   resources in either branch, but this is conservative (may miss some leaks
+//!   in else-only paths). Phase 2b could implement proper lattice join.
+//!
+//! - **`strand.resume` completion not tracked**: When `strand.resume` returns
+//!   false, the weave completed and handle is consumed. We can't determine this
+//!   statically, so we assume the handle remains active. Use pattern-based lint
+//!   rules to catch unchecked resume results.
+//!
+//! - **Unknown word effects**: User-defined words and FFI calls have unknown
+//!   stack effects. We conservatively leave the stack unchanged, which may
+//!   cause false negatives if those words consume or create resources.
+//!
+//! - **No cross-word analysis**: Resources returned from a word are the
+//!   caller's responsibility. Phase 2b could track these across call sites.
 
 use crate::ast::{MatchArm, Span, Statement, WordDef};
 use crate::lint::{LintDiagnostic, Severity};
@@ -405,18 +424,10 @@ impl ResourceAnalyzer {
             }
 
             "over" => {
-                // Copy second item to top
+                // ( a b -- a b a ) - copy second element to top
                 if state.depth() >= 2 {
-                    let top = state.pop();
-                    let second = state.peek().cloned();
-                    if let Some(t) = top {
-                        state.stack.push(t);
-                    }
-                    if let Some(s) = second {
-                        state.stack.push(s);
-                    } else {
-                        state.push_unknown();
-                    }
+                    let second = state.stack[state.depth() - 2].clone();
+                    state.stack.push(second);
                 } else {
                     state.push_unknown();
                 }
@@ -860,6 +871,69 @@ mod tests {
         assert!(
             diagnostics.is_empty(),
             "Expected no warnings for properly closed channel"
+        );
+    }
+
+    #[test]
+    fn test_swap_resource_tracking() {
+        // : test ( -- ) chan.make 1 swap drop drop ;
+        // After swap: chan is on top, 1 is second
+        // First drop removes chan (should warn), second drop removes 1
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: None,
+            body: vec![
+                make_word_call("chan.make"),
+                Statement::IntLiteral(1),
+                make_word_call("swap"),
+                make_word_call("drop"), // drops chan - should warn
+                make_word_call("drop"), // drops 1
+            ],
+            source: None,
+        };
+
+        let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_word(&word);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected warning for dropped channel: {:?}",
+            diagnostics
+        );
+        assert!(diagnostics[0].id.contains("channel"));
+    }
+
+    #[test]
+    fn test_over_resource_tracking() {
+        // : test ( -- ) chan.make 1 over drop drop drop ;
+        // Stack after chan.make: (chan)
+        // Stack after 1: (chan 1)
+        // Stack after over: (chan 1 chan) - chan copied to top
+        // Both chan references are dropped without cleanup - both warn
+        let word = WordDef {
+            name: "test".to_string(),
+            effect: None,
+            body: vec![
+                make_word_call("chan.make"),
+                Statement::IntLiteral(1),
+                make_word_call("over"),
+                make_word_call("drop"), // drops copied chan - warns
+                make_word_call("drop"), // drops 1
+                make_word_call("drop"), // drops original chan - also warns
+            ],
+            source: None,
+        };
+
+        let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_word(&word);
+
+        // Both channel drops warn (they share ID but neither was properly consumed)
+        assert_eq!(
+            diagnostics.len(),
+            2,
+            "Expected 2 warnings for dropped channels: {:?}",
+            diagnostics
         );
     }
 

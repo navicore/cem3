@@ -29,10 +29,11 @@
 //!   stack effects. We conservatively leave the stack unchanged, which may
 //!   cause false negatives if those words consume or create resources.
 //!
-//! - **No cross-word analysis**: Resources returned from a word are the
-//!   caller's responsibility. Phase 2b could track these across call sites.
+//! - **Cross-word analysis is basic**: Resources returned from user-defined
+//!   words are tracked via `ProgramResourceAnalyzer`, but external/FFI words
+//!   with unknown effects are treated conservatively (no stack change assumed).
 
-use crate::ast::{MatchArm, Span, Statement, WordDef};
+use crate::ast::{MatchArm, Program, Span, Statement, WordDef};
 use crate::lint::{LintDiagnostic, Severity};
 use std::collections::HashMap;
 use std::path::Path;
@@ -304,7 +305,622 @@ pub struct InconsistentResource {
     pub consumed_in_else: bool,
 }
 
-/// The resource leak analyzer
+// ============================================================================
+// Cross-Word Analysis (Phase 2b)
+// ============================================================================
+
+/// Information about a word's resource behavior
+#[derive(Debug, Clone, Default)]
+pub struct WordResourceInfo {
+    /// Resource kinds this word returns (resources on stack at word end)
+    pub returns: Vec<ResourceKind>,
+}
+
+/// Program-wide resource analyzer for cross-word analysis
+///
+/// This analyzer performs two passes:
+/// 1. Collect resource information about each word (what resources it returns)
+/// 2. Analyze each word with knowledge of callee behavior
+pub struct ProgramResourceAnalyzer {
+    /// Per-word resource information (populated in first pass)
+    word_info: HashMap<String, WordResourceInfo>,
+    /// File being analyzed
+    file: std::path::PathBuf,
+    /// Diagnostics collected during analysis
+    diagnostics: Vec<LintDiagnostic>,
+}
+
+impl ProgramResourceAnalyzer {
+    pub fn new(file: &Path) -> Self {
+        ProgramResourceAnalyzer {
+            word_info: HashMap::new(),
+            file: file.to_path_buf(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Analyze an entire program for resource leaks with cross-word tracking
+    pub fn analyze_program(&mut self, program: &Program) -> Vec<LintDiagnostic> {
+        self.diagnostics.clear();
+        self.word_info.clear();
+
+        // Pass 1: Collect resource information about each word
+        for word in &program.words {
+            let info = self.collect_word_info(word);
+            self.word_info.insert(word.name.clone(), info);
+        }
+
+        // Pass 2: Analyze each word with cross-word context
+        for word in &program.words {
+            self.analyze_word_with_context(word);
+        }
+
+        std::mem::take(&mut self.diagnostics)
+    }
+
+    /// First pass: Determine what resources a word returns
+    fn collect_word_info(&self, word: &WordDef) -> WordResourceInfo {
+        let mut state = StackState::new();
+
+        // Simple analysis without emitting diagnostics
+        self.simulate_statements(&word.body, &mut state);
+
+        // Collect resource kinds remaining on stack (these are "returned")
+        let returns: Vec<ResourceKind> = state
+            .remaining_resources()
+            .into_iter()
+            .map(|r| r.kind)
+            .collect();
+
+        WordResourceInfo { returns }
+    }
+
+    /// Simulate statements to track resources (no diagnostics)
+    fn simulate_statements(&self, statements: &[Statement], state: &mut StackState) {
+        for stmt in statements {
+            self.simulate_statement(stmt, state);
+        }
+    }
+
+    /// Simulate a single statement (simplified, no diagnostics)
+    fn simulate_statement(&self, stmt: &Statement, state: &mut StackState) {
+        match stmt {
+            Statement::IntLiteral(_)
+            | Statement::FloatLiteral(_)
+            | Statement::BoolLiteral(_)
+            | Statement::StringLiteral(_) => {
+                state.push_unknown();
+            }
+
+            Statement::WordCall { name, span } => {
+                self.simulate_word_call(name, span.as_ref(), state);
+            }
+
+            Statement::Quotation { .. } => {
+                state.push_unknown();
+            }
+
+            Statement::If {
+                then_branch,
+                else_branch,
+            } => {
+                state.pop(); // condition
+                let mut then_state = state.clone();
+                let mut else_state = state.clone();
+                self.simulate_statements(then_branch, &mut then_state);
+                if let Some(else_stmts) = else_branch {
+                    self.simulate_statements(else_stmts, &mut else_state);
+                }
+                *state = then_state.join(&else_state);
+            }
+
+            Statement::Match { arms } => {
+                state.pop();
+                let mut arm_states: Vec<StackState> = Vec::new();
+                for arm in arms {
+                    let mut arm_state = state.clone();
+                    self.simulate_statements(&arm.body, &mut arm_state);
+                    arm_states.push(arm_state);
+                }
+                if let Some(joined) = arm_states.into_iter().reduce(|acc, s| acc.join(&s)) {
+                    *state = joined;
+                }
+            }
+        }
+    }
+
+    /// Simulate a word call (for first pass)
+    fn simulate_word_call(&self, name: &str, span: Option<&Span>, state: &mut StackState) {
+        let line = span.map(|s| s.line).unwrap_or(0);
+        let column = span.map(|s| s.column).unwrap_or(0);
+
+        match name {
+            // Resource-creating builtins
+            "strand.weave" => {
+                state.pop();
+                state.push_resource(ResourceKind::WeaveHandle, line, column, name);
+            }
+            "chan.make" => {
+                state.push_resource(ResourceKind::Channel, line, column, name);
+            }
+
+            // Resource-consuming builtins
+            "strand.weave-cancel" => {
+                if let Some(StackValue::Resource(r)) = state.pop()
+                    && r.kind == ResourceKind::WeaveHandle
+                {
+                    state.consume_resource(r);
+                }
+            }
+            "chan.close" => {
+                if let Some(StackValue::Resource(r)) = state.pop()
+                    && r.kind == ResourceKind::Channel
+                {
+                    state.consume_resource(r);
+                }
+            }
+
+            // Stack operations (simplified)
+            "drop" => {
+                state.pop();
+            }
+            "dup" => {
+                if let Some(top) = state.peek().cloned() {
+                    state.stack.push(top);
+                }
+            }
+            "swap" => {
+                let a = state.pop();
+                let b = state.pop();
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+
+            // strand.spawn transfers resources
+            "strand.spawn" => {
+                state.pop();
+                let resources: Vec<TrackedResource> = state
+                    .stack
+                    .iter()
+                    .filter_map(|v| match v {
+                        StackValue::Resource(r) => Some(r.clone()),
+                        StackValue::Unknown => None,
+                    })
+                    .collect();
+                for r in resources {
+                    state.consume_resource(r);
+                }
+                state.push_unknown();
+            }
+
+            // Map operations that store values safely
+            "map.set" => {
+                // ( map key value -- map' ) - value is stored in map
+                let value = state.pop();
+                state.pop(); // key
+                state.pop(); // map
+                // Value is now safely stored in the map - consume if resource
+                if let Some(StackValue::Resource(r)) = value {
+                    state.consume_resource(r);
+                }
+                state.push_unknown(); // map'
+            }
+
+            // List operations that store values safely
+            "list.push" | "list.prepend" => {
+                // ( list value -- list' ) - value is stored in list
+                let value = state.pop();
+                state.pop(); // list
+                if let Some(StackValue::Resource(r)) = value {
+                    state.consume_resource(r);
+                }
+                state.push_unknown(); // list'
+            }
+
+            // User-defined words - check if we have info about them
+            _ => {
+                if let Some(info) = self.word_info.get(name) {
+                    // Push resources that this word returns
+                    for kind in &info.returns {
+                        state.push_resource(*kind, line, column, name);
+                    }
+                }
+                // Otherwise, unknown effect - leave stack unchanged
+            }
+        }
+    }
+
+    /// Second pass: Analyze a word with full cross-word context
+    fn analyze_word_with_context(&mut self, word: &WordDef) {
+        let mut state = StackState::new();
+
+        self.analyze_statements_with_context(&word.body, &mut state, word);
+
+        // Resources on stack at end are returned - no warning (escape analysis)
+    }
+
+    /// Analyze statements with diagnostics and cross-word tracking
+    fn analyze_statements_with_context(
+        &mut self,
+        statements: &[Statement],
+        state: &mut StackState,
+        word: &WordDef,
+    ) {
+        for stmt in statements {
+            self.analyze_statement_with_context(stmt, state, word);
+        }
+    }
+
+    /// Analyze a single statement with cross-word context
+    fn analyze_statement_with_context(
+        &mut self,
+        stmt: &Statement,
+        state: &mut StackState,
+        word: &WordDef,
+    ) {
+        match stmt {
+            Statement::IntLiteral(_)
+            | Statement::FloatLiteral(_)
+            | Statement::BoolLiteral(_)
+            | Statement::StringLiteral(_) => {
+                state.push_unknown();
+            }
+
+            Statement::WordCall { name, span } => {
+                self.analyze_word_call_with_context(name, span.as_ref(), state, word);
+            }
+
+            Statement::Quotation { .. } => {
+                state.push_unknown();
+            }
+
+            Statement::If {
+                then_branch,
+                else_branch,
+            } => {
+                state.pop();
+                let mut then_state = state.clone();
+                let mut else_state = state.clone();
+
+                self.analyze_statements_with_context(then_branch, &mut then_state, word);
+                if let Some(else_stmts) = else_branch {
+                    self.analyze_statements_with_context(else_stmts, &mut else_state, word);
+                }
+
+                // Check for inconsistent handling
+                let merge_result = then_state.merge(&else_state);
+                for inconsistent in merge_result.inconsistent {
+                    self.emit_branch_inconsistency_warning(&inconsistent, word);
+                }
+
+                *state = then_state.join(&else_state);
+            }
+
+            Statement::Match { arms } => {
+                state.pop();
+                let mut arm_states: Vec<StackState> = Vec::new();
+
+                for arm in arms {
+                    let mut arm_state = state.clone();
+                    self.analyze_statements_with_context(&arm.body, &mut arm_state, word);
+                    arm_states.push(arm_state);
+                }
+
+                // Check consistency
+                if arm_states.len() >= 2 {
+                    let first = &arm_states[0];
+                    for other in &arm_states[1..] {
+                        let merge_result = first.merge(other);
+                        for inconsistent in merge_result.inconsistent {
+                            self.emit_branch_inconsistency_warning(&inconsistent, word);
+                        }
+                    }
+                }
+
+                if let Some(joined) = arm_states.into_iter().reduce(|acc, s| acc.join(&s)) {
+                    *state = joined;
+                }
+            }
+        }
+    }
+
+    /// Analyze a word call with cross-word tracking
+    fn analyze_word_call_with_context(
+        &mut self,
+        name: &str,
+        span: Option<&Span>,
+        state: &mut StackState,
+        word: &WordDef,
+    ) {
+        let line = span.map(|s| s.line).unwrap_or(0);
+        let column = span.map(|s| s.column).unwrap_or(0);
+
+        match name {
+            // Resource-creating builtins
+            "strand.weave" => {
+                state.pop();
+                state.push_resource(ResourceKind::WeaveHandle, line, column, name);
+            }
+            "chan.make" => {
+                state.push_resource(ResourceKind::Channel, line, column, name);
+            }
+
+            // Resource-consuming builtins
+            "strand.weave-cancel" => {
+                if let Some(StackValue::Resource(r)) = state.pop()
+                    && r.kind == ResourceKind::WeaveHandle
+                {
+                    state.consume_resource(r);
+                }
+            }
+            "chan.close" => {
+                if let Some(StackValue::Resource(r)) = state.pop()
+                    && r.kind == ResourceKind::Channel
+                {
+                    state.consume_resource(r);
+                }
+            }
+
+            // strand.resume handling
+            "strand.resume" => {
+                let value = state.pop();
+                let handle = state.pop();
+                if let Some(h) = handle {
+                    state.stack.push(h);
+                } else {
+                    state.push_unknown();
+                }
+                if let Some(v) = value {
+                    state.stack.push(v);
+                } else {
+                    state.push_unknown();
+                }
+                state.push_unknown();
+            }
+
+            // Stack operations with leak detection
+            "drop" => {
+                let dropped = state.pop();
+                if let Some(StackValue::Resource(r)) = dropped {
+                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
+                    if !already_consumed {
+                        self.emit_drop_warning(&r, span, word);
+                    }
+                }
+            }
+
+            "dup" => {
+                if let Some(top) = state.peek().cloned() {
+                    state.stack.push(top);
+                } else {
+                    state.push_unknown();
+                }
+            }
+
+            "swap" => {
+                let a = state.pop();
+                let b = state.pop();
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+
+            "over" => {
+                if state.depth() >= 2 {
+                    let second = state.stack[state.depth() - 2].clone();
+                    state.stack.push(second);
+                } else {
+                    state.push_unknown();
+                }
+            }
+
+            "rot" => {
+                let c = state.pop();
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+                if let Some(cv) = c {
+                    state.stack.push(cv);
+                }
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+            }
+
+            "nip" => {
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(StackValue::Resource(r)) = a {
+                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
+                    if !already_consumed {
+                        self.emit_drop_warning(&r, span, word);
+                    }
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+
+            "tuck" => {
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(bv) = b.clone() {
+                    state.stack.push(bv);
+                }
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+
+            "2dup" => {
+                if state.depth() >= 2 {
+                    let b = state.stack[state.depth() - 1].clone();
+                    let a = state.stack[state.depth() - 2].clone();
+                    state.stack.push(a);
+                    state.stack.push(b);
+                } else {
+                    state.push_unknown();
+                    state.push_unknown();
+                }
+            }
+
+            "3drop" => {
+                for _ in 0..3 {
+                    if let Some(StackValue::Resource(r)) = state.pop() {
+                        let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
+                        if !already_consumed {
+                            self.emit_drop_warning(&r, span, word);
+                        }
+                    }
+                }
+            }
+
+            "pick" | "roll" => {
+                state.pop();
+                state.push_unknown();
+            }
+
+            "chan.send" | "chan.receive" => {
+                state.pop();
+                state.pop();
+                state.push_unknown();
+                state.push_unknown();
+            }
+
+            "strand.spawn" => {
+                state.pop();
+                let resources: Vec<TrackedResource> = state
+                    .stack
+                    .iter()
+                    .filter_map(|v| match v {
+                        StackValue::Resource(r) => Some(r.clone()),
+                        StackValue::Unknown => None,
+                    })
+                    .collect();
+                for r in resources {
+                    state.consume_resource(r);
+                }
+                state.push_unknown();
+            }
+
+            // Map operations that store values safely
+            "map.set" => {
+                // ( map key value -- map' ) - value is stored in map
+                let value = state.pop();
+                state.pop(); // key
+                state.pop(); // map
+                // Value is now safely stored in the map - consume if resource
+                if let Some(StackValue::Resource(r)) = value {
+                    state.consume_resource(r);
+                }
+                state.push_unknown(); // map'
+            }
+
+            // List operations that store values safely
+            "list.push" | "list.prepend" => {
+                // ( list value -- list' ) - value is stored in list
+                let value = state.pop();
+                state.pop(); // list
+                if let Some(StackValue::Resource(r)) = value {
+                    state.consume_resource(r);
+                }
+                state.push_unknown(); // list'
+            }
+
+            // User-defined words - use cross-word info
+            _ => {
+                if let Some(info) = self.word_info.get(name) {
+                    // This word returns resources - track them
+                    for kind in &info.returns {
+                        state.push_resource(*kind, line, column, name);
+                    }
+                }
+                // Unknown words: leave stack unchanged (may cause false negatives)
+            }
+        }
+    }
+
+    fn emit_drop_warning(
+        &mut self,
+        resource: &TrackedResource,
+        span: Option<&Span>,
+        word: &WordDef,
+    ) {
+        let line = span
+            .map(|s| s.line)
+            .unwrap_or_else(|| word.source.as_ref().map(|s| s.start_line).unwrap_or(0));
+        let column = span.map(|s| s.column);
+
+        self.diagnostics.push(LintDiagnostic {
+            id: format!("resource-leak-{}", resource.kind.name().to_lowercase()),
+            message: format!(
+                "{} from `{}` (line {}) dropped without cleanup - {}",
+                resource.kind.name(),
+                resource.created_by,
+                resource.created_line + 1,
+                resource.kind.cleanup_suggestion()
+            ),
+            severity: Severity::Warning,
+            replacement: String::new(),
+            file: self.file.clone(),
+            line,
+            end_line: None,
+            start_column: column,
+            end_column: column.map(|c| c + 4),
+            word_name: word.name.clone(),
+            start_index: 0,
+            end_index: 0,
+        });
+    }
+
+    fn emit_branch_inconsistency_warning(
+        &mut self,
+        inconsistent: &InconsistentResource,
+        word: &WordDef,
+    ) {
+        let line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
+        let branch = if inconsistent.consumed_in_else {
+            "else"
+        } else {
+            "then"
+        };
+
+        self.diagnostics.push(LintDiagnostic {
+            id: "resource-branch-inconsistent".to_string(),
+            message: format!(
+                "{} from `{}` (line {}) is consumed in {} branch but not the other - all branches must handle resources consistently",
+                inconsistent.resource.kind.name(),
+                inconsistent.resource.created_by,
+                inconsistent.resource.created_line + 1,
+                branch
+            ),
+            severity: Severity::Warning,
+            replacement: String::new(),
+            file: self.file.clone(),
+            line,
+            end_line: None,
+            start_column: None,
+            end_column: None,
+            word_name: word.name.clone(),
+            start_index: 0,
+            end_index: 0,
+        });
+    }
+}
+
+/// The resource leak analyzer (single-word analysis)
 pub struct ResourceAnalyzer {
     /// Diagnostics collected during analysis
     diagnostics: Vec<LintDiagnostic>,
@@ -1138,5 +1754,138 @@ mod tests {
             diagnostics
         );
         assert!(diagnostics[0].id.contains("channel"));
+    }
+
+    // ========================================================================
+    // Cross-word analysis tests (ProgramResourceAnalyzer)
+    // ========================================================================
+
+    #[test]
+    fn test_cross_word_resource_tracking() {
+        // Test that resources returned from user-defined words are tracked
+        //
+        // : make-chan ( -- chan ) chan.make ;
+        // : leak-it ( -- ) make-chan drop ;
+        //
+        // The drop in leak-it should warn because make-chan returns a channel
+        use crate::ast::Program;
+
+        let make_chan = WordDef {
+            name: "make-chan".to_string(),
+            effect: None,
+            body: vec![make_word_call("chan.make")],
+            source: None,
+        };
+
+        let leak_it = WordDef {
+            name: "leak-it".to_string(),
+            effect: None,
+            body: vec![make_word_call("make-chan"), make_word_call("drop")],
+            source: None,
+        };
+
+        let program = Program {
+            words: vec![make_chan, leak_it],
+            includes: vec![],
+            unions: vec![],
+        };
+
+        let mut analyzer = ProgramResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_program(&program);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected warning for dropped channel from make-chan: {:?}",
+            diagnostics
+        );
+        assert!(diagnostics[0].id.contains("channel"));
+        assert!(diagnostics[0].message.contains("make-chan"));
+    }
+
+    #[test]
+    fn test_cross_word_proper_cleanup() {
+        // Test that properly cleaned up cross-word resources don't warn
+        //
+        // : make-chan ( -- chan ) chan.make ;
+        // : use-it ( -- ) make-chan chan.close ;
+        use crate::ast::Program;
+
+        let make_chan = WordDef {
+            name: "make-chan".to_string(),
+            effect: None,
+            body: vec![make_word_call("chan.make")],
+            source: None,
+        };
+
+        let use_it = WordDef {
+            name: "use-it".to_string(),
+            effect: None,
+            body: vec![make_word_call("make-chan"), make_word_call("chan.close")],
+            source: None,
+        };
+
+        let program = Program {
+            words: vec![make_chan, use_it],
+            includes: vec![],
+            unions: vec![],
+        };
+
+        let mut analyzer = ProgramResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_program(&program);
+
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no warnings for properly closed channel: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_cross_word_chain() {
+        // Test multi-level cross-word tracking
+        //
+        // : make-chan ( -- chan ) chan.make ;
+        // : wrap-chan ( -- chan ) make-chan ;
+        // : leak-chain ( -- ) wrap-chan drop ;
+        use crate::ast::Program;
+
+        let make_chan = WordDef {
+            name: "make-chan".to_string(),
+            effect: None,
+            body: vec![make_word_call("chan.make")],
+            source: None,
+        };
+
+        let wrap_chan = WordDef {
+            name: "wrap-chan".to_string(),
+            effect: None,
+            body: vec![make_word_call("make-chan")],
+            source: None,
+        };
+
+        let leak_chain = WordDef {
+            name: "leak-chain".to_string(),
+            effect: None,
+            body: vec![make_word_call("wrap-chan"), make_word_call("drop")],
+            source: None,
+        };
+
+        let program = Program {
+            words: vec![make_chan, wrap_chan, leak_chain],
+            includes: vec![],
+            unions: vec![],
+        };
+
+        let mut analyzer = ProgramResourceAnalyzer::new(Path::new("test.seq"));
+        let diagnostics = analyzer.analyze_program(&program);
+
+        // Should detect the leak through the chain
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected warning for dropped channel through chain: {:?}",
+            diagnostics
+        );
     }
 }

@@ -40,7 +40,7 @@ pub use parser::Parser;
 pub use resolver::{
     ResolveResult, Resolver, check_collisions, check_union_collisions, find_stdlib,
 };
-pub use resource_lint::ResourceAnalyzer;
+pub use resource_lint::{ProgramResourceAnalyzer, ResourceAnalyzer};
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 

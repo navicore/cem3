@@ -25,6 +25,7 @@ pub mod ffi;
 pub mod lint;
 pub mod parser;
 pub mod resolver;
+pub mod resource_lint;
 pub mod stdlib_embed;
 pub mod test_runner;
 pub mod typechecker;
@@ -39,6 +40,7 @@ pub use parser::Parser;
 pub use resolver::{
     ResolveResult, Resolver, check_collisions, check_union_collisions, find_stdlib,
 };
+pub use resource_lint::ResourceAnalyzer;
 pub use typechecker::TypeChecker;
 pub use types::{Effect, StackType, Type};
 

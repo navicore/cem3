@@ -721,9 +721,9 @@ include std:stack-utils
   chan.make
   # Stack: ( listener client chan )
 
-  dup [ worker ] spawn
+  dup [ worker ] strand.spawn
   # After dup: ( listener client chan chan )
-  # After spawn: ( listener client chan chan strand_id )
+  # After strand.spawn: ( listener client chan chan strand_id )
 
   drop drop
   # After drops: ( listener client chan )

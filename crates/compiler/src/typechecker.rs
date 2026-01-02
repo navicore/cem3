@@ -944,6 +944,12 @@ impl TypeChecker {
             current_stack
         };
 
+        // Phase 2c: Check if `call` is being used on a quotation with Yield effects
+        // Quotations with Yield must be used with strand.weave, not called directly
+        if name == "call" {
+            self.check_call_yield_effect(&adjusted_stack)?;
+        }
+
         // Apply the freshened effect to current stack
         let (result_stack, subst) = self.apply_effect(&fresh_effect, adjusted_stack, name)?;
 
@@ -953,6 +959,27 @@ impl TypeChecker {
         let propagated_effects = fresh_effect.effects.clone();
 
         Ok((result_stack, subst, propagated_effects))
+    }
+
+    /// Check if `call` is being applied to a quotation with Yield effects.
+    /// Quotations with Yield must be wrapped in strand.weave to handle the yields.
+    fn check_call_yield_effect(&self, stack: &StackType) -> Result<(), String> {
+        // Peek at what's on top of the stack (what will be called)
+        if let Some((_rest, top_type)) = stack.clone().pop() {
+            let has_yield = match &top_type {
+                Type::Quotation(effect) => effect.has_yield(),
+                Type::Closure { effect, .. } => effect.has_yield(),
+                _ => false,
+            };
+
+            if has_yield {
+                return Err("Cannot call quotation with Yield effect directly.\n\
+                     Quotations that yield values must be wrapped with `strand.weave`.\n\
+                     Example: `[ yielding-code ] strand.weave` instead of `[ yielding-code ] call`"
+                    .to_string());
+            }
+        }
+        Ok(())
     }
 
     /// Infer the resulting stack type after a statement
@@ -2859,6 +2886,132 @@ mod tests {
         assert!(
             result.is_ok(),
             "Non-tail recursion should type check normally: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_call_yield_quotation_error() {
+        // Phase 2c: Calling a quotation with Yield effect directly should error.
+        // : bad ( Ctx -- Ctx ) [ yield ] call ;
+        // This is wrong because yield quotations must be wrapped with strand.weave.
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "bad".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Var("Ctx".to_string())),
+                    StackType::singleton(Type::Var("Ctx".to_string())),
+                )),
+                body: vec![
+                    // Push a dummy value that will be yielded
+                    Statement::IntLiteral(42),
+                    Statement::Quotation {
+                        id: 0,
+                        body: vec![Statement::WordCall {
+                            name: "yield".to_string(),
+                            span: None,
+                        }],
+                    },
+                    Statement::WordCall {
+                        name: "call".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Calling yield quotation directly should fail"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Yield") || err.contains("strand.weave"),
+            "Error should mention Yield or strand.weave: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_strand_weave_yield_quotation_ok() {
+        // Phase 2c: Using strand.weave on a Yield quotation is correct.
+        // : good ( Ctx -- Handle ) [ yield ] strand.weave ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "good".to_string(),
+                effect: None, // Let it be inferred
+                body: vec![
+                    Statement::IntLiteral(42),
+                    Statement::Quotation {
+                        id: 0,
+                        body: vec![Statement::WordCall {
+                            name: "yield".to_string(),
+                            span: None,
+                        }],
+                    },
+                    Statement::WordCall {
+                        name: "strand.weave".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_ok(),
+            "strand.weave on yield quotation should pass: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_call_pure_quotation_ok() {
+        // Phase 2c: Calling a pure quotation (no Yield) is fine.
+        // : ok ( Int -- Int ) [ 1 i.add ] call ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "ok".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    Statement::Quotation {
+                        id: 0,
+                        body: vec![
+                            Statement::IntLiteral(1),
+                            Statement::WordCall {
+                                name: "i.add".to_string(),
+                                span: None,
+                            },
+                        ],
+                    },
+                    Statement::WordCall {
+                        name: "call".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_ok(),
+            "Calling pure quotation should pass: {:?}",
             result.err()
         );
     }

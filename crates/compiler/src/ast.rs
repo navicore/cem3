@@ -264,6 +264,7 @@ impl Program {
         // IMPORTANT: Keep this in sync with codegen.rs WordCall matching
         let builtins = [
             // I/O operations
+            "io.write",
             "io.write-line",
             "io.read-line",
             "io.read-line+",

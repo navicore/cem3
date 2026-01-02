@@ -77,6 +77,44 @@ pub unsafe extern "C" fn patch_seq_write_line(stack: Stack) -> Stack {
     }
 }
 
+/// Write a string to stdout without a trailing newline
+///
+/// Stack effect: ( str -- )
+///
+/// This is useful for protocols like LSP that require exact byte output
+/// without trailing newlines.
+///
+/// # Safety
+/// Stack must have a String value on top
+///
+/// # Concurrency
+/// Uses may::sync::Mutex to serialize stdout writes from multiple strands.
+/// When the mutex is contended, the strand yields to the scheduler (doesn't block the OS thread).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_write(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "write: stack is empty");
+
+    let (rest, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::String(s) => {
+            let _guard = STDOUT_MUTEX.lock().unwrap();
+
+            let str_slice = s.as_str();
+            unsafe {
+                libc::write(
+                    1,
+                    str_slice.as_ptr() as *const libc::c_void,
+                    str_slice.len(),
+                );
+            }
+
+            rest
+        }
+        _ => panic!("write: expected String on stack, got {:?}", value),
+    }
+}
+
 /// Read a line from stdin
 ///
 /// Returns the line and a success flag:
@@ -363,6 +401,7 @@ pub use patch_seq_push_string as push_string;
 pub use patch_seq_read_line as read_line;
 pub use patch_seq_read_line_plus as read_line_plus;
 pub use patch_seq_read_n as read_n;
+pub use patch_seq_write as write;
 pub use patch_seq_write_line as write_line;
 
 #[cfg(test)]
@@ -377,6 +416,15 @@ mod tests {
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, Value::String("Hello, World!".into()));
             let _stack = write_line(stack);
+        }
+    }
+
+    #[test]
+    fn test_write() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::String("no newline".into()));
+            let _stack = write(stack);
         }
     }
 

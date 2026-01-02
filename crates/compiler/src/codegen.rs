@@ -73,6 +73,7 @@ const UNREACHABLE_PREDECESSOR: &str = "unreachable";
 static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
         // I/O operations
+        ("io.write", "patch_seq_write"),
         ("io.write-line", "patch_seq_write_line"),
         ("io.read-line", "patch_seq_read_line"),
         ("io.read-line+", "patch_seq_read_line_plus"),
@@ -618,6 +619,7 @@ impl CodeGen {
         writeln!(&mut ir, "; Runtime function declarations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_write(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
@@ -1011,6 +1013,7 @@ impl CodeGen {
         writeln!(ir, "; Runtime function declarations")?;
         writeln!(ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
         writeln!(ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_write(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
@@ -5105,6 +5108,35 @@ mod tests {
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write_line"));
         assert!(ir.contains("\"Hello, World!\\00\""));
+    }
+
+    #[test]
+    fn test_codegen_io_write() {
+        // Test io.write (write without newline)
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::StringLiteral("no newline".to_string()),
+                    Statement::WordCall {
+                        name: "io.write".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+
+        assert!(ir.contains("call ptr @patch_seq_push_string"));
+        assert!(ir.contains("call ptr @patch_seq_write"));
+        assert!(ir.contains("\"no newline\\00\""));
     }
 
     #[test]

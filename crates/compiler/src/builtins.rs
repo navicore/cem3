@@ -271,6 +271,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // I/O Operations
     // =========================================================================
 
+    builtin!(sigs, "io.write", (a String -- a)); // Write without newline
     builtin!(sigs, "io.write-line", (a String -- a));
     builtin!(sigs, "io.read-line", (a -- a String Bool)); // Returns line + success flag
     builtin!(sigs, "io.read-line+", (a -- a String Int)); // Returns line + status (legacy)

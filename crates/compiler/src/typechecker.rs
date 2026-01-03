@@ -1043,10 +1043,18 @@ impl TypeChecker {
         let stack_concrete = Self::count_concrete_types(&current_stack);
 
         if let Some(row_var_name) = Self::get_row_var_base(&current_stack) {
-            // Only check "rigid" row variables (from declared effects, not inference)
-            // Row vars from declared effects are exactly named "rest" by the parser.
-            // Freshened row vars like "rest$680" are from callee effects and should NOT be rigid.
-            // Row vars from inference are named "input" or freshened versions.
+            // Only check "rigid" row variables (from declared effects, not inference).
+            //
+            // Row variable naming convention (established in parser.rs:build_stack_type):
+            // - "rest": Created by the parser for declared stack effects. When a word declares
+            //   `( String Int -- String )`, the parser creates `( ..rest String Int -- ..rest String )`.
+            //   This "rest" is rigid because the caller guarantees exactly these concrete types.
+            // - "rest$N": Freshened versions created during type checking when calling other words.
+            //   These represent the callee's stack context and can grow during unification.
+            // - "input": Created for words without declared effects during inference.
+            //   These are flexible and grow to discover the word's actual requirements.
+            //
+            // Only the original "rest" (exact match) should trigger underflow checking.
             let is_rigid = row_var_name == "rest";
 
             if is_rigid && effect_concrete > stack_concrete {
@@ -1579,6 +1587,45 @@ mod tests {
         let result = checker.check_program(&program);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("mismatch"));
+    }
+
+    /// Issue #169: rot with only 2 values should fail at compile time
+    /// Previously this was silently accepted due to implicit row polymorphism
+    #[test]
+    fn test_stack_underflow_rot_issue_169() {
+        // : test ( -- ) 3 4 rot ;  // ERROR: rot needs 3 values, only 2 provided
+        // Note: The parser generates `( ..rest -- ..rest )` for `( -- )`, so we use RowVar("rest")
+        // to match the actual parsing behavior. The "rest" row variable is rigid.
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::RowVar("rest".to_string()),
+                    StackType::RowVar("rest".to_string()),
+                )),
+                body: vec![
+                    Statement::IntLiteral(3),
+                    Statement::IntLiteral(4),
+                    Statement::WordCall {
+                        name: "rot".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err(), "rot with 2 values should fail");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("stack underflow") || err.contains("requires 3"),
+            "Error should mention underflow: {}",
+            err
+        );
     }
 
     #[test]

@@ -1137,37 +1137,37 @@ impl App {
                     .push(StackValue::var("y")),
             )),
 
-            // Integer Arithmetic
-            "i.add" => Some(StackEffect::new(
-                "i.add",
+            // Integer Arithmetic (including symbolic aliases)
+            "i.add" | "i.+" => Some(StackEffect::new(
+                word,
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "i.subtract" => Some(StackEffect::new(
-                "i.subtract",
+            "i.subtract" | "i.-" => Some(StackEffect::new(
+                word,
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "i.multiply" => Some(StackEffect::new(
-                "i.multiply",
+            "i.multiply" | "i.*" => Some(StackEffect::new(
+                word,
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "i.divide" => Some(StackEffect::new(
-                "i.divide",
+            "i.divide" | "i./" => Some(StackEffect::new(
+                word,
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
-            "modulo" => Some(StackEffect::new(
-                "modulo",
+            "modulo" | "i.%" => Some(StackEffect::new(
+                word,
                 Stack::with_rest("a")
                     .push(StackValue::ty("Int"))
                     .push(StackValue::ty("Int")),
@@ -1179,13 +1179,59 @@ impl App {
                 Stack::with_rest("a").push(StackValue::ty("Int")),
             )),
 
-            // Comparison
+            // Comparison (including symbolic aliases)
             "equals" | "not-equals" | "less-than" | "greater-than" | "less-or-equal"
             | "greater-or-equal" => Some(StackEffect::new(
                 word,
                 Stack::with_rest("a")
                     .push(StackValue::var("x"))
                     .push(StackValue::var("x")),
+                Stack::with_rest("a").push(StackValue::ty("Bool")),
+            )),
+            // Integer comparisons
+            "i.=" | "i.<" | "i.>" | "i.<=" | "i.>=" | "i.<>" => Some(StackEffect::new(
+                word,
+                Stack::with_rest("a")
+                    .push(StackValue::ty("Int"))
+                    .push(StackValue::ty("Int")),
+                Stack::with_rest("a").push(StackValue::ty("Bool")),
+            )),
+
+            // Float Arithmetic (including symbolic aliases)
+            "f.add" | "f.+" => Some(StackEffect::new(
+                word,
+                Stack::with_rest("a")
+                    .push(StackValue::ty("Float"))
+                    .push(StackValue::ty("Float")),
+                Stack::with_rest("a").push(StackValue::ty("Float")),
+            )),
+            "f.subtract" | "f.-" => Some(StackEffect::new(
+                word,
+                Stack::with_rest("a")
+                    .push(StackValue::ty("Float"))
+                    .push(StackValue::ty("Float")),
+                Stack::with_rest("a").push(StackValue::ty("Float")),
+            )),
+            "f.multiply" | "f.*" => Some(StackEffect::new(
+                word,
+                Stack::with_rest("a")
+                    .push(StackValue::ty("Float"))
+                    .push(StackValue::ty("Float")),
+                Stack::with_rest("a").push(StackValue::ty("Float")),
+            )),
+            "f.divide" | "f./" => Some(StackEffect::new(
+                word,
+                Stack::with_rest("a")
+                    .push(StackValue::ty("Float"))
+                    .push(StackValue::ty("Float")),
+                Stack::with_rest("a").push(StackValue::ty("Float")),
+            )),
+            // Float comparisons
+            "f.=" | "f.<" | "f.>" | "f.<=" | "f.>=" | "f.<>" => Some(StackEffect::new(
+                word,
+                Stack::with_rest("a")
+                    .push(StackValue::ty("Float"))
+                    .push(StackValue::ty("Float")),
                 Stack::with_rest("a").push(StackValue::ty("Bool")),
             )),
 
@@ -1317,10 +1363,40 @@ impl App {
             "rot",
             "nip",
             "tuck",
+            // Integer arithmetic (long and symbolic forms)
             "i.add",
+            "i.+",
             "i.subtract",
+            "i.-",
             "i.multiply",
+            "i.*",
             "i.divide",
+            "i./",
+            "i.%",
+            // Integer comparisons
+            "i.=",
+            "i.<",
+            "i.>",
+            "i.<=",
+            "i.>=",
+            "i.<>",
+            // Float arithmetic (long and symbolic forms)
+            "f.add",
+            "f.+",
+            "f.subtract",
+            "f.-",
+            "f.multiply",
+            "f.*",
+            "f.divide",
+            "f./",
+            // Float comparisons
+            "f.=",
+            "f.<",
+            "f.>",
+            "f.<=",
+            "f.>=",
+            "f.<>",
+            // Legacy names
             "modulo",
             "negate",
             "equals",
@@ -1786,8 +1862,28 @@ mod tests {
     #[test]
     fn test_word_effect_lookup() -> Result<(), String> {
         let app = App::new()?;
+        // Stack manipulation
         assert!(app.get_word_effect("dup").is_some());
         assert!(app.get_word_effect("swap").is_some());
+
+        // Integer arithmetic - long and symbolic forms
+        assert!(app.get_word_effect("i.add").is_some());
+        assert!(app.get_word_effect("i.+").is_some());
+        assert!(app.get_word_effect("i.multiply").is_some());
+        assert!(app.get_word_effect("i.*").is_some());
+
+        // Integer comparisons
+        assert!(app.get_word_effect("i.<").is_some());
+        assert!(app.get_word_effect("i.=").is_some());
+
+        // Float arithmetic - long and symbolic forms
+        assert!(app.get_word_effect("f.add").is_some());
+        assert!(app.get_word_effect("f.*").is_some());
+
+        // Float comparisons
+        assert!(app.get_word_effect("f.<").is_some());
+
+        // Unknown word
         assert!(app.get_word_effect("unknown").is_none());
         Ok(())
     }

@@ -185,9 +185,10 @@ pub enum Statement {
     /// String literal: pushes string onto stack
     StringLiteral(String),
 
-    /// Symbol literal: pushes interned symbol onto stack
+    /// Symbol literal: pushes symbol onto stack
     /// Syntax: :foo, :some-name, :ok
-    /// Used for dynamic variant construction and SON
+    /// Used for dynamic variant construction and SON.
+    /// Note: Symbols are not currently interned (future optimization).
     Symbol(String),
 
     /// Word call: calls another word or built-in

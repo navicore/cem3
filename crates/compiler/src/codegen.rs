@@ -659,17 +659,8 @@ impl CodeGen {
         writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
-        // String constants
-        if !self.string_globals.is_empty() {
-            ir.push_str(&self.string_globals);
-            writeln!(&mut ir)?;
-        }
-
-        // Symbol constants (interned symbols for O(1) equality)
-        if !self.symbol_globals.is_empty() {
-            ir.push_str(&self.symbol_globals);
-            writeln!(&mut ir)?;
-        }
+        // String and symbol constants
+        self.emit_string_and_symbol_globals(&mut ir)?;
 
         // Runtime function declarations
         writeln!(&mut ir, "; Runtime function declarations")?;
@@ -1009,17 +1000,8 @@ impl CodeGen {
         writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
-        // String constants
-        if !self.string_globals.is_empty() {
-            ir.push_str(&self.string_globals);
-            writeln!(&mut ir)?;
-        }
-
-        // Symbol constants (interned symbols for O(1) equality)
-        if !self.symbol_globals.is_empty() {
-            ir.push_str(&self.symbol_globals);
-            writeln!(&mut ir)?;
-        }
+        // String and symbol constants
+        self.emit_string_and_symbol_globals(&mut ir)?;
 
         // Runtime function declarations (same as codegen_program_with_config)
         self.emit_runtime_declarations(&mut ir)?;
@@ -1079,6 +1061,22 @@ impl CodeGen {
         ir.push_str(&self.output);
 
         Ok(ir)
+    }
+
+    /// Emit string and symbol global constants
+    fn emit_string_and_symbol_globals(&self, ir: &mut String) -> Result<(), CodeGenError> {
+        // String constants
+        if !self.string_globals.is_empty() {
+            ir.push_str(&self.string_globals);
+            writeln!(ir)?;
+        }
+
+        // Symbol constants (interned symbols for O(1) equality)
+        if !self.symbol_globals.is_empty() {
+            ir.push_str(&self.symbol_globals);
+            writeln!(ir)?;
+        }
+        Ok(())
     }
 
     /// Emit runtime function declarations

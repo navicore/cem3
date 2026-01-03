@@ -48,3 +48,17 @@
   :foo :foo symbol.=
   and test.assert
 ;
+
+: test-runtime-runtime-equality ( -- )
+  # Two runtime-created symbols with same content should be equal
+  "dynamic" string->symbol
+  "dynamic" string->symbol
+  symbol.=
+  test.assert
+;
+
+: test-mixed-inequality ( -- )
+  # Runtime symbol should not equal different literal symbol
+  "hello" string->symbol :world symbol.= not
+  test.assert
+;

@@ -401,6 +401,11 @@ pub unsafe extern "C" fn patch_seq_push_interned_symbol(
 
     let data = unsafe { &*symbol_data };
 
+    // Validate interned symbol invariants in debug builds
+    debug_assert!(!data.ptr.is_null(), "Interned symbol data pointer is null");
+    debug_assert_eq!(data.capacity, 0, "Interned symbols must have capacity=0");
+    debug_assert_ne!(data.global, 0, "Interned symbols must have global=1");
+
     // Create SeqString that points to static data
     // capacity=0 marks it as interned (Drop will skip deallocation)
     // Safety: from_raw_parts requires valid ptr/len/capacity, which we trust

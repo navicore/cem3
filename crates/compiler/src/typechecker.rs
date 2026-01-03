@@ -185,7 +185,7 @@ impl TypeChecker {
         row_map: &mut HashMap<String, String>,
     ) -> Type {
         match ty {
-            Type::Int | Type::Float | Type::Bool | Type::String => ty.clone(),
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Symbol => ty.clone(),
             Type::Var(name) => {
                 let fresh_name = type_map
                     .entry(name.clone())
@@ -1000,6 +1000,7 @@ impl TypeChecker {
             Statement::FloatLiteral(_) => {
                 Ok((current_stack.push(Type::Float), Subst::empty(), vec![]))
             }
+            Statement::Symbol(_) => Ok((current_stack.push(Type::Symbol), Subst::empty(), vec![])),
             Statement::Match { arms } => self.infer_match(arms, current_stack),
             Statement::WordCall { name, .. } => self.infer_word_call(name, current_stack),
             Statement::If {

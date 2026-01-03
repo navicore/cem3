@@ -142,6 +142,10 @@ print_summary() {
         local ratio_color="$NC"
         if [[ "$ratio" =~ ^[0-9.]+$ ]]; then
             local ratio_int=$(echo "$ratio" | cut -d. -f1)
+            # Handle ratios less than 1 (e.g., ".98") where cut returns empty
+            if [ -z "$ratio_int" ]; then
+                ratio_int=0
+            fi
             if [ "$ratio_int" -le 2 ]; then
                 ratio_color="$GREEN"
             elif [ "$ratio_int" -le 5 ]; then

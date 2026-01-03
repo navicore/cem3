@@ -41,6 +41,9 @@ pub enum Type {
     Bool,
     /// String type
     String,
+    /// Symbol type (interned identifier for dynamic variant construction)
+    /// Syntax: :foo, :some-name
+    Symbol,
     /// Quotation type (stateless code block with stack effect)
     /// Example: [ Int -- Int ] is a quotation that takes Int and produces Int
     /// No captured values - backward compatible with existing quotations
@@ -280,6 +283,7 @@ impl std::fmt::Display for Type {
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
+            Type::Symbol => write!(f, "Symbol"),
             Type::Quotation(effect) => write!(f, "[{}]", effect),
             Type::Closure { effect, captures } => {
                 let cap_str: Vec<_> = captures.iter().map(|t| format!("{}", t)).collect();

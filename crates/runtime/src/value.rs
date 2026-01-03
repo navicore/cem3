@@ -256,6 +256,42 @@ impl VariantData {
 // We'll implement proper cleanup in Drop later
 // For now, Rust's ownership handles most of it
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Int(n) => write!(f, "{}", n),
+            Value::Float(n) => write!(f, "{}", n),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::String(s) => write!(f, "{:?}", s.as_str()),
+            Value::Symbol(s) => write!(f, ":{}", s.as_str()),
+            Value::Variant(v) => {
+                write!(f, "Variant(tag={}, fields=[", v.tag)?;
+                for (i, field) in v.fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                write!(f, "])")
+            }
+            Value::Map(m) => {
+                write!(f, "{{")?;
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", k.to_value(), v)?;
+                }
+                write!(f, "}}")
+            }
+            Value::Quotation { .. } => write!(f, "<quotation>"),
+            Value::Closure { .. } => write!(f, "<closure>"),
+            Value::Channel(_) => write!(f, "<channel>"),
+            Value::WeaveCtx { .. } => write!(f, "<weave-ctx>"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +373,22 @@ mod tests {
             assert_eq!(*value_ptr_true, 1, "true should be 1");
             assert_eq!(*value_ptr_false, 0, "false should be 0");
         }
+    }
+
+    #[test]
+    fn test_value_display() {
+        // Test Display impl formats values correctly
+        assert_eq!(format!("{}", Value::Int(42)), "42");
+        assert_eq!(format!("{}", Value::Float(2.5)), "2.5");
+        assert_eq!(format!("{}", Value::Bool(true)), "true");
+        assert_eq!(format!("{}", Value::Bool(false)), "false");
+
+        // String shows with quotes (Debug-style)
+        let s = Value::String(SeqString::from("hello"));
+        assert_eq!(format!("{}", s), "\"hello\"");
+
+        // Symbol shows with : prefix
+        let sym = Value::Symbol(SeqString::from("my-symbol"));
+        assert_eq!(format!("{}", sym), ":my-symbol");
     }
 }

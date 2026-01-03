@@ -170,7 +170,7 @@
     # We want field 1 (the part after the prefix)
     dup variant.field-count 2 i.< if
       # Not enough parts, return empty string
-      drop drop ""
+      drop ""
     else
       # Get field 1 (the suffix)
       1 variant.field-at

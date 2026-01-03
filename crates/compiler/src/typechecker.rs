@@ -1032,6 +1032,32 @@ impl TypeChecker {
         current_stack: StackType,
         operation: &str,
     ) -> Result<(StackType, Subst), String> {
+        // Check for stack underflow: if the effect needs more concrete values than
+        // the current stack provides, and the stack has a "rigid" row variable at its base,
+        // this would be unsound (the row var could be Empty at runtime).
+        // Bug #169: "phantom stack entries"
+        //
+        // We only check for "rigid" row variables (named "rest" from declared effects).
+        // Row variables named "input" are from inference and CAN grow to discover requirements.
+        let effect_concrete = Self::count_concrete_types(&effect.inputs);
+        let stack_concrete = Self::count_concrete_types(&current_stack);
+
+        if let Some(row_var_name) = Self::get_row_var_base(&current_stack) {
+            // Only check "rigid" row variables (from declared effects, not inference)
+            // Row vars from declared effects are exactly named "rest" by the parser.
+            // Freshened row vars like "rest$680" are from callee effects and should NOT be rigid.
+            // Row vars from inference are named "input" or freshened versions.
+            let is_rigid = row_var_name == "rest";
+
+            if is_rigid && effect_concrete > stack_concrete {
+                let word_name = self.current_word.borrow().clone().unwrap_or_default();
+                return Err(format!(
+                    "In '{}': {}: stack underflow - requires {} value(s), only {} provided",
+                    word_name, operation, effect_concrete, stack_concrete
+                ));
+            }
+        }
+
         // Unify current stack with effect's input
         let subst = unify_stacks(&effect.inputs, &current_stack).map_err(|e| {
             format!(
@@ -1044,6 +1070,29 @@ impl TypeChecker {
         let result_stack = subst.apply_stack(&effect.outputs);
 
         Ok((result_stack, subst))
+    }
+
+    /// Count the number of concrete (non-row-variable) types in a stack
+    fn count_concrete_types(stack: &StackType) -> usize {
+        let mut count = 0;
+        let mut current = stack;
+        while let StackType::Cons { rest, top: _ } = current {
+            count += 1;
+            current = rest;
+        }
+        count
+    }
+
+    /// Get the row variable name at the base of a stack, if any
+    fn get_row_var_base(stack: &StackType) -> Option<String> {
+        let mut current = stack;
+        while let StackType::Cons { rest, top: _ } = current {
+            current = rest;
+        }
+        match current {
+            StackType::RowVar(name) => Some(name.clone()),
+            _ => None,
+        }
     }
 
     /// Adjust stack for strand.spawn operation by converting Quotation to Closure if needed

@@ -99,8 +99,8 @@ include std:json
       "Parse error!" io.write-line
       1
     else
-      "Type: " over variant.tag int->string string.concat io.write-line
-      # Tag meanings: 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
+      # variant.tag now returns Symbol (e.g., :JsonNull, :JsonBool, etc.)
+      # The tag is now symbolic rather than numeric
 
       "Value:" io.write-line
       json-format io.write-line

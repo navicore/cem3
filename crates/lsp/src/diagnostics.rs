@@ -467,7 +467,8 @@ mod tests {
     #[test]
     fn test_builtin_make_variant_recognized() {
         // variant.make-2 should be recognized as a builtin, not flagged as unknown
-        let source = ": main ( -- ) 1 2 3 variant.make-2 drop ;";
+        // variant.make-2 expects ( field1 field2 Symbol -- V )
+        let source = ": main ( -- ) 1 2 :Tag variant.make-2 drop ;";
         let diagnostics = check_document(source);
         // Should have no "Undefined word" errors for variant.make-2
         for d in &diagnostics {

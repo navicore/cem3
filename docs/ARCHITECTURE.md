@@ -75,10 +75,11 @@ pub enum Value {
     Map(Box<HashMap<...>>),      // Discriminant 5 - key-value dictionary
     Quotation { wrapper, impl_ },// Discriminant 6 - function pointers
     Closure { fn_ptr, env },     // Discriminant 7 - function + captured values
+    Symbol(SeqString),           // Discriminant 8 - symbolic identifiers (:foo)
 }
 
 pub struct VariantData {
-    pub tag: u32,
+    pub tag: SeqString,          // Symbol-based tag for dynamic variant construction
     pub fields: Box<[Value]>,
 }
 ```

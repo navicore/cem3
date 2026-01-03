@@ -348,6 +348,26 @@ pub unsafe extern "C" fn patch_seq_push_string(stack: Stack, c_str: *const i8) -
     unsafe { push(stack, Value::String(s.into())) }
 }
 
+/// Push a C string literal onto the stack as a Symbol (for compiler-generated code)
+///
+/// Stack effect: ( -- symbol )
+///
+/// # Safety
+/// The c_str pointer must be valid and null-terminated
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_push_symbol(stack: Stack, c_str: *const i8) -> Stack {
+    assert!(!c_str.is_null(), "push_symbol: null string pointer");
+
+    let s = unsafe {
+        CStr::from_ptr(c_str)
+            .to_str()
+            .expect("push_symbol: invalid UTF-8 in symbol literal")
+            .to_owned()
+    };
+
+    unsafe { push(stack, Value::Symbol(s.into())) }
+}
+
 /// Push a SeqString value onto the stack
 ///
 /// This is used when we already have a SeqString (e.g., from closures).
@@ -364,6 +384,48 @@ pub unsafe extern "C" fn patch_seq_push_seqstring(
     seq_str: crate::seqstring::SeqString,
 ) -> Stack {
     unsafe { push(stack, Value::String(seq_str)) }
+}
+
+/// Convert a Symbol to a String
+///
+/// Stack effect: ( Symbol -- String )
+///
+/// # Safety
+/// Stack must have a Symbol on top.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_symbol_to_string(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "symbol_to_string: stack is empty");
+
+    let (rest, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::Symbol(s) => unsafe { push(rest, Value::String(s)) },
+        _ => panic!(
+            "symbol_to_string: expected Symbol on stack, got {:?}",
+            value
+        ),
+    }
+}
+
+/// Convert a String to a Symbol
+///
+/// Stack effect: ( String -- Symbol )
+///
+/// # Safety
+/// Stack must have a String on top.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_string_to_symbol(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "string_to_symbol: stack is empty");
+
+    let (rest, value) = unsafe { pop(stack) };
+
+    match value {
+        Value::String(s) => unsafe { push(rest, Value::Symbol(s)) },
+        _ => panic!(
+            "string_to_symbol: expected String on stack, got {:?}",
+            value
+        ),
+    }
 }
 
 /// Exit the program with a status code
@@ -398,9 +460,12 @@ pub use patch_seq_exit_op as exit_op;
 pub use patch_seq_int_to_string as int_to_string;
 pub use patch_seq_push_seqstring as push_seqstring;
 pub use patch_seq_push_string as push_string;
+pub use patch_seq_push_symbol as push_symbol;
 pub use patch_seq_read_line as read_line;
 pub use patch_seq_read_line_plus as read_line_plus;
 pub use patch_seq_read_n as read_n;
+pub use patch_seq_string_to_symbol as string_to_symbol;
+pub use patch_seq_symbol_to_string as symbol_to_string;
 pub use patch_seq_write as write;
 pub use patch_seq_write_line as write_line;
 

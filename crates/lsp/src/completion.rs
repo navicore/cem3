@@ -391,6 +391,7 @@ fn format_type(ty: &seqc::Type) -> String {
         Type::Float => "Float".to_string(),
         Type::Bool => "Bool".to_string(),
         Type::String => "String".to_string(),
+        Type::Symbol => "Symbol".to_string(),
         Type::Var(name) => name.clone(),
         Type::Union(name) => name.clone(),
         Type::Quotation(effect) => format!("[ {} ]", format_effect(effect)),

@@ -79,6 +79,8 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("io.read-line+", "patch_seq_read_line_plus"),
         ("io.read-n", "patch_seq_read_n"),
         ("int->string", "patch_seq_int_to_string"),
+        ("symbol->string", "patch_seq_symbol_to_string"),
+        ("string->symbol", "patch_seq_string_to_symbol"),
         // Command-line arguments
         ("args.count", "patch_seq_arg_count"),
         ("args.at", "patch_seq_arg_at"),
@@ -619,12 +621,15 @@ impl CodeGen {
         writeln!(&mut ir, "; Runtime function declarations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_push_symbol(ptr, ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_write(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_n(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_int_to_string(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_symbol_to_string(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_string_to_symbol(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_add(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_subtract(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_multiply(ptr)")?;
@@ -1013,12 +1018,15 @@ impl CodeGen {
         writeln!(ir, "; Runtime function declarations")?;
         writeln!(ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
         writeln!(ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_push_symbol(ptr, ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_write(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line_plus(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_n(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_int_to_string(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_symbol_to_string(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_string_to_symbol(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_add(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_subtract(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_multiply(ptr)")?;
@@ -2258,6 +2266,26 @@ impl CodeGen {
         writeln!(
             &mut self.output,
             "  %{} = call ptr @patch_seq_push_string(ptr %{}, ptr %{})",
+            result_var, stack_var, ptr_temp
+        )?;
+        Ok(result_var)
+    }
+
+    /// Generate code for a symbol literal: ( -- sym )
+    fn codegen_symbol_literal(&mut self, stack_var: &str, s: &str) -> Result<String, CodeGenError> {
+        let global = self.get_string_global(s)?;
+        let ptr_temp = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr inbounds [{} x i8], ptr {}, i32 0, i32 0",
+            ptr_temp,
+            s.len() + 1,
+            global
+        )?;
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_symbol(ptr %{}, ptr %{})",
             result_var, stack_var, ptr_temp
         )?;
         Ok(result_var)
@@ -4905,6 +4933,7 @@ impl CodeGen {
             Statement::FloatLiteral(f) => self.codegen_float_literal(stack_var, *f),
             Statement::BoolLiteral(b) => self.codegen_bool_literal(stack_var, *b),
             Statement::StringLiteral(s) => self.codegen_string_literal(stack_var, s),
+            Statement::Symbol(s) => self.codegen_symbol_literal(stack_var, s),
             Statement::WordCall { name, .. } => self.codegen_word_call(stack_var, name, position),
             Statement::If {
                 then_branch,
@@ -5428,5 +5457,38 @@ mod tests {
             "Exhaustive match should compile: {:?}",
             result
         );
+    }
+
+    #[test]
+    fn test_codegen_symbol() {
+        // Test symbol literal codegen
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::Symbol("hello".to_string()),
+                    Statement::WordCall {
+                        name: "symbol->string".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "io.write-line".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+
+        assert!(ir.contains("call ptr @patch_seq_push_symbol"));
+        assert!(ir.contains("call ptr @patch_seq_symbol_to_string"));
+        assert!(ir.contains("\"hello\\00\""));
     }
 }

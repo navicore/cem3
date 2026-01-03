@@ -388,7 +388,8 @@ impl ProgramResourceAnalyzer {
             Statement::IntLiteral(_)
             | Statement::FloatLiteral(_)
             | Statement::BoolLiteral(_)
-            | Statement::StringLiteral(_) => {
+            | Statement::StringLiteral(_)
+            | Statement::Symbol(_) => {
                 state.push_unknown();
             }
 
@@ -566,7 +567,8 @@ impl ProgramResourceAnalyzer {
             Statement::IntLiteral(_)
             | Statement::FloatLiteral(_)
             | Statement::BoolLiteral(_)
-            | Statement::StringLiteral(_) => {
+            | Statement::StringLiteral(_)
+            | Statement::Symbol(_) => {
                 state.push_unknown();
             }
 
@@ -981,7 +983,8 @@ impl ResourceAnalyzer {
             Statement::IntLiteral(_)
             | Statement::FloatLiteral(_)
             | Statement::BoolLiteral(_)
-            | Statement::StringLiteral(_) => {
+            | Statement::StringLiteral(_)
+            | Statement::Symbol(_) => {
                 state.push_unknown();
             }
 

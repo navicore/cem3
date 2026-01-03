@@ -28,6 +28,7 @@ pub const DISC_QUOTATION: u64 = 6;
 pub const DISC_CLOSURE: u64 = 7;
 pub const DISC_CHANNEL: u64 = 8;
 pub const DISC_WEAVECTX: u64 = 9;
+pub const DISC_SYMBOL: u64 = 10;
 
 /// Convert a Value to a StackValue for pushing onto the tagged stack
 #[inline]
@@ -60,6 +61,17 @@ pub fn value_to_stack_value(value: Value) -> StackValue {
             let (ptr, len, capacity, global) = s.into_raw_parts();
             StackValue {
                 slot0: DISC_STRING,
+                slot1: ptr as u64,
+                slot2: len as u64,
+                slot3: capacity as u64,
+                slot4: if global { 1 } else { 0 },
+            }
+        }
+        Value::Symbol(s) => {
+            // Symbol uses the same SeqString representation as String
+            let (ptr, len, capacity, global) = s.into_raw_parts();
+            StackValue {
+                slot0: DISC_SYMBOL,
                 slot1: ptr as u64,
                 slot2: len as u64,
                 slot3: capacity as u64,
@@ -189,6 +201,14 @@ pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
                     yield_chan,
                     resume_chan,
                 }
+            }
+            DISC_SYMBOL => {
+                use crate::seqstring::SeqString;
+                let ptr = sv.slot1 as *const u8;
+                let len = sv.slot2 as usize;
+                let capacity = sv.slot3 as usize;
+                let global = sv.slot4 != 0;
+                Value::Symbol(SeqString::from_raw_parts(ptr, len, capacity, global))
             }
             _ => panic!("Invalid discriminant: {}", sv.slot0),
         }
@@ -349,6 +369,26 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                     slot4: 0,
                 }
             }
+            DISC_SYMBOL => {
+                // Deep copy: like strings, arena symbols may become invalid
+                let ptr = sv.slot1 as *const u8;
+                let len = sv.slot2 as usize;
+                debug_assert!(!ptr.is_null(), "Symbol pointer is null");
+                let slice = std::slice::from_raw_parts(ptr, len);
+                #[cfg(debug_assertions)]
+                let s = std::str::from_utf8(slice).expect("Invalid UTF-8 in symbol clone");
+                #[cfg(not(debug_assertions))]
+                let s = std::str::from_utf8_unchecked(slice);
+                let cloned = crate::seqstring::global_string(s.to_string());
+                let (new_ptr, new_len, new_cap, new_global) = cloned.into_raw_parts();
+                StackValue {
+                    slot0: DISC_SYMBOL,
+                    slot1: new_ptr as u64,
+                    slot2: new_len as u64,
+                    slot3: new_cap as u64,
+                    slot4: if new_global { 1 } else { 0 },
+                }
+            }
             _ => panic!("Invalid discriminant for clone: {}", sv.slot0),
         }
     }
@@ -396,6 +436,15 @@ pub unsafe fn drop_stack_value(sv: StackValue) {
                 use crate::value::WeaveChannelData;
                 let _ = Arc::from_raw(sv.slot1 as *const WeaveChannelData);
                 let _ = Arc::from_raw(sv.slot2 as *const WeaveChannelData);
+            }
+            DISC_SYMBOL => {
+                // Reconstruct SeqString and let it drop (same as String)
+                use crate::seqstring::SeqString;
+                let ptr = sv.slot1 as *const u8;
+                let len = sv.slot2 as usize;
+                let capacity = sv.slot3 as usize;
+                let global = sv.slot4 != 0;
+                let _ = SeqString::from_raw_parts(ptr, len, capacity, global);
             }
             _ => panic!("Invalid discriminant for drop: {}", sv.slot0),
         }

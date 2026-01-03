@@ -304,6 +304,8 @@ impl Program {
             "string.equal?",
             "string.json-escape",
             "string->int",
+            // Symbol operations
+            "symbol.=",
             // List operations
             "list.map",
             "list.filter",
@@ -550,7 +552,7 @@ impl Program {
         let mut new_words = Vec::new();
 
         for union_def in &self.unions {
-            for (variant_idx, variant) in union_def.variants.iter().enumerate() {
+            for variant in &union_def.variants {
                 let constructor_name = format!("Make-{}", variant.name);
                 let field_count = variant.fields.len();
 
@@ -581,10 +583,10 @@ impl Program {
                 let effect = Effect::new(input_stack, output_stack);
 
                 // Build the body:
-                // 1. Push the variant tag
-                // 2. Call variant.make-N
+                // 1. Push the variant name as a symbol (for dynamic matching)
+                // 2. Call variant.make-N which now accepts Symbol tags
                 let body = vec![
-                    Statement::IntLiteral(variant_idx as i64),
+                    Statement::Symbol(variant.name.clone()),
                     Statement::WordCall {
                         name: format!("variant.make-{}", field_count),
                         span: None, // Generated code, no source span
@@ -794,22 +796,22 @@ mod tests {
         assert!(make_put.effect.is_some());
 
         // Check the body generates correct code
-        // Make-Get should be: 0 variant.make-1
+        // Make-Get should be: :Get variant.make-1
         assert_eq!(make_get.body.len(), 2);
         match &make_get.body[0] {
-            Statement::IntLiteral(0) => {}
-            _ => panic!("Expected IntLiteral(0) for variant tag"),
+            Statement::Symbol(s) if s == "Get" => {}
+            other => panic!("Expected Symbol(\"Get\") for variant tag, got {:?}", other),
         }
         match &make_get.body[1] {
             Statement::WordCall { name, span: None } if name == "variant.make-1" => {}
             _ => panic!("Expected WordCall(variant.make-1)"),
         }
 
-        // Make-Put should be: 1 variant.make-2
+        // Make-Put should be: :Put variant.make-2
         assert_eq!(make_put.body.len(), 2);
         match &make_put.body[0] {
-            Statement::IntLiteral(1) => {}
-            _ => panic!("Expected IntLiteral(1) for variant tag"),
+            Statement::Symbol(s) if s == "Put" => {}
+            other => panic!("Expected Symbol(\"Put\") for variant tag, got {:?}", other),
         }
         match &make_put.body[1] {
             Statement::WordCall { name, span: None } if name == "variant.make-2" => {}

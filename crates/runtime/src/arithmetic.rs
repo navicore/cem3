@@ -498,6 +498,27 @@ pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
     }
 }
 
+/// Peek at a bool value on top of stack without popping (for pattern matching)
+///
+/// # Safety
+/// Stack must have a Bool value on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_peek_bool_value(stack: Stack) -> bool {
+    use crate::stack::DISC_BOOL;
+    assert!(!stack.is_null(), "peek_bool_value: stack is empty");
+
+    // Stack points to next push location, so top is at stack - 1
+    let sv = unsafe { peek_sv(stack) };
+    if sv.slot0 == DISC_BOOL {
+        sv.slot1 != 0
+    } else {
+        panic!(
+            "peek_bool_value: expected Bool on stack, got discriminant {}",
+            sv.slot0
+        )
+    }
+}
+
 /// Helper for popping without extracting the value (for conditionals)
 ///
 /// Pops the top stack node and returns the updated stack pointer.

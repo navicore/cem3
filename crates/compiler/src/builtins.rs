@@ -569,6 +569,9 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "string.empty?", (a String -- a Bool));
     builtin!(sigs, "string.equal?", (a String String -- a Bool));
 
+    // Symbol operations
+    builtin!(sigs, "symbol.=", (a Symbol Symbol -- a Bool));
+
     // String transformations
     builtins_string_to_string!(
         sigs,
@@ -584,18 +587,25 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // =========================================================================
 
     builtin!(sigs, "variant.field-count", (a V -- a Int));
-    builtin!(sigs, "variant.tag", (a V -- a Int));
+    builtin!(sigs, "variant.tag", (a V -- a Symbol));
     builtin!(sigs, "variant.field-at", (a V Int -- a T));
     builtin!(sigs, "variant.append", (a V T -- a V2));
     builtin!(sigs, "variant.last", (a V -- a T));
     builtin!(sigs, "variant.init", (a V -- a V2));
 
-    // Type-safe variant constructors with fixed arity
-    builtin!(sigs, "variant.make-0", (a Int -- a V));
-    builtin!(sigs, "variant.make-1", (a T1 Int -- a V));
-    builtin!(sigs, "variant.make-2", (a T1 T2 Int -- a V));
-    builtin!(sigs, "variant.make-3", (a T1 T2 T3 Int -- a V));
-    builtin!(sigs, "variant.make-4", (a T1 T2 T3 T4 Int -- a V));
+    // Type-safe variant constructors with fixed arity (symbol tags for SON support)
+    builtin!(sigs, "variant.make-0", (a Symbol -- a V));
+    builtin!(sigs, "variant.make-1", (a T1 Symbol -- a V));
+    builtin!(sigs, "variant.make-2", (a T1 T2 Symbol -- a V));
+    builtin!(sigs, "variant.make-3", (a T1 T2 T3 Symbol -- a V));
+    builtin!(sigs, "variant.make-4", (a T1 T2 T3 T4 Symbol -- a V));
+
+    // Aliases for dynamic variant construction (SON-friendly names)
+    builtin!(sigs, "wrap-0", (a Symbol -- a V));
+    builtin!(sigs, "wrap-1", (a T1 Symbol -- a V));
+    builtin!(sigs, "wrap-2", (a T1 T2 Symbol -- a V));
+    builtin!(sigs, "wrap-3", (a T1 T2 T3 Symbol -- a V));
+    builtin!(sigs, "wrap-4", (a T1 T2 T3 T4 Symbol -- a V));
 
     // =========================================================================
     // List Operations (Higher-order combinators for Variants)

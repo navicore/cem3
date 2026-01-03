@@ -85,22 +85,22 @@
 #                           RESULT HELPERS
 # =============================================================================
 
-# Check if result is Ok (tag 0)
-# Stack: ( Result -- Result Int )
-: result-ok? ( Variant -- Variant Int )
-  dup variant.tag 0 i.=
+# Check if result is Ok
+# Stack: ( Result -- Result Bool )
+: result-ok? ( Variant -- Variant Bool )
+  dup variant.tag :Ok symbol.=
 ;
 
-# Check if result is Err (tag 1)
-# Stack: ( Result -- Result Int )
-: result-err? ( Variant -- Variant Int )
-  dup variant.tag 1 i.=
+# Check if result is Err
+# Stack: ( Result -- Result Bool )
+: result-err? ( Variant -- Variant Bool )
+  dup variant.tag :Err symbol.=
 ;
 
 # Extract Ok value - panics if Err
 # Stack: ( Result -- value )
 : result-unwrap ( Variant -- Variant )
-  dup variant.tag 0 i.= if
+  dup variant.tag :Ok symbol.= if
     0 variant.field-at
   else
     "PANIC: result-unwrap called on Err" io.write-line
@@ -111,7 +111,7 @@
 # Extract Err value - panics if Ok
 # Stack: ( Result -- error )
 : result-unwrap-err ( Variant -- Variant )
-  dup variant.tag 1 i.= if
+  dup variant.tag :Err symbol.= if
     0 variant.field-at
   else
     "PANIC: result-unwrap-err called on Ok" io.write-line
@@ -124,7 +124,7 @@
 # Note: default should be same type as Ok's value field
 : result-unwrap-or ( Result Default -- Default )
   swap                       # ( Default Result )
-  dup variant.tag 0 i.= if     # is Ok?
+  dup variant.tag :Ok symbol.= if     # is Ok?
     0 variant.field-at nip   # ( value ) - drop default, return Ok value
   else
     drop                     # ( Default ) - drop Result, return default
@@ -142,14 +142,14 @@
 
 # Transform the Ok value, pass through Err unchanged
 # The quotation should transform: ( value -- new-value )
-# Result is reconstructed using variant.make-1 with tag 0 (Ok)
+# Result is reconstructed using variant.make-1 with :Ok tag
 # Stack: ( Result Quotation -- Result )
 : result-map ( Variant Quotation -- Variant )
   swap                       # ( Quotation Result )
-  dup variant.tag 0 i.= if     # ( Quotation Result ) - is Ok?
+  dup variant.tag :Ok symbol.= if     # ( Quotation Result ) - is Ok?
     0 variant.field-at       # ( Quotation value )
     swap call                # ( new-value )
-    0 variant.make-1         # ( Result ) - wrap as Ok (tag 0)
+    :Ok variant.make-1       # ( Result ) - wrap as Ok
   else
     nip                      # ( Result ) - keep original Err
   then
@@ -160,7 +160,7 @@
 # Stack: ( Result Quotation OkConstructor -- Result )
 : result-map-with ( Variant Quotation Quotation -- Variant )
   rot                        # ( Quotation OkCtor Result )
-  dup variant.tag 0 i.= if     # is Ok?
+  dup variant.tag :Ok symbol.= if     # is Ok?
     0 variant.field-at       # ( Quotation OkCtor value )
     rot call                 # ( OkCtor new-value )
     swap call                # ( Result )
@@ -174,7 +174,7 @@
 # Stack: ( Result Quotation -- Result )
 : result-bind ( Variant Quotation -- Variant )
   swap                       # ( Quotation Result )
-  dup variant.tag 0 i.= if     # ( Quotation Result ) - is Ok?
+  dup variant.tag :Ok symbol.= if     # ( Quotation Result ) - is Ok?
     0 variant.field-at       # ( Quotation value )
     swap call                # ( Result )
   else
@@ -186,22 +186,22 @@
 #                           OPTION HELPERS
 # =============================================================================
 
-# Check if option is Some (tag 0)
-# Stack: ( Option -- Option Int )
-: option-some? ( Variant -- Variant Int )
-  dup variant.tag 0 i.=
+# Check if option is Some
+# Stack: ( Option -- Option Bool )
+: option-some? ( Variant -- Variant Bool )
+  dup variant.tag :Some symbol.=
 ;
 
-# Check if option is None (tag 1)
-# Stack: ( Option -- Option Int )
-: option-none? ( Variant -- Variant Int )
-  dup variant.tag 1 i.=
+# Check if option is None
+# Stack: ( Option -- Option Bool )
+: option-none? ( Variant -- Variant Bool )
+  dup variant.tag :None symbol.=
 ;
 
 # Extract Some value - panics if None
 # Stack: ( Option -- value )
 : option-unwrap ( Variant -- Variant )
-  dup variant.tag 0 i.= if
+  dup variant.tag :Some symbol.= if
     0 variant.field-at
   else
     "PANIC: option-unwrap called on None" io.write-line
@@ -214,7 +214,7 @@
 # Note: default should be same type as Some's value field
 : option-unwrap-or ( Option Default -- Default )
   swap                       # ( Default Option )
-  dup variant.tag 0 i.= if     # is Some?
+  dup variant.tag :Some symbol.= if     # is Some?
     0 variant.field-at nip   # ( value ) - drop default, return Some value
   else
     drop                     # ( Default ) - drop Option, return default
@@ -227,14 +227,14 @@
 
 # Transform the Some value, pass through None unchanged
 # The quotation should transform: ( value -- new-value )
-# Result is reconstructed using variant.make-1 with tag 0 (Some)
+# Result is reconstructed using variant.make-1 with :Some tag
 # Stack: ( Option Quotation -- Option )
 : option-map ( Variant Quotation -- Variant )
   swap                       # ( Quotation Option )
-  dup variant.tag 0 i.= if     # ( Quotation Option ) - is Some?
+  dup variant.tag :Some symbol.= if     # ( Quotation Option ) - is Some?
     0 variant.field-at       # ( Quotation value )
     swap call                # ( new-value )
-    0 variant.make-1         # ( Option ) - wrap as Some (tag 0)
+    :Some variant.make-1     # ( Option ) - wrap as Some
   else
     nip                      # ( Option ) - keep original None
   then
@@ -245,7 +245,7 @@
 # Stack: ( Option Quotation SomeConstructor -- Option )
 : option-map-with ( Variant Quotation Quotation -- Variant )
   rot                        # ( Quotation SomeCtor Option )
-  dup variant.tag 0 i.= if     # is Some?
+  dup variant.tag :Some symbol.= if     # is Some?
     0 variant.field-at       # ( Quotation SomeCtor value )
     rot call                 # ( SomeCtor new-value )
     swap call                # ( Option )
@@ -259,7 +259,7 @@
 # Stack: ( Option Quotation -- Option )
 : option-bind ( Variant Quotation -- Variant )
   swap                       # ( Quotation Option )
-  dup variant.tag 0 i.= if     # ( Quotation Option ) - is Some?
+  dup variant.tag :Some symbol.= if     # ( Quotation Option ) - is Some?
     0 variant.field-at       # ( Quotation value )
     swap call                # ( Option )
   else

@@ -191,6 +191,8 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("string.equal?", "patch_seq_string_equal"),
         ("string.json-escape", "patch_seq_json_escape"),
         ("string->int", "patch_seq_string_to_int"),
+        // Symbol operations
+        ("symbol.=", "patch_seq_symbol_equal"),
         // File operations
         ("file.slurp", "patch_seq_file_slurp"),
         ("file.exists?", "patch_seq_file_exists"),
@@ -224,6 +226,12 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("variant.make-2", "patch_seq_make_variant_2"),
         ("variant.make-3", "patch_seq_make_variant_3"),
         ("variant.make-4", "patch_seq_make_variant_4"),
+        // wrap-N aliases for dynamic variant construction (SON)
+        ("wrap-0", "patch_seq_make_variant_0"),
+        ("wrap-1", "patch_seq_make_variant_1"),
+        ("wrap-2", "patch_seq_make_variant_2"),
+        ("wrap-3", "patch_seq_make_variant_3"),
+        ("wrap-4", "patch_seq_make_variant_4"),
         // Float arithmetic
         ("f.add", "patch_seq_f_add"),
         ("f.subtract", "patch_seq_f_subtract"),
@@ -807,6 +815,8 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_string_equal(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_json_escape(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_string_to_int(ptr)")?;
+        writeln!(&mut ir, "; Symbol operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_symbol_equal(ptr)")?;
         writeln!(&mut ir, "; Variant operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_variant_field_count(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_variant_tag(ptr)")?;
@@ -820,6 +830,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_3(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_make_variant_4(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_symbol_eq_cstr(ptr, ptr)")?;
         writeln!(&mut ir, "; Float operations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_float(ptr, double)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_f_add(ptr)")?;
@@ -855,6 +866,7 @@ impl CodeGen {
         writeln!(&mut ir, "declare ptr @patch_seq_stack_dump(ptr)")?;
         writeln!(&mut ir, "; Helpers for conditionals")?;
         writeln!(&mut ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
+        writeln!(&mut ir, "declare i1 @patch_seq_peek_bool_value(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
         writeln!(&mut ir)?;
 
@@ -1184,6 +1196,8 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_string_equal(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_json_escape(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_string_to_int(ptr)")?;
+        writeln!(ir, "; Symbol operations")?;
+        writeln!(ir, "declare ptr @patch_seq_symbol_equal(ptr)")?;
         writeln!(ir, "; Variant operations")?;
         writeln!(ir, "declare ptr @patch_seq_variant_field_count(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_variant_tag(ptr)")?;
@@ -1197,6 +1211,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_make_variant_3(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_make_variant_4(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_unpack_variant(ptr, i64)")?;
+        writeln!(ir, "declare ptr @patch_seq_symbol_eq_cstr(ptr, ptr)")?;
         writeln!(ir, "; Float operations")?;
         writeln!(ir, "declare ptr @patch_seq_push_float(ptr, double)")?;
         writeln!(ir, "declare ptr @patch_seq_f_add(ptr)")?;
@@ -1232,6 +1247,7 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_stack_dump(ptr)")?;
         writeln!(ir, "; Helpers for conditionals")?;
         writeln!(ir, "declare i64 @patch_seq_peek_int_value(ptr)")?;
+        writeln!(ir, "declare i1 @patch_seq_peek_bool_value(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_pop_stack(ptr)")?;
         writeln!(ir)?;
 
@@ -4534,12 +4550,13 @@ impl CodeGen {
 
     /// Generate code for a match expression (pattern matching on union types)
     ///
-    /// Match expressions:
-    /// 1. Get the variant's tag to determine which arm to execute
-    /// 2. Jump to the appropriate arm based on tag
-    /// 3. In each arm, unpack the variant's fields onto the stack
-    /// 4. Execute the arm's body
-    /// 5. Merge control flow at the end
+    /// Match expressions use symbol-based tags (for SON support):
+    /// 1. Get the variant's tag as a Symbol
+    /// 2. Compare with each arm's variant name using string comparison
+    /// 3. Jump to the matching arm using cascading if-else
+    /// 4. In each arm, unpack the variant's fields onto the stack
+    /// 5. Execute the arm's body
+    /// 6. Merge control flow at the end
     fn codegen_match_statement(
         &mut self,
         stack_var: &str,
@@ -4563,7 +4580,7 @@ impl CodeGen {
             dup_stack, stack_var
         )?;
 
-        // Step 2: Call variant-tag on the duplicate to get the tag as Int
+        // Step 2: Call variant-tag on the duplicate to get the tag as Symbol
         let tagged_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -4571,55 +4588,99 @@ impl CodeGen {
             tagged_stack, dup_stack
         )?;
 
-        // Step 3: Peek the tag value and pop it from stack
-        let tag_value = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = call i64 @patch_seq_peek_int_value(ptr %{})",
-            tag_value, tagged_stack
-        )?;
+        // Now tagged_stack has the symbol tag on top, original variant below
 
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
-            popped_stack, tagged_stack
-        )?;
-
-        // Now popped_stack has just the original variant (dup'd copy tag was consumed)
-
-        // Step 4: Generate switch statement
+        // Step 3: Prepare for cascading if-else pattern matching
         let default_block = self.fresh_block("match_unreachable");
         let merge_block = self.fresh_block("match_merge");
 
-        // Build the switch instruction
-        write!(
-            &mut self.output,
-            "  switch i64 %{}, label %{} [",
-            tag_value, default_block
-        )?;
-
-        // Collect arm info: (block_name, tag, field_count, field_names)
-        let mut arm_info: Vec<(String, usize, usize, Vec<String>)> = Vec::new();
+        // Collect arm info: (variant_name, block_name, field_count, field_names)
+        let mut arm_info: Vec<(String, String, usize, Vec<String>)> = Vec::new();
         for (i, arm) in arms.iter().enumerate() {
             let block = self.fresh_block(&format!("match_arm_{}", i));
             let variant_name = match &arm.pattern {
-                Pattern::Variant(name) => name.as_str(),
-                Pattern::VariantWithBindings { name, .. } => name.as_str(),
+                Pattern::Variant(name) => name.clone(),
+                Pattern::VariantWithBindings { name, .. } => name.clone(),
             };
-            let (tag, field_count, field_names) = self.find_variant_info(variant_name)?;
-            arm_info.push((block.clone(), tag, field_count, field_names));
-            write!(&mut self.output, " i64 {}, label %{}", tag, block)?;
+            let (_tag, field_count, field_names) = self.find_variant_info(&variant_name)?;
+            arm_info.push((variant_name, block, field_count, field_names));
         }
-        writeln!(&mut self.output, " ]")?;
 
-        // Step 5: Generate unreachable default block (should never reach)
+        // Step 4: Generate cascading if-else for each arm
+        // We need to preserve the stack with symbol on top for each comparison
+        let mut current_tag_stack = tagged_stack.clone();
+        for (i, (variant_name, arm_block, _, _)) in arm_info.iter().enumerate() {
+            let is_last = i == arm_info.len() - 1;
+            let next_check = if is_last {
+                default_block.clone()
+            } else {
+                self.fresh_block(&format!("match_check_{}", i + 1))
+            };
+
+            // For all but last arm: dup the tag, compare, branch
+            // For last arm: just compare (tag will be consumed)
+            let compare_stack = if !is_last {
+                let dup = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
+                    dup, current_tag_stack
+                )?;
+                dup
+            } else {
+                current_tag_stack.clone()
+            };
+
+            // Create string constant for variant name
+            let str_const = self.get_string_global(variant_name)?;
+
+            // Compare symbol with C string
+            let cmp_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_symbol_eq_cstr(ptr %{}, ptr {})",
+                cmp_stack, compare_stack, str_const
+            )?;
+
+            // Peek the bool result
+            let cmp_val = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call i1 @patch_seq_peek_bool_value(ptr %{})",
+                cmp_val, cmp_stack
+            )?;
+
+            // Pop the bool and update stack for next iteration
+            let popped = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                popped, cmp_stack
+            )?;
+
+            // Branch: if true goto arm, else continue checking
+            writeln!(
+                &mut self.output,
+                "  br i1 %{}, label %{}, label %{}",
+                cmp_val, arm_block, next_check
+            )?;
+
+            // Start next check block (unless this was the last arm)
+            if !is_last {
+                writeln!(&mut self.output, "{}:", next_check)?;
+                // Update current_tag_stack to the popped version for next iteration
+                current_tag_stack = popped;
+            }
+        }
+
+        // Step 5: Generate unreachable default block (should never reach for exhaustive match)
         writeln!(&mut self.output, "{}:", default_block)?;
         writeln!(&mut self.output, "  unreachable")?;
 
         // Step 6: Generate each match arm
+        // We use the original stack_var which still has the variant
         let mut arm_results: Vec<BranchResult> = Vec::new();
-        for (i, (arm, (block, _tag, field_count, field_names))) in
+        for (i, (arm, (_variant_name, block, field_count, field_names))) in
             arms.iter().zip(arm_info.iter()).enumerate()
         {
             writeln!(&mut self.output, "{}:", block)?;
@@ -4632,7 +4693,7 @@ impl CodeGen {
                     writeln!(
                         &mut self.output,
                         "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
-                        result, popped_stack, field_count
+                        result, stack_var, field_count
                     )?;
                     result
                 }
@@ -4651,11 +4712,11 @@ impl CodeGen {
                         writeln!(
                             &mut self.output,
                             "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
-                            drop_stack, popped_stack
+                            drop_stack, stack_var
                         )?;
                         drop_stack
                     } else {
-                        let mut current_stack = popped_stack.to_string();
+                        let mut current_stack = stack_var.to_string();
                         let is_last = |idx: usize| idx == bindings.len() - 1;
 
                         for (bind_idx, binding) in bindings.iter().enumerate() {

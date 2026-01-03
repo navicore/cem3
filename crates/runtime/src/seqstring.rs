@@ -39,6 +39,13 @@ impl Eq for SeqString {}
 // - We never send arena pointers across threads unsafely
 unsafe impl Send for SeqString {}
 
+// Safety: SeqString is Sync because:
+// - The string content is immutable after construction
+// - ptr/len are only read, never modified after construction
+// - Global strings (Arc<String>) are already Sync
+// - Arena strings point to memory that won't be deallocated while in use
+unsafe impl Sync for SeqString {}
+
 impl SeqString {
     /// Get string slice
     ///

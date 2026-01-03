@@ -104,7 +104,7 @@
 # Create a JSON null value
 # Stack: ( -- JsonNull )
 : json-null
-  0 variant.make-0
+  :JsonNull variant.make-0
 ;
 
 # Create a JSON boolean from an Int
@@ -112,29 +112,29 @@
 # Input: 0 for false, non-zero for true
 : json-bool
   0 i.<> if 1 else 0 then
-  1 variant.make-1
+  :JsonBool variant.make-1
 ;
 
 # Convenience: create JSON true
 : json-true
-  1 1 variant.make-1
+  1 :JsonBool variant.make-1
 ;
 
 # Convenience: create JSON false
 : json-false
-  0 1 variant.make-1
+  0 :JsonBool variant.make-1
 ;
 
 # Create a JSON number from a Float
 # Stack: ( Float -- JsonNumber )
 : json-number
-  2 variant.make-1
+  :JsonNumber variant.make-1
 ;
 
 # Create a JSON string
 # Stack: ( String -- JsonString )
 : json-string
-  3 variant.make-1
+  :JsonString variant.make-1
 ;
 
 # ============================================================================
@@ -171,37 +171,37 @@
 # Check if value is null
 # Stack: ( JsonValue -- JsonValue Bool )
 : json-null?
-  dup variant.tag 0 i.=
+  dup variant.tag :JsonNull symbol.=
 ;
 
 # Check if value is bool
 # Stack: ( JsonValue -- JsonValue Bool )
 : json-bool?
-  dup variant.tag 1 i.=
+  dup variant.tag :JsonBool symbol.=
 ;
 
 # Check if value is number
 # Stack: ( JsonValue -- JsonValue Bool )
 : json-number?
-  dup variant.tag 2 i.=
+  dup variant.tag :JsonNumber symbol.=
 ;
 
 # Check if value is string
 # Stack: ( JsonValue -- JsonValue Bool )
 : json-string?
-  dup variant.tag 3 i.=
+  dup variant.tag :JsonString symbol.=
 ;
 
 # Check if value is array
 # Stack: ( JsonValue -- JsonValue Bool )
 : json-array?
-  dup variant.tag 4 i.=
+  dup variant.tag :JsonArray symbol.=
 ;
 
 # Check if value is object
 # Stack: ( JsonValue -- JsonValue Bool )
 : json-object?
-  dup variant.tag 5 i.=
+  dup variant.tag :JsonObject symbol.=
 ;
 
 # ============================================================================
@@ -236,43 +236,43 @@
   dup variant.tag
   # Stack: value tag
 
-  # Tag 0: null
-  dup 0 i.= if
+  # JsonNull
+  dup :JsonNull symbol.= if
     drop drop "null"
   else
 
-  # Tag 1: bool
-  dup 1 i.= if
+  # JsonBool
+  dup :JsonBool symbol.= if
     drop
     # Stack: value
     json-unwrap-bool
     0 i.= if "false" else "true" then
   else
 
-  # Tag 2: number
-  dup 2 i.= if
+  # JsonNumber
+  dup :JsonNumber symbol.= if
     drop
     json-unwrap-number
     float->string
   else
 
-  # Tag 3: string
-  dup 3 i.= if
+  # JsonString
+  dup :JsonString symbol.= if
     drop
     json-unwrap-string
     string.json-escape-string
     quote-char swap string.concat quote-char string.concat
   else
 
-  # Tag 4: array
-  dup 4 i.= if
+  # JsonArray
+  dup :JsonArray symbol.= if
     drop  # drop the duplicated tag
     # value is still on stack, json-serialize-array will consume it
     json-serialize-array
   else
 
-  # Tag 5: object
-  dup 5 i.= if
+  # JsonObject
+  dup :JsonObject symbol.= if
     drop
     json-serialize-object
   else
@@ -420,9 +420,9 @@
 
 # Create a parser state from string and position
 # Stack: ( String Int -- PState )
-# Note: PState is a variant with tag 100 and 2 fields [str, pos]
+# Note: PState is a variant with :PState tag and 2 fields [str, pos]
 : make-pstate
-  100 variant.make-2
+  :PState variant.make-2
 ;
 
 # Get the string from parser state (non-destructive)
@@ -887,13 +887,13 @@
 # Create an empty JSON array
 # Stack: ( -- JsonArray )
 : json-empty-array ( -- Variant )
-  4 variant.make-0
+  :JsonArray variant.make-0
 ;
 
 # Create an empty JSON object
 # Stack: ( -- JsonObject )
 : json-empty-object ( -- Variant )
-  5 variant.make-0
+  :JsonObject variant.make-0
 ;
 
 # Skip whitespace characters

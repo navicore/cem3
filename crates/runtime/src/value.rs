@@ -235,8 +235,9 @@ unsafe impl Sync for Value {}
 /// This functional/immutable design ensures Arc reference counts always reach zero.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariantData {
-    /// Tag identifies which variant constructor was used
-    pub tag: u32,
+    /// Tag identifies which variant constructor was used (symbol name)
+    /// Stored as SeqString for dynamic variant construction via `wrap-N`
+    pub tag: SeqString,
 
     /// Fields stored as an owned array of values
     /// This is independent of any stack structure
@@ -245,7 +246,7 @@ pub struct VariantData {
 
 impl VariantData {
     /// Create a new variant with the given tag and fields
-    pub fn new(tag: u32, fields: Vec<Value>) -> Self {
+    pub fn new(tag: SeqString, fields: Vec<Value>) -> Self {
         Self {
             tag,
             fields: fields.into_boxed_slice(),
@@ -265,14 +266,20 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{:?}", s.as_str()),
             Value::Symbol(s) => write!(f, ":{}", s.as_str()),
             Value::Variant(v) => {
-                write!(f, "Variant(tag={}, fields=[", v.tag)?;
+                write!(f, ":{}", v.tag.as_str())?;
+                if !v.fields.is_empty() {
+                    write!(f, "(")?;
+                }
                 for (i, field) in v.fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     write!(f, "{}", field)?;
                 }
-                write!(f, "])")
+                if !v.fields.is_empty() {
+                    write!(f, ")")?;
+                }
+                Ok(())
             }
             Value::Map(m) => {
                 write!(f, "{{")?;

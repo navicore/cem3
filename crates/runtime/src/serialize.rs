@@ -146,9 +146,9 @@ pub enum TypedValue {
     Symbol(String),
     /// Map with typed keys and values
     Map(BTreeMap<TypedMapKey, TypedValue>),
-    /// Variant with tag and fields
+    /// Variant with tag (symbol name) and fields
     Variant {
-        tag: u32,
+        tag: String,
         fields: Vec<TypedValue>,
     },
 }
@@ -186,7 +186,7 @@ impl TypedValue {
                     typed_fields.push(TypedValue::from_value(field)?);
                 }
                 Ok(TypedValue::Variant {
-                    tag: data.tag,
+                    tag: data.tag.as_str().to_string(),
                     fields: typed_fields,
                 })
             }
@@ -217,7 +217,10 @@ impl TypedValue {
             }
             TypedValue::Variant { tag, fields } => {
                 let runtime_fields: Vec<Value> = fields.iter().map(|f| f.to_value()).collect();
-                Value::Variant(Arc::new(VariantData::new(*tag, runtime_fields)))
+                Value::Variant(Arc::new(VariantData::new(
+                    global_string(tag.clone()),
+                    runtime_fields,
+                )))
             }
         }
     }
@@ -370,14 +373,17 @@ mod tests {
 
     #[test]
     fn test_variant_roundtrip() {
-        let data = VariantData::new(1, vec![Value::Int(100), Value::Bool(false)]);
+        let data = VariantData::new(
+            global_string("TestVariant".to_string()),
+            vec![Value::Int(100), Value::Bool(false)],
+        );
         let value = Value::Variant(Arc::new(data));
 
         let typed = TypedValue::from_value(&value).unwrap();
         let back = typed.to_value();
 
         if let Value::Variant(v) = back {
-            assert_eq!(v.tag, 1);
+            assert_eq!(v.tag.as_str(), "TestVariant");
             assert_eq!(v.fields.len(), 2);
         } else {
             panic!("Expected variant");
@@ -447,7 +453,7 @@ mod tests {
     fn test_nested_structure() {
         // Create nested map with variant
         let inner_variant = TypedValue::Variant {
-            tag: 2,
+            tag: "NestedVariant".to_string(),
             fields: vec![TypedValue::String("inner".to_string())],
         };
 

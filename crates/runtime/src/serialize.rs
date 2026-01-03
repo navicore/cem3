@@ -142,6 +142,8 @@ pub enum TypedValue {
     Float(f64),
     Bool(bool),
     String(String),
+    /// Symbol (interned identifier)
+    Symbol(String),
     /// Map with typed keys and values
     Map(BTreeMap<TypedMapKey, TypedValue>),
     /// Variant with tag and fields
@@ -168,6 +170,7 @@ impl TypedValue {
             }
             Value::Bool(v) => Ok(TypedValue::Bool(*v)),
             Value::String(s) => Ok(TypedValue::String(s.as_str().to_string())),
+            Value::Symbol(s) => Ok(TypedValue::Symbol(s.as_str().to_string())),
             Value::Map(map) => {
                 let mut typed_map = BTreeMap::new();
                 for (k, v) in map.iter() {
@@ -204,6 +207,7 @@ impl TypedValue {
             TypedValue::Float(v) => Value::Float(*v),
             TypedValue::Bool(v) => Value::Bool(*v),
             TypedValue::String(s) => Value::String(global_string(s.clone())),
+            TypedValue::Symbol(s) => Value::Symbol(global_string(s.clone())),
             TypedValue::Map(map) => {
                 let mut runtime_map = HashMap::new();
                 for (k, v) in map.iter() {
@@ -233,6 +237,7 @@ impl TypedValue {
             TypedValue::Variant { .. } => Err(SerializeError::InvalidData(
                 "Variant cannot be a map key".to_string(),
             )),
+            TypedValue::Symbol(v) => Ok(TypedMapKey::String(v.clone())),
         }
     }
 
@@ -253,6 +258,7 @@ impl TypedValue {
             TypedValue::Float(v) => format!("{}", v),
             TypedValue::Bool(v) => format!("{}", v),
             TypedValue::String(v) => format!("{:?}", v),
+            TypedValue::Symbol(v) => format!(":{}", v),
             TypedValue::Map(m) => {
                 let entries: Vec<String> = m
                     .iter()

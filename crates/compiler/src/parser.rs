@@ -443,6 +443,25 @@ impl Parser {
             return Ok(Statement::BoolLiteral(false));
         }
 
+        // Try to parse as symbol literal (:foo, :some-name)
+        if token == ":" {
+            // Get the next token as the symbol name
+            let name_tok = self
+                .advance_token()
+                .ok_or("Expected symbol name after ':'")?;
+            let name = &name_tok.text;
+            // Validate symbol name (identifier-like, kebab-case allowed)
+            if name.is_empty()
+                || name.starts_with(|c: char| c.is_ascii_digit())
+                || name.contains(|c: char| {
+                    !c.is_alphanumeric() && c != '-' && c != '_' && c != '.' && c != '?' && c != '!'
+                })
+            {
+                return Err(format!("Invalid symbol name: ':{}'", name));
+            }
+            return Ok(Statement::Symbol(name.clone()));
+        }
+
         // Try to parse as string literal
         if token.starts_with('"') {
             // Validate token has at least opening and closing quotes
@@ -2582,5 +2601,43 @@ union Data {
         let result = parser.parse();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("at least one arm"));
+    }
+
+    #[test]
+    fn test_parse_symbol_literal() {
+        let source = r#"
+: main ( -- )
+    :hello drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+        assert_eq!(program.words.len(), 1);
+
+        let main = &program.words[0];
+        assert_eq!(main.body.len(), 2);
+
+        match &main.body[0] {
+            Statement::Symbol(name) => assert_eq!(name, "hello"),
+            _ => panic!("Expected Symbol statement, got {:?}", main.body[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_symbol_with_hyphen() {
+        let source = r#"
+: main ( -- )
+    :hello-world drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::Symbol(name) => assert_eq!(name, "hello-world"),
+            _ => panic!("Expected Symbol statement"),
+        }
     }
 }

@@ -1,0 +1,22 @@
+# Test symbol literals and conversion builtins
+
+: test-symbol-literal ( -- )
+  :hello symbol->string "hello" string.equal?
+  test.assert
+;
+
+: test-symbol-with-hyphen ( -- )
+  :hello-world symbol->string "hello-world" string.equal?
+  test.assert
+;
+
+: test-string-to-symbol ( -- )
+  "test" string->symbol symbol->string "test" string.equal?
+  test.assert
+;
+
+: test-symbol-roundtrip ( -- )
+  :my-symbol symbol->string string->symbol symbol->string
+  "my-symbol" string.equal?
+  test.assert
+;

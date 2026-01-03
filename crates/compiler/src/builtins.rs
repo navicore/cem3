@@ -25,6 +25,9 @@ macro_rules! ty {
     (Float) => {
         Type::Float
     };
+    (Symbol) => {
+        Type::Symbol
+    };
     // Single uppercase letter = type variable
     (T) => {
         Type::Var("T".to_string())
@@ -318,6 +321,8 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "string->int", (a String -- a Int Bool)); // value + success flag
     builtin!(sigs, "string->float", (a String -- a Float Bool)); // value + success flag
     builtin!(sigs, "char->string", (a Int -- a String));
+    builtin!(sigs, "symbol->string", (a Symbol -- a String));
+    builtin!(sigs, "string->symbol", (a String -- a Symbol));
 
     // =========================================================================
     // Integer Arithmetic ( a Int Int -- a Int )

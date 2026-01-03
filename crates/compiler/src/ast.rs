@@ -185,6 +185,11 @@ pub enum Statement {
     /// String literal: pushes string onto stack
     StringLiteral(String),
 
+    /// Symbol literal: pushes interned symbol onto stack
+    /// Syntax: :foo, :some-name, :ok
+    /// Used for dynamic variant construction and SON
+    Symbol(String),
+
     /// Word call: calls another word or built-in
     /// Contains the word name and optional source span for precise diagnostics
     WordCall { name: String, span: Option<Span> },
@@ -270,6 +275,8 @@ impl Program {
             "io.read-line+",
             "io.read-n",
             "int->string",
+            "symbol->string",
+            "string->symbol",
             // Command-line arguments
             "args.count",
             "args.at",

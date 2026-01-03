@@ -147,6 +147,10 @@ pub enum Value {
     /// String (arena or globally allocated via SeqString)
     String(SeqString),
 
+    /// Symbol (interned identifier for dynamic variant construction)
+    /// Like Ruby/Clojure symbols - lightweight identifiers used for tags
+    Symbol(SeqString),
+
     /// Variant (sum type with tagged fields)
     /// Uses Arc for O(1) cloning - essential for recursive data structures
     Variant(Arc<VariantData>),

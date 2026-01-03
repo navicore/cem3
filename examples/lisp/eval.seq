@@ -14,11 +14,11 @@ include "parser"
 # Environment (Association List)
 #
 # Env is a list of (String, Value) bindings
-# Bindings use tag 50, closures use tag 60
+# Bindings use :Binding tag, closures use :Closure tag
 # ============================================
 
 : make-binding ( String Variant -- Variant )
-  50 variant.make-2 ;
+  :Binding variant.make-2 ;
 
 : binding-name ( Variant -- String )
   0 variant.field-at ;
@@ -43,10 +43,10 @@ include "parser"
 # ============================================
 
 : make-closure ( Variant Variant Variant -- Variant )
-  60 variant.make-3 ;
+  :Closure variant.make-3 ;
 
 : closure? ( Variant -- Bool )
-  variant.tag 60 i.= ;
+  variant.tag :Closure symbol.= ;
 
 : closure-params ( Variant -- Variant )
   0 variant.field-at ;

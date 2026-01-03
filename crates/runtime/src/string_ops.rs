@@ -42,8 +42,11 @@ pub unsafe extern "C" fn patch_seq_string_split(stack: Stack) -> Stack {
                 .map(|part| Value::String(global_string(part.to_owned())))
                 .collect();
 
-            // Create a Variant with tag 0 and the split parts as fields
-            let variant = Value::Variant(Arc::new(VariantData::new(0, fields)));
+            // Create a Variant with :List tag and the split parts as fields
+            let variant = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                fields,
+            )));
 
             unsafe { push(stack, variant) }
         }
@@ -424,6 +427,29 @@ pub unsafe extern "C" fn patch_seq_string_equal(stack: Stack) -> Stack {
     }
 }
 
+/// Compare two symbols for equality
+///
+/// Stack effect: ( Symbol Symbol -- Bool )
+///
+/// # Safety
+/// Stack must have two Symbol values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_symbol_equal(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "symbol_equal: stack is empty");
+
+    let (stack, sym2_val) = unsafe { pop(stack) };
+    assert!(!stack.is_null(), "symbol_equal: need two symbols");
+    let (stack, sym1_val) = unsafe { pop(stack) };
+
+    match (sym1_val, sym2_val) {
+        (Value::Symbol(s1), Value::Symbol(s2)) => {
+            let equal = s1.as_str() == s2.as_str();
+            unsafe { push(stack, Value::Bool(equal)) }
+        }
+        _ => panic!("symbol_equal: expected two symbols on stack"),
+    }
+}
+
 /// Escape a string for JSON output
 ///
 /// Stack effect: ( str -- str )
@@ -665,7 +691,7 @@ mod tests {
             let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
-                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.tag.as_str(), "List");
                     assert_eq!(v.fields.len(), 3);
                     assert_eq!(v.fields[0], Value::String(global_string("a".to_owned())));
                     assert_eq!(v.fields[1], Value::String(global_string("b".to_owned())));
@@ -689,7 +715,7 @@ mod tests {
             let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
-                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.tag.as_str(), "List");
                     assert_eq!(v.fields.len(), 1);
                     assert_eq!(v.fields[0], Value::String(global_string("".to_owned())));
                 }
@@ -809,7 +835,7 @@ mod tests {
             let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
-                    assert_eq!(v.tag, 0);
+                    assert_eq!(v.tag.as_str(), "List");
                     assert_eq!(v.fields.len(), 3);
                     assert_eq!(v.fields[0], Value::String(global_string("GET".to_owned())));
                     assert_eq!(

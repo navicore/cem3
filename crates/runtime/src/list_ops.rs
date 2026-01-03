@@ -114,7 +114,10 @@ pub unsafe extern "C" fn patch_seq_list_map(stack: Stack) -> Stack {
         }
 
         // Create new variant with same tag
-        let new_variant = Value::Variant(Arc::new(VariantData::new(variant_data.tag, results)));
+        let new_variant = Value::Variant(Arc::new(VariantData::new(
+            variant_data.tag.clone(),
+            results,
+        )));
 
         push(stack, new_variant)
     }
@@ -182,7 +185,10 @@ pub unsafe extern "C" fn patch_seq_list_filter(stack: Stack) -> Stack {
         }
 
         // Create new variant with same tag
-        let new_variant = Value::Variant(Arc::new(VariantData::new(variant_data.tag, results)));
+        let new_variant = Value::Variant(Arc::new(VariantData::new(
+            variant_data.tag.clone(),
+            results,
+        )));
 
         push(stack, new_variant)
     }
@@ -356,6 +362,7 @@ pub use patch_seq_list_map as list_map;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::seqstring::global_string;
 
     // Helper quotation: double an integer
     unsafe extern "C" fn double_quot(stack: Stack) -> Stack {
@@ -396,7 +403,7 @@ mod tests {
         unsafe {
             // Create list [1, 2, 3]
             let list = Value::Variant(Arc::new(VariantData::new(
-                0,
+                global_string("List".to_string()),
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
 
@@ -430,7 +437,7 @@ mod tests {
         unsafe {
             // Create list [-1, 2, -3, 4, 0]
             let list = Value::Variant(Arc::new(VariantData::new(
-                0,
+                global_string("List".to_string()),
                 vec![
                     Value::Int(-1),
                     Value::Int(2),
@@ -469,7 +476,7 @@ mod tests {
         unsafe {
             // Create list [1, 2, 3, 4, 5]
             let list = Value::Variant(Arc::new(VariantData::new(
-                0,
+                global_string("List".to_string()),
                 vec![
                     Value::Int(1),
                     Value::Int(2),
@@ -501,7 +508,10 @@ mod tests {
     fn test_list_fold_empty() {
         unsafe {
             // Create empty list
-            let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
+            let list = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                vec![],
+            )));
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
@@ -525,7 +535,7 @@ mod tests {
     fn test_list_length() {
         unsafe {
             let list = Value::Variant(Arc::new(VariantData::new(
-                0,
+                global_string("List".to_string()),
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
 
@@ -541,7 +551,10 @@ mod tests {
     #[test]
     fn test_list_empty_true() {
         unsafe {
-            let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
+            let list = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                vec![],
+            )));
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
@@ -555,7 +568,10 @@ mod tests {
     #[test]
     fn test_list_empty_false() {
         unsafe {
-            let list = Value::Variant(Arc::new(VariantData::new(0, vec![Value::Int(1)])));
+            let list = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                vec![Value::Int(1)],
+            )));
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
@@ -569,7 +585,10 @@ mod tests {
     #[test]
     fn test_list_map_empty() {
         unsafe {
-            let list = Value::Variant(Arc::new(VariantData::new(0, vec![])));
+            let list = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                vec![],
+            )));
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
@@ -596,9 +615,9 @@ mod tests {
     #[test]
     fn test_list_map_preserves_tag() {
         unsafe {
-            // Create list with custom tag (e.g., 42)
+            // Create list with custom tag
             let list = Value::Variant(Arc::new(VariantData::new(
-                42,
+                global_string("CustomTag".to_string()),
                 vec![Value::Int(1), Value::Int(2)],
             )));
 
@@ -617,7 +636,7 @@ mod tests {
             let (_stack, result) = pop(stack);
             match result {
                 Value::Variant(v) => {
-                    assert_eq!(v.tag, 42); // Tag preserved
+                    assert_eq!(v.tag.as_str(), "CustomTag"); // Tag preserved
                     assert_eq!(v.fields[0], Value::Int(2));
                     assert_eq!(v.fields[1], Value::Int(4));
                 }
@@ -648,7 +667,7 @@ mod tests {
         unsafe {
             // Create list [1, 2, 3]
             let list = Value::Variant(Arc::new(VariantData::new(
-                0,
+                global_string("List".to_string()),
                 vec![Value::Int(1), Value::Int(2), Value::Int(3)],
             )));
 

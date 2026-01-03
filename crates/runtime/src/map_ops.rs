@@ -32,6 +32,7 @@
 //! - For small maps (<100 entries), this is typically fast enough
 //! - Key/value iteration order is not guaranteed (HashMap iteration order)
 
+use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::{MapKey, Value, VariantData};
 use std::sync::Arc;
@@ -216,7 +217,10 @@ pub unsafe extern "C" fn patch_seq_map_keys(stack: Stack) -> Stack {
         };
 
         let keys: Vec<Value> = map.keys().map(|k| k.to_value()).collect();
-        let variant = Value::Variant(Arc::new(VariantData::new(0, keys)));
+        let variant = Value::Variant(Arc::new(VariantData::new(
+            global_string("List".to_string()),
+            keys,
+        )));
         push(stack, variant)
     }
 }
@@ -240,7 +244,10 @@ pub unsafe extern "C" fn patch_seq_map_values(stack: Stack) -> Stack {
         };
 
         let values: Vec<Value> = map.values().cloned().collect();
-        let variant = Value::Variant(Arc::new(VariantData::new(0, values)));
+        let variant = Value::Variant(Arc::new(VariantData::new(
+            global_string("List".to_string()),
+            values,
+        )));
         push(stack, variant)
     }
 }

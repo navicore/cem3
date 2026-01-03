@@ -26,7 +26,7 @@ union TokState {
   Make-TCons ;
 
 : tnil? ( TokenList -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :TNil symbol.= ;
 
 : tcar ( TokenList -- String )
   0 variant.field-at ;

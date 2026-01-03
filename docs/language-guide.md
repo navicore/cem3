@@ -406,9 +406,9 @@ variant.tag             # Get the tag number
 The standard pattern for lists using low-level variants:
 
 ```seq
-: nil ( -- Variant )  0 variant.make-0 ;
-: cons ( head tail -- Variant )  1 variant.make-2 ;
-: nil? ( Variant -- Int )  variant.tag 0 i.= ;
+: nil ( -- Variant )  :Nil variant.make-0 ;
+: cons ( head tail -- Variant )  :Cons variant.make-2 ;
+: nil? ( Variant -- Bool )  variant.tag :Nil symbol.= ;
 : car ( Variant -- head )  0 variant.field-at ;
 : cdr ( Variant -- tail )  1 variant.field-at ;
 

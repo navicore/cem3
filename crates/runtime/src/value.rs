@@ -147,8 +147,10 @@ pub enum Value {
     /// String (arena or globally allocated via SeqString)
     String(SeqString),
 
-    /// Symbol (interned identifier for dynamic variant construction)
-    /// Like Ruby/Clojure symbols - lightweight identifiers used for tags
+    /// Symbol (identifier for dynamic variant construction)
+    /// Like Ruby/Clojure symbols - lightweight identifiers used for tags.
+    /// Note: Currently NOT interned (each symbol allocates). Interning may be
+    /// added in the future for O(1) equality comparison.
     Symbol(SeqString),
 
     /// Variant (sum type with tagged fields)

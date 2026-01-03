@@ -448,16 +448,30 @@ impl Parser {
             // Get the next token as the symbol name
             let name_tok = self
                 .advance_token()
-                .ok_or("Expected symbol name after ':'")?;
+                .ok_or("Expected symbol name after ':', got end of input")?;
             let name = &name_tok.text;
             // Validate symbol name (identifier-like, kebab-case allowed)
-            if name.is_empty()
-                || name.starts_with(|c: char| c.is_ascii_digit())
-                || name.contains(|c: char| {
-                    !c.is_alphanumeric() && c != '-' && c != '_' && c != '.' && c != '?' && c != '!'
-                })
-            {
-                return Err(format!("Invalid symbol name: ':{}'", name));
+            if name.is_empty() {
+                return Err("Symbol name cannot be empty".to_string());
+            }
+            if name.starts_with(|c: char| c.is_ascii_digit()) {
+                return Err(format!(
+                    "Symbol name cannot start with a digit: ':{}'\n  Hint: Symbol names must start with a letter",
+                    name
+                ));
+            }
+            if let Some(bad_char) = name.chars().find(|c| {
+                !c.is_alphanumeric()
+                    && *c != '-'
+                    && *c != '_'
+                    && *c != '.'
+                    && *c != '?'
+                    && *c != '!'
+            }) {
+                return Err(format!(
+                    "Symbol name contains invalid character '{}': ':{}'\n  Hint: Allowed: letters, digits, - _ . ? !",
+                    bad_char, name
+                ));
             }
             return Ok(Statement::Symbol(name.clone()));
         }
@@ -2637,6 +2651,57 @@ union Data {
 
         match &program.words[0].body[0] {
             Statement::Symbol(name) => assert_eq!(name, "hello-world"),
+            _ => panic!("Expected Symbol statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_symbol_starting_with_digit_fails() {
+        let source = r#"
+: main ( -- )
+    :123abc drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot start with a digit"));
+    }
+
+    #[test]
+    fn test_parse_symbol_with_invalid_char_fails() {
+        let source = r#"
+: main ( -- )
+    :hello@world drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid character"));
+    }
+
+    #[test]
+    fn test_parse_symbol_special_chars_allowed() {
+        // Test that ? and ! are allowed in symbol names
+        let source = r#"
+: main ( -- )
+    :empty? drop
+    :save! drop
+;
+"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::Symbol(name) => assert_eq!(name, "empty?"),
+            _ => panic!("Expected Symbol statement"),
+        }
+        match &program.words[0].body[2] {
+            Statement::Symbol(name) => assert_eq!(name, "save!"),
             _ => panic!("Expected Symbol statement"),
         }
     }

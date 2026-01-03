@@ -370,23 +370,33 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                 }
             }
             DISC_SYMBOL => {
-                // Deep copy: like strings, arena symbols may become invalid
-                let ptr = sv.slot1 as *const u8;
-                let len = sv.slot2 as usize;
-                debug_assert!(!ptr.is_null(), "Symbol pointer is null");
-                let slice = std::slice::from_raw_parts(ptr, len);
-                #[cfg(debug_assertions)]
-                let s = std::str::from_utf8(slice).expect("Invalid UTF-8 in symbol clone");
-                #[cfg(not(debug_assertions))]
-                let s = std::str::from_utf8_unchecked(slice);
-                let cloned = crate::seqstring::global_string(s.to_string());
-                let (new_ptr, new_len, new_cap, new_global) = cloned.into_raw_parts();
-                StackValue {
-                    slot0: DISC_SYMBOL,
-                    slot1: new_ptr as u64,
-                    slot2: new_len as u64,
-                    slot3: new_cap as u64,
-                    slot4: if new_global { 1 } else { 0 },
+                let capacity = sv.slot3 as usize;
+                let is_global = sv.slot4 != 0;
+
+                // Fast path (Issue #166): interned symbols can share the static pointer
+                // Interned symbols have capacity=0 and global=true
+                if capacity == 0 && is_global {
+                    // Just copy the StackValue - static data is never freed
+                    *sv
+                } else {
+                    // Deep copy: arena symbols may become invalid
+                    let ptr = sv.slot1 as *const u8;
+                    let len = sv.slot2 as usize;
+                    debug_assert!(!ptr.is_null(), "Symbol pointer is null");
+                    let slice = std::slice::from_raw_parts(ptr, len);
+                    #[cfg(debug_assertions)]
+                    let s = std::str::from_utf8(slice).expect("Invalid UTF-8 in symbol clone");
+                    #[cfg(not(debug_assertions))]
+                    let s = std::str::from_utf8_unchecked(slice);
+                    let cloned = crate::seqstring::global_string(s.to_string());
+                    let (new_ptr, new_len, new_cap, new_global) = cloned.into_raw_parts();
+                    StackValue {
+                        slot0: DISC_SYMBOL,
+                        slot1: new_ptr as u64,
+                        slot2: new_len as u64,
+                        slot3: new_cap as u64,
+                        slot4: if new_global { 1 } else { 0 },
+                    }
                 }
             }
             _ => panic!("Invalid discriminant for clone: {}", sv.slot0),

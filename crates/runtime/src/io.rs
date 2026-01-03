@@ -368,6 +368,55 @@ pub unsafe extern "C" fn patch_seq_push_symbol(stack: Stack, c_str: *const i8) -
     unsafe { push(stack, Value::Symbol(s.into())) }
 }
 
+/// Layout of static interned symbol data from LLVM IR
+///
+/// Matches the LLVM IR structure:
+/// `{ ptr, i64 len, i64 capacity, i8 global }`
+#[repr(C)]
+pub struct InternedSymbolData {
+    ptr: *const u8,
+    len: i64,
+    capacity: i64, // 0 for interned symbols
+    global: i8,    // 1 for interned symbols
+}
+
+/// Push an interned symbol onto the stack (Issue #166)
+///
+/// This pushes a compile-time symbol literal that shares static memory.
+/// The SeqString has capacity=0 to mark it as interned (never freed).
+///
+/// Stack effect: ( -- Symbol )
+///
+/// # Safety
+/// The symbol_data pointer must point to a valid static InternedSymbolData structure.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_push_interned_symbol(
+    stack: Stack,
+    symbol_data: *const InternedSymbolData,
+) -> Stack {
+    assert!(
+        !symbol_data.is_null(),
+        "push_interned_symbol: null symbol data pointer"
+    );
+
+    let data = unsafe { &*symbol_data };
+
+    // Create SeqString that points to static data
+    // capacity=0 marks it as interned (Drop will skip deallocation)
+    // Safety: from_raw_parts requires valid ptr/len/capacity, which we trust
+    // from the LLVM-generated static data
+    let seq_str = unsafe {
+        crate::seqstring::SeqString::from_raw_parts(
+            data.ptr,
+            data.len as usize,
+            data.capacity as usize, // 0 for interned
+            data.global != 0,       // true for interned
+        )
+    };
+
+    unsafe { push(stack, Value::Symbol(seq_str)) }
+}
+
 /// Push a SeqString value onto the stack
 ///
 /// This is used when we already have a SeqString (e.g., from closures).
@@ -458,6 +507,7 @@ pub unsafe extern "C" fn patch_seq_exit_op(stack: Stack) -> ! {
 // Public re-exports with short names for internal use
 pub use patch_seq_exit_op as exit_op;
 pub use patch_seq_int_to_string as int_to_string;
+pub use patch_seq_push_interned_symbol as push_interned_symbol;
 pub use patch_seq_push_seqstring as push_seqstring;
 pub use patch_seq_push_string as push_string;
 pub use patch_seq_push_symbol as push_symbol;

@@ -342,12 +342,26 @@ impl App {
             return;
         }
 
+        // Shift+Enter in Insert mode inserts a newline
+        // Terminals report Shift+Enter differently:
+        // - Some as Enter with SHIFT modifier
+        // - Some as Enter with ALT modifier (e.g., macOS Terminal/iTerm)
+        // - Some as Char('\n')
+        let is_modified_enter = key.code == KeyCode::Enter
+            && (key.modifiers.contains(KeyModifiers::SHIFT)
+                || key.modifiers.contains(KeyModifiers::ALT));
+        let is_newline_char = key.code == KeyCode::Char('\n');
+
+        if (is_modified_enter || is_newline_char) && self.editor.status() == "INSERT" {
+            let cursor = self.editor.cursor();
+            self.repl_state.input.insert(cursor, '\n');
+            self.editor.set_cursor(cursor + 1, &self.repl_state.input);
+            self.repl_state.cursor = self.editor.cursor();
+            return;
+        }
+
         // Enter in Insert mode submits (REPL behavior, not vim's newline insertion)
-        // Use Shift+Enter to insert newlines
-        if key.code == KeyCode::Enter
-            && self.editor.status() == "INSERT"
-            && !key.modifiers.contains(KeyModifiers::SHIFT)
-        {
+        if key.code == KeyCode::Enter && self.editor.status() == "INSERT" {
             self.execute_input();
             return;
         }
@@ -1303,6 +1317,7 @@ impl App {
     /// Provide built-in completions when LSP is not available
     fn builtin_completions(&mut self, prefix: &str) {
         let builtins = [
+            // Stack operations
             "dup",
             "drop",
             "swap",
@@ -1310,7 +1325,11 @@ impl App {
             "rot",
             "nip",
             "tuck",
-            // Integer arithmetic (long and symbolic forms)
+            "2dup",
+            "3drop",
+            "pick",
+            "roll",
+            // Integer arithmetic
             "i.add",
             "i.+",
             "i.subtract",
@@ -1320,6 +1339,8 @@ impl App {
             "i.divide",
             "i./",
             "i.%",
+            "i.negate",
+            "i.abs",
             // Integer comparisons
             "i.=",
             "i.<",
@@ -1327,7 +1348,7 @@ impl App {
             "i.<=",
             "i.>=",
             "i.<>",
-            // Float arithmetic (long and symbolic forms)
+            // Float arithmetic
             "f.add",
             "f.+",
             "f.subtract",
@@ -1336,6 +1357,8 @@ impl App {
             "f.*",
             "f.divide",
             "f./",
+            "f.negate",
+            "f.abs",
             // Float comparisons
             "f.=",
             "f.<",
@@ -1343,30 +1366,164 @@ impl App {
             "f.<=",
             "f.>=",
             "f.<>",
-            // Legacy names
-            "modulo",
-            "negate",
-            "equals",
-            "not-equals",
-            "less-than",
-            "greater-than",
-            "less-or-equal",
-            "greater-or-equal",
+            // Boolean
             "and",
             "or",
             "not",
-            "apply",
-            "dip",
+            "true",
+            "false",
+            // Control flow
             "if",
             "when",
             "unless",
             "while",
             "times",
-            "true",
-            "false",
+            "match",
+            "end",
+            // Quotations
+            "apply",
+            "call",
+            "dip",
+            "keep",
+            "bi",
+            "tri",
+            // Map operations
+            "map.make",
+            "map.get",
+            "map.set",
+            "map.has?",
+            "map.remove",
+            "map.keys",
+            "map.values",
+            "map.size",
+            "map.empty?",
+            "map-of",
+            "kv",
+            // List operations
+            "list.make",
+            "list.push",
+            "list.pop",
+            "list.get",
+            "list.set",
+            "list.length",
+            "list.empty?",
+            "list.concat",
+            "list.reverse",
+            "list.map",
+            "list.filter",
+            "list.fold",
+            "list.each",
+            "list-of",
+            "lv",
+            // String operations
+            "string.concat",
+            "string.length",
+            "string.byte-length",
+            "string.char-at",
+            "string.substring",
+            "string.find",
+            "string.split",
+            "string.join",
+            "string.contains",
+            "string.starts-with",
+            "string.empty?",
+            "string.equal?",
+            "string.trim",
+            "string.upper",
+            "string.lower",
+            // Type conversions (modern arrow syntax)
+            "int->string",
+            "int->float",
+            "float->int",
+            "float->string",
+            "string->int",
+            "string->float",
+            "char->string",
+            "symbol->string",
+            "string->symbol",
+            // Type conversions (legacy)
+            "int-to-string",
+            "string-to-int",
+            "float-to-string",
+            "string-to-float",
+            // I/O
+            "io.write",
+            "io.write-line",
+            "io.read-line",
+            "io.read-line+",
+            "io.read-n",
+            // File operations
+            "file.slurp",
+            "file.exists?",
+            // Args
+            "args.count",
+            "args.at",
+            // OS operations
+            "os.getenv",
+            "os.home-dir",
+            "os.current-dir",
+            "os.path-exists",
+            "os.path-is-file",
+            "os.path-is-dir",
+            "os.path-join",
+            "os.path-parent",
+            "os.path-filename",
+            "os.exit",
+            "os.name",
+            "os.arch",
+            // Variants
+            "wrap-0",
+            "wrap-1",
+            "wrap-2",
+            "wrap-3",
+            "wrap-4",
+            "unwrap",
+            "variant.field-count",
+            "variant.tag",
+            "variant.field-at",
+            "variant.append",
+            "variant.last",
+            "variant.init",
+            "variant.make-0",
+            "variant.make-1",
+            "variant.make-2",
+            "variant.make-3",
+            "variant.make-4",
+            // Symbol operations
+            "symbol.=",
+            // SON
+            "son.dump",
+            "son.dump-pretty",
+            // Channels
+            "chan.make",
+            "chan.send",
+            "chan.receive",
+            "chan.close",
+            "chan.yield",
+            // TCP
+            "tcp.listen",
+            "tcp.accept",
+            "tcp.read",
+            "tcp.write",
+            "tcp.close",
+            // Time
+            "time.now",
+            "time.nanos",
+            "time.sleep-ms",
+            // Testing
+            "test.init",
+            "test.finish",
+            "test.has-failures",
+            "test.assert",
+            "test.assert-not",
+            "test.assert-eq",
+            "test.assert-eq-str",
+            "test.fail",
+            "test.pass-count",
+            "test.fail-count",
+            // Debug
             "stack.dump",
-            "print",
-            "println",
+            "int-bits",
         ];
 
         self.completions = builtins
@@ -1821,6 +1978,61 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         app.handle_key(key);
         assert!(app.should_quit);
+        Ok(())
+    }
+
+    #[test]
+    fn test_tab_completion() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Enter insert mode and type "du"
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('d')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('u')));
+
+        // Verify input and cursor are correct
+        assert_eq!(app.repl_state.input, "du");
+        assert_eq!(app.repl_state.cursor, 2);
+
+        // Press Tab to trigger completion
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+
+        // Should show completions with "dup" matching
+        assert!(
+            app.show_completions,
+            "Completions should be visible after Tab"
+        );
+        assert!(
+            !app.completions.is_empty(),
+            "Should have completions for 'du'"
+        );
+        assert!(
+            app.completions.iter().any(|c| c.label == "dup"),
+            "Should include 'dup' in completions"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tab_completion_empty_prefix() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Press Tab with empty input
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+
+        // Should not show completions, should show status message
+        assert!(
+            !app.show_completions,
+            "Should not show completions for empty prefix"
+        );
+        assert!(
+            app.status_message
+                .as_ref()
+                .is_some_and(|m| m.contains("type a prefix")),
+            "Should show 'type a prefix' message"
+        );
+
         Ok(())
     }
 }

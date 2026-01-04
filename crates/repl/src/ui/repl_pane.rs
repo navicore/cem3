@@ -11,8 +11,11 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Paragraph, Widget},
+    widgets::{Paragraph, Widget, Wrap},
 };
+
+/// Prompt shown for continuation lines in multiline input
+const CONTINUATION_PROMPT: &str = ".... ";
 
 /// A single entry in the REPL history
 #[derive(Debug, Clone)]
@@ -255,15 +258,22 @@ impl<'a> ReplPane<'a> {
     fn build_lines(&self) -> Vec<Line<'a>> {
         let mut lines = Vec::new();
 
-        // Render history
+        // Render history (with multiline support)
         for entry in &self.state.history {
-            // Input line with prompt
-            let mut input_spans = vec![Span::styled(
-                self.prompt.to_string(),
-                Style::default().fg(Color::Green),
-            )];
-            input_spans.extend(self.highlight_code(&entry.input).spans);
-            lines.push(Line::from(input_spans));
+            // Split input by newlines for multiline history entries
+            for (i, input_line) in entry.input.split('\n').enumerate() {
+                let prompt = if i == 0 {
+                    self.prompt
+                } else {
+                    CONTINUATION_PROMPT
+                };
+                let mut spans = vec![Span::styled(
+                    prompt.to_string(),
+                    Style::default().fg(Color::Green),
+                )];
+                spans.extend(self.highlight_code(input_line).spans);
+                lines.push(Line::from(spans));
+            }
 
             // Output line (if any)
             if let Some(output) = &entry.output {
@@ -278,40 +288,75 @@ impl<'a> ReplPane<'a> {
             }
         }
 
-        // Current input line with cursor
-        let mut input_spans = vec![Span::styled(
-            self.prompt.to_string(),
-            Style::default().fg(Color::Green),
-        )];
+        // Current input with multiline support
+        let input_lines: Vec<&str> = self.state.input.split('\n').collect();
 
-        if self.focused {
-            // Split input at cursor position and show cursor
-            let (before, after) = self.state.input.split_at(self.state.cursor);
-
-            if !before.is_empty() {
-                input_spans.extend(self.highlight_code(before).spans);
+        // Find which line the cursor is on and the column within that line
+        let (cursor_line, cursor_col) = if self.focused {
+            let mut line_idx = 0;
+            let mut col = self.state.cursor;
+            let mut pos = 0;
+            for (i, line_text) in input_lines.iter().enumerate() {
+                let line_end = pos + line_text.len();
+                if self.state.cursor <= line_end {
+                    line_idx = i;
+                    col = self.state.cursor - pos;
+                    break;
+                }
+                pos = line_end + 1; // +1 for the newline character
+                line_idx = i + 1; // cursor is past this line
             }
-
-            // Cursor character (block cursor)
-            let cursor_char = if after.is_empty() {
-                " "
-            } else {
-                &after[..after.chars().next().map_or(0, |c| c.len_utf8())]
-            };
-            input_spans.push(Span::styled(
-                cursor_char.to_string(),
-                Style::default().bg(Color::White).fg(Color::Black),
-            ));
-
-            // Rest after cursor
-            if !after.is_empty() && after.len() > cursor_char.len() {
-                input_spans.extend(self.highlight_code(&after[cursor_char.len()..]).spans);
-            }
+            // Clamp line_idx to valid range (handles cursor after trailing newline)
+            line_idx = line_idx.min(input_lines.len().saturating_sub(1));
+            let col = col.min(input_lines.get(line_idx).map_or(0, |l| l.len()));
+            (line_idx, col)
         } else {
-            input_spans.extend(self.highlight_code(&self.state.input).spans);
-        }
+            (0, 0)
+        };
 
-        lines.push(Line::from(input_spans));
+        // Render each input line
+        for (i, line_text) in input_lines.iter().enumerate() {
+            let prompt = if i == 0 {
+                self.prompt
+            } else {
+                CONTINUATION_PROMPT
+            };
+            let mut spans = vec![Span::styled(
+                prompt.to_string(),
+                Style::default().fg(Color::Green),
+            )];
+
+            if self.focused && i == cursor_line {
+                // This line has the cursor - split at cursor position
+                let col = cursor_col.min(line_text.len());
+                let (before, after) = line_text.split_at(col);
+
+                if !before.is_empty() {
+                    spans.extend(self.highlight_code(before).spans);
+                }
+
+                // Cursor character (block cursor)
+                let cursor_char = if after.is_empty() {
+                    " "
+                } else {
+                    &after[..after.chars().next().map_or(0, |c| c.len_utf8())]
+                };
+                spans.push(Span::styled(
+                    cursor_char.to_string(),
+                    Style::default().bg(Color::White).fg(Color::Black),
+                ));
+
+                // Rest after cursor
+                if !after.is_empty() && after.len() > cursor_char.len() {
+                    spans.extend(self.highlight_code(&after[cursor_char.len()..]).spans);
+                }
+            } else {
+                // No cursor on this line
+                spans.extend(self.highlight_code(line_text).spans);
+            }
+
+            lines.push(Line::from(spans));
+        }
 
         lines
     }
@@ -322,18 +367,24 @@ impl Widget for &ReplPane<'_> {
         // No border for REPL - it's the primary interface
         let lines = self.build_lines();
 
-        // Calculate scroll to keep cursor visible
-        let content_height = lines.len() as u16;
-        let visible_height = area.height;
-        let scroll = if content_height > visible_height {
-            content_height.saturating_sub(visible_height)
-        } else {
-            0
-        };
+        // Calculate wrapped content height for scroll
+        // Each line may wrap to multiple display lines
+        let width = area.width.max(1) as usize;
+        let wrapped_height: u16 = lines
+            .iter()
+            .map(|line| {
+                let line_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+                // At least 1 line, or ceil(line_width / width), clamped to u16::MAX
+                line_width.max(1).div_ceil(width).min(u16::MAX as usize) as u16
+            })
+            .fold(0u16, |acc, h| acc.saturating_add(h));
 
-        // Don't use Wrap - it interferes with scroll calculation
-        // Long lines will be clipped, which is fine for a REPL
-        let paragraph = Paragraph::new(lines).scroll((scroll, 0));
+        let visible_height = area.height;
+        let scroll = wrapped_height.saturating_sub(visible_height);
+
+        let paragraph = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0));
 
         paragraph.render(area, buf);
     }
@@ -410,5 +461,69 @@ mod tests {
 
         let line = pane.highlight_code("42 dup add");
         assert!(!line.spans.is_empty());
+    }
+
+    #[test]
+    fn test_multiline_input_rendering() {
+        let mut state = ReplState::new();
+        state.input = "foo\nbar\nbaz".to_string();
+        state.cursor = 4; // At 'b' in "bar"
+
+        let pane = ReplPane::new(&state).focused(true);
+        let lines = pane.build_lines();
+
+        // Should have 3 lines for the multiline input
+        assert_eq!(lines.len(), 3);
+
+        // First line should have the main prompt "seq> "
+        let first_line_text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(first_line_text.starts_with("seq> "));
+        assert!(first_line_text.contains("foo"));
+
+        // Second line should have continuation prompt ".... "
+        let second_line_text: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(second_line_text.starts_with(".... "));
+    }
+
+    #[test]
+    fn test_cursor_position_trailing_newline() {
+        let mut state = ReplState::new();
+        // Input with trailing newline: "foo\n"
+        // After split: ["foo", ""]
+        // Cursor at position 4 (after the newline)
+        state.input = "foo\n".to_string();
+        state.cursor = 4;
+
+        let pane = ReplPane::new(&state).focused(true);
+        let lines = pane.build_lines();
+
+        // Should render without panic (the bug was out-of-bounds access)
+        assert_eq!(lines.len(), 2); // "foo" and empty line
+    }
+
+    #[test]
+    fn test_cursor_position_empty_lines() {
+        let mut state = ReplState::new();
+        // Input with empty line in the middle: "foo\n\nbar"
+        state.input = "foo\n\nbar".to_string();
+        state.cursor = 4; // At the empty line
+
+        let pane = ReplPane::new(&state).focused(true);
+        let lines = pane.build_lines();
+
+        // Should have 3 lines
+        assert_eq!(lines.len(), 3);
+    }
+
+    #[test]
+    fn test_multiline_history_entry() {
+        let mut state = ReplState::new();
+        state.add_entry(HistoryEntry::new("line1\nline2").with_output("result"));
+
+        let pane = ReplPane::new(&state);
+        let lines = pane.build_lines();
+
+        // History: 2 lines for input + 1 for output + 1 for current empty input
+        assert!(lines.len() >= 3);
     }
 }

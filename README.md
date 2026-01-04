@@ -111,6 +111,12 @@ stack: 3 25
 - `:edit` - Open in $EDITOR
 - `:quit` - Exit
 
+**Editing:**
+- Vi-mode editing (Esc for normal mode, i for insert)
+- **Shift+Enter** - Insert newline for multiline input
+- **Tab** - Trigger completions
+- **F1/F2/F3** - Toggle IR pane views (Stack/AST/LLVM)
+
 ## Language Features
 
 ### Stack Operations & Arithmetic

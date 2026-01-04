@@ -87,3 +87,43 @@ include std:list
   0 [ i.+ ] list.fold
   10 test.assert-eq
 ;
+
+# Test nested lists
+: test-list-nested ( -- )
+  # Build inner lists first
+  list-of 1 lv 2 lv    # Stack: [1,2]
+  list-of 3 lv 4 lv    # Stack: [1,2] [3,4]
+  # Build outer list containing them (order: first built = first in outer)
+  # Stack: [1,2] [3,4]
+  # We want outer = [[1,2], [3,4]], so add [1,2] first, then [3,4]
+  swap                 # Stack: [3,4] [1,2]
+  list-of swap lv      # Stack: [3,4] [[1,2]]
+  swap lv              # Stack: [[1,2], [3,4]]
+  dup list.length 2 test.assert-eq
+  # Get first inner list [1,2] and verify
+  dup 0 list.get test.assert
+  dup list.length 2 test.assert-eq
+  0 list.get test.assert 1 test.assert-eq
+  # Get second inner list [3,4]
+  1 list.get test.assert
+  1 list.get test.assert 4 test.assert-eq
+;
+
+# Test mixed types in list
+: test-list-mixed-types ( -- )
+  list-of "hello" lv 42 lv true lv
+  dup list.length 3 test.assert-eq
+  dup 0 list.get test.assert "hello" string.equal? test.assert
+  dup 1 list.get test.assert 42 test.assert-eq
+  2 list.get test.assert test.assert
+;
+
+# Test list.set preserves functional semantics (original unchanged)
+: test-list-set-functional ( -- )
+  list-of 1 lv 2 lv 3 lv
+  dup 1 99 list.set test.assert
+  # New list has 99 at index 1
+  1 list.get test.assert 99 test.assert-eq
+  # Original list still has 2 at index 1
+  1 list.get test.assert 2 test.assert-eq
+;

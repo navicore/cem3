@@ -31,6 +31,7 @@ mod ui;
 
 use clap::Parser as ClapParser;
 use crossterm::{
+    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -76,6 +77,14 @@ fn run(file: Option<&std::path::Path>) -> Result<(), String> {
     execute!(stdout, EnterAlternateScreen)
         .map_err(|e| format!("Failed to enter alternate screen: {}", e))?;
 
+    // Enable keyboard enhancement to detect Shift+Enter and other modifier combinations
+    // This is optional - if the terminal doesn't support it, we continue without it
+    let keyboard_enhancement_enabled = execute!(
+        stdout,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+    )
+    .is_ok();
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal =
         Terminal::new(backend).map_err(|e| format!("Failed to create terminal: {}", e))?;
@@ -92,6 +101,9 @@ fn run(file: Option<&std::path::Path>) -> Result<(), String> {
 
     // Restore terminal
     let _ = disable_raw_mode();
+    if keyboard_enhancement_enabled {
+        let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
+    }
     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
     let _ = terminal.show_cursor();
 

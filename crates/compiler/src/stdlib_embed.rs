@@ -18,6 +18,7 @@ static STDLIB: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| 
     m.insert("result", include_str!("../stdlib/result.seq"));
     m.insert("map", include_str!("../stdlib/map.seq"));
     m.insert("list", include_str!("../stdlib/list.seq"));
+    m.insert("son", include_str!("../stdlib/son.seq"));
     m
 });
 

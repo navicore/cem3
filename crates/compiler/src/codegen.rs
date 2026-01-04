@@ -374,6 +374,10 @@ pub struct CodeGen {
     /// Pure inline test mode: bypasses scheduler, returns top of stack as exit code.
     /// Used for testing pure integer programs without FFI dependencies.
     pure_inline_test: bool,
+    // Symbol interning for O(1) equality (Issue #166)
+    symbol_globals: String, // LLVM IR for static symbol globals
+    symbol_counter: usize,  // Counter for unique symbol names
+    symbol_constants: HashMap<String, String>, // symbol name -> global name (deduplication)
 }
 
 impl CodeGen {
@@ -396,6 +400,9 @@ impl CodeGen {
             ffi_bindings: FfiBindings::new(),
             ffi_wrapper_code: String::new(),
             pure_inline_test: false,
+            symbol_globals: String::new(),
+            symbol_counter: 0,
+            symbol_constants: HashMap::new(),
         }
     }
 
@@ -560,6 +567,39 @@ impl CodeGen {
         Ok(global_name)
     }
 
+    /// Get or create a global interned symbol constant (Issue #166)
+    ///
+    /// Creates a static SeqString structure with capacity=0 to mark it as interned.
+    /// This enables O(1) symbol equality via pointer comparison.
+    fn get_symbol_global(&mut self, symbol_name: &str) -> Result<String, CodeGenError> {
+        // Deduplicate: return existing global if we've seen this symbol
+        if let Some(global_name) = self.symbol_constants.get(symbol_name) {
+            return Ok(global_name.clone());
+        }
+
+        // Get or create the underlying string data
+        let str_global = self.get_string_global(symbol_name)?;
+
+        // Create the SeqString structure global
+        let sym_global = format!("@.sym.{}", self.symbol_counter);
+        self.symbol_counter += 1;
+
+        // SeqString layout: { ptr, i64 len, i64 capacity, i8 global }
+        // capacity=0 marks this as an interned symbol (never freed)
+        // global=1 marks it as static data
+        writeln!(
+            &mut self.symbol_globals,
+            "{} = private unnamed_addr constant {{ ptr, i64, i64, i8 }} {{ ptr {}, i64 {}, i64 0, i8 1 }}",
+            sym_global,
+            str_global,
+            symbol_name.len()
+        )?;
+
+        self.symbol_constants
+            .insert(symbol_name.to_string(), sym_global.clone());
+        Ok(sym_global)
+    }
+
     /// Generate LLVM IR for entire program
     pub fn codegen_program(
         &mut self,
@@ -619,17 +659,18 @@ impl CodeGen {
         writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
-        // String constants
-        if !self.string_globals.is_empty() {
-            ir.push_str(&self.string_globals);
-            writeln!(&mut ir)?;
-        }
+        // String and symbol constants
+        self.emit_string_and_symbol_globals(&mut ir)?;
 
         // Runtime function declarations
         writeln!(&mut ir, "; Runtime function declarations")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_push_symbol(ptr, ptr)")?;
+        writeln!(
+            &mut ir,
+            "declare ptr @patch_seq_push_interned_symbol(ptr, ptr)"
+        )?;
         writeln!(&mut ir, "declare ptr @patch_seq_write(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_read_line(ptr)")?;
@@ -959,11 +1000,8 @@ impl CodeGen {
         writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
-        // String constants
-        if !self.string_globals.is_empty() {
-            ir.push_str(&self.string_globals);
-            writeln!(&mut ir)?;
-        }
+        // String and symbol constants
+        self.emit_string_and_symbol_globals(&mut ir)?;
 
         // Runtime function declarations (same as codegen_program_with_config)
         self.emit_runtime_declarations(&mut ir)?;
@@ -1025,12 +1063,29 @@ impl CodeGen {
         Ok(ir)
     }
 
+    /// Emit string and symbol global constants
+    fn emit_string_and_symbol_globals(&self, ir: &mut String) -> Result<(), CodeGenError> {
+        // String constants
+        if !self.string_globals.is_empty() {
+            ir.push_str(&self.string_globals);
+            writeln!(ir)?;
+        }
+
+        // Symbol constants (interned symbols for O(1) equality)
+        if !self.symbol_globals.is_empty() {
+            ir.push_str(&self.symbol_globals);
+            writeln!(ir)?;
+        }
+        Ok(())
+    }
+
     /// Emit runtime function declarations
     fn emit_runtime_declarations(&self, ir: &mut String) -> Result<(), CodeGenError> {
         writeln!(ir, "; Runtime function declarations")?;
         writeln!(ir, "declare ptr @patch_seq_push_int(ptr, i64)")?;
         writeln!(ir, "declare ptr @patch_seq_push_string(ptr, ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_push_symbol(ptr, ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_push_interned_symbol(ptr, ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_write(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_write_line(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_read_line(ptr)")?;
@@ -2289,20 +2344,15 @@ impl CodeGen {
 
     /// Generate code for a symbol literal: ( -- sym )
     fn codegen_symbol_literal(&mut self, stack_var: &str, s: &str) -> Result<String, CodeGenError> {
-        let global = self.get_string_global(s)?;
-        let ptr_temp = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr inbounds [{} x i8], ptr {}, i32 0, i32 0",
-            ptr_temp,
-            s.len() + 1,
-            global
-        )?;
+        // Get interned symbol global (static SeqString structure)
+        let sym_global = self.get_symbol_global(s)?;
+
+        // Push the interned symbol - passes pointer to static SeqString structure
         let result_var = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = call ptr @patch_seq_push_symbol(ptr %{}, ptr %{})",
-            result_var, stack_var, ptr_temp
+            "  %{} = call ptr @patch_seq_push_interned_symbol(ptr %{}, ptr {})",
+            result_var, stack_var, sym_global
         )?;
         Ok(result_var)
     }
@@ -5548,8 +5598,60 @@ mod tests {
 
         let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
 
-        assert!(ir.contains("call ptr @patch_seq_push_symbol"));
+        assert!(ir.contains("call ptr @patch_seq_push_interned_symbol"));
         assert!(ir.contains("call ptr @patch_seq_symbol_to_string"));
         assert!(ir.contains("\"hello\\00\""));
+    }
+
+    #[test]
+    fn test_symbol_interning_dedup() {
+        // Issue #166: Test that duplicate symbol literals share the same global
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    // Use :hello twice - should share the same .sym global
+                    Statement::Symbol("hello".to_string()),
+                    Statement::Symbol("hello".to_string()),
+                    Statement::Symbol("world".to_string()), // Different symbol
+                ],
+                source: None,
+            }],
+        };
+
+        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+
+        // Should have exactly one .sym global for "hello" and one for "world"
+        // Count occurrences of symbol global definitions (lines starting with @.sym)
+        let sym_defs: Vec<_> = ir
+            .lines()
+            .filter(|l| l.trim().starts_with("@.sym."))
+            .collect();
+
+        // There should be 2 definitions: .sym.0 for "hello" and .sym.1 for "world"
+        assert_eq!(
+            sym_defs.len(),
+            2,
+            "Expected 2 symbol globals, got: {:?}",
+            sym_defs
+        );
+
+        // Verify deduplication: :hello appears twice but .sym.0 is reused
+        let hello_uses: usize = ir.matches("@.sym.0").count();
+        assert_eq!(
+            hello_uses, 3,
+            "Expected 3 occurrences of .sym.0 (1 def + 2 uses)"
+        );
+
+        // The IR should contain static symbol structure with capacity=0
+        assert!(
+            ir.contains("i64 0, i8 1"),
+            "Symbol global should have capacity=0 and global=1"
+        );
     }
 }

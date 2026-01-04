@@ -431,6 +431,9 @@ pub unsafe extern "C" fn patch_seq_string_equal(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( Symbol Symbol -- Bool )
 ///
+/// Optimization (Issue #166): If both symbols are interned (capacity=0),
+/// we use O(1) pointer comparison instead of O(n) string comparison.
+///
 /// # Safety
 /// Stack must have two Symbol values on top
 #[unsafe(no_mangle)]
@@ -443,7 +446,13 @@ pub unsafe extern "C" fn patch_seq_symbol_equal(stack: Stack) -> Stack {
 
     match (sym1_val, sym2_val) {
         (Value::Symbol(s1), Value::Symbol(s2)) => {
-            let equal = s1.as_str() == s2.as_str();
+            // Fast path: both interned symbols -> O(1) pointer comparison
+            let equal = if s1.is_interned() && s2.is_interned() {
+                s1.as_ptr() == s2.as_ptr()
+            } else {
+                // Fallback: string comparison for runtime-created symbols
+                s1.as_str() == s2.as_str()
+            };
             unsafe { push(stack, Value::Bool(equal)) }
         }
         _ => panic!("symbol_equal: expected two symbols on stack"),

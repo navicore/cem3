@@ -72,11 +72,11 @@ pub use float_ops::{
 
 // I/O operations (exported for LLVM linking)
 pub use io::{
-    patch_seq_exit_op as exit_op, patch_seq_push_string as push_string,
-    patch_seq_push_symbol as push_symbol, patch_seq_read_line as read_line,
-    patch_seq_read_line_plus as read_line_plus, patch_seq_read_n as read_n,
-    patch_seq_string_to_symbol as string_to_symbol, patch_seq_symbol_to_string as symbol_to_string,
-    patch_seq_write_line as write_line,
+    patch_seq_exit_op as exit_op, patch_seq_push_interned_symbol as push_interned_symbol,
+    patch_seq_push_string as push_string, patch_seq_push_symbol as push_symbol,
+    patch_seq_read_line as read_line, patch_seq_read_line_plus as read_line_plus,
+    patch_seq_read_n as read_n, patch_seq_string_to_symbol as string_to_symbol,
+    patch_seq_symbol_to_string as symbol_to_string, patch_seq_write_line as write_line,
 };
 
 // Scheduler operations (exported for LLVM linking)

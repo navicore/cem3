@@ -87,8 +87,6 @@ pub struct App {
     completion_index: usize,
     /// Whether completion popup is visible
     show_completions: bool,
-    /// Accumulated horizontal swipe delta (for gesture sensitivity)
-    swipe_accumulator: i16,
 }
 
 // Note: App intentionally does not implement Default because App::new() can fail
@@ -148,7 +146,6 @@ impl App {
             completions: Vec::new(),
             completion_index: 0,
             show_completions: false,
-            swipe_accumulator: 0,
         };
         app.load_history();
         Ok(app)
@@ -188,7 +185,6 @@ impl App {
             completions: Vec::new(),
             completion_index: 0,
             show_completions: false,
-            swipe_accumulator: 0,
         };
         app.load_history();
         Ok(app)
@@ -326,6 +322,23 @@ impl App {
                 }
                 _ => {}
             }
+        }
+
+        // Function keys toggle IR pane views (F1=Stack, F2=AST, F3=LLVM)
+        match key.code {
+            KeyCode::F(1) => {
+                self.toggle_ir_view(IrViewMode::StackArt);
+                return;
+            }
+            KeyCode::F(2) => {
+                self.toggle_ir_view(IrViewMode::TypedAst);
+                return;
+            }
+            KeyCode::F(3) => {
+                self.toggle_ir_view(IrViewMode::LlvmIr);
+                return;
+            }
+            _ => {}
         }
 
         // Tab triggers completion (before vim-line, which doesn't handle Tab)
@@ -826,6 +839,9 @@ impl App {
                         "  d             Clear line".to_string(),
                         String::new(),
                         "KEYS".to_string(),
+                        "  F1            Toggle Stack Effects".to_string(),
+                        "  F2            Toggle Typed AST".to_string(),
+                        "  F3            Toggle LLVM IR".to_string(),
                         "  Tab           Show completions".to_string(),
                         "  Ctrl+N        Cycle IR views".to_string(),
                         "  Ctrl+D        Exit REPL".to_string(),
@@ -946,51 +962,19 @@ impl App {
         self.ir_content.content_for(self.ir_mode).len()
     }
 
-    /// Swipe gesture threshold (accumulate this many events before triggering)
-    const SWIPE_THRESHOLD: i16 = 10;
-
-    /// Handle swipe right gesture: open IR pane or cycle to next view
-    /// Flow: (closed) → Stack Effects → Typed AST → LLVM IR (stop)
-    pub fn swipe_right(&mut self) {
-        self.swipe_accumulator += 1;
-        if self.swipe_accumulator < Self::SWIPE_THRESHOLD {
-            return;
-        }
-        self.swipe_accumulator = 0;
-
-        if !self.show_ir_pane {
-            // Open IR pane (starts at Stack Effects)
-            self.show_ir_pane = true;
-            self.ir_mode = IrViewMode::StackArt;
-            self.ir_scroll = 0;
-        } else if self.ir_mode != IrViewMode::LlvmIr {
-            // Cycle to next view (but stop at LLVM IR)
-            self.ir_mode = self.ir_mode.next();
-            self.ir_scroll = 0;
-        }
-        // If already on LLVM IR, do nothing
-    }
-
-    /// Handle swipe left gesture: cycle to previous view or close IR pane
-    /// Flow: LLVM IR → Typed AST → Stack Effects → (closed)
-    pub fn swipe_left(&mut self) {
-        self.swipe_accumulator -= 1;
-        if self.swipe_accumulator > -Self::SWIPE_THRESHOLD {
-            return;
-        }
-        self.swipe_accumulator = 0;
-
-        if !self.show_ir_pane {
-            return;
-        }
-
-        if self.ir_mode == IrViewMode::StackArt {
-            // Close IR pane
+    /// Toggle IR pane to a specific view mode
+    /// If already showing this mode, hide the pane. Otherwise show/switch to it.
+    fn toggle_ir_view(&mut self, mode: IrViewMode) {
+        if self.show_ir_pane && self.ir_mode == mode {
+            // Same view - toggle off
             self.show_ir_pane = false;
+            self.status_message = Some("IR pane hidden".to_string());
         } else {
-            // Cycle to previous view
-            self.ir_mode = self.ir_mode.prev();
+            // Different view or hidden - show this view
+            self.show_ir_pane = true;
+            self.ir_mode = mode;
             self.ir_scroll = 0;
+            self.status_message = Some(format!("IR: {}", mode.name()));
         }
     }
 

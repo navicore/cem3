@@ -7,7 +7,7 @@
 - [x] [#147 - List type for Seq](https://github.com/navicore/patch-seq/issues/147) ✅
 - [x] [#148 - Symbol/keyword syntax (:name)](https://github.com/navicore/patch-seq/issues/148) ✅
 - [x] [#149 - Dynamic variant construction (wrap)](https://github.com/navicore/patch-seq/issues/149) ✅
-- [ ] [#150 - SON security model](https://github.com/navicore/patch-seq/issues/150) ⚠️ See Security section
+- [x] [#150 - SON security model](https://github.com/navicore/patch-seq/issues/150) ✅ Trust model documented
 - [x] [#151 - Map builder word for SON](https://github.com/navicore/patch-seq/issues/151) ✅
 
 ## Motivation

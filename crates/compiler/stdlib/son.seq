@@ -1,0 +1,57 @@
+# SON: Seq Object Notation
+#
+# SON is executable Seq code that represents data structures.
+# This module provides utilities for building and working with SON data.
+#
+# ## SECURITY WARNING
+#
+# SON files are executable code. Loading untrusted SON is equivalent to
+# running untrusted code. Only load SON from sources you trust.
+#
+# SAFE:
+#   include "my-config.son"    # From your own project
+#
+# DANGEROUS:
+#   Never load SON from untrusted network sources!
+#
+# ## Usage
+#
+# SON data is typically loaded using `include` + `call`:
+#
+#   include "map"
+#   include "config.son"
+#   config-data call  # Execute the quotation to get data
+#
+# Where config.son contains:
+#
+#   : config-data ( -- quot )
+#     [
+#       map-of
+#         "host" "localhost" kv
+#         "port" 8080 kv
+#     ] ;
+#
+# ## Builder Pattern
+#
+# Use the builder pattern words for constructing SON data:
+#
+#   # Maps
+#   map-of "name" "Alice" kv "age" 30 kv
+#
+#   # Lists
+#   list-of 1 lv 2 lv 3 lv
+#
+#   # Variants (tagged unions)
+#   :some 42 wrap      # Some(42)
+#   :none wrap         # None
+#
+# ## This Module
+#
+# This module re-exports map and list builder words for convenience.
+# Including "son" gives you everything you need for SON construction.
+
+include std:map
+include std:list
+
+# Re-export builder words for convenience
+# (The words map-of, kv, list-of, lv are now available)

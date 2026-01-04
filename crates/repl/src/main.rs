@@ -31,7 +31,6 @@ mod ui;
 
 use clap::Parser as ClapParser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -66,15 +65,15 @@ fn run(file: Option<&std::path::Path>) -> Result<(), String> {
     panic::set_hook(Box::new(move |panic_info| {
         // Restore terminal state before printing panic message
         let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
         // Call original panic handler
         original_hook(panic_info);
     }));
 
-    // Setup terminal with mouse capture for scroll events
+    // Setup terminal (no mouse capture - allows native text selection for copy/paste)
     enable_raw_mode().map_err(|e| format!("Failed to enable raw mode: {}", e))?;
     let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
+    execute!(stdout, EnterAlternateScreen)
         .map_err(|e| format!("Failed to enter alternate screen: {}", e))?;
 
     let backend = CrosstermBackend::new(stdout);
@@ -93,11 +92,7 @@ fn run(file: Option<&std::path::Path>) -> Result<(), String> {
 
     // Restore terminal
     let _ = disable_raw_mode();
-    let _ = execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    );
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
     let _ = terminal.show_cursor();
 
     result.map_err(|e| format!("Application error: {}", e))
@@ -108,22 +103,16 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     mut app: app::App,
 ) -> io::Result<()> {
-    use crossterm::event::{self, Event, MouseEventKind};
+    use crossterm::event::{self, Event};
     use std::time::Duration;
 
     loop {
         terminal.draw(|frame| app.render(frame))?;
 
-        if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => app.handle_key(key),
-                Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::ScrollDown => app.scroll_ir(1),
-                    MouseEventKind::ScrollUp => app.scroll_ir(-1),
-                    _ => {}
-                },
-                _ => {}
-            }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            app.handle_key(key);
         }
 
         if app.should_quit {

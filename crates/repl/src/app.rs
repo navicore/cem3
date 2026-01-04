@@ -936,27 +936,6 @@ impl App {
         self.repl_state.cursor = self.editor.cursor();
     }
 
-    /// Scroll the IR pane by delta lines (positive = down, negative = up)
-    pub fn scroll_ir(&mut self, delta: i16) {
-        if !self.show_ir_pane {
-            return;
-        }
-
-        let content_len = self.ir_content_len();
-        if content_len == 0 {
-            return;
-        }
-
-        let new_scroll = if delta < 0 {
-            self.ir_scroll.saturating_sub((-delta) as u16)
-        } else {
-            self.ir_scroll.saturating_add(delta as u16)
-        };
-
-        // Clamp to content length (leave some visible at the end)
-        self.ir_scroll = new_scroll.min(content_len.saturating_sub(1) as u16);
-    }
-
     /// Get the current IR content length (number of lines)
     fn ir_content_len(&self) -> usize {
         self.ir_content.content_for(self.ir_mode).len()

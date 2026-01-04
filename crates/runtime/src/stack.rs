@@ -376,13 +376,29 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                 // Fast path (Issue #166): interned symbols can share the static pointer
                 // Interned symbols have capacity=0 and global=true
                 if capacity == 0 && is_global {
-                    // Verify invariants - static data pointer should never be null
+                    let ptr = sv.slot1 as *const u8;
+                    let len = sv.slot2 as usize;
+
+                    // Safety: Interned symbols are guaranteed to point to valid static data.
+                    // The compiler generates these in get_symbol_global(), which always
+                    // creates valid string globals. A null pointer here indicates compiler bug.
                     debug_assert!(
-                        sv.slot1 != 0,
+                        !ptr.is_null(),
                         "Interned symbol has null pointer in clone fast path"
                     );
-                    // Just copy the StackValue - static data is never freed
-                    *sv
+
+                    // Create a new SeqString that shares the static data.
+                    // This properly maintains ownership semantics even though
+                    // Drop is a no-op for capacity=0 symbols.
+                    let seq_str = crate::seqstring::SeqString::from_raw_parts(ptr, len, 0, true);
+                    let (new_ptr, new_len, new_cap, new_global) = seq_str.into_raw_parts();
+                    StackValue {
+                        slot0: DISC_SYMBOL,
+                        slot1: new_ptr as u64,
+                        slot2: new_len as u64,
+                        slot3: new_cap as u64,
+                        slot4: if new_global { 1 } else { 0 },
+                    }
                 } else {
                     // Deep copy: arena symbols may become invalid
                     let ptr = sv.slot1 as *const u8;

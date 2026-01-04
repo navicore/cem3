@@ -134,13 +134,14 @@ impl Clone for SeqString {
 
 impl Drop for SeqString {
     fn drop(&mut self) {
+        // Drop only if BOTH conditions are true:
+        // - global=true: Arena strings have global=false and are bulk-freed on strand exit
+        // - capacity > 0: Interned symbols (Issue #166) have capacity=0 and point to
+        //   static data that must NOT be deallocated
         if self.global && self.capacity > 0 {
             // Reconstruct String and drop it
             // Safety: We created this from String in global_string() and stored
             // the original ptr, len, and capacity. This ensures correct deallocation.
-            //
-            // Note: capacity=0 marks interned/static symbols (Issue #166) - these
-            // point to static data and must NOT be deallocated.
             unsafe {
                 let _s = String::from_raw_parts(
                     self.ptr as *mut u8,

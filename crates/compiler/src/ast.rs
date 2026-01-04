@@ -339,6 +339,12 @@ impl Program {
             "variant.make-2",
             "variant.make-3",
             "variant.make-4",
+            // SON wrap aliases
+            "wrap-0",
+            "wrap-1",
+            "wrap-2",
+            "wrap-3",
+            "wrap-4",
             // Integer arithmetic operations
             "i.add",
             "i.subtract",
@@ -471,6 +477,9 @@ impl Program {
             "time.now",
             "time.nanos",
             "time.sleep-ms",
+            // SON serialization
+            "son.dump",
+            "son.dump-pretty",
             // Stack introspection (for REPL)
             "stack.dump",
         ];

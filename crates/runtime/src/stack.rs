@@ -1086,9 +1086,13 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
 fn print_stack_value(sv: &StackValue) {
     use crate::son::{SonConfig, value_to_son};
 
-    // Safety: The caller (stack.dump) guarantees the StackValue is valid
-    // and hasn't been dropped yet. We convert to Value for SON formatting.
-    let value = unsafe { stack_value_to_value(*sv) };
+    // Safety: We must clone the StackValue before converting to Value because
+    // stack_value_to_value takes ownership of heap-allocated data (via Box::from_raw
+    // for maps, Arc::from_raw for variants, etc.). Without cloning, the Value would
+    // be dropped after printing, freeing the memory, and then the later drop_stack_value
+    // loop would double-free. clone_stack_value properly handles refcounting.
+    let cloned = unsafe { clone_stack_value(sv) };
+    let value = unsafe { stack_value_to_value(cloned) };
     let son = value_to_son(&value, &SonConfig::compact());
     print!("{}", son);
 }

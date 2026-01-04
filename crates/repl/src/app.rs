@@ -20,7 +20,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -65,8 +65,6 @@ pub struct App {
     pub layout_config: LayoutConfig,
     /// Current filename (display name)
     pub filename: String,
-    /// IR pane scroll offset
-    pub ir_scroll: u16,
     /// Whether the IR pane is visible
     pub show_ir_pane: bool,
     /// Whether the app should quit
@@ -135,7 +133,6 @@ impl App {
             editor: VimLineEditor::new(),
             layout_config: LayoutConfig::default(),
             filename: "(scratch)".to_string(),
-            ir_scroll: 0,
             show_ir_pane: false,
             should_quit: false,
             should_edit: false,
@@ -174,7 +171,6 @@ impl App {
             editor: VimLineEditor::new(),
             layout_config: LayoutConfig::default(),
             filename,
-            ir_scroll: 0,
             show_ir_pane: false,
             should_quit: false,
             should_edit: false,
@@ -316,7 +312,6 @@ impl App {
                     // Cycle IR view modes (when visible)
                     if self.show_ir_pane {
                         self.ir_mode = self.ir_mode.next();
-                        self.ir_scroll = 0;
                     }
                     return;
                 }
@@ -914,8 +909,6 @@ impl App {
             llvm_ir: vec!["(compile with Enter to see LLVM IR)".to_string()],
             errors: vec![],
         };
-        // Reset scroll when content changes
-        self.ir_scroll = 0;
     }
 
     /// Navigate to previous history entry (older)
@@ -936,11 +929,6 @@ impl App {
         self.repl_state.cursor = self.editor.cursor();
     }
 
-    /// Get the current IR content length (number of lines)
-    fn ir_content_len(&self) -> usize {
-        self.ir_content.content_for(self.ir_mode).len()
-    }
-
     /// Toggle IR pane to a specific view mode
     /// If already showing this mode, hide the pane. Otherwise show/switch to it.
     fn toggle_ir_view(&mut self, mode: IrViewMode) {
@@ -952,7 +940,6 @@ impl App {
             // Different view or hidden - show this view
             self.show_ir_pane = true;
             self.ir_mode = mode;
-            self.ir_scroll = 0;
             self.status_message = Some(format!("IR: {}", mode.name()));
         }
     }
@@ -979,9 +966,6 @@ impl App {
             llvm_ir,
             errors: vec![],
         };
-
-        // Reset scroll for fresh content
-        self.ir_scroll = 0;
     }
 
     /// Generate stack art for an expression
@@ -1469,30 +1453,10 @@ impl App {
         );
         frame.render_widget(&repl_pane, layout.repl);
 
-        // Render IR pane with scrollbar (if enabled and space available)
+        // Render IR pane (if enabled and space available)
         if self.show_ir_pane && layout.ir_visible() {
-            let ir_pane = IrPane::new(&self.ir_content)
-                .mode(self.ir_mode)
-                .scroll(self.ir_scroll);
+            let ir_pane = IrPane::new(&self.ir_content).mode(self.ir_mode);
             frame.render_widget(&ir_pane, layout.ir);
-
-            // Render scrollbar if content is scrollable
-            let content_len = self.ir_content_len();
-            let viewport_height = layout.ir.height.saturating_sub(2) as usize; // account for borders
-            if content_len > viewport_height {
-                let mut scrollbar_state = ScrollbarState::new(content_len)
-                    .position(self.ir_scroll as usize)
-                    .viewport_content_length(viewport_height);
-
-                // Render scrollbar inside the IR pane area (on the right edge)
-                frame.render_stateful_widget(
-                    Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                        .begin_symbol(Some("↑"))
-                        .end_symbol(Some("↓")),
-                    layout.ir,
-                    &mut scrollbar_state,
-                );
-            }
         }
 
         // Render status bar

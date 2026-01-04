@@ -372,12 +372,24 @@ pub unsafe extern "C" fn patch_seq_push_symbol(stack: Stack, c_str: *const i8) -
 ///
 /// Matches the LLVM IR structure:
 /// `{ ptr, i64 len, i64 capacity, i8 global }`
+///
+/// # Safety Contract
+///
+/// This struct must ONLY be constructed by the compiler in static globals.
+/// Invariants that MUST hold:
+/// - `ptr` points to valid static UTF-8 string data with lifetime `'static`
+/// - `len` matches the actual byte length of the string
+/// - `capacity` MUST be 0 (marks symbol as interned/static)
+/// - `global` MUST be 1 (marks symbol as static allocation)
+///
+/// Violating these invariants causes undefined behavior (memory corruption,
+/// double-free, or null pointer dereference).
 #[repr(C)]
 pub struct InternedSymbolData {
     ptr: *const u8,
     len: i64,
-    capacity: i64, // 0 for interned symbols
-    global: i8,    // 1 for interned symbols
+    capacity: i64, // MUST be 0 for interned symbols
+    global: i8,    // MUST be 1 for interned symbols
 }
 
 /// Push an interned symbol onto the stack (Issue #166)
@@ -401,10 +413,11 @@ pub unsafe extern "C" fn patch_seq_push_interned_symbol(
 
     let data = unsafe { &*symbol_data };
 
-    // Validate interned symbol invariants in debug builds
-    debug_assert!(!data.ptr.is_null(), "Interned symbol data pointer is null");
-    debug_assert_eq!(data.capacity, 0, "Interned symbols must have capacity=0");
-    debug_assert_ne!(data.global, 0, "Interned symbols must have global=1");
+    // Validate interned symbol invariants - these are safety-critical
+    // and must run in release builds to prevent memory corruption
+    assert!(!data.ptr.is_null(), "Interned symbol data pointer is null");
+    assert_eq!(data.capacity, 0, "Interned symbols must have capacity=0");
+    assert_ne!(data.global, 0, "Interned symbols must have global=1");
 
     // Create SeqString that points to static data
     // capacity=0 marks it as interned (Drop will skip deallocation)

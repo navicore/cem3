@@ -1,14 +1,14 @@
 # SON: Seq Object Notation
 
-**Status:** Aspirational / Future Design
+**Status:** Implemented (Core Features)
 
 ## Roadmap Issues
 
-- [#147 - List type for Seq](https://github.com/navicore/patch-seq/issues/147)
-- [#148 - Symbol/keyword syntax (:name)](https://github.com/navicore/patch-seq/issues/148)
-- [#149 - Dynamic variant construction (wrap)](https://github.com/navicore/patch-seq/issues/149)
-- [#150 - SON security model](https://github.com/navicore/patch-seq/issues/150)
-- [#151 - Map builder word for SON](https://github.com/navicore/patch-seq/issues/151)
+- [x] [#147 - List type for Seq](https://github.com/navicore/patch-seq/issues/147) ✅
+- [x] [#148 - Symbol/keyword syntax (:name)](https://github.com/navicore/patch-seq/issues/148) ✅
+- [x] [#149 - Dynamic variant construction (wrap)](https://github.com/navicore/patch-seq/issues/149) ✅
+- [ ] [#150 - SON security model](https://github.com/navicore/patch-seq/issues/150) ⚠️ See Security section
+- [x] [#151 - Map builder word for SON](https://github.com/navicore/patch-seq/issues/151) ✅
 
 ## Motivation
 
@@ -49,21 +49,39 @@ true            # Bool
 ### Maps
 
 ```seq
-["name" "Alice" "age" 30 map]    # builds a map with two entries
+# Using builder pattern (recommended)
+include "map"
+[ map-of "name" "Alice" kv "age" 30 kv ]
+
+# Or using builtins directly
+[ map.make "name" "Alice" map.set "age" 30 map.set ]
+```
+
+### Lists
+
+```seq
+# Using builder pattern (recommended)
+include "list"
+[ list-of 1 lv 2 lv 3 lv ]
+
+# Or using builtins directly
+[ list.make 1 list.push 2 list.push 3 list.push ]
 ```
 
 ### Nested Structures
 
 ```seq
+include "map"
+include "list"
+
 [
-  "users"
-  [
-    ["name" "Alice" "age" 30 map]
-    ["name" "Bob" "age" 25 map]
-    list
-  ]
-  "count" 2
-  map
+  map-of
+    "users"
+    list-of
+      map-of "name" "Alice" kv "age" 30 kv lv
+      map-of "name" "Bob" kv "age" 25 kv lv
+    kv
+    "count" 2 kv
 ]
 ```
 
@@ -80,6 +98,7 @@ true            # Bool
 
 ```seq
 # Loading SON data
+include "map"
 include "config.son"
 
 : load-config ( -- config )
@@ -88,10 +107,10 @@ include "config.son"
 # In config.son:
 : config-data ( -- quot )
   [
-    "host" "localhost"
-    "port" 8080
-    "debug" true
-    map
+    map-of
+      "host" "localhost" kv
+      "port" 8080 kv
+      "debug" true kv
   ] ;
 ```
 
@@ -115,8 +134,8 @@ data call  # stack: 1 2 3
 How do we represent "an array" vs "multiple values"?
 
 ```seq
-[1 2 3]         # pushes 3 values when called
-[[1 2 3] list]  # pushes 1 list value when called
+[1 2 3]                             # pushes 3 values when called
+[list-of 1 lv 2 lv 3 lv]            # pushes 1 list value when called
 ```
 
 This is actually a feature - SON can represent both!
@@ -139,15 +158,14 @@ Since SON is valid Seq, comments are free:
 
 ```seq
 [
-  # Database configuration
-  "host" "prod-db.example.com"
-  "port" 5432
+  map-of
+    # Database configuration
+    "host" "prod-db.example.com" kv
+    "port" 5432 kv
 
-  # Connection pool settings
-  "pool-size" 10
-  "timeout-ms" 5000
-
-  map
+    # Connection pool settings
+    "pool-size" 10 kv
+    "timeout-ms" 5000 kv
 ]
 ```
 
@@ -185,14 +203,55 @@ Since SON is valid Seq, comments are free:
   ;
 ```
 
-## Security Considerations
+## ⚠️ Security Considerations
 
-Since SON is executable code, loading untrusted SON is equivalent to running
-untrusted code. Options:
+> **WARNING:** SON is executable Seq code. Loading untrusted SON is equivalent to
+> running untrusted code. Only load SON from sources you trust.
+
+Unlike JSON, which is safe to parse from any source, SON files can contain
+arbitrary Seq code including:
+- File system access (`file-slurp`, `path-exists`, etc.)
+- Network operations (`tcp.*`)
+- Shell command execution (if enabled)
+- Any other side effects available in Seq
+
+### Current Security Model (Trust-Based)
+
+The current approach is trust-based:
+- Only load `.son` files from trusted sources
+- Never load SON from untrusted network sources
+- Treat SON files like any other executable code
+
+```seq
+# SAFE: Loading from your own project
+include "config.son"
+
+# DANGEROUS: Never do this!
+# include "https://untrusted-source.com/data.son"
+```
+
+### Future: Sandboxed Evaluation
+
+The loader API is designed to support sandboxed evaluation in the future:
+
+```seq
+# Phase 1 (current): Trust model
+: son.load ( path -- values )
+  include call ;
+
+# Phase 2 (future): Sandboxed version
+: son.load-safe ( path -- values )
+  # Would restrict available words during evaluation
+  # Only allow: literals, map.*, list.*, wrap, call
+  # Forbid: io.*, tcp.*, file-*, strand.*, etc.
+  ;
+```
+
+### Mitigation Options (Future)
 
 1. **Sandboxed evaluation** - restrict available words during SON evaluation
-2. **Static subset** - define a "pure data" subset of Seq that's safe
-3. **Trust model** - only load SON from trusted sources (like requiring signed code)
+2. **Static subset** - define a "pure data" subset of Seq that's safe to parse
+3. **Capability-based** - explicitly grant capabilities to SON loaders
 
 ## Future Directions
 

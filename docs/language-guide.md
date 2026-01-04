@@ -796,6 +796,101 @@ map.make                    # ( -- Map )
 map.keys                    # ( Map -- Variant ) list of keys
 ```
 
+## SON (Seq Object Notation)
+
+SON is Seq's native data serialization format - it's valid Seq code that reconstructs data when evaluated. This makes SON ideal for configuration files, data exchange, and debugging.
+
+### Format Overview
+
+| Type | SON Format | Example |
+|------|------------|---------|
+| Int | literal | `42`, `-123` |
+| Float | literal | `3.14`, `42.0` |
+| Bool | literal | `true`, `false` |
+| String | quoted | `"hello"`, `"line\nbreak"` |
+| Symbol | colon prefix | `:my-symbol`, `:None` |
+| List | builder pattern | `list-of 1 lv 2 lv 3 lv` |
+| Map | builder pattern | `map-of "key" "value" kv` |
+| Variant | wrap-N | `:Point 10 20 wrap-2` |
+
+### Using SON
+
+Include the SON module to access builder words:
+
+```seq
+include std:son
+
+# Build a list
+list-of 1 lv 2 lv 3 lv          # ( -- List )
+
+# Build a map
+map-of "name" "Alice" kv        # ( -- Map )
+       "age" 30 kv
+
+# Build a variant (fields before tag)
+:None wrap-0                    # ( -- Variant ) no fields
+42 :Some wrap-1                 # ( -- Variant ) one field
+10 20 :Point wrap-2             # ( -- Variant ) two fields
+```
+
+### Serializing Values
+
+Use `son.dump` to convert any value to its SON string representation:
+
+```seq
+include std:son
+
+# Serialize primitives
+42 son.dump                     # "42"
+true son.dump                   # "true"
+"hello" son.dump                # "\"hello\""
+
+# Serialize complex structures
+list-of 1 lv 2 lv son.dump      # "list-of 1 lv 2 lv"
+
+# Pretty-print with indentation
+list-of 1 lv 2 lv son.dump-pretty
+# list-of
+#   1 lv
+#   2 lv
+```
+
+### Loading SON Files
+
+SON files define words that return data structures:
+
+```seq
+# config.son
+include std:son
+
+: config ( -- Map )
+  map-of
+    "debug" true kv
+    "port" 8080 kv
+;
+```
+
+```seq
+# main.seq
+include std:son
+include "config.son"   # adds the 'config' word
+
+: main ( -- )
+  config              # call to get the Map
+  "port" map.get      # get the port value
+;
+```
+
+### Stack Display
+
+The REPL uses SON format when displaying stack contents via `stack.dump`:
+
+```
+stack: list-of 1 lv 2 lv map-of "name" "Alice" kv :None wrap-0 true 42
+```
+
+This makes it easy to copy values from the REPL output directly into Seq code.
+
 ## Higher-Order Words
 
 ```seq

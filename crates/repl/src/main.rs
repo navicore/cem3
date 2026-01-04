@@ -120,8 +120,6 @@ fn run_app(
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollDown => app.scroll_ir(1),
                     MouseEventKind::ScrollUp => app.scroll_ir(-1),
-                    MouseEventKind::ScrollRight => app.swipe_right(),
-                    MouseEventKind::ScrollLeft => app.swipe_left(),
                     _ => {}
                 },
                 _ => {}

@@ -198,6 +198,10 @@ static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock
         ("file.exists?", "patch_seq_file_exists"),
         ("file.for-each-line+", "patch_seq_file_for_each_line_plus"),
         // List operations
+        ("list.make", "patch_seq_list_make"),
+        ("list.push", "patch_seq_list_push"),
+        ("list.get", "patch_seq_list_get"),
+        ("list.set", "patch_seq_list_set"),
         ("list.map", "patch_seq_list_map"),
         ("list.filter", "patch_seq_list_filter"),
         ("list.fold", "patch_seq_list_fold"),
@@ -802,6 +806,10 @@ impl CodeGen {
             "declare ptr @patch_seq_file_for_each_line_plus(ptr)"
         )?;
         writeln!(&mut ir, "; List operations")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_make(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_push(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_get(ptr)")?;
+        writeln!(&mut ir, "declare ptr @patch_seq_list_set(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_list_map(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_list_filter(ptr)")?;
         writeln!(&mut ir, "declare ptr @patch_seq_list_fold(ptr)")?;
@@ -1197,6 +1205,10 @@ impl CodeGen {
         writeln!(ir, "declare ptr @patch_seq_file_exists(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_file_for_each_line_plus(ptr)")?;
         writeln!(ir, "; List operations")?;
+        writeln!(ir, "declare ptr @patch_seq_list_make(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_push(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_get(ptr)")?;
+        writeln!(ir, "declare ptr @patch_seq_list_set(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_list_map(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_list_filter(ptr)")?;
         writeln!(ir, "declare ptr @patch_seq_list_fold(ptr)")?;

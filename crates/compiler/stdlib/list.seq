@@ -1,0 +1,40 @@
+# List utilities for Seq
+#
+# Provides convenient words for building and working with lists.
+# Lists are implemented as Variants with tag "List".
+#
+# ## Available Words
+#
+# Builder pattern (type-safe, recommended):
+# - list-of: ( -- List ) - Create empty list, alias for list.make
+# - lv: ( List V -- List ) - Append value, alias for list.push
+#
+# ## Examples
+#
+#   # Build a list with 3 elements using builder pattern
+#   list-of 1 lv 2 lv 3 lv
+#
+#   # Chained operations
+#   list-of
+#     "apple" lv
+#     "banana" lv
+#     "cherry" lv
+#
+#   # Access elements
+#   my-list 0 list.get   # Get first element (returns value and bool)
+#
+#   # Higher-order operations (from builtins)
+#   my-list [ 2 i.* ] list.map     # Double each element
+#   my-list [ 0 i.> ] list.filter  # Keep positive numbers
+#   my-list 0 [ i.+ ] list.fold    # Sum all elements
+
+# Create an empty list (alias for list.make)
+: list-of ( -- Variant )
+  list.make
+;
+
+# Append a value to a list (alias for list.push)
+# Returns the updated list for chaining
+: lv ( Variant V -- Variant )
+  list.push
+;

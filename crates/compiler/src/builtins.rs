@@ -611,6 +611,12 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // List Operations (Higher-order combinators for Variants)
     // =========================================================================
 
+    // List construction and access
+    builtin!(sigs, "list.make", (a -- a V));
+    builtin!(sigs, "list.push", (a V T -- a V));
+    builtin!(sigs, "list.get", (a V Int -- a T Bool));
+    builtin!(sigs, "list.set", (a V Int T -- a V Bool));
+
     builtin!(sigs, "list.length", (a V -- a Int));
     builtin!(sigs, "list.empty?", (a V -- a Bool));
 

@@ -307,6 +307,10 @@ impl Program {
             // Symbol operations
             "symbol.=",
             // List operations
+            "list.make",
+            "list.push",
+            "list.get",
+            "list.set",
             "list.map",
             "list.filter",
             "list.fold",

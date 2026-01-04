@@ -1,0 +1,55 @@
+# List utilities for Seq
+#
+# Provides convenient words for building and working with lists.
+# Lists are implemented as Variants with tag "List".
+#
+# ## Available Words
+#
+# Builder pattern (type-safe, recommended):
+# - list-of: ( -- List ) - Create empty list, alias for list.make
+# - lv: ( List V -- List ) - Append value, alias for list.push
+#
+# ## Examples
+#
+#   # Build a list with 3 elements using builder pattern
+#   list-of 1 lv 2 lv 3 lv
+#
+#   # Chained operations
+#   list-of
+#     "apple" lv
+#     "banana" lv
+#     "cherry" lv
+#
+#   # Access elements
+#   my-list 0 list.get   # Get first element (returns value and bool)
+#
+#   # Higher-order operations (from builtins)
+#   my-list [ 2 i.* ] list.map     # Double each element
+#   my-list [ 0 i.> ] list.filter  # Keep positive numbers
+#   my-list 0 [ i.+ ] list.fold    # Sum all elements
+#
+#   # Nested lists (for SON-style structures)
+#   list-of 1 lv 2 lv        # inner list 1
+#   list-of 3 lv 4 lv        # inner list 2
+#   list-of swap lv swap lv  # outer list containing both
+#
+#   # Mixed types
+#   list-of "name" lv 42 lv true lv
+#
+# ## Performance Note
+#
+# Each `lv` call creates a new list by copying all existing elements.
+# This makes repeated `lv` calls O(n^2) for building large lists.
+# For very large lists, prefer using `list.map` or `list.fold` to
+# transform existing lists, rather than building incrementally.
+
+# Create an empty list (alias for list.make)
+: list-of ( -- Variant )
+  list.make
+;
+
+# Append a value to a list (alias for list.push)
+# Returns the updated list for chaining
+: lv ( Variant V -- Variant )
+  list.push
+;

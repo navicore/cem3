@@ -1,0 +1,53 @@
+# Tests for map.seq utilities (builder pattern)
+
+include std:map
+
+# Test basic map-of and kv with 2 pairs
+: test-map-builder-basic ( -- )
+  map-of "name" "Alice" kv "age" 30 kv
+  dup map.size 2 test.assert-eq
+  dup "name" map.get test.assert "Alice" string.equal? test.assert
+  "age" map.get test.assert 30 test.assert-eq
+;
+
+# Test map-of with 1 pair
+: test-map-builder-single ( -- )
+  map-of "key" "value" kv
+  dup map.size 1 test.assert-eq
+  "key" map.get test.assert "value" string.equal? test.assert
+;
+
+# Test map-of alone (empty map)
+: test-map-builder-empty ( -- )
+  map-of
+  map.size 0 test.assert-eq
+;
+
+# Test map-of with integer keys
+: test-map-builder-int-keys ( -- )
+  map-of 1 "one" kv 2 "two" kv 3 "three" kv
+  dup map.size 3 test.assert-eq
+  dup 1 map.get test.assert "one" string.equal? test.assert
+  dup 2 map.get test.assert "two" string.equal? test.assert
+  3 map.get test.assert "three" string.equal? test.assert
+;
+
+# Test chained kv operations
+: test-map-builder-chained ( -- )
+  map-of
+    "host" "localhost" kv
+    "port" 8080 kv
+    "timeout" 30 kv
+  dup map.size 3 test.assert-eq
+  dup "host" map.get test.assert "localhost" string.equal? test.assert
+  dup "port" map.get test.assert 8080 test.assert-eq
+  "timeout" map.get test.assert 30 test.assert-eq
+;
+
+# Test that kv overwrites duplicate keys
+: test-map-builder-duplicate-keys ( -- )
+  map-of "key" 100 kv "key" 200 kv
+  dup map.size 1 test.assert-eq
+  "key" map.get test.assert 200 test.assert-eq
+;
+

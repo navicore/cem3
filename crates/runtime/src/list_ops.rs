@@ -351,13 +351,153 @@ pub unsafe extern "C" fn patch_seq_list_empty(stack: Stack) -> Stack {
     }
 }
 
+/// Create an empty list
+///
+/// Stack effect: ( -- Variant )
+///
+/// Returns a new empty list (Variant with tag "List" and no fields).
+///
+/// # Safety
+/// No requirements on stack
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_list_make(stack: Stack) -> Stack {
+    unsafe {
+        let list = Value::Variant(Arc::new(VariantData::new(
+            crate::seqstring::global_string("List".to_string()),
+            vec![],
+        )));
+        push(stack, list)
+    }
+}
+
+/// Append an element to a list (functional - returns new list)
+///
+/// Stack effect: ( Variant Value -- Variant )
+///
+/// Returns a new list with the value appended at the end.
+/// The original list is not modified.
+///
+/// # Safety
+/// Stack must have a Value on top and a Variant (list) below
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_list_push(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, value) = pop(stack);
+        let (stack, list_val) = pop(stack);
+
+        let variant_data = match list_val {
+            Value::Variant(v) => v,
+            _ => panic!("list.push: expected Variant (list), got {:?}", list_val),
+        };
+
+        // Create new list with element appended
+        let mut new_fields = Vec::with_capacity(variant_data.fields.len() + 1);
+        new_fields.extend(variant_data.fields.iter().cloned());
+        new_fields.push(value);
+
+        let new_list = Value::Variant(Arc::new(VariantData::new(
+            variant_data.tag.clone(),
+            new_fields,
+        )));
+
+        push(stack, new_list)
+    }
+}
+
+/// Get an element from a list by index
+///
+/// Stack effect: ( Variant Int -- Value Bool )
+///
+/// Returns the value at the given index and true, or
+/// a placeholder value and false if index is out of bounds.
+///
+/// # Safety
+/// Stack must have an Int on top and a Variant (list) below
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, index_val) = pop(stack);
+        let (stack, list_val) = pop(stack);
+
+        let index = match index_val {
+            Value::Int(i) => i,
+            _ => panic!("list.get: expected Int (index), got {:?}", index_val),
+        };
+
+        let variant_data = match list_val {
+            Value::Variant(v) => v,
+            _ => panic!("list.get: expected Variant (list), got {:?}", list_val),
+        };
+
+        if index < 0 || index as usize >= variant_data.fields.len() {
+            // Out of bounds - return false
+            let stack = push(stack, Value::Int(0)); // placeholder
+            push(stack, Value::Bool(false))
+        } else {
+            let value = variant_data.fields[index as usize].clone();
+            let stack = push(stack, value);
+            push(stack, Value::Bool(true))
+        }
+    }
+}
+
+/// Set an element in a list by index (functional - returns new list)
+///
+/// Stack effect: ( Variant Int Value -- Variant Bool )
+///
+/// Returns a new list with the value at the given index replaced, and true.
+/// If index is out of bounds, returns the original list and false.
+///
+/// # Safety
+/// Stack must have Value on top, Int below, and Variant (list) below that
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_list_set(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, value) = pop(stack);
+        let (stack, index_val) = pop(stack);
+        let (stack, list_val) = pop(stack);
+
+        let index = match index_val {
+            Value::Int(i) => i,
+            _ => panic!("list.set: expected Int (index), got {:?}", index_val),
+        };
+
+        let variant_data = match &list_val {
+            Value::Variant(v) => v,
+            _ => panic!("list.set: expected Variant (list), got {:?}", list_val),
+        };
+
+        if index < 0 || index as usize >= variant_data.fields.len() {
+            // Out of bounds - return original list and false
+            let stack = push(stack, list_val);
+            push(stack, Value::Bool(false))
+        } else {
+            // Create new list with element replaced
+            let mut new_fields: Vec<Value> = variant_data.fields.to_vec();
+            new_fields[index as usize] = value;
+
+            let new_list = Value::Variant(Arc::new(VariantData::new(
+                variant_data.tag.clone(),
+                new_fields,
+            )));
+
+            let stack = push(stack, new_list);
+            push(stack, Value::Bool(true))
+        }
+    }
+}
+
 // Public re-exports
 pub use patch_seq_list_each as list_each;
 pub use patch_seq_list_empty as list_empty;
 pub use patch_seq_list_filter as list_filter;
 pub use patch_seq_list_fold as list_fold;
+pub use patch_seq_list_get as list_get;
 pub use patch_seq_list_length as list_length;
+pub use patch_seq_list_make as list_make;
 pub use patch_seq_list_map as list_map;
+pub use patch_seq_list_push as list_push;
+pub use patch_seq_list_set as list_set;
 
 #[cfg(test)]
 mod tests {

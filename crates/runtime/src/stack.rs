@@ -1077,53 +1077,20 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
     base
 }
 
-/// Print a stack value in a readable format
+/// Print a stack value in SON (Seq Object Notation) format
 ///
 /// # Safety Requirements
 /// The StackValue must be valid and not previously dropped. For strings,
 /// the pointer (slot1) must point to valid, readable memory of length slot2.
 /// This is guaranteed when called from stack.dump on freshly computed values.
 fn print_stack_value(sv: &StackValue) {
-    match sv.slot0 {
-        DISC_INT => print!("{}", sv.slot1 as i64),
-        DISC_FLOAT => {
-            let f = f64::from_bits(sv.slot1);
-            if f.fract() == 0.0 && f.is_finite() {
-                print!("{}.0", f)
-            } else {
-                print!("{}", f)
-            }
-        }
-        DISC_BOOL => print!("{}", if sv.slot1 != 0 { "true" } else { "false" }),
-        DISC_STRING => {
-            let ptr = sv.slot1 as *const u8;
-            let len = sv.slot2 as usize;
-            // Safety: We trust the stack value is valid. The pointer was allocated
-            // by SeqString and hasn't been freed yet (we print before dropping).
-            // Additional defensive checks for null/zero-length.
-            if ptr.is_null() || len == 0 {
-                print!("\"\"");
-            } else if len > 10_000_000 {
-                // Sanity check: reject unreasonably large strings (likely corruption)
-                print!("<string:invalid length {}>", len);
-            } else {
-                unsafe {
-                    let slice = std::slice::from_raw_parts(ptr, len);
-                    if let Ok(s) = std::str::from_utf8(slice) {
-                        print!("\"{}\"", s);
-                    } else {
-                        print!("<string:{} bytes, non-utf8>", len);
-                    }
-                }
-            }
-        }
-        DISC_VARIANT => print!("<variant>"),
-        DISC_MAP => print!("<map>"),
-        DISC_QUOTATION => print!("<quotation>"),
-        DISC_CLOSURE => print!("<closure>"),
-        DISC_CHANNEL => print!("<channel>"),
-        _ => print!("<unknown:{}>", sv.slot0),
-    }
+    use crate::son::{SonConfig, value_to_son};
+
+    // Safety: The caller (stack.dump) guarantees the StackValue is valid
+    // and hasn't been dropped yet. We convert to Value for SON formatting.
+    let value = unsafe { stack_value_to_value(*sv) };
+    let son = value_to_son(&value, &SonConfig::compact());
+    print!("{}", son);
 }
 
 /// Macro to create a test stack

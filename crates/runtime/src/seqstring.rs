@@ -72,6 +72,21 @@ impl SeqString {
         self.len == 0
     }
 
+    /// Check if this is an interned/static string (Issue #166)
+    ///
+    /// Interned strings have capacity=0 and point to static data.
+    /// They are never freed and can be compared by pointer for O(1) equality.
+    pub fn is_interned(&self) -> bool {
+        self.capacity == 0 && self.global
+    }
+
+    /// Get raw pointer to string data
+    ///
+    /// Used for O(1) pointer comparison of interned symbols.
+    pub fn as_ptr(&self) -> *const u8 {
+        self.ptr
+    }
+
     /// Consume self and return raw parts for storage in StackValue
     ///
     /// Returns (ptr, len, capacity, global)
@@ -119,7 +134,11 @@ impl Clone for SeqString {
 
 impl Drop for SeqString {
     fn drop(&mut self) {
-        if self.global {
+        // Drop only if BOTH conditions are true:
+        // - global=true: Arena strings have global=false and are bulk-freed on strand exit
+        // - capacity > 0: Interned symbols (Issue #166) have capacity=0 and point to
+        //   static data that must NOT be deallocated
+        if self.global && self.capacity > 0 {
             // Reconstruct String and drop it
             // Safety: We created this from String in global_string() and stored
             // the original ptr, len, and capacity. This ensures correct deallocation.
@@ -133,6 +152,7 @@ impl Drop for SeqString {
             }
         }
         // Arena strings don't need explicit drop - arena reset frees them
+        // Static/interned strings (capacity=0) point to static data - no drop needed
     }
 }
 

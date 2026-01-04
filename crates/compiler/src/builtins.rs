@@ -731,6 +731,10 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "time.nanos", (a -- a Int));
     builtin!(sigs, "time.sleep-ms", (a Int -- a));
 
+    // SON serialization
+    builtin!(sigs, "son.dump", (a T -- a String));
+    builtin!(sigs, "son.dump-pretty", (a T -- a String));
+
     // Stack introspection (for REPL)
     // stack.dump prints all values and clears the stack
     sigs.insert(

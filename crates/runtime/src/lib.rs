@@ -23,6 +23,7 @@ pub mod quotations;
 pub mod scheduler;
 pub mod seqstring;
 pub mod serialize;
+pub mod son;
 pub mod stack;
 pub mod string_ops;
 pub mod tagged_stack;
@@ -198,3 +199,6 @@ pub use time_ops::{
     patch_seq_time_nanos as time_nanos, patch_seq_time_now as time_now,
     patch_seq_time_sleep_ms as time_sleep_ms,
 };
+
+// SON serialization (exported for LLVM linking)
+pub use son::{patch_seq_son_dump as son_dump, patch_seq_son_dump_pretty as son_dump_pretty};

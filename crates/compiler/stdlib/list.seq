@@ -27,6 +27,21 @@
 #   my-list [ 2 i.* ] list.map     # Double each element
 #   my-list [ 0 i.> ] list.filter  # Keep positive numbers
 #   my-list 0 [ i.+ ] list.fold    # Sum all elements
+#
+#   # Nested lists (for SON-style structures)
+#   list-of 1 lv 2 lv        # inner list 1
+#   list-of 3 lv 4 lv        # inner list 2
+#   list-of swap lv swap lv  # outer list containing both
+#
+#   # Mixed types
+#   list-of "name" lv 42 lv true lv
+#
+# ## Performance Note
+#
+# Each `lv` call creates a new list by copying all existing elements.
+# This makes repeated `lv` calls O(n^2) for building large lists.
+# For very large lists, prefer using `list.map` or `list.fold` to
+# transform existing lists, rather than building incrementally.
 
 # Create an empty list (alias for list.make)
 : list-of ( -- Variant )

@@ -376,6 +376,11 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
                 // Fast path (Issue #166): interned symbols can share the static pointer
                 // Interned symbols have capacity=0 and global=true
                 if capacity == 0 && is_global {
+                    // Verify invariants - static data pointer should never be null
+                    debug_assert!(
+                        sv.slot1 != 0,
+                        "Interned symbol has null pointer in clone fast path"
+                    );
                     // Just copy the StackValue - static data is never freed
                     *sv
                 } else {

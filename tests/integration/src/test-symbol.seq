@@ -62,3 +62,10 @@
   "hello" string->symbol :world symbol.= not
   test.assert
 ;
+
+: test-interned-clone-equality ( -- )
+  # Cloning an interned symbol should preserve pointer equality
+  # Both copies share the same static pointer (fast path in clone_stack_value)
+  :hello dup symbol.=
+  test.assert
+;

@@ -170,7 +170,9 @@ pub use file::{
 pub use list_ops::{
     patch_seq_list_each as list_each, patch_seq_list_empty as list_empty,
     patch_seq_list_filter as list_filter, patch_seq_list_fold as list_fold,
-    patch_seq_list_length as list_length, patch_seq_list_map as list_map,
+    patch_seq_list_get as list_get, patch_seq_list_length as list_length,
+    patch_seq_list_make as list_make, patch_seq_list_map as list_map,
+    patch_seq_list_push as list_push, patch_seq_list_set as list_set,
 };
 
 // Map operations (exported for LLVM linking)

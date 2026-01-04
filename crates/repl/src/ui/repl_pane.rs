@@ -14,6 +14,9 @@ use ratatui::{
     widgets::{Paragraph, Widget, Wrap},
 };
 
+/// Prompt shown for continuation lines in multiline input
+const CONTINUATION_PROMPT: &str = ".... ";
+
 /// A single entry in the REPL history
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
@@ -254,7 +257,6 @@ impl<'a> ReplPane<'a> {
     /// Build the display lines
     fn build_lines(&self) -> Vec<Line<'a>> {
         let mut lines = Vec::new();
-        let continuation_prompt = ".... ";
 
         // Render history (with multiline support)
         for entry in &self.state.history {
@@ -263,7 +265,7 @@ impl<'a> ReplPane<'a> {
                 let prompt = if i == 0 {
                     self.prompt
                 } else {
-                    continuation_prompt
+                    CONTINUATION_PROMPT
                 };
                 let mut spans = vec![Span::styled(
                     prompt.to_string(),
@@ -304,7 +306,8 @@ impl<'a> ReplPane<'a> {
                 pos = line_end + 1; // +1 for the newline character
                 line_idx = i + 1; // cursor is past this line
             }
-            // Clamp to valid range
+            // Clamp line_idx to valid range (handles cursor after trailing newline)
+            line_idx = line_idx.min(input_lines.len().saturating_sub(1));
             let col = col.min(input_lines.get(line_idx).map_or(0, |l| l.len()));
             (line_idx, col)
         } else {
@@ -316,7 +319,7 @@ impl<'a> ReplPane<'a> {
             let prompt = if i == 0 {
                 self.prompt
             } else {
-                continuation_prompt
+                CONTINUATION_PROMPT
             };
             let mut spans = vec![Span::styled(
                 prompt.to_string(),
@@ -371,10 +374,10 @@ impl Widget for &ReplPane<'_> {
             .iter()
             .map(|line| {
                 let line_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
-                // At least 1 line, or ceil(line_width / width)
-                line_width.max(1).div_ceil(width) as u16
+                // At least 1 line, or ceil(line_width / width), clamped to u16::MAX
+                line_width.max(1).div_ceil(width).min(u16::MAX as usize) as u16
             })
-            .sum();
+            .fold(0u16, |acc, h| acc.saturating_add(h));
 
         let visible_height = area.height;
         let scroll = wrapped_height.saturating_sub(visible_height);
@@ -458,5 +461,69 @@ mod tests {
 
         let line = pane.highlight_code("42 dup add");
         assert!(!line.spans.is_empty());
+    }
+
+    #[test]
+    fn test_multiline_input_rendering() {
+        let mut state = ReplState::new();
+        state.input = "foo\nbar\nbaz".to_string();
+        state.cursor = 4; // At 'b' in "bar"
+
+        let pane = ReplPane::new(&state).focused(true);
+        let lines = pane.build_lines();
+
+        // Should have 3 lines for the multiline input
+        assert_eq!(lines.len(), 3);
+
+        // First line should have the main prompt "seq> "
+        let first_line_text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(first_line_text.starts_with("seq> "));
+        assert!(first_line_text.contains("foo"));
+
+        // Second line should have continuation prompt ".... "
+        let second_line_text: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(second_line_text.starts_with(".... "));
+    }
+
+    #[test]
+    fn test_cursor_position_trailing_newline() {
+        let mut state = ReplState::new();
+        // Input with trailing newline: "foo\n"
+        // After split: ["foo", ""]
+        // Cursor at position 4 (after the newline)
+        state.input = "foo\n".to_string();
+        state.cursor = 4;
+
+        let pane = ReplPane::new(&state).focused(true);
+        let lines = pane.build_lines();
+
+        // Should render without panic (the bug was out-of-bounds access)
+        assert_eq!(lines.len(), 2); // "foo" and empty line
+    }
+
+    #[test]
+    fn test_cursor_position_empty_lines() {
+        let mut state = ReplState::new();
+        // Input with empty line in the middle: "foo\n\nbar"
+        state.input = "foo\n\nbar".to_string();
+        state.cursor = 4; // At the empty line
+
+        let pane = ReplPane::new(&state).focused(true);
+        let lines = pane.build_lines();
+
+        // Should have 3 lines
+        assert_eq!(lines.len(), 3);
+    }
+
+    #[test]
+    fn test_multiline_history_entry() {
+        let mut state = ReplState::new();
+        state.add_entry(HistoryEntry::new("line1\nline2").with_output("result"));
+
+        let pane = ReplPane::new(&state);
+        let lines = pane.build_lines();
+
+        // History: 2 lines for input + 1 for output + 1 for current empty input
+        assert!(lines.len() >= 3);
     }
 }

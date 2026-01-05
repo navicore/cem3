@@ -1,6 +1,8 @@
 # Sum of squares benchmark
 # Calculates sum of i^2 for i in 1..1,000,000
 # Tests loop iteration and integer arithmetic
+#
+# Note: n=1M is safe for i64. Limits above ~3M risk overflow.
 
 : square ( Int -- Int )
   dup i.*

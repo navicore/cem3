@@ -1,5 +1,7 @@
 // Sum of squares benchmark
 // Compile: rustc -O -o sum_squares_rust sum_squares.rs
+//
+// Note: n=1M is safe for i64. Limits above ~3M risk overflow.
 
 fn sum_squares(n: i64) -> i64 {
     let mut acc: i64 = 0;

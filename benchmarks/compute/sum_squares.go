@@ -1,5 +1,7 @@
 // Sum of squares benchmark
 // Build: go build -o sum_squares_go sum_squares.go
+//
+// Note: n=1M is safe for int64. Limits above ~3M risk overflow.
 
 package main
 

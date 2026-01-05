@@ -73,10 +73,8 @@ run_benchmark "fib"
 run_benchmark "sum_squares"
 run_benchmark "primes"
 
-# Cleanup binaries
+# Cleanup binaries (use wildcards to catch any benchmark binaries)
 echo "Cleaning up..."
-rm -f fib_seq fib_rust fib_go
-rm -f sum_squares_seq sum_squares_rust sum_squares_go
-rm -f primes_seq primes_rust primes_go
+rm -f *_seq *_rust *_go
 
 echo -e "${GREEN}Done!${NC}"

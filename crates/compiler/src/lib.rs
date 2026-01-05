@@ -289,6 +289,7 @@ pub fn compile_file_with_config(
     // Build clang command with library paths
     let mut clang = Command::new("clang");
     clang
+        .arg("-O3") // Enable aggressive LLVM optimizations
         .arg(&ir_path)
         .arg("-o")
         .arg(output_path)

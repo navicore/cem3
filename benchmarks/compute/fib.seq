@@ -1,0 +1,20 @@
+# Fibonacci benchmark - naive recursive implementation
+# Tests function call overhead and recursion
+
+: fib ( Int -- Int )
+  dup 2 i.< if
+    # Base case: fib(0) = 0, fib(1) = 1
+  else
+    # fib(n) = fib(n-1) + fib(n-2)
+    dup 1 i.- fib
+    swap 2 i.- fib
+    i.+
+  then
+;
+
+: main ( -- Int )
+  40 fib
+  dup int->string io.write-line
+  # Expected: 102334155
+  102334155 i.= if 0 else 1 then
+;

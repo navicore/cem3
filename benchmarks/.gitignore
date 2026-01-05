@@ -6,6 +6,12 @@ fanout/fanout
 # Compiled Go binaries
 *_go
 
+# Compiled Rust binaries
+*_rust
+
+# Compiled compute benchmarks (Seq)
+compute/*_seq
+
 # Rust profiling binaries
 *_profile
 spawn_profile

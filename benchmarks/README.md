@@ -1,6 +1,10 @@
-# Seq Concurrency Benchmarks
+# Seq Benchmarks
 
-Benchmark suite comparing Seq strand performance against Go goroutines.
+Benchmark suite comparing Seq performance against Rust and Go.
+
+Includes two categories:
+- **Concurrency benchmarks**: Test strand/goroutine performance (spawn, channels, context switching)
+- **Compute benchmarks**: Test pure computation (loops, recursion, arithmetic)
 
 ## CI Integration
 
@@ -24,7 +28,7 @@ git commit -m "Update benchmark run timestamp"
 ## Prerequisites
 
 **Required:**
-- **Rust/Cargo**: For building seqc
+- **Rust/Cargo**: For building seqc and Rust benchmarks
 - **Go**: For Go benchmarks (`brew install go` or https://go.dev)
 
 **Optional (recommended):**
@@ -44,16 +48,20 @@ git commit -m "Update benchmark run timestamp"
 # Run all benchmarks (from project root)
 just bench
 
-# Run specific benchmark
-just bench-skynet
-just bench-pingpong
-just bench-fanout
+# Run specific categories
+./benchmarks/run.sh concurrency  # skynet, pingpong, fanout
+./benchmarks/run.sh compute      # fib, sum_squares, primes
 
-# Or run directly from benchmarks directory
-cd benchmarks && ./run.sh
+# Run individual benchmarks
+./benchmarks/run.sh skynet
+./benchmarks/run.sh pingpong
+./benchmarks/run.sh fanout
+./benchmarks/run.sh fib
+./benchmarks/run.sh sum_squares
+./benchmarks/run.sh primes
 ```
 
-## Benchmarks
+## Concurrency Benchmarks
 
 ### Skynet (Spawn Overhead)
 
@@ -82,21 +90,62 @@ Workers receive from a shared MPMC (multi-producer, multi-consumer) channel.
 
 **Key metric:** Throughput (msg/sec)
 
+## Compute Benchmarks
+
+Pure computation benchmarks with no concurrency, testing interpreter/runtime overhead.
+
+### Fibonacci (fib)
+
+Naive recursive Fibonacci calculation: `fib(40)`.
+
+**Tests:** function call overhead, recursion depth, stack operations
+
+**Expected result:** 102,334,155
+
+### Sum of Squares (sum_squares)
+
+Sum of squares from 1 to 1,000,000: `1² + 2² + 3² + ... + 1000000²`
+
+**Tests:** loop iteration, integer arithmetic
+
+**Expected result:** 333,333,833,333,500,000
+
+### Prime Counting (primes)
+
+Count primes up to 100,000 using trial division.
+
+**Tests:** nested loops, modulo operations, conditionals, recursion
+
+**Expected result:** 9,592 primes
+
 ## Sample Results
 
 Results from a MacBook Pro M-series:
 
-| Benchmark | Seq | Go | Ratio |
-|-----------|-----|-----|-------|
-| Pingpong | 502ms (4.0M msg/sec) | 217ms (9.2M msg/sec) | 2.3x |
-| Fanout (100 workers) | 551ms (1.8M msg/sec) | 249ms (4.0M msg/sec) | 2.2x |
-| Skynet | 4779ms | 170ms | 28x |
+### Concurrency Benchmarks
+
+| Benchmark | Seq | Rust | Go | Notes |
+|-----------|-----|------|-----|-------|
+| Pingpong | 269ms | 3875ms | 206ms | Rust std::thread is slow for this |
+| Fanout | 551ms | 29ms | 249ms | Rust thread pool excels here |
+| Skynet | 4779ms | 2ms | 170ms | Rust uses threshold-based parallelism |
+
+### Compute Benchmarks
+
+| Benchmark | Seq | Rust | Go | Seq/Rust |
+|-----------|-----|------|-----|----------|
+| fib(40) | 2500ms | 168ms | 224ms | 15x |
+| sum_squares | 54ms | 2ms | 2ms | 29x |
+| primes | 93ms | 3ms | 3ms | 29x |
 
 **Notes:**
-- Seq pingpong and fanout are within 1.5x of Go - excellent for message-passing workloads
-- Skynet is slower due to spawn overhead (see below)
+- Seq pingpong and fanout are competitive with Go for message-passing workloads
+- Rust std::thread pingpong is slow because OS thread context switches are expensive
+- Compute benchmarks show ~15-30x overhead for Seq vs native code (expected for interpreter)
 
 ## Interpreting Results
+
+### Concurrency (Seq vs Go)
 
 | Result | Meaning |
 |--------|---------|
@@ -104,11 +153,29 @@ Results from a MacBook Pro M-series:
 | Seq 2-5x slower | Good - expected for young runtime |
 | Seq >5x slower | Investigate - may indicate bottleneck |
 
+### Compute (Seq vs Rust)
+
+| Result | Meaning |
+|--------|---------|
+| Seq within 10x of Rust | Good - reasonable interpreter overhead |
+| Seq 10-50x slower | Expected - typical for interpreted vs compiled |
+| Seq >50x slower | Investigate - may indicate inefficient codegen |
+
 ### What affects performance?
 
 - **Skynet:** Tests raw spawn overhead. Go's runtime is highly optimized for this.
-- **Ping-Pong:** Tests channel ops in isolation. Should be comparable.
+- **Ping-Pong:** Tests channel ops in isolation. Should be comparable to Go.
 - **Fan-Out:** Tests scheduler fairness under contention. MPMC channels enable concurrent receives.
+- **Compute:** Tests raw interpreter overhead. Rust is the baseline for optimal native code.
+
+### Why Rust concurrency results vary
+
+Rust benchmarks use `std::thread` (OS threads) and `std::sync::mpsc` channels:
+- **Pingpong:** OS thread context switches are ~10-100x slower than green threads
+- **Fanout:** Rust thread pool handles this well despite OS thread overhead
+- **Skynet:** Uses threshold-based parallelism (parallel at high levels, sequential at leaves)
+
+This demonstrates why green threads (Go, Seq) excel at fine-grained concurrency.
 
 ### Spawn Overhead vs Message Passing
 
@@ -150,6 +217,14 @@ The fanout benchmark uses sentinel values (-1) to signal workers to stop, rather
 
 # Build and run Go benchmark manually
 cd skynet && go build -o skynet_go skynet.go && ./skynet_go
+
+# Build and run Rust benchmark manually
+rustc -O -o skynet/skynet_rust skynet/skynet.rs && ./skynet/skynet_rust
+
+# Compute benchmarks
+../target/release/seqc build compute/fib.seq -o compute/fib_seq && ./compute/fib_seq
+rustc -O -o compute/fib_rust compute/fib.rs && ./compute/fib_rust
+cd compute && go build -o fib_go fib.go && ./fib_go
 ```
 
 ## Runtime Tuning
@@ -180,6 +255,6 @@ Note: In benchmarks, the diagnostics overhead is negligible compared to spawn sy
 
 ## Adding New Benchmarks
 
-1. Create a new directory under `benchmarks/`
-2. Add `name.seq` and `name.go` files
-3. Update `run.sh` to include the new benchmark
+1. Create a new directory under `benchmarks/` (or use `compute/` for pure computation)
+2. Add `name.seq`, `name.rs`, and `name.go` files
+3. Update `run.sh` to include the new benchmark in the appropriate category

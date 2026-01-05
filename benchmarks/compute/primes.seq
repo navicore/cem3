@@ -1,0 +1,63 @@
+# Prime counting benchmark
+# Counts primes up to 100,000 using trial division
+# Tests nested loops, modulo, conditionals
+
+: is-prime-loop ( Int Int -- Bool )
+  # Stack: n divisor
+  # Check if n is divisible by any number from divisor to sqrt(n)
+  over over       # n divisor n divisor
+  dup i.*         # n divisor n divisor^2
+  i.< if          # n divisor (n < divisor^2 means we're done, no factors found)
+    drop drop true
+  else
+    # Continue: check if n % divisor == 0
+    over over     # n divisor n divisor
+    i.% 0 i.= if  # n divisor (n % divisor == 0?)
+      drop drop false
+    else
+      1 i.+ is-prime-loop
+    then
+  then
+;
+
+: is-prime ( Int -- Bool )
+  # 0 and 1 are not prime
+  dup 2 i.< if
+    drop false
+  else
+    dup 2 i.= if
+      drop true
+    else
+      # Check divisibility starting from 2
+      2 is-prime-loop
+    then
+  then
+;
+
+: count-primes-loop ( Int Int Int -- Int )
+  # Stack: count limit current
+  over over        # count limit current limit current
+  i.< if           # limit < current means done
+    drop drop      # count
+  else
+    # count limit current
+    dup is-prime if
+      # count limit current (current is prime)
+      rot 1 i.+ rot rot  # (count+1) limit current
+    then
+    # count limit current
+    1 i.+ count-primes-loop  # count limit (current+1)
+  then
+;
+
+: count-primes ( Int -- Int )
+  # Count primes from 2 to n
+  0 swap 2 count-primes-loop
+;
+
+: main ( -- Int )
+  100000 count-primes
+  dup int->string io.write-line
+  # Expected: 9592
+  9592 i.= if 0 else 1 then
+;

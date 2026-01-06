@@ -72,6 +72,7 @@ run_benchmark() {
 run_benchmark "fib"
 run_benchmark "sum_squares"
 run_benchmark "primes"
+run_benchmark "leibniz_pi"
 
 # Cleanup binaries (use wildcards to catch any benchmark binaries)
 echo "Cleaning up..."

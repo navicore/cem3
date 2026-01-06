@@ -59,6 +59,7 @@ just bench
 ./benchmarks/run.sh fib
 ./benchmarks/run.sh sum_squares
 ./benchmarks/run.sh primes
+./benchmarks/run.sh leibniz_pi
 ```
 
 ## Concurrency Benchmarks
@@ -134,9 +135,10 @@ Results from a MacBook Pro M-series:
 
 | Benchmark | Seq | Rust | Go | Seq/Rust |
 |-----------|-----|------|-----|----------|
-| fib(40) | 2500ms | 168ms | 224ms | 15x |
-| sum_squares | 54ms | 2ms | 2ms | 29x |
-| primes | 93ms | 3ms | 3ms | 29x |
+| fib(40) | 2200ms | 168ms | 224ms | 13x |
+| sum_squares | 48ms | 2ms | 2ms | 30x |
+| primes | 84ms | 3ms | 3ms | 28x |
+| leibniz_pi | 2900ms | 90ms | 100ms | 32x |
 
 **Notes:**
 - Seq pingpong and fanout are competitive with Go for message-passing workloads

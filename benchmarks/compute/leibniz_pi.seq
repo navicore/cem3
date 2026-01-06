@@ -6,6 +6,8 @@
 # Uses sign-flipping (sign = -sign) instead of modulo (k % 2)
 # for better performance, matching Rust/Go implementations.
 
+include std:fmath
+
 : leibniz-step ( Float Float Int Int -- Float Float Int Int )
   # Stack: sum sign k n
   # Compute one term and add to sum, flip sign, increment k
@@ -64,7 +66,6 @@
 
   # Verify approximately correct (Leibniz converges slowly)
   # With 100M iterations, error should be < 1e-7
-  # Use full precision pi constant
-  3.141592653589793 f.- dup 0.0 f.< if -1.0 f.* then  # abs
+  3.141592653589793 f.- f.abs
   0.0000001 f.< if 0 else 1 then
 ;

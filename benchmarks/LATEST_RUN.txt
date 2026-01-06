@@ -1,5 +1,5 @@
 # Benchmark run record - DO NOT EDIT MANUALLY
 # This file is checked by CI to ensure benchmarks are run regularly
-timestamp: 2026-01-06T03:52:29Z
-commit: 07ee16a
-benchmarks_run: leibniz_pi
+timestamp: 2026-01-06T04:06:36Z
+commit: b5caa19
+benchmarks_run: all

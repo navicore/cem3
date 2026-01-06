@@ -385,6 +385,10 @@ pub struct CodeGen {
     symbol_globals: String, // LLVM IR for static symbol globals
     symbol_counter: usize,  // Counter for unique symbol names
     symbol_constants: HashMap<String, String>, // symbol name -> global name (deduplication)
+    /// Per-statement type info for optimization (Issue #186)
+    /// Maps (word_name, statement_index) -> top-of-stack type before statement
+    #[allow(dead_code)] // Phase 1: plumbing only, used in Phase 2
+    statement_types: HashMap<(String, usize), Type>,
 }
 
 impl CodeGen {
@@ -410,6 +414,7 @@ impl CodeGen {
             symbol_globals: String::new(),
             symbol_counter: 0,
             symbol_constants: HashMap::new(),
+            statement_types: HashMap::new(),
         }
     }
 
@@ -612,8 +617,14 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
+        statement_types: HashMap<(String, usize), Type>,
     ) -> Result<String, CodeGenError> {
-        self.codegen_program_with_config(program, type_map, &CompilerConfig::default())
+        self.codegen_program_with_config(
+            program,
+            type_map,
+            statement_types,
+            &CompilerConfig::default(),
+        )
     }
 
     /// Generate LLVM IR for entire program with custom configuration
@@ -624,10 +635,12 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
+        statement_types: HashMap<(String, usize), Type>,
         config: &CompilerConfig,
     ) -> Result<String, CodeGenError> {
         // Store type map for use during code generation
         self.type_map = type_map;
+        self.statement_types = statement_types;
 
         // Store union definitions for pattern matching
         self.unions = program.unions.clone();
@@ -966,6 +979,7 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
+        statement_types: HashMap<(String, usize), Type>,
         config: &CompilerConfig,
         ffi_bindings: &FfiBindings,
     ) -> Result<String, CodeGenError> {
@@ -977,6 +991,7 @@ impl CodeGen {
 
         // Store type map for use during code generation
         self.type_map = type_map;
+        self.statement_types = statement_types;
 
         // Store union definitions for pattern matching
         self.unions = program.unions.clone();
@@ -5261,7 +5276,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"));
         // main uses C calling convention (no tailcc) since it's called from C runtime
@@ -5293,7 +5310,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write"));
@@ -5323,7 +5342,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         // With tagged stack, integers are pushed inline (store discriminant + value)
         assert!(ir.contains("store i64 0")); // Int discriminant
@@ -5356,7 +5377,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         // Pure inline test mode should:
         // 1. NOT CALL the scheduler (declarations are ok, calls are not)
@@ -5415,7 +5438,7 @@ mod tests {
             .with_builtin(ExternalBuiltin::new("my-external-op", "test_runtime_my_op"));
 
         let ir = codegen
-            .codegen_program_with_config(&program, HashMap::new(), &config)
+            .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
             .unwrap();
 
         // Should declare the external builtin
@@ -5465,7 +5488,7 @@ mod tests {
             ));
 
         let ir = codegen
-            .codegen_program_with_config(&program, HashMap::new(), &config)
+            .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
             .unwrap();
 
         // Should declare both external builtins
@@ -5617,7 +5640,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         assert!(ir.contains("call ptr @patch_seq_push_interned_symbol"));
         assert!(ir.contains("call ptr @patch_seq_symbol_to_string"));
@@ -5645,7 +5670,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         // Should have exactly one .sym global for "hello" and one for "world"
         // Count occurrences of symbol global definitions (lines starting with @.sym)

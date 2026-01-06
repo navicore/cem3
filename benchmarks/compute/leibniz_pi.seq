@@ -1,0 +1,58 @@
+# Leibniz formula for π benchmark
+# π/4 = 1 - 1/3 + 1/5 - 1/7 + 1/9 - ...
+#
+# Tests floating-point arithmetic and loop performance
+
+: leibniz-step ( Float Int Int -- Float Int Int )
+  # Stack: sum k n
+  # Compute one term and add to sum
+  # term = (-1)^k / (2k+1)
+
+  # Get k for calculations (keep stack intact)
+  over                          # sum k n k
+  dup 2 i.% 0 i.= if            # sum k n k -> sum k n sign
+    drop 1.0
+  else
+    drop -1.0
+  then                          # sum k n sign
+
+  2 pick                        # sum k n sign k
+  2 i.* 1 i.+ int->float        # sum k n sign denom
+  f./                           # sum k n term
+
+  # Add term to sum (sum is at depth 3)
+  3 roll                        # k n term sum
+  f.+                           # k n sum'
+  rot rot                       # sum' k n
+
+  # Increment k
+  swap 1 i.+ swap               # sum' k' n
+;
+
+: leibniz-loop ( Float Int Int -- Float )
+  # Stack: sum k n
+  # Loop while k < n
+  over over i.< if
+    leibniz-step
+    leibniz-loop
+  else
+    drop drop   # return sum
+  then
+;
+
+: leibniz ( Int -- Float )
+  # n iterations -> approximation of pi
+  0.0 0 rot         # sum=0.0 k=0 n
+  leibniz-loop
+  4.0 f.*           # multiply by 4 to get pi
+;
+
+: main ( -- Int )
+  100000000 leibniz   # 100 million iterations
+  dup float->string io.write-line
+
+  # Verify approximately correct (Leibniz converges slowly)
+  # With 100M iterations, error should be < 1e-7
+  3.14159265 f.- dup 0.0 f.< if -1.0 f.* then  # abs
+  0.0000001 f.< if 0 else 1 then
+;

@@ -35,6 +35,16 @@ Counts primes up to 100,000 using trial division.
 
 **Expected result:** 9,592 primes
 
+### Leibniz Pi (leibniz_pi)
+
+Calculates π using the Leibniz formula: π/4 = 1 - 1/3 + 1/5 - 1/7 + ...
+
+Uses 100 million iterations.
+
+**Tests:** Floating-point arithmetic, loop iteration, conditional sign alternation
+
+**Expected result:** 3.141592643589326 (accurate to ~8 decimal places)
+
 ## Running
 
 ```bash
@@ -52,9 +62,10 @@ Results from MacBook Pro M-series:
 
 | Benchmark | Seq | Rust | Go | Seq/Rust |
 |-----------|-----|------|-----|----------|
-| fib(40) | 2500ms | 168ms | 224ms | 15x |
-| sum_squares | 54ms | 2ms | 2ms | 29x |
-| primes(100k) | 93ms | 3ms | 3ms | 29x |
+| fib(40) | 2200ms | 168ms | 224ms | 13x |
+| sum_squares | 48ms | 2ms | 2ms | 30x |
+| primes(100k) | 84ms | 3ms | 3ms | 28x |
+| leibniz_pi | 2900ms | 90ms | 100ms | 32x |
 
 ## Interpreting Results
 

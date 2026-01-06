@@ -200,12 +200,12 @@ print_summary() {
         return
     fi
 
-    echo -e "\n${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║                           BENCHMARK SUMMARY                               ║${NC}"
-    echo -e "${BOLD}${CYAN}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "\n${BOLD}${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${CYAN}║                           BENCHMARK SUMMARY                              ║${NC}"
+    echo -e "${BOLD}${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
     printf "${CYAN}║${NC} ${BOLD}%-12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} ${CYAN}║${NC}\n" \
         "Benchmark" "Seq" "Rust" "Go" "Seq/Rust"
-    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
 
     for i in "${!BENCH_NAMES[@]}"; do
         local name="${BENCH_NAMES[$i]}"
@@ -249,7 +249,7 @@ print_summary() {
             "$name" "$seq_fmt" "$rust_fmt" "$go_fmt" "$ratio"
     done
 
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
 
     echo -e "\n${BOLD}Legend (Seq/Rust):${NC} ${GREEN}≤2x${NC} excellent │ ${YELLOW}2-10x${NC} good │ ${RED}>10x${NC} investigate"
 }
@@ -276,10 +276,14 @@ case $BENCHMARKS in
     primes)
         run_compute_benchmark "primes" "compute"
         ;;
+    leibniz_pi)
+        run_compute_benchmark "leibniz_pi" "compute"
+        ;;
     compute)
         run_compute_benchmark "fib" "compute"
         run_compute_benchmark "sum_squares" "compute"
         run_compute_benchmark "primes" "compute"
+        run_compute_benchmark "leibniz_pi" "compute"
         ;;
     concurrency)
         run_benchmark "skynet" "skynet"
@@ -295,10 +299,11 @@ case $BENCHMARKS in
         run_compute_benchmark "fib" "compute"
         run_compute_benchmark "sum_squares" "compute"
         run_compute_benchmark "primes" "compute"
+        run_compute_benchmark "leibniz_pi" "compute"
         ;;
     *)
         echo "Unknown benchmark: $BENCHMARKS"
-        echo "Usage: $0 [skynet|pingpong|fanout|fib|sum_squares|primes|compute|concurrency|all]"
+        echo "Usage: $0 [skynet|pingpong|fanout|fib|sum_squares|primes|leibniz_pi|compute|concurrency|all]"
         exit 1
         ;;
 esac

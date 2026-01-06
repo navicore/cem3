@@ -30,6 +30,10 @@ pub struct TypeChecker {
     /// Current word being type-checked (for detecting recursive tail calls)
     /// Used to identify divergent branches in if/else expressions
     current_word: std::cell::RefCell<Option<String>>,
+    /// Per-statement type info for codegen optimization (Issue #186)
+    /// Maps (word_name, statement_index) -> concrete top-of-stack type before statement
+    /// Only stores trivially-copyable types (Int, Float, Bool) to enable optimizations
+    statement_top_types: std::cell::RefCell<HashMap<(String, usize), Type>>,
 }
 
 impl TypeChecker {
@@ -41,6 +45,7 @@ impl TypeChecker {
             quotation_types: std::cell::RefCell::new(HashMap::new()),
             expected_quotation_type: std::cell::RefCell::new(None),
             current_word: std::cell::RefCell::new(None),
+            statement_top_types: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -113,6 +118,33 @@ impl TypeChecker {
     /// appropriate code for Quotations vs Closures.
     pub fn take_quotation_types(&self) -> HashMap<usize, Type> {
         self.quotation_types.replace(HashMap::new())
+    }
+
+    /// Extract per-statement type info for codegen optimization (Issue #186)
+    /// Returns map of (word_name, statement_index) -> top-of-stack type
+    pub fn take_statement_top_types(&self) -> HashMap<(String, usize), Type> {
+        self.statement_top_types.replace(HashMap::new())
+    }
+
+    /// Check if the top of the stack is a trivially-copyable type (Int, Float, Bool)
+    /// These types have no heap references and can be memcpy'd in codegen.
+    fn get_trivially_copyable_top(stack: &StackType) -> Option<Type> {
+        match stack {
+            StackType::Cons { top, .. } => match top {
+                Type::Int | Type::Float | Type::Bool => Some(top.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Record the top-of-stack type for a statement if it's trivially copyable (Issue #186)
+    fn capture_statement_type(&self, word_name: &str, stmt_index: usize, stack: &StackType) {
+        if let Some(top_type) = Self::get_trivially_copyable_top(stack) {
+            self.statement_top_types
+                .borrow_mut()
+                .insert((word_name.to_string(), stmt_index), top_type);
+        }
     }
 
     /// Generate a fresh variable name
@@ -464,6 +496,12 @@ impl TypeChecker {
             } else {
                 None
             };
+
+            // Capture statement type info for codegen optimization (Issue #186)
+            // Record the top-of-stack type BEFORE this statement for operations like dup
+            if let Some(word_name) = self.current_word.borrow().as_ref() {
+                self.capture_statement_type(word_name, i, &current_stack);
+            }
 
             let (new_stack, subst, effects) = self.infer_statement(stmt, current_stack)?;
             current_stack = new_stack;

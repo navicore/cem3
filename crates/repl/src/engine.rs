@@ -247,8 +247,14 @@ pub fn analyze_with_config(source: &str, config: &CompilerConfig) -> AnalysisRes
     // Try to generate LLVM IR (only if no errors)
     if errors.is_empty() {
         let quotation_types = typechecker.take_quotation_types();
+        let statement_types = typechecker.take_statement_top_types();
         let mut codegen = CodeGen::new();
-        match codegen.codegen_program_with_config(&program, quotation_types, config) {
+        match codegen.codegen_program_with_config(
+            &program,
+            quotation_types,
+            statement_types,
+            config,
+        ) {
             Ok(ir) => llvm_ir = Some(ir),
             Err(e) => errors.push(format!("Codegen error: {}", e)),
         }

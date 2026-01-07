@@ -28,6 +28,9 @@ macro_rules! ty {
     (Symbol) => {
         Type::Symbol
     };
+    (Channel) => {
+        Type::Channel
+    };
     // Single uppercase letter = type variable
     (T) => {
         Type::Var("T".to_string())
@@ -378,10 +381,10 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Errors are values, not crashes - all ops return success flags
     // =========================================================================
 
-    builtin!(sigs, "chan.make", (a -- a Int));
-    builtin!(sigs, "chan.send", (a T Int -- a Bool)); // returns success flag
-    builtin!(sigs, "chan.receive", (a Int -- a T Bool)); // returns value and success flag
-    builtin!(sigs, "chan.close", (a Int -- a));
+    builtin!(sigs, "chan.make", (a -- a Channel));
+    builtin!(sigs, "chan.send", (a T Channel -- a Bool)); // returns success flag
+    builtin!(sigs, "chan.receive", (a Channel -- a T Bool)); // returns value and success flag
+    builtin!(sigs, "chan.close", (a Channel -- a));
     builtin!(sigs, "chan.yield", (a - -a));
 
     // =========================================================================

@@ -1,22 +1,20 @@
-# Test chan.send and chan.receive error handling
+# Test chan.send and chan.receive with Channel type
 # Note: All channel operations now return success flags (errors are values, not crashes)
+#
+# NOTE: Tests for invalid channel IDs have been removed. With the Channel type system,
+# passing invalid IDs is now a compile-time type error rather than a runtime error.
+# The type system guarantees that only valid Channel handles can be used with chan operations.
 
 # Test chan.send with valid channel
 : test-chan.send-success ( -- )
-  chan.make  # create channel, get ID
+  chan.make  # create channel, get Channel
   42 swap chan.send
   test.assert
 ;
 
-# Test chan.send with invalid channel ID
-: test-chan.send-invalid ( -- )
-  42 999999 chan.send  # non-existent channel
-  test.assert-not  # should return false (failure)
-;
-
 # Test chan.receive with valid channel
 : test-chan.receive-success ( -- )
-  chan.make  # create channel, get ID
+  chan.make  # create channel, get Channel
   dup 42 swap chan.send  # send value, returns success flag
   test.assert  # send should succeed
   chan.receive  # returns (value success_flag)
@@ -24,15 +22,7 @@
   42 test.assert-eq  # value should be 42
 ;
 
-# Test chan.receive with invalid channel ID
-: test-chan.receive-invalid ( -- )
-  999999 chan.receive  # non-existent channel
-  test.assert-not  # should return false (failure)
-  drop  # drop the placeholder value
-;
-
-# NOTE: Tests for closed channel operations (test-chan.receive-closed, test-chan.send-closed)
-# have been removed. The current channel semantics use reference counting - channels close
+# NOTE: Tests for closed channel operations have been removed.
+# The current channel semantics use reference counting - channels close
 # when ALL references are dropped. You cannot receive from a "closed" channel because
 # if you have a reference to receive from, the channel isn't closed yet.
-# The error handling for invalid channel IDs (tested above) covers the main failure modes.

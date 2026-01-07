@@ -628,6 +628,7 @@ fn parse_type_name(name: &str) -> Type {
         "Float" => Type::Float,
         "Bool" => Type::Bool,
         "String" => Type::String,
+        "Channel" => Type::Channel,
         other => Type::Union(other.to_string()),
     }
 }

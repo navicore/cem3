@@ -47,8 +47,8 @@ include std:http
 # Responses are single Int values (the count)
 
 union Message {
-  Get { response_chan: Int }
-  Increment { response_chan: Int }
+  Get { response_chan: Channel }
+  Increment { response_chan: Channel }
   Report { delta: Int, total: Int }
 }
 
@@ -75,14 +75,14 @@ union Message {
 
 # Store actor entry point
 # Receives ( my-chan parent-chan ) via spawn's stack cloning
-: store-actor ( Int Int -- )
+: store-actor ( Channel Channel -- )
   swap                       # ( parent-chan my-chan )
   0 0 store-loop             # Start with count=0, pending=0
 ;
 
 # Store actor main loop - handles messages forever
 # Stack: ( parent-chan my-chan count pending -- ) [never returns]
-: store-loop ( Int Int Int Int -- )
+: store-loop ( Channel Channel Int Int -- )
   # Receive on my-chan (which is at depth 2)
   2 pick chan.receive             # ( parent my count pending msg success )
   not if
@@ -137,14 +137,14 @@ union Message {
 
 # District actor entry point
 # Receives ( my-chan parent-chan ) via spawn's stack cloning
-: district-actor ( Int Int -- )
+: district-actor ( Channel Channel -- )
   swap                       # ( parent-chan my-chan )
   0 district-loop            # Start with total=0
 ;
 
 # District actor main loop - simple: aggregate and forward immediately
 # Stack: ( parent-chan my-chan total -- ) [never returns]
-: district-loop ( Int Int Int -- )
+: district-loop ( Channel Channel Int -- )
   over chan.receive               # ( parent my total msg success )
   not if
     drop district-loop            # failure: drop invalid msg, retry (divergent)
@@ -186,14 +186,14 @@ union Message {
 #   - Forwards to company immediately on every update
 
 # Region actor entry point
-: region-actor ( Int Int -- )
+: region-actor ( Channel Channel -- )
   swap                       # ( parent-chan my-chan )
   0 region-loop              # Start with total=0
 ;
 
 # Region actor main loop - simple: aggregate and forward immediately
 # Stack: ( parent-chan my-chan total -- ) [never returns]
-: region-loop ( Int Int Int -- )
+: region-loop ( Channel Channel Int -- )
   over chan.receive               # ( parent my total msg success )
   not if
     drop region-loop              # failure: drop invalid msg, retry (divergent)
@@ -235,13 +235,13 @@ union Message {
 #   - Receives GET messages from HTTP clients (op=0)
 
 # Company actor entry point
-: company-actor ( Int -- )
+: company-actor ( Channel -- )
   0 company-loop
 ;
 
 # Company actor main loop
 # Stack: ( my-chan total -- ) [never returns]
-: company-loop ( Int Int -- )
+: company-loop ( Channel Int -- )
   over chan.receive               # ( my-chan total msg success )
   not if
     drop company-loop             # failure: drop invalid msg, retry (divergent)
@@ -286,14 +286,14 @@ union Message {
 ;
 
 # Look up in a registry
-# Stack: ( registry path -- channel-id found? )
-: lookup-store ( Variant String -- Int Bool )
+# Stack: ( registry path -- channel found? )
+: lookup-store ( Variant String -- Channel Bool )
   map.get   # ( value found? ) - errors are values, not crashes
 ;
 
 # Create a company actor and register it
 # Stack: ( company-registry company-name -- company-registry' company-chan )
-: create-company ( Variant String -- Variant Int )
+: create-company ( Variant String -- Variant Channel )
   chan.make               # ( registry name chan )
   dup                        # ( registry name chan chan )
   [ company-actor ] strand.spawn    # ( registry name chan chan strand-id )
@@ -309,7 +309,7 @@ union Message {
 
 # Create a region actor and register it
 # Stack: ( parent-chan region-registry region-path -- region-registry' region-chan )
-: create-region ( Int Variant String -- Variant Int )
+: create-region ( Channel Variant String -- Variant Channel )
   chan.make               # ( parent registry path chan )
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
@@ -327,7 +327,7 @@ union Message {
 
 # Create a district actor and register it
 # Stack: ( parent-chan district-registry district-path -- district-registry' district-chan )
-: create-district ( Int Variant String -- Variant Int )
+: create-district ( Channel Variant String -- Variant Channel )
   chan.make               # ( parent registry path chan )
   dup                        # ( parent registry path chan chan )
   4 pick                     # ( parent registry path chan chan parent )
@@ -397,7 +397,7 @@ union Message {
 
 # Create a single store with parent channel
 # Stack: ( parent-chan path registry -- registry' )
-: create-store ( Int String Variant -- Variant )
+: create-store ( Channel String Variant -- Variant )
   chan.make               # ( parent path registry chan )
 
   # Spawn the store actor: needs ( my-chan parent-chan ) on stack
@@ -443,7 +443,7 @@ union Message {
 
 # Helper: Generate stores for a district (recursive)
 # Stack: ( parent-chan prefix counter registry -- registry' )
-: gen-stores-loop ( Int String Int Variant -- Variant )
+: gen-stores-loop ( Channel String Int Variant -- Variant )
   over 0 i.<= if
     nip nip nip
   else
@@ -458,7 +458,7 @@ union Message {
 
 # Create stores for a district
 # Stack: ( registry district-chan district-path -- registry' )
-: add-stores ( Variant Int String -- Variant )
+: add-stores ( Variant Channel String -- Variant )
   "/" string.concat                # ( registry district-chan prefix )
   stores-per-district              # ( registry district-chan prefix count )
   3 roll                           # ( district-chan prefix count registry )
@@ -685,8 +685,8 @@ union Message {
 ;
 
 # Query an actor for its current count
-# Stack: ( chan-id -- count )
-: query-actor ( Int -- Int )
+# Stack: ( chan -- count )
+: query-actor ( Channel -- Int )
   chan.make              # ( chan-id resp-chan )
   dup Make-Get              # ( chan-id resp-chan msg )
   rot chan.send               # ( resp-chan success )
@@ -699,8 +699,8 @@ union Message {
 ;
 
 # Query an actor to increment and return new count
-# Stack: ( chan-id -- count )
-: query-actor-increment ( Int -- Int )
+# Stack: ( chan -- count )
+: query-actor-increment ( Channel -- Int )
   chan.make              # ( chan-id resp-chan )
   dup Make-Increment        # ( chan-id resp-chan msg )
   rot chan.send               # ( resp-chan success )

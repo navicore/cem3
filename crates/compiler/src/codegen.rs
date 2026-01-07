@@ -387,8 +387,14 @@ pub struct CodeGen {
     symbol_constants: HashMap<String, String>, // symbol name -> global name (deduplication)
     /// Per-statement type info for optimization (Issue #186)
     /// Maps (word_name, statement_index) -> top-of-stack type before statement
-    #[allow(dead_code)] // Phase 1: plumbing only, used in Phase 2
     statement_types: HashMap<(String, usize), Type>,
+    /// Current word being compiled (for statement type lookup)
+    current_word_name: Option<String>,
+    /// Current statement index within the word (for statement type lookup)
+    current_stmt_index: usize,
+    /// Nesting depth for type lookup - only depth 0 can use type info
+    /// Nested contexts (if/else, loops) increment this to disable lookups
+    codegen_depth: usize,
 }
 
 impl CodeGen {
@@ -415,6 +421,9 @@ impl CodeGen {
             symbol_counter: 0,
             symbol_constants: HashMap::new(),
             statement_types: HashMap::new(),
+            current_word_name: None,
+            current_stmt_index: 0,
+            codegen_depth: 0,
         }
     }
 
@@ -451,6 +460,26 @@ impl CodeGen {
                 id
             ))
         })
+    }
+
+    /// Check if top of stack at current statement is trivially copyable (Int, Float, Bool)
+    /// These types can be duplicated with a simple memcpy instead of calling clone_value
+    fn is_trivially_copyable_at_current_stmt(&self) -> bool {
+        // Only look up type info for top-level word body statements (depth 1)
+        // Depth is incremented at entry to codegen_statements, so:
+        // - First call (word body): runs at depth 1 (allow lookups)
+        // - Nested calls (loop bodies, branches): run at depth > 1 (disable lookups)
+        // This prevents index collisions between outer and inner statement indices
+        if self.codegen_depth > 1 {
+            return false;
+        }
+        if let Some(word_name) = &self.current_word_name {
+            let key = (word_name.clone(), self.current_stmt_index);
+            if let Some(ty) = self.statement_types.get(&key) {
+                return matches!(ty, Type::Int | Type::Float | Type::Bool);
+            }
+        }
+        false
     }
 
     /// Find variant info by name across all unions
@@ -1806,8 +1835,15 @@ impl CodeGen {
             "stack".to_string()
         };
 
+        // Set current word for type-specialized optimizations (Issue #186)
+        self.current_word_name = Some(word.name.clone());
+        self.current_stmt_index = 0;
+
         // Generate code for all statements with pattern detection for inline loops
         stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
+
+        // Clear current word tracking
+        self.current_word_name = None;
 
         // Only emit ret if the last statement wasn't a tail call
         // (tail calls emit their own ret)
@@ -1847,6 +1883,10 @@ impl CodeGen {
 
         // Save current output and switch to quotation_functions
         let saved_output = std::mem::take(&mut self.output);
+
+        // Clear word context during quotation codegen to prevent
+        // incorrect type lookups (quotations don't have their own type info)
+        let saved_word_name = self.current_word_name.take();
 
         // Generate function signature based on type
         match quot_type {
@@ -1907,8 +1947,9 @@ impl CodeGen {
                 // Move generated functions to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output
+                // Restore original output and word context
                 self.output = saved_output;
+                self.current_word_name = saved_word_name;
 
                 Ok(QuotationFunctions {
                     wrapper: wrapper_name,
@@ -1958,8 +1999,9 @@ impl CodeGen {
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output and reset closure flag
+                // Restore original output, word context, and reset closure flag
                 self.output = saved_output;
+                self.current_word_name = saved_word_name;
                 self.inside_closure = false;
 
                 // For closures, both wrapper and impl are the same (no TCO yet)
@@ -2075,6 +2117,9 @@ impl CodeGen {
         merge_block: &str,
         block_prefix: &str,
     ) -> Result<BranchResult, CodeGenError> {
+        // Increment depth to disable type lookups in nested branches
+        self.codegen_depth += 1;
+
         let mut stack_var = initial_stack.to_string();
         let len = statements.len();
         let mut emitted_tail_call = false;
@@ -2101,6 +2146,9 @@ impl CodeGen {
             writeln!(&mut self.output, "  br label %{}", merge_block)?;
             pred
         };
+
+        // Restore depth
+        self.codegen_depth -= 1;
 
         Ok(BranchResult {
             stack_var,
@@ -2414,10 +2462,10 @@ impl CodeGen {
             }
 
             // dup: ( a -- a a )
-            // Uses patch_seq_clone_value to properly clone heap values
+            // For trivially-copyable types (Int, Float, Bool): direct load/store
+            // For heap types (String, etc.): call clone_value runtime
             "dup" => {
                 let top_ptr = self.fresh_temp();
-                let result_var = self.fresh_temp();
 
                 // Get pointer to top value (sp - 1)
                 writeln!(
@@ -2425,13 +2473,32 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     top_ptr, stack_var
                 )?;
-                // Clone the value from top_ptr to stack_var (current SP)
-                writeln!(
-                    &mut self.output,
-                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
-                    top_ptr, stack_var
-                )?;
-                // Increment SP
+
+                if self.is_trivially_copyable_at_current_stmt() {
+                    // Optimized path: load/store 40-byte Value struct directly
+                    // No runtime call needed for Int, Float, Bool (no heap references)
+                    let val = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = load %Value, ptr %{}",
+                        val, top_ptr
+                    )?;
+                    writeln!(
+                        &mut self.output,
+                        "  store %Value %{}, ptr %{}",
+                        val, stack_var
+                    )?;
+                } else {
+                    // General path: call clone_value for heap types (String, etc.)
+                    writeln!(
+                        &mut self.output,
+                        "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                        top_ptr, stack_var
+                    )?;
+                }
+
+                // Increment SP (allocate result_var after the branch to maintain SSA order)
+                let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = getelementptr %Value, ptr %{}, i64 1",
@@ -4998,11 +5065,35 @@ impl CodeGen {
         initial_stack_var: &str,
         last_is_tail: bool,
     ) -> Result<String, CodeGenError> {
+        // Track nesting depth - top-level word body runs at depth 0 (allowed to use type info)
+        // Recursive calls from loop patterns run at depth > 0 (disable type lookups)
+        // We increment AFTER the first call starts, so the first call sees depth 0
+        let entering_depth = self.codegen_depth;
+        self.codegen_depth += 1;
+
+        let result = self.codegen_statements_inner(statements, initial_stack_var, last_is_tail);
+
+        self.codegen_depth = entering_depth;
+
+        result
+    }
+
+    /// Internal implementation of codegen_statements
+    fn codegen_statements_inner(
+        &mut self,
+        statements: &[Statement],
+        initial_stack_var: &str,
+        last_is_tail: bool,
+    ) -> Result<String, CodeGenError> {
         let mut stack_var = initial_stack_var.to_string();
         let len = statements.len();
         let mut i = 0;
 
         while i < len {
+            // Update statement index for type-specialized optimizations (Issue #186)
+            // This tracks our position in the word body for looking up type info
+            self.current_stmt_index = i;
+
             let is_last = i == len - 1;
             let position = if is_last && last_is_tail {
                 TailPosition::Tail

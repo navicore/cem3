@@ -61,6 +61,7 @@ fn type_to_stack_value(ty: &Type) -> StackValue {
         Type::Bool => StackValue::ty("Bool"),
         Type::String => StackValue::ty("String"),
         Type::Symbol => StackValue::ty("Symbol"),
+        Type::Channel => StackValue::ty("Channel"),
         Type::Var(name) => {
             // Strip the freshening suffix
             let clean_name = name.split('$').next().unwrap_or(name);
@@ -115,6 +116,7 @@ fn format_type(ty: &Type) -> String {
         Type::Bool => "Bool".to_string(),
         Type::String => "String".to_string(),
         Type::Symbol => "Symbol".to_string(),
+        Type::Channel => "Channel".to_string(),
         Type::Var(name) => {
             let clean_name = name.split('$').next().unwrap_or(name);
             clean_name.to_string()

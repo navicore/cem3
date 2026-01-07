@@ -103,9 +103,13 @@ fn occurs_in_type(var: &str, ty: &Type) -> bool {
     match ty {
         Type::Var(name) => name == var,
         // Concrete types contain no type variables
-        Type::Int | Type::Float | Type::Bool | Type::String | Type::Symbol | Type::Union(_) => {
-            false
-        }
+        Type::Int
+        | Type::Float
+        | Type::Bool
+        | Type::String
+        | Type::Symbol
+        | Type::Channel
+        | Type::Union(_) => false,
         Type::Quotation(effect) => {
             // Check if var occurs in quotation's input or output stack types
             occurs_in_stack(var, &effect.inputs) || occurs_in_stack(var, &effect.outputs)
@@ -140,7 +144,8 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
         | (Type::Float, Type::Float)
         | (Type::Bool, Type::Bool)
         | (Type::String, Type::String)
-        | (Type::Symbol, Type::Symbol) => Ok(Subst::empty()),
+        | (Type::Symbol, Type::Symbol)
+        | (Type::Channel, Type::Channel) => Ok(Subst::empty()),
 
         // Union types unify if they have the same name
         (Type::Union(name1), Type::Union(name2)) => {

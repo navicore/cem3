@@ -5065,9 +5065,11 @@ impl CodeGen {
         initial_stack_var: &str,
         last_is_tail: bool,
     ) -> Result<String, CodeGenError> {
-        // Track nesting depth - top-level word body runs at depth 0 (allowed to use type info)
-        // Recursive calls from loop patterns run at depth > 0 (disable type lookups)
-        // We increment AFTER the first call starts, so the first call sees depth 0
+        // Track nesting depth for type-specialized optimizations:
+        // - codegen_depth starts at 0, we increment to 1 for the first (top-level) call
+        // - Top-level word body runs at depth 1 (type lookups allowed)
+        // - Nested calls (loop bodies, branches) run at depth > 1 (type lookups disabled)
+        // The check in is_trivially_copyable_at_current_stmt uses `depth > 1` accordingly
         let entering_depth = self.codegen_depth;
         self.codegen_depth += 1;
 
@@ -5791,6 +5793,141 @@ mod tests {
         assert!(
             ir.contains("i64 0, i8 1"),
             "Symbol global should have capacity=0 and global=1"
+        );
+    }
+
+    #[test]
+    fn test_dup_optimization_for_int() {
+        // Test that dup on Int uses optimized load/store instead of clone_value
+        // This verifies the Issue #186 optimization actually fires
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "test_dup".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(42), // stmt 0: push Int
+                        Statement::WordCall {
+                            // stmt 1: dup
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_dup".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        // Provide type info: before statement 1 (dup), top of stack is Int
+        let mut statement_types = HashMap::new();
+        statement_types.insert(("test_dup".to_string(), 1), Type::Int);
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), statement_types)
+            .unwrap();
+
+        // Extract just the test_dup function
+        let func_start = ir.find("define tailcc ptr @seq_test_dup").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_dup_fn = &ir[func_start..func_end];
+
+        // The optimized path should use load/store %Value directly
+        assert!(
+            test_dup_fn.contains("load %Value"),
+            "Optimized dup should use 'load %Value', got:\n{}",
+            test_dup_fn
+        );
+        assert!(
+            test_dup_fn.contains("store %Value"),
+            "Optimized dup should use 'store %Value', got:\n{}",
+            test_dup_fn
+        );
+
+        // The optimized path should NOT call clone_value
+        assert!(
+            !test_dup_fn.contains("@patch_seq_clone_value"),
+            "Optimized dup should NOT call clone_value for Int, got:\n{}",
+            test_dup_fn
+        );
+    }
+
+    #[test]
+    fn test_dup_no_optimization_without_type_info() {
+        // Test that dup without type info uses the safe clone_value path
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "test_dup".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(42),
+                        Statement::WordCall {
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_dup".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        // No type info provided - should use safe path
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Extract just the test_dup function
+        let func_start = ir.find("define tailcc ptr @seq_test_dup").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_dup_fn = &ir[func_start..func_end];
+
+        // Without type info, should call clone_value (safe path)
+        assert!(
+            test_dup_fn.contains("@patch_seq_clone_value"),
+            "Dup without type info should call clone_value, got:\n{}",
+            test_dup_fn
         );
     }
 }

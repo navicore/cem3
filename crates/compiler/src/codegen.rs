@@ -398,6 +398,9 @@ pub struct CodeGen {
     /// True if the previous statement was a trivially-copyable literal (Issue #195)
     /// Used to optimize `dup` after literal push (e.g., `42 dup`)
     prev_stmt_is_trivial_literal: bool,
+    /// If previous statement was IntLiteral, stores its value (Issue #192)
+    /// Used to optimize `roll`/`pick` with constant N (e.g., `2 roll` -> rot)
+    prev_stmt_int_value: Option<i64>,
 }
 
 impl CodeGen {
@@ -428,6 +431,7 @@ impl CodeGen {
             current_stmt_index: 0,
             codegen_depth: 0,
             prev_stmt_is_trivial_literal: false,
+            prev_stmt_int_value: None,
         }
     }
 
@@ -3355,6 +3359,14 @@ impl CodeGen {
             // Copy the nth item (0-indexed from below n) to top
             // Uses patch_seq_clone_value to properly clone heap values
             "pick" => {
+                // Issue #192: Optimize for constant N from previous IntLiteral
+                if let Some(n) = self.prev_stmt_int_value
+                    && n >= 0
+                {
+                    return self.codegen_pick_constant(stack_var, n as usize);
+                }
+
+                // Dynamic N case: read from stack
                 // Get pointer to n (top of stack)
                 let n_ptr = self.fresh_temp();
                 writeln!(
@@ -3411,6 +3423,14 @@ impl CodeGen {
             // roll: ( ... xn xn-1 ... x1 x0 n -- ... xn-1 ... x1 x0 xn )
             // Move the nth item to top, shifting others down
             "roll" => {
+                // Issue #192: Optimize for constant N from previous IntLiteral
+                if let Some(n) = self.prev_stmt_int_value
+                    && n >= 0
+                {
+                    return self.codegen_roll_constant(stack_var, n as usize);
+                }
+
+                // Dynamic N case: read from stack
                 // Get pointer to n (top of stack)
                 let n_ptr = self.fresh_temp();
                 writeln!(
@@ -3511,6 +3531,226 @@ impl CodeGen {
             // Not an inline-able operation
             _ => Ok(None),
         }
+    }
+
+    /// Generate optimized roll code when N is known at compile time (Issue #192)
+    ///
+    /// Stack effect: ( ... xn xn-1 ... x1 x0 n -- ... xn-1 ... x1 x0 xn )
+    /// With constant N, we can:
+    /// - n=0: no-op (just pop the 0)
+    /// - n=1: swap (after popping the 1)
+    /// - n=2: rot (after popping the 2)
+    /// - n>=3: inline with constant offsets (no dynamic calculations)
+    fn codegen_roll_constant(
+        &mut self,
+        stack_var: &str,
+        n: usize,
+    ) -> Result<Option<String>, CodeGenError> {
+        // First, pop the N value from stack
+        let popped_sp = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_sp, stack_var
+        )?;
+
+        match n {
+            0 => {
+                // 0 roll is a no-op - just return after popping the 0
+                Ok(Some(popped_sp))
+            }
+            1 => {
+                // 1 roll = swap: ( a b -- b a )
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_b, popped_sp
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_a, popped_sp
+                )?;
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_b
+                )?;
+                Ok(Some(popped_sp))
+            }
+            2 => {
+                // 2 roll = rot: ( a b c -- b c a )
+                let ptr_c = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    ptr_c, popped_sp
+                )?;
+                let ptr_b = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
+                    ptr_b, popped_sp
+                )?;
+                let ptr_a = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -3",
+                    ptr_a, popped_sp
+                )?;
+                let val_a = self.fresh_temp();
+                let val_b = self.fresh_temp();
+                let val_c = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_a, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_b, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val_c, ptr_c
+                )?;
+                // ( a b c -- b c a )
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_b, ptr_a
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_c, ptr_b
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val_a, ptr_c
+                )?;
+                Ok(Some(popped_sp))
+            }
+            _ => {
+                // n >= 3: Use memmove with constant offsets
+                // Offset to xn: -(n+1) from popped_sp
+                let neg_offset = -((n + 1) as i64);
+
+                // Get pointer to the item to roll (xn)
+                let src_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 {}",
+                    src_ptr, popped_sp, neg_offset
+                )?;
+
+                // Load the value to roll
+                let rolled_val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    rolled_val, src_ptr
+                )?;
+
+                // memmove: shift items down (from src+1 to src, n items)
+                let src_plus_one = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    src_plus_one, src_ptr
+                )?;
+
+                // Size in bytes = n * 40 (constant)
+                let size_bytes = n * 40;
+                writeln!(
+                    &mut self.output,
+                    "  call void @llvm.memmove.p0.p0.i64(ptr %{}, ptr %{}, i64 {}, i1 false)",
+                    src_ptr, src_plus_one, size_bytes
+                )?;
+
+                // Store rolled value at top (popped_sp - 1)
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, popped_sp
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    rolled_val, top_ptr
+                )?;
+
+                Ok(Some(popped_sp))
+            }
+        }
+    }
+
+    /// Generate optimized pick code when N is known at compile time (Issue #192)
+    ///
+    /// Stack effect: ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
+    /// With constant N, we can:
+    /// - n=0: dup (copy x0)
+    /// - n=1: over (copy x1)
+    /// - n>=2: inline with constant offset
+    fn codegen_pick_constant(
+        &mut self,
+        stack_var: &str,
+        n: usize,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Destination: replace n at top of stack (sp - 1)
+        let n_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            n_ptr, stack_var
+        )?;
+
+        // Source offset: -(n + 2) from stack_var
+        // n=0: x0 is at -2 (right below the n we're replacing)
+        // n=1: x1 is at -3
+        // etc.
+        let neg_offset = -((n + 2) as i64);
+
+        let src_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 {}",
+            src_ptr, stack_var, neg_offset
+        )?;
+
+        // Clone the value from src to dest
+        // We still need clone_value because the source could be a heap type
+        writeln!(
+            &mut self.output,
+            "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+            src_ptr, n_ptr
+        )?;
+
+        // SP unchanged (we replaced n with the picked value)
+        Ok(Some(stack_var.to_string()))
     }
 
     /// Generate inline code for comparison operations.
@@ -5115,6 +5355,18 @@ impl CodeGen {
                         | Statement::BoolLiteral(_)
                 );
 
+            // Track the actual int value if previous was IntLiteral (Issue #192)
+            // This enables optimized roll/pick with constant N (e.g., `2 roll` -> rot)
+            self.prev_stmt_int_value = if i > 0 {
+                if let Statement::IntLiteral(n) = &statements[i - 1] {
+                    Some(*n)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             let is_last = i == len - 1;
             let position = if is_last && last_is_tail {
                 TailPosition::Tail
@@ -6029,6 +6281,155 @@ mod tests {
             test_dup_fn.contains("@patch_seq_clone_value"),
             "Dup after word call should call clone_value, got:\n{}",
             test_dup_fn
+        );
+    }
+
+    #[test]
+    fn test_roll_constant_optimization() {
+        // Test Issue #192: roll with constant N uses optimized inline code
+        // Pattern: `2 roll` should generate rot-like inline code
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "test_roll".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(1),
+                        Statement::IntLiteral(2),
+                        Statement::IntLiteral(3),
+                        Statement::IntLiteral(2), // Constant N for roll
+                        Statement::WordCall {
+                            // 2 roll = rot
+                            name: "roll".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_roll".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Extract just the test_roll function
+        let func_start = ir.find("define tailcc ptr @seq_test_roll").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_roll_fn = &ir[func_start..func_end];
+
+        // With constant N=2, should NOT do dynamic calculation
+        // Should NOT have dynamic add/sub for offset calculation
+        assert!(
+            !test_roll_fn.contains("= add i64 %"),
+            "Constant roll should use constant offset, not dynamic add, got:\n{}",
+            test_roll_fn
+        );
+
+        // Should NOT call memmove for small N (n=2 uses direct loads/stores)
+        assert!(
+            !test_roll_fn.contains("@llvm.memmove"),
+            "2 roll should not use memmove, got:\n{}",
+            test_roll_fn
+        );
+    }
+
+    #[test]
+    fn test_pick_constant_optimization() {
+        // Test Issue #192: pick with constant N uses constant offset
+        // Pattern: `1 pick` should generate code with constant -3 offset
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "test_pick".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(10),
+                        Statement::IntLiteral(20),
+                        Statement::IntLiteral(1), // Constant N for pick
+                        Statement::WordCall {
+                            // 1 pick = over
+                            name: "pick".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_pick".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Extract just the test_pick function
+        let func_start = ir.find("define tailcc ptr @seq_test_pick").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_pick_fn = &ir[func_start..func_end];
+
+        // With constant N=1, should use constant offset -3
+        // Should NOT have dynamic add/sub for offset calculation
+        assert!(
+            !test_pick_fn.contains("= add i64 %"),
+            "Constant pick should use constant offset, not dynamic add, got:\n{}",
+            test_pick_fn
+        );
+
+        // Should have the constant offset -3 in getelementptr
+        assert!(
+            test_pick_fn.contains("i64 -3"),
+            "1 pick should use offset -3 (-(1+2)), got:\n{}",
+            test_pick_fn
         );
     }
 }

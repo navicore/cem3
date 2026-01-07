@@ -17,7 +17,7 @@
 # Worker loop: receive messages until sentinel (-1)
 # Yields after each receive for fair distribution
 # ( work-chan done-chan count -- )
-: worker-loop ( Int Int Int -- )
+: worker-loop ( Channel Channel Int -- )
   2 pick chan.receive     # ( work done count value success )
   drop                    # drop success flag
   chan.yield              # yield to let other workers compete
@@ -31,13 +31,13 @@
 
 # Worker entry point
 # ( work-chan done-chan -- )
-: worker ( Int Int -- )
+: worker ( Channel Channel -- )
   0 worker-loop
 ;
 
 # Spawn N workers recursively
 # ( work-chan done-chan n -- )
-: spawn-workers ( Int Int Int -- )
+: spawn-workers ( Channel Channel Int -- )
   dup 0 i.> if
     2 pick 2 pick [ worker ] strand.spawn drop drop drop
     1 i.subtract spawn-workers
@@ -48,7 +48,7 @@
 
 # Collect N results recursively
 # ( done-chan total remaining -- total )
-: collect-results ( Int Int Int -- Int )
+: collect-results ( Channel Int Int -- Int )
   dup 0 i.> if
     2 pick chan.receive   # ( done total remaining value success )
     drop                  # drop success flag
@@ -60,7 +60,7 @@
 
 # Producer: send n messages (no yields - batched for performance)
 # ( work-chan n -- )
-: producer ( Int Int -- )
+: producer ( Channel Int -- )
   dup 0 i.> if
     dup 2 pick chan.send  # send n to work-chan
     drop                  # drop success flag
@@ -72,7 +72,7 @@
 
 # Send N sentinel values to signal workers to stop
 # ( work-chan n -- )
-: send-sentinels ( Int Int -- )
+: send-sentinels ( Channel Int -- )
   dup 0 i.> if
     -1 2 pick chan.send  # send sentinel
     drop                 # drop success flag

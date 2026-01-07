@@ -1793,6 +1793,63 @@ impl CodeGen {
         Ok(())
     }
 
+    /// Check if a word is small enough to be inlined (Issue #187)
+    ///
+    /// Criteria for inlining:
+    /// - Not main (has special calling convention)
+    /// - Not recursive (doesn't call itself, even in branches)
+    /// - Few statements (<= 10)
+    /// - No quotations (create closures, make function large)
+    fn is_inlineable_word(word: &WordDef) -> bool {
+        const MAX_INLINE_STATEMENTS: usize = 10;
+
+        // main is never inlined
+        if word.name == "main" {
+            return false;
+        }
+
+        // Too many statements
+        if word.body.len() > MAX_INLINE_STATEMENTS {
+            return false;
+        }
+
+        // Check for disqualifying patterns (recursively)
+        Self::check_statements_inlineable(&word.body, &word.name)
+    }
+
+    /// Recursively check if statements allow inlining
+    fn check_statements_inlineable(statements: &[Statement], word_name: &str) -> bool {
+        for stmt in statements {
+            match stmt {
+                // Recursive calls prevent inlining
+                Statement::WordCall { name, .. } if name == word_name => {
+                    return false;
+                }
+                // Quotations create closures - don't inline
+                Statement::Quotation { .. } => {
+                    return false;
+                }
+                // Check inside if branches for recursive calls
+                Statement::If {
+                    then_branch,
+                    else_branch,
+                } => {
+                    if !Self::check_statements_inlineable(then_branch, word_name) {
+                        return false;
+                    }
+                    if let Some(else_stmts) = else_branch
+                        && !Self::check_statements_inlineable(else_stmts, word_name)
+                    {
+                        return false;
+                    }
+                }
+                // Everything else is fine
+                _ => {}
+            }
+        }
+        true
+    }
+
     /// Generate code for a word definition
     fn codegen_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
         // Prefix word names with "seq_" to avoid conflicts with C symbols
@@ -1805,6 +1862,13 @@ impl CodeGen {
         let is_main = word.name == "main";
         self.inside_main = is_main;
 
+        // Issue #187: Mark small functions for inlining
+        let inline_attr = if Self::is_inlineable_word(word) {
+            " alwaysinline"
+        } else {
+            ""
+        };
+
         if is_main {
             writeln!(
                 &mut self.output,
@@ -1814,8 +1878,8 @@ impl CodeGen {
         } else {
             writeln!(
                 &mut self.output,
-                "define tailcc ptr @{}(ptr %stack) {{",
-                function_name
+                "define tailcc ptr @{}(ptr %stack){} {{",
+                function_name, inline_attr
             )?;
         }
         writeln!(&mut self.output, "entry:")?;
@@ -6430,6 +6494,134 @@ mod tests {
             test_pick_fn.contains("i64 -3"),
             "1 pick should use offset -3 (-(1+2)), got:\n{}",
             test_pick_fn
+        );
+    }
+
+    #[test]
+    fn test_small_word_marked_alwaysinline() {
+        // Test Issue #187: Small words get alwaysinline attribute
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "double".to_string(), // Small word: dup i.+
+                    effect: None,
+                    body: vec![
+                        Statement::WordCall {
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "i.+".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(21),
+                        Statement::WordCall {
+                            name: "double".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+            ],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Small word 'double' should have alwaysinline attribute
+        assert!(
+            ir.contains("define tailcc ptr @seq_double(ptr %stack) alwaysinline"),
+            "Small word should have alwaysinline attribute, got:\n{}",
+            ir.lines()
+                .filter(|l| l.contains("define"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        // main should NOT have alwaysinline (uses C calling convention)
+        assert!(
+            ir.contains("define ptr @seq_main(ptr %stack) {"),
+            "main should not have alwaysinline, got:\n{}",
+            ir.lines()
+                .filter(|l| l.contains("define"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    #[test]
+    fn test_recursive_word_not_inlined() {
+        // Test Issue #187: Recursive words should NOT get alwaysinline
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "countdown".to_string(), // Recursive
+                    effect: None,
+                    body: vec![
+                        Statement::WordCall {
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::If {
+                            then_branch: vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall {
+                                    name: "i.-".to_string(),
+                                    span: None,
+                                },
+                                Statement::WordCall {
+                                    name: "countdown".to_string(), // Recursive call
+                                    span: None,
+                                },
+                            ],
+                            else_branch: Some(vec![]),
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(5),
+                        Statement::WordCall {
+                            name: "countdown".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+            ],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Recursive word should NOT have alwaysinline
+        assert!(
+            ir.contains("define tailcc ptr @seq_countdown(ptr %stack) {"),
+            "Recursive word should NOT have alwaysinline, got:\n{}",
+            ir.lines()
+                .filter(|l| l.contains("define"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
 }

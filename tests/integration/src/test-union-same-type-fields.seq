@@ -26,6 +26,6 @@ union Lambda {
   Make-MakeLambda
 
   # If we get here, unification worked - verify structure
-  dup variant.tag 0 test.assert-eq  # MakeLambda has tag 0
+  dup variant.tag :MakeLambda symbol.= test.assert  # MakeLambda variant
   drop
 ;

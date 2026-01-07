@@ -30,6 +30,10 @@ pub struct TypeChecker {
     /// Current word being type-checked (for detecting recursive tail calls)
     /// Used to identify divergent branches in if/else expressions
     current_word: std::cell::RefCell<Option<String>>,
+    /// Per-statement type info for codegen optimization (Issue #186)
+    /// Maps (word_name, statement_index) -> concrete top-of-stack type before statement
+    /// Only stores trivially-copyable types (Int, Float, Bool) to enable optimizations
+    statement_top_types: std::cell::RefCell<HashMap<(String, usize), Type>>,
 }
 
 impl TypeChecker {
@@ -41,6 +45,7 @@ impl TypeChecker {
             quotation_types: std::cell::RefCell::new(HashMap::new()),
             expected_quotation_type: std::cell::RefCell::new(None),
             current_word: std::cell::RefCell::new(None),
+            statement_top_types: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -115,6 +120,33 @@ impl TypeChecker {
         self.quotation_types.replace(HashMap::new())
     }
 
+    /// Extract per-statement type info for codegen optimization (Issue #186)
+    /// Returns map of (word_name, statement_index) -> top-of-stack type
+    pub fn take_statement_top_types(&self) -> HashMap<(String, usize), Type> {
+        self.statement_top_types.replace(HashMap::new())
+    }
+
+    /// Check if the top of the stack is a trivially-copyable type (Int, Float, Bool)
+    /// These types have no heap references and can be memcpy'd in codegen.
+    fn get_trivially_copyable_top(stack: &StackType) -> Option<Type> {
+        match stack {
+            StackType::Cons { top, .. } => match top {
+                Type::Int | Type::Float | Type::Bool => Some(top.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Record the top-of-stack type for a statement if it's trivially copyable (Issue #186)
+    fn capture_statement_type(&self, word_name: &str, stmt_index: usize, stack: &StackType) {
+        if let Some(top_type) = Self::get_trivially_copyable_top(stack) {
+            self.statement_top_types
+                .borrow_mut()
+                .insert((word_name.to_string(), stmt_index), top_type);
+        }
+    }
+
     /// Generate a fresh variable name
     fn fresh_var(&self, prefix: &str) -> String {
         let n = self.fresh_counter.get();
@@ -185,7 +217,9 @@ impl TypeChecker {
         row_map: &mut HashMap<String, String>,
     ) -> Type {
         match ty {
-            Type::Int | Type::Float | Type::Bool | Type::String | Type::Symbol => ty.clone(),
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Symbol | Type::Channel => {
+                ty.clone()
+            }
             Type::Var(name) => {
                 let fresh_name = type_map
                     .entry(name.clone())
@@ -216,13 +250,14 @@ impl TypeChecker {
 
     /// Parse a type name string into a Type
     ///
-    /// Supports: Int, Float, Bool, String, and union types
+    /// Supports: Int, Float, Bool, String, Channel, and union types
     fn parse_type_name(&self, name: &str) -> Type {
         match name {
             "Int" => Type::Int,
             "Float" => Type::Float,
             "Bool" => Type::Bool,
             "String" => Type::String,
+            "Channel" => Type::Channel,
             // Any other name is assumed to be a union type reference
             other => Type::Union(other.to_string()),
         }
@@ -230,10 +265,11 @@ impl TypeChecker {
 
     /// Check if a type name is a known valid type
     ///
-    /// Returns true for built-in types (Int, Float, Bool, String) and
+    /// Returns true for built-in types (Int, Float, Bool, String, Channel) and
     /// registered union type names
     fn is_valid_type_name(&self, name: &str) -> bool {
-        matches!(name, "Int" | "Float" | "Bool" | "String") || self.unions.contains_key(name)
+        matches!(name, "Int" | "Float" | "Bool" | "String" | "Channel")
+            || self.unions.contains_key(name)
     }
 
     /// Validate that all field types in union definitions reference known types
@@ -246,7 +282,7 @@ impl TypeChecker {
                     if !self.is_valid_type_name(&field.type_name) {
                         return Err(format!(
                             "Unknown type '{}' in field '{}' of variant '{}' in union '{}'. \
-                             Valid types are: Int, Float, Bool, String, or a defined union name.",
+                             Valid types are: Int, Float, Bool, String, Channel, or a defined union name.",
                             field.type_name, field.name, variant.name, union_def.name
                         ));
                     }
@@ -330,7 +366,7 @@ impl TypeChecker {
 
             // Infer the result stack and effects starting from declared input
             let (result_stack, _subst, inferred_effects) =
-                self.infer_statements_from(&word.body, &declared_effect.inputs)?;
+                self.infer_statements_from(&word.body, &declared_effect.inputs, true)?;
 
             // Clear expected type after checking
             *self.expected_quotation_type.borrow_mut() = None;
@@ -372,8 +408,11 @@ impl TypeChecker {
         } else {
             // No declared effect - just verify body is well-typed
             // Start from polymorphic input
-            let (_, _, inferred_effects) =
-                self.infer_statements_from(&word.body, &StackType::RowVar("input".to_string()))?;
+            let (_, _, inferred_effects) = self.infer_statements_from(
+                &word.body,
+                &StackType::RowVar("input".to_string()),
+                true,
+            )?;
 
             // If there are effects but no declaration, warn
             if !inferred_effects.is_empty() {
@@ -399,10 +438,14 @@ impl TypeChecker {
     /// Infer the resulting stack type from a sequence of statements
     /// starting from a given input stack
     /// Returns (final_stack, substitution, accumulated_effects)
+    ///
+    /// `capture_stmt_types`: If true, capture statement type info for codegen optimization.
+    /// Should only be true for top-level word bodies, not for nested branches/loops.
     fn infer_statements_from(
         &self,
         statements: &[Statement],
         start_stack: &StackType,
+        capture_stmt_types: bool,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         let mut current_stack = start_stack.clone();
         let mut accumulated_subst = Subst::empty();
@@ -464,6 +507,13 @@ impl TypeChecker {
             } else {
                 None
             };
+
+            // Capture statement type info for codegen optimization (Issue #186)
+            // Record the top-of-stack type BEFORE this statement for operations like dup
+            // Only capture for top-level word bodies, not nested branches/loops
+            if capture_stmt_types && let Some(word_name) = self.current_word.borrow().as_ref() {
+                self.capture_statement_type(word_name, i, &current_stack);
+            }
 
             let (new_stack, subst, effects) = self.infer_statement(stmt, current_stack)?;
             current_stack = new_stack;
@@ -644,7 +694,8 @@ impl TypeChecker {
     /// Also includes any computational side effects (Yield, etc.)
     fn infer_statements(&self, statements: &[Statement]) -> Result<Effect, String> {
         let start = StackType::RowVar("input".to_string());
-        let (result, subst, effects) = self.infer_statements_from(statements, &start)?;
+        // Don't capture statement types for quotation bodies - only top-level word bodies
+        let (result, subst, effects) = self.infer_statements_from(statements, &start, false)?;
 
         // Apply the accumulated substitution to both start and result
         // This ensures row variables are consistently named
@@ -698,8 +749,9 @@ impl TypeChecker {
             )?;
 
             // Type check the arm body directly from the actual stack
+            // Don't capture statement types for match arms - only top-level word bodies
             let (arm_result, arm_subst, arm_effects) =
-                self.infer_statements_from(&arm.body, &arm_stack)?;
+                self.infer_statements_from(&arm.body, &arm_stack, false)?;
 
             combined_subst = combined_subst.compose(&arm_subst);
             arm_results.push(arm_result);
@@ -827,12 +879,13 @@ impl TypeChecker {
             .unwrap_or(false);
 
         // Infer branches directly from the actual stack
+        // Don't capture statement types for if branches - only top-level word bodies
         let (then_result, then_subst, then_effects) =
-            self.infer_statements_from(then_branch, &stack_after_cond)?;
+            self.infer_statements_from(then_branch, &stack_after_cond, false)?;
 
         // Infer else branch (or use stack_after_cond if no else)
         let (else_result, else_subst, else_effects) = if let Some(else_stmts) = else_branch {
-            self.infer_statements_from(else_stmts, &stack_after_cond)?
+            self.infer_statements_from(else_stmts, &stack_after_cond, false)?
         } else {
             (stack_after_cond.clone(), Subst::empty(), vec![])
         };
@@ -1631,9 +1684,9 @@ mod tests {
     #[test]
     fn test_csp_operations() {
         // : test ( -- )
-        //   chan.make     # ( -- Int )
-        //   42 swap       # ( Int Int -- Int Int )
-        //   chan.send     # ( Int Int -- Bool )
+        //   chan.make     # ( -- Channel )
+        //   42 swap       # ( Channel Int -- Int Channel )
+        //   chan.send     # ( Int Channel -- Bool )
         //   drop          # ( Bool -- )
         // ;
         let program = Program {
@@ -2761,7 +2814,7 @@ mod tests {
         // Test that recursive tail calls in if/else branches are recognized as divergent.
         // This pattern is common in actor loops:
         //
-        // : store-loop ( Int -- )
+        // : store-loop ( Channel -- )
         //   dup           # ( chan chan )
         //   chan.receive  # ( chan value Bool )
         //   not if        # ( chan value )
@@ -2785,7 +2838,7 @@ mod tests {
             words: vec![WordDef {
                 name: "store-loop".to_string(),
                 effect: Some(Effect::new(
-                    StackType::singleton(Type::Int), // ( Int -- ) where Int is channel handle
+                    StackType::singleton(Type::Channel), // ( Channel -- )
                     StackType::Empty,
                 )),
                 body: vec![
@@ -2847,7 +2900,7 @@ mod tests {
     fn test_divergent_else_branch() {
         // Test that divergence detection works for else branches too.
         //
-        // : process-loop ( Int -- )
+        // : process-loop ( Channel -- )
         //   dup chan.receive   # ( chan value Bool )
         //   if                 # ( chan value )
         //     drop drop        # normal exit: ( )
@@ -2863,7 +2916,7 @@ mod tests {
             words: vec![WordDef {
                 name: "process-loop".to_string(),
                 effect: Some(Effect::new(
-                    StackType::singleton(Type::Int), // ( Int -- )
+                    StackType::singleton(Type::Channel), // ( Channel -- )
                     StackType::Empty,
                 )),
                 body: vec![

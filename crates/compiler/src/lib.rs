@@ -259,6 +259,8 @@ pub fn compile_file_with_config(
 
     // Extract inferred quotation types (in DFS traversal order)
     let quotation_types = type_checker.take_quotation_types();
+    // Extract per-statement type info for optimization (Issue #186)
+    let statement_types = type_checker.take_statement_top_types();
 
     // Generate LLVM IR with type information and external builtins
     let mut codegen = if config.pure_inline_test {
@@ -267,7 +269,13 @@ pub fn compile_file_with_config(
         CodeGen::new()
     };
     let ir = codegen
-        .codegen_program_with_ffi(&program, quotation_types, config, &ffi_bindings)
+        .codegen_program_with_ffi(
+            &program,
+            quotation_types,
+            statement_types,
+            config,
+            &ffi_bindings,
+        )
         .map_err(|e| e.to_string())?;
 
     // Write IR to file
@@ -365,10 +373,11 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
     type_checker.check_program(&program)?;
 
     let quotation_types = type_checker.take_quotation_types();
+    let statement_types = type_checker.take_statement_top_types();
 
     let mut codegen = CodeGen::new();
     codegen
-        .codegen_program_with_config(&program, quotation_types, config)
+        .codegen_program_with_config(&program, quotation_types, statement_types, config)
         .map_err(|e| e.to_string())
 }
 

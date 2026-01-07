@@ -388,9 +388,9 @@
 
 # Worker strand: waits for a socket, then handles it
 #
-# Stack effect: ( channel_id -- )
+# Stack effect: ( channel -- )
 #
-: worker ( Int -- )
+: worker ( Channel -- )
   chan.receive                  # Block until we get a socket from the channel (returns value, success)
   if                            # Check success flag
     handle-connection           # Process the request if successful

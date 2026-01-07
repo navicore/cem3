@@ -385,6 +385,16 @@ pub struct CodeGen {
     symbol_globals: String, // LLVM IR for static symbol globals
     symbol_counter: usize,  // Counter for unique symbol names
     symbol_constants: HashMap<String, String>, // symbol name -> global name (deduplication)
+    /// Per-statement type info for optimization (Issue #186)
+    /// Maps (word_name, statement_index) -> top-of-stack type before statement
+    statement_types: HashMap<(String, usize), Type>,
+    /// Current word being compiled (for statement type lookup)
+    current_word_name: Option<String>,
+    /// Current statement index within the word (for statement type lookup)
+    current_stmt_index: usize,
+    /// Nesting depth for type lookup - only depth 0 can use type info
+    /// Nested contexts (if/else, loops) increment this to disable lookups
+    codegen_depth: usize,
 }
 
 impl CodeGen {
@@ -410,6 +420,10 @@ impl CodeGen {
             symbol_globals: String::new(),
             symbol_counter: 0,
             symbol_constants: HashMap::new(),
+            statement_types: HashMap::new(),
+            current_word_name: None,
+            current_stmt_index: 0,
+            codegen_depth: 0,
         }
     }
 
@@ -446,6 +460,26 @@ impl CodeGen {
                 id
             ))
         })
+    }
+
+    /// Check if top of stack at current statement is trivially copyable (Int, Float, Bool)
+    /// These types can be duplicated with a simple memcpy instead of calling clone_value
+    fn is_trivially_copyable_at_current_stmt(&self) -> bool {
+        // Only look up type info for top-level word body statements (depth 1)
+        // Depth is incremented at entry to codegen_statements, so:
+        // - First call (word body): runs at depth 1 (allow lookups)
+        // - Nested calls (loop bodies, branches): run at depth > 1 (disable lookups)
+        // This prevents index collisions between outer and inner statement indices
+        if self.codegen_depth > 1 {
+            return false;
+        }
+        if let Some(word_name) = &self.current_word_name {
+            let key = (word_name.clone(), self.current_stmt_index);
+            if let Some(ty) = self.statement_types.get(&key) {
+                return matches!(ty, Type::Int | Type::Float | Type::Bool);
+            }
+        }
+        false
     }
 
     /// Find variant info by name across all unions
@@ -612,8 +646,14 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
+        statement_types: HashMap<(String, usize), Type>,
     ) -> Result<String, CodeGenError> {
-        self.codegen_program_with_config(program, type_map, &CompilerConfig::default())
+        self.codegen_program_with_config(
+            program,
+            type_map,
+            statement_types,
+            &CompilerConfig::default(),
+        )
     }
 
     /// Generate LLVM IR for entire program with custom configuration
@@ -624,10 +664,12 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
+        statement_types: HashMap<(String, usize), Type>,
         config: &CompilerConfig,
     ) -> Result<String, CodeGenError> {
         // Store type map for use during code generation
         self.type_map = type_map;
+        self.statement_types = statement_types;
 
         // Store union definitions for pattern matching
         self.unions = program.unions.clone();
@@ -966,6 +1008,7 @@ impl CodeGen {
         &mut self,
         program: &Program,
         type_map: HashMap<usize, Type>,
+        statement_types: HashMap<(String, usize), Type>,
         config: &CompilerConfig,
         ffi_bindings: &FfiBindings,
     ) -> Result<String, CodeGenError> {
@@ -977,6 +1020,7 @@ impl CodeGen {
 
         // Store type map for use during code generation
         self.type_map = type_map;
+        self.statement_types = statement_types;
 
         // Store union definitions for pattern matching
         self.unions = program.unions.clone();
@@ -1791,8 +1835,15 @@ impl CodeGen {
             "stack".to_string()
         };
 
+        // Set current word for type-specialized optimizations (Issue #186)
+        self.current_word_name = Some(word.name.clone());
+        self.current_stmt_index = 0;
+
         // Generate code for all statements with pattern detection for inline loops
         stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
+
+        // Clear current word tracking
+        self.current_word_name = None;
 
         // Only emit ret if the last statement wasn't a tail call
         // (tail calls emit their own ret)
@@ -1832,6 +1883,10 @@ impl CodeGen {
 
         // Save current output and switch to quotation_functions
         let saved_output = std::mem::take(&mut self.output);
+
+        // Clear word context during quotation codegen to prevent
+        // incorrect type lookups (quotations don't have their own type info)
+        let saved_word_name = self.current_word_name.take();
 
         // Generate function signature based on type
         match quot_type {
@@ -1892,8 +1947,9 @@ impl CodeGen {
                 // Move generated functions to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output
+                // Restore original output and word context
                 self.output = saved_output;
+                self.current_word_name = saved_word_name;
 
                 Ok(QuotationFunctions {
                     wrapper: wrapper_name,
@@ -1943,8 +1999,9 @@ impl CodeGen {
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output and reset closure flag
+                // Restore original output, word context, and reset closure flag
                 self.output = saved_output;
+                self.current_word_name = saved_word_name;
                 self.inside_closure = false;
 
                 // For closures, both wrapper and impl are the same (no TCO yet)
@@ -2060,6 +2117,9 @@ impl CodeGen {
         merge_block: &str,
         block_prefix: &str,
     ) -> Result<BranchResult, CodeGenError> {
+        // Increment depth to disable type lookups in nested branches
+        self.codegen_depth += 1;
+
         let mut stack_var = initial_stack.to_string();
         let len = statements.len();
         let mut emitted_tail_call = false;
@@ -2086,6 +2146,9 @@ impl CodeGen {
             writeln!(&mut self.output, "  br label %{}", merge_block)?;
             pred
         };
+
+        // Restore depth
+        self.codegen_depth -= 1;
 
         Ok(BranchResult {
             stack_var,
@@ -2399,10 +2462,10 @@ impl CodeGen {
             }
 
             // dup: ( a -- a a )
-            // Uses patch_seq_clone_value to properly clone heap values
+            // For trivially-copyable types (Int, Float, Bool): direct load/store
+            // For heap types (String, etc.): call clone_value runtime
             "dup" => {
                 let top_ptr = self.fresh_temp();
-                let result_var = self.fresh_temp();
 
                 // Get pointer to top value (sp - 1)
                 writeln!(
@@ -2410,13 +2473,32 @@ impl CodeGen {
                     "  %{} = getelementptr %Value, ptr %{}, i64 -1",
                     top_ptr, stack_var
                 )?;
-                // Clone the value from top_ptr to stack_var (current SP)
-                writeln!(
-                    &mut self.output,
-                    "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
-                    top_ptr, stack_var
-                )?;
-                // Increment SP
+
+                if self.is_trivially_copyable_at_current_stmt() {
+                    // Optimized path: load/store 40-byte Value struct directly
+                    // No runtime call needed for Int, Float, Bool (no heap references)
+                    let val = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = load %Value, ptr %{}",
+                        val, top_ptr
+                    )?;
+                    writeln!(
+                        &mut self.output,
+                        "  store %Value %{}, ptr %{}",
+                        val, stack_var
+                    )?;
+                } else {
+                    // General path: call clone_value for heap types (String, etc.)
+                    writeln!(
+                        &mut self.output,
+                        "  call void @patch_seq_clone_value(ptr %{}, ptr %{})",
+                        top_ptr, stack_var
+                    )?;
+                }
+
+                // Increment SP (allocate result_var after the branch to maintain SSA order)
+                let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
                     "  %{} = getelementptr %Value, ptr %{}, i64 1",
@@ -4983,11 +5065,37 @@ impl CodeGen {
         initial_stack_var: &str,
         last_is_tail: bool,
     ) -> Result<String, CodeGenError> {
+        // Track nesting depth for type-specialized optimizations:
+        // - codegen_depth starts at 0, we increment to 1 for the first (top-level) call
+        // - Top-level word body runs at depth 1 (type lookups allowed)
+        // - Nested calls (loop bodies, branches) run at depth > 1 (type lookups disabled)
+        // The check in is_trivially_copyable_at_current_stmt uses `depth > 1` accordingly
+        let entering_depth = self.codegen_depth;
+        self.codegen_depth += 1;
+
+        let result = self.codegen_statements_inner(statements, initial_stack_var, last_is_tail);
+
+        self.codegen_depth = entering_depth;
+
+        result
+    }
+
+    /// Internal implementation of codegen_statements
+    fn codegen_statements_inner(
+        &mut self,
+        statements: &[Statement],
+        initial_stack_var: &str,
+        last_is_tail: bool,
+    ) -> Result<String, CodeGenError> {
         let mut stack_var = initial_stack_var.to_string();
         let len = statements.len();
         let mut i = 0;
 
         while i < len {
+            // Update statement index for type-specialized optimizations (Issue #186)
+            // This tracks our position in the word body for looking up type info
+            self.current_stmt_index = i;
+
             let is_last = i == len - 1;
             let position = if is_last && last_is_tail {
                 TailPosition::Tail
@@ -5261,7 +5369,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"));
         // main uses C calling convention (no tailcc) since it's called from C runtime
@@ -5293,7 +5403,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         assert!(ir.contains("call ptr @patch_seq_push_string"));
         assert!(ir.contains("call ptr @patch_seq_write"));
@@ -5323,7 +5435,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         // With tagged stack, integers are pushed inline (store discriminant + value)
         assert!(ir.contains("store i64 0")); // Int discriminant
@@ -5356,7 +5470,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         // Pure inline test mode should:
         // 1. NOT CALL the scheduler (declarations are ok, calls are not)
@@ -5415,7 +5531,7 @@ mod tests {
             .with_builtin(ExternalBuiltin::new("my-external-op", "test_runtime_my_op"));
 
         let ir = codegen
-            .codegen_program_with_config(&program, HashMap::new(), &config)
+            .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
             .unwrap();
 
         // Should declare the external builtin
@@ -5465,7 +5581,7 @@ mod tests {
             ));
 
         let ir = codegen
-            .codegen_program_with_config(&program, HashMap::new(), &config)
+            .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
             .unwrap();
 
         // Should declare both external builtins
@@ -5617,7 +5733,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         assert!(ir.contains("call ptr @patch_seq_push_interned_symbol"));
         assert!(ir.contains("call ptr @patch_seq_symbol_to_string"));
@@ -5645,7 +5763,9 @@ mod tests {
             }],
         };
 
-        let ir = codegen.codegen_program(&program, HashMap::new()).unwrap();
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
 
         // Should have exactly one .sym global for "hello" and one for "world"
         // Count occurrences of symbol global definitions (lines starting with @.sym)
@@ -5673,6 +5793,141 @@ mod tests {
         assert!(
             ir.contains("i64 0, i8 1"),
             "Symbol global should have capacity=0 and global=1"
+        );
+    }
+
+    #[test]
+    fn test_dup_optimization_for_int() {
+        // Test that dup on Int uses optimized load/store instead of clone_value
+        // This verifies the Issue #186 optimization actually fires
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "test_dup".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(42), // stmt 0: push Int
+                        Statement::WordCall {
+                            // stmt 1: dup
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_dup".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        // Provide type info: before statement 1 (dup), top of stack is Int
+        let mut statement_types = HashMap::new();
+        statement_types.insert(("test_dup".to_string(), 1), Type::Int);
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), statement_types)
+            .unwrap();
+
+        // Extract just the test_dup function
+        let func_start = ir.find("define tailcc ptr @seq_test_dup").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_dup_fn = &ir[func_start..func_end];
+
+        // The optimized path should use load/store %Value directly
+        assert!(
+            test_dup_fn.contains("load %Value"),
+            "Optimized dup should use 'load %Value', got:\n{}",
+            test_dup_fn
+        );
+        assert!(
+            test_dup_fn.contains("store %Value"),
+            "Optimized dup should use 'store %Value', got:\n{}",
+            test_dup_fn
+        );
+
+        // The optimized path should NOT call clone_value
+        assert!(
+            !test_dup_fn.contains("@patch_seq_clone_value"),
+            "Optimized dup should NOT call clone_value for Int, got:\n{}",
+            test_dup_fn
+        );
+    }
+
+    #[test]
+    fn test_dup_no_optimization_without_type_info() {
+        // Test that dup without type info uses the safe clone_value path
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "test_dup".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::IntLiteral(42),
+                        Statement::WordCall {
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_dup".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        // No type info provided - should use safe path
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Extract just the test_dup function
+        let func_start = ir.find("define tailcc ptr @seq_test_dup").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_dup_fn = &ir[func_start..func_end];
+
+        // Without type info, should call clone_value (safe path)
+        assert!(
+            test_dup_fn.contains("@patch_seq_clone_value"),
+            "Dup without type info should call clone_value, got:\n{}",
+            test_dup_fn
         );
     }
 }

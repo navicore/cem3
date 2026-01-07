@@ -1843,6 +1843,14 @@ impl CodeGen {
                         return false;
                     }
                 }
+                // Check inside match arms for recursive calls
+                Statement::Match { arms } => {
+                    for arm in arms {
+                        if !Self::check_statements_inlineable(&arm.body, word_name) {
+                            return false;
+                        }
+                    }
+                }
                 // Everything else is fine
                 _ => {}
             }
@@ -6618,6 +6626,79 @@ mod tests {
         assert!(
             ir.contains("define tailcc ptr @seq_countdown(ptr %stack) {"),
             "Recursive word should NOT have alwaysinline, got:\n{}",
+            ir.lines()
+                .filter(|l| l.contains("define"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    #[test]
+    fn test_recursive_word_in_match_not_inlined() {
+        // Test Issue #187: Recursive calls inside match arms should prevent inlining
+        use crate::ast::{MatchArm, Pattern, UnionDef, UnionVariant};
+
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![UnionDef {
+                name: "Option".to_string(),
+                variants: vec![
+                    UnionVariant {
+                        name: "Some".to_string(),
+                        fields: vec![],
+                        source: None,
+                    },
+                    UnionVariant {
+                        name: "None".to_string(),
+                        fields: vec![],
+                        source: None,
+                    },
+                ],
+                source: None,
+            }],
+            words: vec![
+                WordDef {
+                    name: "process".to_string(), // Recursive in match arm
+                    effect: None,
+                    body: vec![Statement::Match {
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Variant("Some".to_string()),
+                                body: vec![Statement::WordCall {
+                                    name: "process".to_string(), // Recursive call
+                                    span: None,
+                                }],
+                            },
+                            MatchArm {
+                                pattern: Pattern::Variant("None".to_string()),
+                                body: vec![],
+                            },
+                        ],
+                    }],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "process".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Recursive word (via match arm) should NOT have alwaysinline
+        assert!(
+            ir.contains("define tailcc ptr @seq_process(ptr %stack) {"),
+            "Recursive word in match should NOT have alwaysinline, got:\n{}",
             ir.lines()
                 .filter(|l| l.contains("define"))
                 .collect::<Vec<_>>()

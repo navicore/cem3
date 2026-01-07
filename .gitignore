@@ -16,6 +16,9 @@ shopping-cart
 /test_*
 /test-*
 /http_simple
+/skynet
+/fanout
+/pingpong
 !tests/
 
 # IDE

@@ -588,6 +588,14 @@ impl App {
 
     /// Append an expression to main (before stack.dump)
     fn append_expression(&mut self, expr: &str) -> bool {
+        // Don't persist stack.dump - it's an introspection command that should only
+        // run once. The auto-appended stack.dump at the end of main will show the
+        // current stack state. This fixes issue #193 where user-typed stack.dump
+        // accumulated in the session file, causing multiple "stack:" lines.
+        if expr.trim() == "stack.dump" {
+            return true; // Skip appending but allow compile/run to proceed
+        }
+
         let content = match fs::read_to_string(&self.session_path) {
             Ok(c) => c,
             Err(_) => return false,

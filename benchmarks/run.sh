@@ -53,7 +53,7 @@ declare -a BENCH_NAMES
 declare -a SEQ_TIMES
 declare -a RUST_TIMES
 declare -a GO_TIMES
-declare -a SEQ_RUST_RATIOS
+declare -a SEQ_GO_RATIOS
 
 # Function to build and run a concurrency benchmark (Seq vs Go vs Rust)
 run_benchmark() {
@@ -102,12 +102,12 @@ run_benchmark() {
         RUST_TIMES+=("$rust_time")
         GO_TIMES+=("$go_time")
 
-        # Calculate Seq/Rust ratio
-        if [ -n "$seq_time" ] && [ -n "$rust_time" ]; then
-            local ratio=$(echo "scale=2; $seq_time / $rust_time" | bc)
-            SEQ_RUST_RATIOS+=("$ratio")
+        # Calculate Seq/Go ratio
+        if [ -n "$seq_time" ] && [ -n "$go_time" ]; then
+            local ratio=$(echo "scale=2; $seq_time / $go_time" | bc)
+            SEQ_GO_RATIOS+=("$ratio")
         else
-            SEQ_RUST_RATIOS+=("N/A")
+            SEQ_GO_RATIOS+=("N/A")
         fi
     else
         echo "Seq:"
@@ -123,7 +123,7 @@ run_benchmark() {
         SEQ_TIMES+=("(see above)")
         RUST_TIMES+=("(see above)")
         GO_TIMES+=("(see above)")
-        SEQ_RUST_RATIOS+=("(manual)")
+        SEQ_GO_RATIOS+=("(manual)")
     fi
 }
 
@@ -170,11 +170,11 @@ run_compute_benchmark() {
         RUST_TIMES+=("$rust_time")
         GO_TIMES+=("$go_time")
 
-        if [ -n "$seq_time" ] && [ -n "$rust_time" ]; then
-            local ratio=$(echo "scale=2; $seq_time / $rust_time" | bc)
-            SEQ_RUST_RATIOS+=("$ratio")
+        if [ -n "$seq_time" ] && [ -n "$go_time" ]; then
+            local ratio=$(echo "scale=2; $seq_time / $go_time" | bc)
+            SEQ_GO_RATIOS+=("$ratio")
         else
-            SEQ_RUST_RATIOS+=("N/A")
+            SEQ_GO_RATIOS+=("N/A")
         fi
     else
         echo "Seq:"
@@ -190,7 +190,7 @@ run_compute_benchmark() {
         SEQ_TIMES+=("(see above)")
         RUST_TIMES+=("(see above)")
         GO_TIMES+=("(see above)")
-        SEQ_RUST_RATIOS+=("(manual)")
+        SEQ_GO_RATIOS+=("(manual)")
     fi
 }
 
@@ -204,7 +204,7 @@ print_summary() {
     echo -e "${BOLD}${CYAN}║                           BENCHMARK SUMMARY                              ║${NC}"
     echo -e "${BOLD}${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
     printf "${CYAN}║${NC} ${BOLD}%-12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} ${CYAN}║${NC}\n" \
-        "Benchmark" "Seq" "Rust" "Go" "Seq/Rust"
+        "Benchmark" "Seq" "Rust" "Go" "Seq/Go"
     echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
 
     for i in "${!BENCH_NAMES[@]}"; do
@@ -212,7 +212,7 @@ print_summary() {
         local seq="${SEQ_TIMES[$i]}"
         local rust="${RUST_TIMES[$i]}"
         local go="${GO_TIMES[$i]}"
-        local ratio="${SEQ_RUST_RATIOS[$i]}"
+        local ratio="${SEQ_GO_RATIOS[$i]}"
 
         # Format times as milliseconds if they're numbers
         local seq_fmt="$seq"
@@ -251,7 +251,7 @@ print_summary() {
 
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
 
-    echo -e "\n${BOLD}Legend (Seq/Rust):${NC} ${GREEN}≤2x${NC} excellent │ ${YELLOW}2-10x${NC} good │ ${RED}>10x${NC} investigate"
+    echo -e "\n${BOLD}Legend (Seq/Go):${NC} ${GREEN}≤2x${NC} excellent │ ${YELLOW}2-10x${NC} good │ ${RED}>10x${NC} investigate"
 }
 
 # Determine which benchmarks to run

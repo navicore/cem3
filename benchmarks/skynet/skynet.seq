@@ -11,7 +11,7 @@
 
 # Skynet worker: if size=1, send my num. Otherwise strand.spawn 10 children.
 # ( result-chan num size -- )
-: skynet ( Int Int Int -- )
+: skynet ( Channel Int Int -- )
   dup 1 i.= if
     # Leaf: send num to result channel
     drop       # drop size ( result-chan num )

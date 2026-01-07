@@ -16,7 +16,7 @@ Change `Int` to `Channel` for channel parameters:
 ;
 
 # After
-: worker ( Channel Channel Int -- )
+: worker ( Channel Channel -- )
   swap chan.receive drop
   swap chan.send drop
 ;

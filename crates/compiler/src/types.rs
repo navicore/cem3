@@ -44,6 +44,9 @@ pub enum Type {
     /// Symbol type (interned identifier for dynamic variant construction)
     /// Syntax: :foo, :some-name
     Symbol,
+    /// Channel type (for CSP-style concurrency)
+    /// Channels are reference-counted handles - dup increments refcount
+    Channel,
     /// Quotation type (stateless code block with stack effect)
     /// Example: [ Int -- Int ] is a quotation that takes Int and produces Int
     /// No captured values - backward compatible with existing quotations
@@ -284,6 +287,7 @@ impl std::fmt::Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::String => write!(f, "String"),
             Type::Symbol => write!(f, "Symbol"),
+            Type::Channel => write!(f, "Channel"),
             Type::Quotation(effect) => write!(f, "[{}]", effect),
             Type::Closure { effect, captures } => {
                 let cap_str: Vec<_> = captures.iter().map(|t| format!("{}", t)).collect();

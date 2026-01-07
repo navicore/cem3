@@ -395,6 +395,9 @@ pub struct CodeGen {
     /// Nesting depth for type lookup - only depth 0 can use type info
     /// Nested contexts (if/else, loops) increment this to disable lookups
     codegen_depth: usize,
+    /// True if the previous statement was a trivially-copyable literal (Issue #195)
+    /// Used to optimize `dup` after literal push (e.g., `42 dup`)
+    prev_stmt_is_trivial_literal: bool,
 }
 
 impl CodeGen {
@@ -424,6 +427,7 @@ impl CodeGen {
             current_word_name: None,
             current_stmt_index: 0,
             codegen_depth: 0,
+            prev_stmt_is_trivial_literal: false,
         }
     }
 
@@ -2474,7 +2478,12 @@ impl CodeGen {
                     top_ptr, stack_var
                 )?;
 
-                if self.is_trivially_copyable_at_current_stmt() {
+                // Optimization: use fast path if we know top is trivially copyable
+                // Either from type map (Issue #186) or previous literal (Issue #195)
+                let use_fast_path = self.prev_stmt_is_trivial_literal
+                    || self.is_trivially_copyable_at_current_stmt();
+
+                if use_fast_path {
                     // Optimized path: load/store 40-byte Value struct directly
                     // No runtime call needed for Int, Float, Bool (no heap references)
                     let val = self.fresh_temp();
@@ -5096,6 +5105,16 @@ impl CodeGen {
             // This tracks our position in the word body for looking up type info
             self.current_stmt_index = i;
 
+            // Check if previous statement was a trivially-copyable literal (Issue #195)
+            // This enables optimized dup after patterns like `42 dup`
+            self.prev_stmt_is_trivial_literal = i > 0
+                && matches!(
+                    &statements[i - 1],
+                    Statement::IntLiteral(_)
+                        | Statement::FloatLiteral(_)
+                        | Statement::BoolLiteral(_)
+                );
+
             let is_last = i == len - 1;
             let position = if is_last && last_is_tail {
                 TailPosition::Tail
@@ -5873,8 +5892,9 @@ mod tests {
     }
 
     #[test]
-    fn test_dup_no_optimization_without_type_info() {
-        // Test that dup without type info uses the safe clone_value path
+    fn test_dup_optimization_after_literal() {
+        // Test Issue #195: dup after literal push uses optimized path
+        // Pattern: `42 dup` should be optimized even without type map info
         let mut codegen = CodeGen::new();
 
         let program = Program {
@@ -5885,8 +5905,9 @@ mod tests {
                     name: "test_dup".to_string(),
                     effect: None,
                     body: vec![
-                        Statement::IntLiteral(42),
+                        Statement::IntLiteral(42), // Previous statement is Int literal
                         Statement::WordCall {
+                            // dup should be optimized
                             name: "dup".to_string(),
                             span: None,
                         },
@@ -5913,7 +5934,7 @@ mod tests {
             ],
         };
 
-        // No type info provided - should use safe path
+        // No type info provided - but literal heuristic should optimize
         let ir = codegen
             .codegen_program(&program, HashMap::new(), HashMap::new())
             .unwrap();
@@ -5923,10 +5944,90 @@ mod tests {
         let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
         let test_dup_fn = &ir[func_start..func_end];
 
-        // Without type info, should call clone_value (safe path)
+        // With literal heuristic, should use optimized path
+        assert!(
+            test_dup_fn.contains("load %Value"),
+            "Dup after int literal should use optimized load, got:\n{}",
+            test_dup_fn
+        );
+        assert!(
+            test_dup_fn.contains("store %Value"),
+            "Dup after int literal should use optimized store, got:\n{}",
+            test_dup_fn
+        );
+        assert!(
+            !test_dup_fn.contains("@patch_seq_clone_value"),
+            "Dup after int literal should NOT call clone_value, got:\n{}",
+            test_dup_fn
+        );
+    }
+
+    #[test]
+    fn test_dup_no_optimization_after_word_call() {
+        // Test that dup after word call (unknown type) uses safe clone_value path
+        let mut codegen = CodeGen::new();
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "get_value".to_string(),
+                    effect: None,
+                    body: vec![Statement::IntLiteral(42)],
+                    source: None,
+                },
+                WordDef {
+                    name: "test_dup".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::WordCall {
+                            // Previous statement is word call (unknown type)
+                            name: "get_value".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            // dup should NOT be optimized
+                            name: "dup".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "test_dup".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                },
+            ],
+        };
+
+        // No type info provided and no literal before dup
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Extract just the test_dup function
+        let func_start = ir.find("define tailcc ptr @seq_test_dup").unwrap();
+        let func_end = ir[func_start..].find("\n}\n").unwrap() + func_start + 3;
+        let test_dup_fn = &ir[func_start..func_end];
+
+        // Without literal or type info, should call clone_value (safe path)
         assert!(
             test_dup_fn.contains("@patch_seq_clone_value"),
-            "Dup without type info should call clone_value, got:\n{}",
+            "Dup after word call should call clone_value, got:\n{}",
             test_dup_fn
         );
     }

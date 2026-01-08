@@ -58,6 +58,25 @@ cargo install seq-lsp       # installs seq-lsp (optional, for editor support)
 cargo build --release
 ```
 
+### Virtual Environments
+
+Create isolated environments to manage multiple Seq versions or pin a specific version for a project:
+
+```bash
+seqc venv myenv
+source myenv/bin/activate
+```
+
+This copies the `seqc`, `seqr`, and `seq-lsp` binaries into `myenv/bin/`, completely isolated from your system installation. Unlike Python's venv (which uses symlinks), Seq copies binaries so your project won't break if the system Seq is updated.
+
+**Activate/deactivate:**
+```bash
+source myenv/bin/activate   # Prepends myenv/bin to PATH, shows (myenv) in prompt
+deactivate                  # Restores original PATH
+```
+
+Supports bash, zsh, fish (`activate.fish`), and csh/tcsh (`activate.csh`).
+
 ## Quick Start
 
 **Compile and run a program:**

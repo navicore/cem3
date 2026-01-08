@@ -363,13 +363,15 @@ fn run_venv(name: &Path) {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    // Get absolute path for the venv
-    let venv_path = if name.is_absolute() {
-        name.to_path_buf()
+    // Get absolute path for the venv, normalizing to remove trailing slashes
+    let venv_path: PathBuf = if name.is_absolute() {
+        name.components().collect()
     } else {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(name)
+            .components()
+            .collect()
     };
 
     // Check if directory already exists
@@ -403,6 +405,7 @@ fn run_venv(name: &Path) {
 
     // Copy binaries
     let binaries = ["seqc", "seqr", "seq-lsp"];
+    let mut copied_count = 0;
     for binary in binaries {
         let src = exe_dir.join(binary);
         let dst = bin_dir.join(binary);
@@ -424,12 +427,20 @@ fn run_venv(name: &Path) {
         }
 
         println!("  Copied {}", binary);
+        copied_count += 1;
+    }
+
+    if copied_count == 0 {
+        eprintln!("Error: no seq binaries found in {}", exe_dir.display());
+        process::exit(1);
     }
 
     // Generate activate scripts
+    // Use components().last() instead of file_name() to handle trailing slashes
     let venv_name = venv_path
-        .file_name()
-        .and_then(|n| n.to_str())
+        .components()
+        .last()
+        .and_then(|c| c.as_os_str().to_str())
         .unwrap_or("seq-venv");
 
     if let Err(e) = generate_activate_bash(&venv_path, venv_name) {

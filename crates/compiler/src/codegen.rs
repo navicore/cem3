@@ -64,6 +64,52 @@ impl From<std::fmt::Error> for CodeGenError {
 /// Used when a branch ends with a tail call (which emits ret directly).
 const UNREACHABLE_PREDECESSOR: &str = "unreachable";
 
+/// Maximum number of values to keep in virtual registers (Issue #189).
+/// Values beyond this are spilled to memory. Tuned for common patterns
+/// like `a b op` or `a dup op`.
+const MAX_VIRTUAL_STACK: usize = 4;
+
+/// A value held in an LLVM virtual register instead of memory (Issue #189).
+///
+/// This optimization keeps recently-pushed values in SSA variables,
+/// avoiding memory stores/loads for common patterns like `2 3 i.+`.
+/// Values are spilled to memory at control flow points and function calls.
+#[derive(Clone, Debug)]
+#[allow(dead_code)] // Float and Bool variants for Phase 2
+enum VirtualValue {
+    /// Integer value in an SSA variable (i64)
+    Int {
+        ssa_var: String,
+        #[allow(dead_code)] // Used for constant folding in Phase 2
+        value: i64,
+    },
+    /// Float value in an SSA variable (double)
+    Float { ssa_var: String },
+    /// Boolean value in an SSA variable (i64: 0 or 1)
+    Bool { ssa_var: String },
+}
+
+#[allow(dead_code)] // ssa_var method used in spill_virtual_stack
+impl VirtualValue {
+    /// Get the SSA variable name
+    fn ssa_var(&self) -> &str {
+        match self {
+            VirtualValue::Int { ssa_var, .. } => ssa_var,
+            VirtualValue::Float { ssa_var } => ssa_var,
+            VirtualValue::Bool { ssa_var } => ssa_var,
+        }
+    }
+
+    /// Get the discriminant for this value type
+    fn discriminant(&self) -> i64 {
+        match self {
+            VirtualValue::Int { .. } => 0,
+            VirtualValue::Float { .. } => 1,
+            VirtualValue::Bool { .. } => 2,
+        }
+    }
+}
+
 /// Mapping from Seq word names to their C runtime symbol names.
 /// This centralizes all the name transformations in one place:
 /// - Symbolic operators (=, <, >) map to descriptive names (eq, lt, gt)
@@ -401,6 +447,10 @@ pub struct CodeGen {
     /// If previous statement was IntLiteral, stores its value (Issue #192)
     /// Used to optimize `roll`/`pick` with constant N (e.g., `2 roll` -> rot)
     prev_stmt_int_value: Option<i64>,
+    /// Virtual register stack for top N values (Issue #189)
+    /// Values here are in SSA variables, not yet written to memory.
+    /// The memory stack pointer tracks where memory ends; virtual values are "above" it.
+    virtual_stack: Vec<VirtualValue>,
 }
 
 impl CodeGen {
@@ -432,6 +482,7 @@ impl CodeGen {
             codegen_depth: 0,
             prev_stmt_is_trivial_literal: false,
             prev_stmt_int_value: None,
+            virtual_stack: Vec::new(),
         }
     }
 
@@ -457,6 +508,97 @@ impl CodeGen {
         let name = format!("{}{}", prefix, self.block_counter);
         self.block_counter += 1;
         name
+    }
+
+    /// Spill all virtual register values to memory (Issue #189).
+    ///
+    /// This must be called before:
+    /// - Function/word calls (callee expects values in memory)
+    /// - Control flow points (branches need consistent memory state)
+    /// - Operations that access values deeper than virtual stack
+    ///
+    /// Returns the new stack pointer after spilling all values.
+    fn spill_virtual_stack(&mut self, stack_var: &str) -> Result<String, CodeGenError> {
+        if self.virtual_stack.is_empty() {
+            return Ok(stack_var.to_string());
+        }
+
+        let mut current_sp = stack_var.to_string();
+
+        // Spill each value to memory (oldest first, so they're in correct order)
+        for value in std::mem::take(&mut self.virtual_stack) {
+            // Store discriminant at slot0
+            writeln!(
+                &mut self.output,
+                "  store i64 {}, ptr %{}",
+                value.discriminant(),
+                current_sp
+            )?;
+
+            // Get pointer to slot1 (offset 8 bytes)
+            let slot1_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_ptr, current_sp
+            )?;
+
+            // Store value at slot1
+            match &value {
+                VirtualValue::Int { ssa_var, .. } | VirtualValue::Bool { ssa_var } => {
+                    writeln!(
+                        &mut self.output,
+                        "  store i64 %{}, ptr %{}",
+                        ssa_var, slot1_ptr
+                    )?;
+                }
+                VirtualValue::Float { ssa_var } => {
+                    // Convert double to i64 bits for storage
+                    let bits = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = bitcast double %{} to i64",
+                        bits, ssa_var
+                    )?;
+                    writeln!(
+                        &mut self.output,
+                        "  store i64 %{}, ptr %{}",
+                        bits, slot1_ptr
+                    )?;
+                }
+            }
+
+            // Advance stack pointer to next Value slot
+            let next_sp = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                next_sp, current_sp
+            )?;
+            current_sp = next_sp;
+        }
+
+        Ok(current_sp)
+    }
+
+    /// Push a value to the virtual stack, spilling if at capacity.
+    ///
+    /// Returns the new memory stack pointer (unchanged if value stays virtual,
+    /// advanced if we had to spill).
+    fn push_virtual(
+        &mut self,
+        value: VirtualValue,
+        stack_var: &str,
+    ) -> Result<String, CodeGenError> {
+        // If at capacity, spill all to memory first
+        if self.virtual_stack.len() >= MAX_VIRTUAL_STACK {
+            let new_sp = self.spill_virtual_stack(stack_var)?;
+            self.virtual_stack.push(value);
+            Ok(new_sp)
+        } else {
+            self.virtual_stack.push(value);
+            Ok(stack_var.to_string())
+        }
     }
 
     /// Get the next quotation type (consumes it in DFS traversal order)
@@ -1915,6 +2057,9 @@ impl CodeGen {
             "stack".to_string()
         };
 
+        // Clear virtual stack at word boundary (Issue #189)
+        self.virtual_stack.clear();
+
         // Set current word for type-specialized optimizations (Issue #186)
         self.current_word_name = Some(word.name.clone());
         self.current_stmt_index = 0;
@@ -1930,6 +2075,9 @@ impl CodeGen {
         if word.body.is_empty()
             || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
         {
+            // Spill any remaining virtual registers before return (Issue #189)
+            let stack_var = self.spill_virtual_stack(&stack_var)?;
+
             if is_main && !self.pure_inline_test {
                 // Normal mode: free the stack before returning
                 writeln!(
@@ -1963,6 +2111,9 @@ impl CodeGen {
 
         // Save current output and switch to quotation_functions
         let saved_output = std::mem::take(&mut self.output);
+
+        // Save and clear virtual stack for quotation scope (Issue #189)
+        let saved_virtual_stack = std::mem::take(&mut self.virtual_stack);
 
         // Clear word context during quotation codegen to prevent
         // incorrect type lookups (quotations don't have their own type info)
@@ -2027,9 +2178,10 @@ impl CodeGen {
                 // Move generated functions to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output and word context
+                // Restore original output, word context, and virtual stack (Issue #189)
                 self.output = saved_output;
                 self.current_word_name = saved_word_name;
+                self.virtual_stack = saved_virtual_stack;
 
                 Ok(QuotationFunctions {
                     wrapper: wrapper_name,
@@ -2079,9 +2231,10 @@ impl CodeGen {
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output, word context, and reset closure flag
+                // Restore original output, word context, virtual stack, and reset closure flag (Issue #189)
                 self.output = saved_output;
                 self.current_word_name = saved_word_name;
+                self.virtual_stack = saved_virtual_stack;
                 self.inside_closure = false;
 
                 // For closures, both wrapper and impl are the same (no TCO yet)
@@ -2200,6 +2353,10 @@ impl CodeGen {
         // Increment depth to disable type lookups in nested branches
         self.codegen_depth += 1;
 
+        // Save and clear virtual stack for this branch (Issue #189)
+        // Each branch starts fresh; values must be in memory for phi merge
+        let saved_virtual_stack = std::mem::take(&mut self.virtual_stack);
+
         let mut stack_var = initial_stack.to_string();
         let len = statements.len();
         let mut emitted_tail_call = false;
@@ -2216,6 +2373,11 @@ impl CodeGen {
             stack_var = self.codegen_statement(&stack_var, stmt, stmt_position)?;
         }
 
+        // Spill any remaining virtual values before branch merge (Issue #189)
+        if !emitted_tail_call {
+            stack_var = self.spill_virtual_stack(&stack_var)?;
+        }
+
         // Only emit landing block if no tail call was emitted
         let predecessor = if emitted_tail_call {
             UNREACHABLE_PREDECESSOR.to_string()
@@ -2227,7 +2389,8 @@ impl CodeGen {
             pred
         };
 
-        // Restore depth
+        // Restore virtual stack and depth (Issue #189)
+        self.virtual_stack = saved_virtual_stack;
         self.codegen_depth -= 1;
 
         Ok(BranchResult {
@@ -2382,34 +2545,17 @@ impl CodeGen {
     // =========================================================================
 
     /// Generate code for an integer literal: ( -- n )
+    ///
+    /// Issue #189: Keeps value in virtual register instead of writing to memory.
+    /// The value will be spilled to memory at control flow points or function calls.
     fn codegen_int_literal(&mut self, stack_var: &str, n: i64) -> Result<String, CodeGenError> {
-        // Inline push: Write Value directly to stack
-        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-        // stack_var points to where the next value should go
+        // Create an SSA variable for this integer value
+        let ssa_var = self.fresh_temp();
+        writeln!(&mut self.output, "  %{} = add i64 0, {}", ssa_var, n)?;
 
-        // Store discriminant 0 (Int) at slot0
-        writeln!(&mut self.output, "  store i64 0, ptr %{}", stack_var)?;
-
-        // Get pointer to slot1 (offset 8 bytes = 1 i64)
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, stack_var
-        )?;
-
-        // Store value at slot1
-        writeln!(&mut self.output, "  store i64 {}, ptr %{}", n, slot1_ptr)?;
-
-        // Return pointer to next Value slot
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 1",
-            result_var, stack_var
-        )?;
-
-        Ok(result_var)
+        // Push to virtual stack (may spill if at capacity)
+        let value = VirtualValue::Int { ssa_var, value: n };
+        self.push_virtual(value, stack_var)
     }
 
     /// Generate code for a float literal: ( -- f )
@@ -2417,6 +2563,9 @@ impl CodeGen {
     /// Uses LLVM's hexadecimal floating point format for exact representation.
     /// Handles special values (NaN, Infinity) explicitly.
     fn codegen_float_literal(&mut self, stack_var: &str, f: f64) -> Result<String, CodeGenError> {
+        // Spill virtual values before writing to memory (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+
         // Format float bits as hex for LLVM
         let float_bits = f.to_bits();
 
@@ -2455,6 +2604,9 @@ impl CodeGen {
 
     /// Generate code for a boolean literal: ( -- b )
     fn codegen_bool_literal(&mut self, stack_var: &str, b: bool) -> Result<String, CodeGenError> {
+        // Spill virtual values before writing to memory (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+
         let val = if b { 1 } else { 0 };
 
         // Inline push: Write Value directly to stack
@@ -2488,6 +2640,9 @@ impl CodeGen {
 
     /// Generate code for a string literal: ( -- s )
     fn codegen_string_literal(&mut self, stack_var: &str, s: &str) -> Result<String, CodeGenError> {
+        // Spill virtual values before calling runtime (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+
         let global = self.get_string_global(s)?;
         let ptr_temp = self.fresh_temp();
         writeln!(
@@ -2508,6 +2663,9 @@ impl CodeGen {
 
     /// Generate code for a symbol literal: ( -- sym )
     fn codegen_symbol_literal(&mut self, stack_var: &str, s: &str) -> Result<String, CodeGenError> {
+        // Spill virtual values before calling runtime (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+
         // Get interned symbol global (static SeqString structure)
         let sym_global = self.get_symbol_global(s)?;
 
@@ -2532,6 +2690,10 @@ impl CodeGen {
             // drop: ( a -- )
             // Must call runtime to properly drop heap values
             "drop" => {
+                // Spill virtual registers before runtime call (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -2545,6 +2707,10 @@ impl CodeGen {
             // For trivially-copyable types (Int, Float, Bool): direct load/store
             // For heap types (String, etc.): call clone_value runtime
             "dup" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let top_ptr = self.fresh_temp();
 
                 // Get pointer to top value (sp - 1)
@@ -2594,6 +2760,10 @@ impl CodeGen {
 
             // swap: ( a b -- b a )
             "swap" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let ptr_b = self.fresh_temp();
                 let ptr_a = self.fresh_temp();
                 let val_a = self.fresh_temp();
@@ -2639,6 +2809,10 @@ impl CodeGen {
             // over: ( a b -- a b a )
             // Uses patch_seq_clone_value to properly clone heap values
             "over" => {
+                // Spill virtual registers before runtime call (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let ptr_a = self.fresh_temp();
                 let result_var = self.fresh_temp();
 
@@ -2670,75 +2844,16 @@ impl CodeGen {
             "i.subtract" | "i.-" => self.codegen_inline_binary_op(stack_var, "sub", "add"),
 
             // i.multiply / i.*: ( a b -- a*b )
-            "i.multiply" | "i.*" => {
-                // Values are in slot1 of each Value (slot0 is discriminant 0)
-                let ptr_b = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-                    ptr_b, stack_var
-                )?;
-                let ptr_a = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-                    ptr_a, stack_var
-                )?;
-
-                // Get slot1 pointers (offset 8 bytes)
-                let slot1_a = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 1",
-                    slot1_a, ptr_a
-                )?;
-                let slot1_b = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr i64, ptr %{}, i64 1",
-                    slot1_b, ptr_b
-                )?;
-
-                // Load values from slot1
-                let val_a = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    val_a, slot1_a
-                )?;
-                let val_b = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = load i64, ptr %{}",
-                    val_b, slot1_b
-                )?;
-
-                // Multiply
-                let product = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = mul i64 %{}, %{}",
-                    product, val_a, val_b
-                )?;
-
-                // Store result at slot1 (discriminant 0 already at slot0)
-                writeln!(
-                    &mut self.output,
-                    "  store i64 %{}, ptr %{}",
-                    product, slot1_a
-                )?;
-                let result_var = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-                    result_var, stack_var
-                )?;
-                Ok(Some(result_var))
-            }
+            // Issue #189: Uses virtual registers via codegen_inline_binary_op
+            "i.multiply" | "i.*" => self.codegen_inline_binary_op(stack_var, "mul", "div"),
 
             // i.divide / i./: ( a b -- a/b )
             // Matches runtime behavior: panic on zero, wrapping for i64::MIN/-1
             "i.divide" | "i./" => {
+                // Spill virtual registers (Issue #189) - division has complex control flow
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Values are in slot1 of each Value (slot0 is discriminant 0)
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -2870,6 +2985,10 @@ impl CodeGen {
 
             // i.%: ( a b -- a%b ) - integer modulo/remainder
             "i.%" => {
+                // Spill virtual registers (Issue #189) - modulo has control flow for zero check
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let ptr_b = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -3192,6 +3311,10 @@ impl CodeGen {
 
             // bnot: ( a -- ~a ) bitwise NOT
             "bnot" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Get pointer to top Value
                 let top_ptr = self.fresh_temp();
                 writeln!(
@@ -3242,6 +3365,10 @@ impl CodeGen {
             // More stack operations
             // rot: ( a b c -- b c a )
             "rot" => {
+                // Spill virtual registers before memory access (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let ptr_c = self.fresh_temp();
                 let ptr_b = self.fresh_temp();
                 let ptr_a = self.fresh_temp();
@@ -3431,6 +3558,10 @@ impl CodeGen {
             // Copy the nth item (0-indexed from below n) to top
             // Uses patch_seq_clone_value to properly clone heap values
             "pick" => {
+                // Spill virtual registers before memory access (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Issue #192: Optimize for constant N from previous IntLiteral
                 if let Some(n) = self.prev_stmt_int_value
                     && n >= 0
@@ -3495,6 +3626,10 @@ impl CodeGen {
             // roll: ( ... xn xn-1 ... x1 x0 n -- ... xn-1 ... x1 x0 xn )
             // Move the nth item to top, shifting others down
             "roll" => {
+                // Spill virtual registers before memory access (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Issue #192: Optimize for constant N from previous IntLiteral
                 if let Some(n) = self.prev_stmt_int_value
                     && n >= 0
@@ -3832,6 +3967,10 @@ impl CodeGen {
         stack_var: &str,
         icmp_op: &str,
     ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189) - comparison returns Bool, not Int
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -3906,13 +4045,50 @@ impl CodeGen {
     }
 
     /// Generate inline code for binary arithmetic (add/subtract).
-    /// Values are stored in slot1 of each Value (slot0 is discriminant 0 for Int).
+    /// Issue #189: Uses virtual registers when both operands are available.
     fn codegen_inline_binary_op(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
         _adjust_op: &str, // No longer needed, kept for compatibility
     ) -> Result<Option<String>, CodeGenError> {
+        // Issue #189: Check if both operands are in virtual registers
+        if self.virtual_stack.len() >= 2 {
+            // Fast path: both values in virtual registers
+            let val_b = self.virtual_stack.pop().unwrap();
+            let val_a = self.virtual_stack.pop().unwrap();
+
+            // Both must be integers for this optimization
+            if let (
+                VirtualValue::Int { ssa_var: ssa_a, .. },
+                VirtualValue::Int { ssa_var: ssa_b, .. },
+            ) = (&val_a, &val_b)
+            {
+                // Perform the operation directly on SSA values
+                let op_result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = {} i64 %{}, %{}",
+                    op_result, llvm_op, ssa_a, ssa_b
+                )?;
+
+                // Push result to virtual stack
+                let result = VirtualValue::Int {
+                    ssa_var: op_result,
+                    value: 0, // We don't track constant values through operations yet
+                };
+                return Ok(Some(self.push_virtual(result, stack_var)?));
+            } else {
+                // Not both integers - put back and fall through to memory path
+                self.virtual_stack.push(val_a);
+                self.virtual_stack.push(val_b);
+            }
+        }
+
+        // Slow path: spill and use memory
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -4180,6 +4356,10 @@ impl CodeGen {
         stack_var: &str,
         llvm_op: &str, // "and", "or", "xor"
     ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -4256,6 +4436,10 @@ impl CodeGen {
         stack_var: &str,
         is_left: bool, // true for shl, false for shr
     ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointers to Value slots (b = shift count, a = value to shift)
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -4372,6 +4556,10 @@ impl CodeGen {
         stack_var: &str,
         intrinsic: &str, // "llvm.ctpop.i64", "llvm.ctlz.i64", "llvm.cttz.i64"
     ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointer to top Value
         let top_ptr = self.fresh_temp();
         writeln!(
@@ -4838,6 +5026,10 @@ impl CodeGen {
             return Ok(result);
         }
 
+        // Spill virtual registers before function call (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         let result_var = self.fresh_temp();
 
         // Phase 2 TCO: Special handling for `call` in tail position
@@ -4907,6 +5099,10 @@ impl CodeGen {
         else_branch: Option<&Vec<Statement>>,
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
+        // Spill virtual registers before control flow (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Peek the condition value, then pop (inline)
         // Get pointer to top Value (at SP-1)
         let top_ptr = self.fresh_temp();
@@ -5037,6 +5233,10 @@ impl CodeGen {
         arms: &[MatchArm],
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
+        // Spill virtual registers before control flow (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Step 0: Check exhaustiveness
         if let Err((union_name, missing)) = self.check_match_exhaustiveness(arms) {
             return Err(CodeGenError::Logic(format!(
@@ -5311,6 +5511,10 @@ impl CodeGen {
         id: usize,
         body: &[Statement],
     ) -> Result<String, CodeGenError> {
+        // Spill virtual registers before quotation operations (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         let quot_type = self.get_quotation_type(id)?.clone();
         let fns = self.codegen_quotation(body, &quot_type)?;
 
@@ -5757,7 +5961,7 @@ mod tests {
 
     #[test]
     fn test_codegen_arithmetic() {
-        // Test inline tagged stack arithmetic
+        // Test inline tagged stack arithmetic with virtual registers (Issue #189)
         let mut codegen = CodeGen::new();
 
         let program = Program {
@@ -5782,12 +5986,12 @@ mod tests {
             .codegen_program(&program, HashMap::new(), HashMap::new())
             .unwrap();
 
-        // With tagged stack, integers are pushed inline (store discriminant + value)
-        assert!(ir.contains("store i64 0")); // Int discriminant
-        assert!(ir.contains("store i64 2")); // Push int 2
-        assert!(ir.contains("store i64 3")); // Push int 3
-        // Add is inlined (load, add, store pattern)
-        assert!(ir.contains("add i64"));
+        // Issue #189: With virtual registers, integers are kept in SSA variables
+        // Using identity add: %n = add i64 0, <value>
+        assert!(ir.contains("add i64 0, 2"), "Should create SSA var for 2");
+        assert!(ir.contains("add i64 0, 3"), "Should create SSA var for 3");
+        // The add operation uses virtual registers directly
+        assert!(ir.contains("add i64 %"), "Should add SSA variables");
     }
 
     #[test]
@@ -5830,13 +6034,15 @@ mod tests {
         assert!(ir.contains("trunc i64 %result to i32"));
         assert!(ir.contains("ret i32 %exit_code"));
 
-        // 4. Use inline push (store i64 0, not call patch_seq_push_int)
+        // 4. Use inline push with virtual registers (Issue #189)
         assert!(!ir.contains("call ptr @patch_seq_push_int"));
-        assert!(ir.contains("store i64 0, ptr %stack")); // Int discriminant
+        // Values are kept in SSA variables via identity add
+        assert!(ir.contains("add i64 0, 5"), "Should create SSA var for 5");
+        assert!(ir.contains("add i64 0, 3"), "Should create SSA var for 3");
 
-        // 5. Use inline add (add i64, not call patch_seq_add)
+        // 5. Use inline add with virtual registers (add i64 %, not call patch_seq_add)
         assert!(!ir.contains("call ptr @patch_seq_add"));
-        assert!(ir.contains("add i64"));
+        assert!(ir.contains("add i64 %"), "Should add SSA variables");
     }
 
     #[test]

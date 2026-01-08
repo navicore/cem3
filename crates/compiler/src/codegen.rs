@@ -65,8 +65,15 @@ impl From<std::fmt::Error> for CodeGenError {
 const UNREACHABLE_PREDECESSOR: &str = "unreachable";
 
 /// Maximum number of values to keep in virtual registers (Issue #189).
-/// Values beyond this are spilled to memory. Tuned for common patterns
-/// like `a b op` or `a dup op`.
+/// Values beyond this are spilled to memory.
+///
+/// Tuned for common patterns:
+/// - Binary ops need 2 values (`a b i.+`)
+/// - Dup patterns need 3 values (`a dup i.* b i.+`)
+/// - Complex expressions may use 4 (`a b i.+ c d i.* i.-`)
+///
+/// Larger values increase register pressure with diminishing returns,
+/// as most operations trigger spills (control flow, function calls, etc.).
 const MAX_VIRTUAL_STACK: usize = 4;
 
 /// A value held in an LLVM virtual register instead of memory (Issue #189).
@@ -4079,7 +4086,8 @@ impl CodeGen {
                 };
                 return Ok(Some(self.push_virtual(result, stack_var)?));
             } else {
-                // Not both integers - put back and fall through to memory path
+                // Not both integers - restore original order and fall through to memory path
+                // Order: push a first (second from top), then b (top) - same order as before pops
                 self.virtual_stack.push(val_a);
                 self.virtual_stack.push(val_b);
             }

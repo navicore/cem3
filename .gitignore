@@ -1,5 +1,6 @@
 # Rust
 /target/
+seqenv/
 claude.md
 **/*.rs.bk
 *.pdb

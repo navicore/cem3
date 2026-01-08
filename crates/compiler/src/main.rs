@@ -439,7 +439,7 @@ fn run_venv(name: &Path) {
     // Use components().last() instead of file_name() to handle trailing slashes
     let venv_name = venv_path
         .components()
-        .last()
+        .next_back()
         .and_then(|c| c.as_os_str().to_str())
         .unwrap_or("seq-venv");
 

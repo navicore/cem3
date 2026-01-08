@@ -363,6 +363,15 @@ fn run_venv(name: &Path) {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    // Helper to cleanup partially created venv on failure
+    fn cleanup_and_exit(venv_path: &Path, msg: &str) -> ! {
+        eprintln!("{}", msg);
+        if let Err(e) = std::fs::remove_dir_all(venv_path) {
+            eprintln!("Warning: failed to cleanup {}: {}", venv_path.display(), e);
+        }
+        process::exit(1);
+    }
+
     // Get absolute path for the venv, normalizing to remove trailing slashes
     let venv_path: PathBuf = if name.is_absolute() {
         name.components().collect()
@@ -391,15 +400,19 @@ fn run_venv(name: &Path) {
     let current_exe = match std::env::current_exe() {
         Ok(path) => path,
         Err(e) => {
-            eprintln!("Error finding current executable: {}", e);
-            process::exit(1);
+            cleanup_and_exit(
+                &venv_path,
+                &format!("Error finding current executable: {}", e),
+            );
         }
     };
     let exe_dir = match current_exe.parent() {
         Some(dir) => dir,
         None => {
-            eprintln!("Error: could not determine executable directory");
-            process::exit(1);
+            cleanup_and_exit(
+                &venv_path,
+                "Error: could not determine executable directory",
+            );
         }
     };
 
@@ -416,8 +429,7 @@ fn run_venv(name: &Path) {
         }
 
         if let Err(e) = fs::copy(&src, &dst) {
-            eprintln!("Error copying {}: {}", binary, e);
-            process::exit(1);
+            cleanup_and_exit(&venv_path, &format!("Error copying {}: {}", binary, e));
         }
 
         // Set executable permissions on Unix
@@ -431,8 +443,10 @@ fn run_venv(name: &Path) {
     }
 
     if copied_count == 0 {
-        eprintln!("Error: no seq binaries found in {}", exe_dir.display());
-        process::exit(1);
+        cleanup_and_exit(
+            &venv_path,
+            &format!("Error: no seq binaries found in {}", exe_dir.display()),
+        );
     }
 
     // Generate activate scripts
@@ -444,18 +458,24 @@ fn run_venv(name: &Path) {
         .unwrap_or("seq-venv");
 
     if let Err(e) = generate_activate_bash(&venv_path, venv_name) {
-        eprintln!("Error generating activate script: {}", e);
-        process::exit(1);
+        cleanup_and_exit(
+            &venv_path,
+            &format!("Error generating activate script: {}", e),
+        );
     }
 
     if let Err(e) = generate_activate_fish(&venv_path, venv_name) {
-        eprintln!("Error generating activate.fish script: {}", e);
-        process::exit(1);
+        cleanup_and_exit(
+            &venv_path,
+            &format!("Error generating activate.fish script: {}", e),
+        );
     }
 
     if let Err(e) = generate_activate_csh(&venv_path, venv_name) {
-        eprintln!("Error generating activate.csh script: {}", e);
-        process::exit(1);
+        cleanup_and_exit(
+            &venv_path,
+            &format!("Error generating activate.csh script: {}", e),
+        );
     }
 
     println!("\nCreated virtual environment at {}", venv_path.display());

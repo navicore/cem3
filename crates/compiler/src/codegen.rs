@@ -3103,6 +3103,10 @@ impl CodeGen {
             // Boolean operations - values are in slot1, discriminant 2 (Bool)
             // and: ( a b -- a&&b )
             "and" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Get pointers to Value slots
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -3179,6 +3183,10 @@ impl CodeGen {
 
             // or: ( a b -- a||b )
             "or" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Get pointers to Value slots
                 let ptr_b = self.fresh_temp();
                 writeln!(
@@ -3255,6 +3263,10 @@ impl CodeGen {
 
             // not: ( a -- !a )
             "not" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 // Get pointer to top Value
                 let top_ptr = self.fresh_temp();
                 writeln!(
@@ -3439,6 +3451,9 @@ impl CodeGen {
             // nip: ( a b -- b )
             // Must call runtime to properly drop the removed value
             "nip" => {
+                // Spill virtual registers before runtime call (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -3451,6 +3466,10 @@ impl CodeGen {
             // tuck: ( a b -- b a b )
             // Uses patch_seq_clone_value to properly clone heap values
             "tuck" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let ptr_b = self.fresh_temp();
                 let ptr_a = self.fresh_temp();
                 let val_a = self.fresh_temp();
@@ -3508,6 +3527,10 @@ impl CodeGen {
             // 2dup: ( a b -- a b a b )
             // Uses patch_seq_clone_value to properly clone heap values
             "2dup" => {
+                // Spill virtual registers (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
                 let ptr_b = self.fresh_temp();
                 let ptr_a = self.fresh_temp();
                 let new_ptr = self.fresh_temp();
@@ -4173,6 +4196,10 @@ impl CodeGen {
         stack_var: &str,
         llvm_op: &str,
     ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -4270,6 +4297,10 @@ impl CodeGen {
         stack_var: &str,
         fcmp_op: &str,
     ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
         writeln!(

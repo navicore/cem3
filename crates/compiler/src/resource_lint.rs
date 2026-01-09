@@ -488,15 +488,65 @@ impl ProgramResourceAnalyzer {
                 }
             }
             "dup" => {
+                // Only duplicate if there's something on the stack
+                // Don't push unknown on empty - maintains original first-pass behavior
                 if let Some(top) = state.peek().cloned() {
                     state.stack.push(top);
-                } else {
-                    state.push_unknown();
                 }
             }
             "swap" => {
                 let a = state.pop();
                 let b = state.pop();
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+            "over" => {
+                // ( ..a x y -- ..a x y x )
+                if state.depth() >= 2 {
+                    let second = state.stack[state.depth() - 2].clone();
+                    state.stack.push(second);
+                }
+            }
+            "rot" => {
+                // ( ..a x y z -- ..a y z x )
+                let c = state.pop();
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+                if let Some(cv) = c {
+                    state.stack.push(cv);
+                }
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+            }
+            "nip" => {
+                // ( ..a x y -- ..a y ) - drops x, which may be a resource
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(StackValue::Resource(r)) = a {
+                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
+                    if !already_consumed {
+                        on_resource_dropped(&r);
+                    }
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+            "tuck" => {
+                // ( ..a x y -- ..a y x y )
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(bv) = b.clone() {
+                    state.stack.push(bv);
+                }
                 if let Some(av) = a {
                     state.stack.push(av);
                 }
@@ -688,9 +738,9 @@ impl ProgramResourceAnalyzer {
             return;
         }
 
-        // Handle operations unique to the second pass (extended stack ops)
+        // Handle operations unique to the second pass
         match name {
-            // strand.resume handling
+            // strand.resume handling - can't be shared because it has complex stack behavior
             "strand.resume" => {
                 let value = state.pop();
                 let handle = state.pop();
@@ -705,58 +755,6 @@ impl ProgramResourceAnalyzer {
                     state.push_unknown();
                 }
                 state.push_unknown();
-            }
-
-            "over" => {
-                if state.depth() >= 2 {
-                    let second = state.stack[state.depth() - 2].clone();
-                    state.stack.push(second);
-                } else {
-                    state.push_unknown();
-                }
-            }
-
-            "rot" => {
-                let c = state.pop();
-                let b = state.pop();
-                let a = state.pop();
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
-                if let Some(cv) = c {
-                    state.stack.push(cv);
-                }
-                if let Some(av) = a {
-                    state.stack.push(av);
-                }
-            }
-
-            "nip" => {
-                let b = state.pop();
-                let a = state.pop();
-                if let Some(StackValue::Resource(r)) = a {
-                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
-                    if !already_consumed {
-                        self.emit_drop_warning(&r, span, word);
-                    }
-                }
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
-            }
-
-            "tuck" => {
-                let b = state.pop();
-                let a = state.pop();
-                if let Some(bv) = b.clone() {
-                    state.stack.push(bv);
-                }
-                if let Some(av) = a {
-                    state.stack.push(av);
-                }
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
             }
 
             "2dup" => {

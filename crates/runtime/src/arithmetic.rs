@@ -21,6 +21,7 @@
 //!
 //! This matches the behavior of Forth and Factor, providing consistency for low-level code.
 
+use crate::error::set_runtime_error;
 use crate::stack::{DISC_INT, Stack, peek_sv, pop, pop_two, push};
 use crate::value::Value;
 
@@ -101,23 +102,33 @@ pub unsafe extern "C" fn patch_seq_multiply(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( a b -- a/b )
 ///
+/// # Error Handling
+/// - Division by zero: Sets runtime error and returns 0
+/// - Type mismatch: Sets runtime error and returns 0
+///
 /// # Safety
-/// Stack must have two Int values on top, b must not be zero
+/// Stack must have at least two values on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "divide") };
     match (a, b) {
+        (Value::Int(a_val), Value::Int(0)) => {
+            // Division by zero - set error and return 0
+            set_runtime_error(format!(
+                "divide: division by zero (attempted {} / 0)",
+                a_val
+            ));
+            unsafe { push(rest, Value::Int(0)) }
+        }
         (Value::Int(a_val), Value::Int(b_val)) => {
-            assert!(
-                b_val != 0,
-                "divide: division by zero (attempted {} / {})",
-                a_val,
-                b_val
-            );
             // Use wrapping_div to handle i64::MIN / -1 overflow edge case
             unsafe { push(rest, Value::Int(a_val.wrapping_div(b_val))) }
         }
-        _ => panic!("divide: expected two integers on stack"),
+        _ => {
+            // Type error - should not happen with type-checked code
+            set_runtime_error("divide: expected two integers on stack");
+            unsafe { push(rest, Value::Int(0)) }
+        }
     }
 }
 

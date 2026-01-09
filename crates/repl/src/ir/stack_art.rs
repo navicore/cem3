@@ -149,6 +149,16 @@ impl StackEffect {
         }
     }
 
+    /// Create a stack effect for a literal value (pushes onto stack)
+    pub fn literal(value: impl Into<String>) -> Self {
+        let val = value.into();
+        Self {
+            name: val.clone(),
+            inputs: Stack::with_rest("a"),
+            outputs: Stack::with_rest("a").push(StackValue::val(val)),
+        }
+    }
+
     /// Render the effect signature line: `swap ( ..a x y -- ..a y x )`
     pub fn render_signature(&self) -> String {
         let inputs: Vec<_> = self.inputs.values.iter().map(|v| v.display()).collect();

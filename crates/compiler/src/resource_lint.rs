@@ -675,13 +675,9 @@ impl ProgramResourceAnalyzer {
         let mut dropped_resources: Vec<TrackedResource> = Vec::new();
 
         // Try shared logic first
-        let handled = Self::simulate_word_common(
-            name,
-            span,
-            state,
-            &self.word_info,
-            |r| dropped_resources.push(r.clone()),
-        );
+        let handled = Self::simulate_word_common(name, span, state, &self.word_info, |r| {
+            dropped_resources.push(r.clone())
+        });
 
         // Emit warnings for any resources dropped without cleanup
         for r in dropped_resources {

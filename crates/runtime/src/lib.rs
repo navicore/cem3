@@ -12,6 +12,7 @@ pub mod channel;
 pub mod closures;
 pub mod cond;
 pub mod diagnostics;
+pub mod error;
 pub mod file;
 pub mod float_ops;
 pub mod io;
@@ -202,3 +203,10 @@ pub use time_ops::{
 
 // SON serialization (exported for LLVM linking)
 pub use son::{patch_seq_son_dump as son_dump, patch_seq_son_dump_pretty as son_dump_pretty};
+
+// Error handling (exported for LLVM linking)
+pub use error::{
+    clear_runtime_error, has_runtime_error, patch_seq_clear_error as clear_error,
+    patch_seq_get_error as get_error, patch_seq_has_error as has_error,
+    patch_seq_take_error as take_error, set_runtime_error, take_runtime_error,
+};

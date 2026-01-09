@@ -775,10 +775,11 @@ pub unsafe extern "C" fn patch_seq_3drop(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least n+1 values (plus the index value).
 ///
-/// # Panics
-/// - If the top value is not an Int
-/// - If n is negative
-/// - If n exceeds the current stack depth
+/// # Errors
+/// Sets runtime error if:
+/// - The top value is not an Int
+/// - n is negative
+/// - n exceeds the current stack depth
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
     unsafe {
@@ -786,12 +787,19 @@ pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
         let (sp, n_val) = pop(stack);
         let n_raw = match n_val {
             Value::Int(i) => i,
-            _ => panic!("pick: expected Int"),
+            _ => {
+                crate::error::set_runtime_error("pick: expected Int index on top of stack");
+                return stack;
+            }
         };
 
         // Bounds check: n must be non-negative
         if n_raw < 0 {
-            panic!("pick: index cannot be negative (got {})", n_raw);
+            crate::error::set_runtime_error(format!(
+                "pick: index cannot be negative (got {})",
+                n_raw
+            ));
+            return sp; // Return stack with index consumed
         }
         let n = n_raw as usize;
 
@@ -799,12 +807,13 @@ pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
         let base = get_stack_base();
         let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
         if n >= depth {
-            panic!(
+            crate::error::set_runtime_error(format!(
                 "pick: index {} exceeds stack depth {} (need at least {} values)",
                 n,
                 depth,
                 n + 1
-            );
+            ));
+            return sp; // Return stack with index consumed
         }
 
         // Get the value at depth n (0 = top after popping n)
@@ -820,10 +829,11 @@ pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
 /// # Safety
 /// Stack must have at least n+1 values (plus the index value).
 ///
-/// # Panics
-/// - If the top value is not an Int
-/// - If n is negative
-/// - If n exceeds the current stack depth
+/// # Errors
+/// Sets runtime error if:
+/// - The top value is not an Int
+/// - n is negative
+/// - n exceeds the current stack depth
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
     unsafe {
@@ -831,12 +841,19 @@ pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
         let (sp, n_val) = pop(stack);
         let n_raw = match n_val {
             Value::Int(i) => i,
-            _ => panic!("roll: expected Int"),
+            _ => {
+                crate::error::set_runtime_error("roll: expected Int index on top of stack");
+                return stack;
+            }
         };
 
         // Bounds check: n must be non-negative
         if n_raw < 0 {
-            panic!("roll: index cannot be negative (got {})", n_raw);
+            crate::error::set_runtime_error(format!(
+                "roll: index cannot be negative (got {})",
+                n_raw
+            ));
+            return sp; // Return stack with index consumed
         }
         let n = n_raw as usize;
 
@@ -854,12 +871,13 @@ pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
         let base = get_stack_base();
         let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
         if n >= depth {
-            panic!(
+            crate::error::set_runtime_error(format!(
                 "roll: index {} exceeds stack depth {} (need at least {} values)",
                 n,
                 depth,
                 n + 1
-            );
+            ));
+            return sp; // Return stack with index consumed
         }
 
         // General case: save item at depth n, shift others, put saved at top

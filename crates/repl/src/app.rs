@@ -7,7 +7,7 @@
 //! Expressions accumulate in a temp file with `stack.dump` to show values.
 
 use crate::engine::{AnalysisResult, analyze, analyze_expression};
-use crate::ir::stack_art::{Stack, StackEffect, StackValue, render_transition};
+use crate::ir::stack_art::{Stack, StackEffect, render_transition};
 use crate::keys::convert_key;
 use crate::lsp_client::LspClient;
 use crate::ui::ir_pane::{IrContent, IrPane, IrViewMode};
@@ -1022,218 +1022,17 @@ impl App {
     fn get_word_effect(&self, word: &str) -> Option<StackEffect> {
         // Check for literals first
         if word.parse::<i64>().is_ok() {
-            return Some(StackEffect::new(
-                word,
-                Stack::with_rest("a"),
-                Stack::with_rest("a").push(StackValue::val(word.to_string())),
-            ));
+            return Some(StackEffect::literal(word));
         }
         if word.parse::<f64>().is_ok() && word.contains('.') {
-            return Some(StackEffect::new(
-                word,
-                Stack::with_rest("a"),
-                Stack::with_rest("a").push(StackValue::val(word.to_string())),
-            ));
+            return Some(StackEffect::literal(word));
         }
         if word == "true" || word == "false" {
-            return Some(StackEffect::new(
-                word,
-                Stack::with_rest("a"),
-                Stack::with_rest("a").push(StackValue::val(word.to_string())),
-            ));
+            return Some(StackEffect::literal(word));
         }
 
-        // Builtins
-        match word {
-            // Stack manipulation
-            "dup" => Some(StackEffect::new(
-                "dup",
-                Stack::with_rest("a").push(StackValue::var("x")),
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("x")),
-            )),
-            "drop" => Some(StackEffect::new(
-                "drop",
-                Stack::with_rest("a").push(StackValue::var("x")),
-                Stack::with_rest("a"),
-            )),
-            "swap" => Some(StackEffect::new(
-                "swap",
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y")),
-                Stack::with_rest("a")
-                    .push(StackValue::var("y"))
-                    .push(StackValue::var("x")),
-            )),
-            "over" => Some(StackEffect::new(
-                "over",
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y")),
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y"))
-                    .push(StackValue::var("x")),
-            )),
-            "rot" => Some(StackEffect::new(
-                "rot",
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y"))
-                    .push(StackValue::var("z")),
-                Stack::with_rest("a")
-                    .push(StackValue::var("y"))
-                    .push(StackValue::var("z"))
-                    .push(StackValue::var("x")),
-            )),
-            "nip" => Some(StackEffect::new(
-                "nip",
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y")),
-                Stack::with_rest("a").push(StackValue::var("y")),
-            )),
-            "tuck" => Some(StackEffect::new(
-                "tuck",
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y")),
-                Stack::with_rest("a")
-                    .push(StackValue::var("y"))
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("y")),
-            )),
-
-            // Integer Arithmetic (including symbolic aliases)
-            "i.add" | "i.+" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-            "i.subtract" | "i.-" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-            "i.multiply" | "i.*" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-            "i.divide" | "i./" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-            "modulo" | "i.%" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-            "negate" => Some(StackEffect::new(
-                "negate",
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-
-            // Comparison (including symbolic aliases)
-            "equals" | "not-equals" | "less-than" | "greater-than" | "less-or-equal"
-            | "greater-or-equal" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::var("x")),
-                Stack::with_rest("a").push(StackValue::ty("Bool")),
-            )),
-            // Integer comparisons
-            "i.=" | "i.<" | "i.>" | "i.<=" | "i.>=" | "i.<>" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Bool")),
-            )),
-
-            // Float Arithmetic (including symbolic aliases)
-            "f.add" | "f.+" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Float"))
-                    .push(StackValue::ty("Float")),
-                Stack::with_rest("a").push(StackValue::ty("Float")),
-            )),
-            "f.subtract" | "f.-" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Float"))
-                    .push(StackValue::ty("Float")),
-                Stack::with_rest("a").push(StackValue::ty("Float")),
-            )),
-            "f.multiply" | "f.*" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Float"))
-                    .push(StackValue::ty("Float")),
-                Stack::with_rest("a").push(StackValue::ty("Float")),
-            )),
-            "f.divide" | "f./" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Float"))
-                    .push(StackValue::ty("Float")),
-                Stack::with_rest("a").push(StackValue::ty("Float")),
-            )),
-            // Float comparisons
-            "f.=" | "f.<" | "f.>" | "f.<=" | "f.>=" | "f.<>" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Float"))
-                    .push(StackValue::ty("Float")),
-                Stack::with_rest("a").push(StackValue::ty("Bool")),
-            )),
-
-            // Logic
-            "and" | "or" => Some(StackEffect::new(
-                word,
-                Stack::with_rest("a")
-                    .push(StackValue::ty("Int"))
-                    .push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-            "not" => Some(StackEffect::new(
-                "not",
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-                Stack::with_rest("a").push(StackValue::ty("Int")),
-            )),
-
-            // Quotation combinators
-            "apply" => Some(StackEffect::new(
-                "apply",
-                Stack::with_rest("a").push(StackValue::ty("Quot")),
-                Stack::with_rest("b"),
-            )),
-            "dip" => Some(StackEffect::new(
-                "dip",
-                Stack::with_rest("a")
-                    .push(StackValue::var("x"))
-                    .push(StackValue::ty("Quot")),
-                Stack::with_rest("b").push(StackValue::var("x")),
-            )),
-
-            _ => None,
-        }
+        // Look up in static effects table
+        crate::ir::stack_effects::get_effect(word).cloned()
     }
 
     /// Request completions from LSP (mirrors old REPL's SeqHelper::complete)

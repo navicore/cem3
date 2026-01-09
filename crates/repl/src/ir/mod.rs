@@ -4,3 +4,4 @@
 //! for the Seq programming language.
 
 pub mod stack_art;
+pub mod stack_effects;

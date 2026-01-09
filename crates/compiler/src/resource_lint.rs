@@ -430,8 +430,23 @@ impl ProgramResourceAnalyzer {
         }
     }
 
-    /// Simulate a word call (for first pass)
-    fn simulate_word_call(&self, name: &str, span: Option<&Span>, state: &mut StackState) {
+    /// Simulate common word operations shared between first and second pass.
+    ///
+    /// Returns `true` if the word was handled, `false` if the caller should
+    /// handle it (for pass-specific operations).
+    ///
+    /// The `on_resource_dropped` callback is invoked when a resource is dropped
+    /// without being consumed. The second pass uses this to emit warnings.
+    fn simulate_word_common<F>(
+        name: &str,
+        span: Option<&Span>,
+        state: &mut StackState,
+        word_info: &HashMap<String, WordResourceInfo>,
+        mut on_resource_dropped: F,
+    ) -> bool
+    where
+        F: FnMut(&TrackedResource),
+    {
         let line = span.map(|s| s.line).unwrap_or(0);
         let column = span.map(|s| s.column).unwrap_or(0);
 
@@ -461,11 +476,20 @@ impl ProgramResourceAnalyzer {
                 }
             }
 
-            // Stack operations (simplified)
+            // Stack operations
             "drop" => {
-                state.pop();
+                let dropped = state.pop();
+                if let Some(StackValue::Resource(r)) = dropped {
+                    // Check if already consumed (e.g., via strand.spawn)
+                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
+                    if !already_consumed {
+                        on_resource_dropped(&r);
+                    }
+                }
             }
             "dup" => {
+                // Only duplicate if there's something on the stack
+                // Don't push unknown on empty - maintains original first-pass behavior
                 if let Some(top) = state.peek().cloned() {
                     state.stack.push(top);
                 }
@@ -473,6 +497,56 @@ impl ProgramResourceAnalyzer {
             "swap" => {
                 let a = state.pop();
                 let b = state.pop();
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+            "over" => {
+                // ( ..a x y -- ..a x y x )
+                if state.depth() >= 2 {
+                    let second = state.stack[state.depth() - 2].clone();
+                    state.stack.push(second);
+                }
+            }
+            "rot" => {
+                // ( ..a x y z -- ..a y z x )
+                let c = state.pop();
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+                if let Some(cv) = c {
+                    state.stack.push(cv);
+                }
+                if let Some(av) = a {
+                    state.stack.push(av);
+                }
+            }
+            "nip" => {
+                // ( ..a x y -- ..a y ) - drops x, which may be a resource
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(StackValue::Resource(r)) = a {
+                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
+                    if !already_consumed {
+                        on_resource_dropped(&r);
+                    }
+                }
+                if let Some(bv) = b {
+                    state.stack.push(bv);
+                }
+            }
+            "tuck" => {
+                // ( ..a x y -- ..a y x y )
+                let b = state.pop();
+                let a = state.pop();
+                if let Some(bv) = b.clone() {
+                    state.stack.push(bv);
+                }
                 if let Some(av) = a {
                     state.stack.push(av);
                 }
@@ -524,15 +598,24 @@ impl ProgramResourceAnalyzer {
 
             // User-defined words - check if we have info about them
             _ => {
-                if let Some(info) = self.word_info.get(name) {
+                if let Some(info) = word_info.get(name) {
                     // Push resources that this word returns
                     for kind in &info.returns {
                         state.push_resource(*kind, line, column, name);
                     }
+                    return true;
                 }
-                // Otherwise, unknown effect - leave stack unchanged
+                // Not handled - caller should handle pass-specific operations
+                return false;
             }
         }
+        true
+    }
+
+    /// Simulate a word call (for first pass)
+    fn simulate_word_call(&self, name: &str, span: Option<&Span>, state: &mut StackState) {
+        // First pass uses shared logic with no-op callback for dropped resources
+        Self::simulate_word_common(name, span, state, &self.word_info, |_| {});
     }
 
     /// Second pass: Analyze a word with full cross-word context
@@ -638,36 +721,26 @@ impl ProgramResourceAnalyzer {
         state: &mut StackState,
         word: &WordDef,
     ) {
-        let line = span.map(|s| s.line).unwrap_or(0);
-        let column = span.map(|s| s.column).unwrap_or(0);
+        // Collect dropped resources to emit warnings after shared simulation
+        let mut dropped_resources: Vec<TrackedResource> = Vec::new();
 
+        // Try shared logic first
+        let handled = Self::simulate_word_common(name, span, state, &self.word_info, |r| {
+            dropped_resources.push(r.clone())
+        });
+
+        // Emit warnings for any resources dropped without cleanup
+        for r in dropped_resources {
+            self.emit_drop_warning(&r, span, word);
+        }
+
+        if handled {
+            return;
+        }
+
+        // Handle operations unique to the second pass
         match name {
-            // Resource-creating builtins
-            "strand.weave" => {
-                state.pop();
-                state.push_resource(ResourceKind::WeaveHandle, line, column, name);
-            }
-            "chan.make" => {
-                state.push_resource(ResourceKind::Channel, line, column, name);
-            }
-
-            // Resource-consuming builtins
-            "strand.weave-cancel" => {
-                if let Some(StackValue::Resource(r)) = state.pop()
-                    && r.kind == ResourceKind::WeaveHandle
-                {
-                    state.consume_resource(r);
-                }
-            }
-            "chan.close" => {
-                if let Some(StackValue::Resource(r)) = state.pop()
-                    && r.kind == ResourceKind::Channel
-                {
-                    state.consume_resource(r);
-                }
-            }
-
-            // strand.resume handling
+            // strand.resume handling - can't be shared because it has complex stack behavior
             "strand.resume" => {
                 let value = state.pop();
                 let handle = state.pop();
@@ -682,88 +755,6 @@ impl ProgramResourceAnalyzer {
                     state.push_unknown();
                 }
                 state.push_unknown();
-            }
-
-            // Stack operations with leak detection
-            "drop" => {
-                let dropped = state.pop();
-                if let Some(StackValue::Resource(r)) = dropped {
-                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
-                    if !already_consumed {
-                        self.emit_drop_warning(&r, span, word);
-                    }
-                }
-            }
-
-            "dup" => {
-                if let Some(top) = state.peek().cloned() {
-                    state.stack.push(top);
-                } else {
-                    state.push_unknown();
-                }
-            }
-
-            "swap" => {
-                let a = state.pop();
-                let b = state.pop();
-                if let Some(av) = a {
-                    state.stack.push(av);
-                }
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
-            }
-
-            "over" => {
-                if state.depth() >= 2 {
-                    let second = state.stack[state.depth() - 2].clone();
-                    state.stack.push(second);
-                } else {
-                    state.push_unknown();
-                }
-            }
-
-            "rot" => {
-                let c = state.pop();
-                let b = state.pop();
-                let a = state.pop();
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
-                if let Some(cv) = c {
-                    state.stack.push(cv);
-                }
-                if let Some(av) = a {
-                    state.stack.push(av);
-                }
-            }
-
-            "nip" => {
-                let b = state.pop();
-                let a = state.pop();
-                if let Some(StackValue::Resource(r)) = a {
-                    let already_consumed = state.consumed.iter().any(|c| c.id == r.id);
-                    if !already_consumed {
-                        self.emit_drop_warning(&r, span, word);
-                    }
-                }
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
-            }
-
-            "tuck" => {
-                let b = state.pop();
-                let a = state.pop();
-                if let Some(bv) = b.clone() {
-                    state.stack.push(bv);
-                }
-                if let Some(av) = a {
-                    state.stack.push(av);
-                }
-                if let Some(bv) = b {
-                    state.stack.push(bv);
-                }
             }
 
             "2dup" => {
@@ -801,56 +792,8 @@ impl ProgramResourceAnalyzer {
                 state.push_unknown();
             }
 
-            "strand.spawn" => {
-                state.pop();
-                let resources: Vec<TrackedResource> = state
-                    .stack
-                    .iter()
-                    .filter_map(|v| match v {
-                        StackValue::Resource(r) => Some(r.clone()),
-                        StackValue::Unknown => None,
-                    })
-                    .collect();
-                for r in resources {
-                    state.consume_resource(r);
-                }
-                state.push_unknown();
-            }
-
-            // Map operations that store values safely
-            "map.set" => {
-                // ( map key value -- map' ) - value is stored in map
-                let value = state.pop();
-                state.pop(); // key
-                state.pop(); // map
-                // Value is now safely stored in the map - consume if resource
-                if let Some(StackValue::Resource(r)) = value {
-                    state.consume_resource(r);
-                }
-                state.push_unknown(); // map'
-            }
-
-            // List operations that store values safely
-            "list.push" | "list.prepend" => {
-                // ( list value -- list' ) - value is stored in list
-                let value = state.pop();
-                state.pop(); // list
-                if let Some(StackValue::Resource(r)) = value {
-                    state.consume_resource(r);
-                }
-                state.push_unknown(); // list'
-            }
-
-            // User-defined words - use cross-word info
-            _ => {
-                if let Some(info) = self.word_info.get(name) {
-                    // This word returns resources - track them
-                    for kind in &info.returns {
-                        state.push_resource(*kind, line, column, name);
-                    }
-                }
-                // Unknown words: leave stack unchanged (may cause false negatives)
-            }
+            // Unknown words: leave stack unchanged (may cause false negatives)
+            _ => {}
         }
     }
 

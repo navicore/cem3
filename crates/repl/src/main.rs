@@ -23,6 +23,7 @@
 //!   :help                   # Show help
 
 mod app;
+mod completion;
 mod engine;
 mod ir;
 mod keys;

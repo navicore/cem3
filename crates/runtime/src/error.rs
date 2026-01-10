@@ -34,7 +34,11 @@ thread_local! {
 }
 
 /// Set the last runtime error message
+///
+/// Note: This clears any cached CString to prevent stale pointer access.
 pub fn set_runtime_error(msg: impl Into<String>) {
+    // Clear cached CString first to prevent stale pointers
+    ERROR_CSTRING.with(|cs| *cs.borrow_mut() = None);
     LAST_ERROR.with(|e| {
         *e.borrow_mut() = Some(msg.into());
     });
@@ -78,7 +82,11 @@ pub extern "C" fn patch_seq_has_error() -> bool {
 /// Get the last error message as a C string pointer (FFI-safe)
 ///
 /// Returns null if no error is pending.
-/// The pointer is valid until the next call to this function or `take_error`.
+///
+/// # WARNING: Pointer Lifetime
+/// The returned pointer is only valid until the next call to `set_runtime_error`,
+/// `get_error`, `take_error`, or `clear_error`. Callers must copy the string
+/// immediately if they need to retain it.
 #[unsafe(no_mangle)]
 pub extern "C" fn patch_seq_get_error() -> *const i8 {
     LAST_ERROR.with(|e| {
@@ -87,7 +95,12 @@ pub extern "C" fn patch_seq_get_error() -> *const i8 {
             Some(msg) => {
                 // Cache the CString so the pointer remains valid
                 ERROR_CSTRING.with(|cs| {
-                    let cstring = CString::new(msg.as_str()).unwrap_or_default();
+                    // Replace null bytes with '?' to preserve error content
+                    let safe_msg: String = msg
+                        .chars()
+                        .map(|c| if c == '\0' { '?' } else { c })
+                        .collect();
+                    let cstring = CString::new(safe_msg).expect("null bytes already replaced");
                     let ptr = cstring.as_ptr();
                     *cs.borrow_mut() = Some(cstring);
                     ptr
@@ -101,13 +114,19 @@ pub extern "C" fn patch_seq_get_error() -> *const i8 {
 /// Take (and clear) the last error, returning it as a C string (FFI-safe)
 ///
 /// Returns null if no error is pending.
-/// The caller should copy the string if needed - pointer is valid until next error operation.
+///
+/// # WARNING: Pointer Lifetime
+/// The returned pointer is only valid until the next call to `set_runtime_error`,
+/// `get_error`, `take_error`, or `clear_error`. Callers must copy the string
+/// immediately if they need to retain it.
 #[unsafe(no_mangle)]
 pub extern "C" fn patch_seq_take_error() -> *const i8 {
     let msg = take_runtime_error();
     match msg {
         Some(s) => ERROR_CSTRING.with(|cs| {
-            let cstring = CString::new(s).unwrap_or_default();
+            // Replace null bytes with '?' to preserve error content
+            let safe_msg: String = s.chars().map(|c| if c == '\0' { '?' } else { c }).collect();
+            let cstring = CString::new(safe_msg).expect("null bytes already replaced");
             let ptr = cstring.as_ptr();
             *cs.borrow_mut() = Some(cstring);
             ptr

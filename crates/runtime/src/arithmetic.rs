@@ -834,8 +834,23 @@ mod tests {
         }
     }
 
-    // Note: Division by zero test omitted because panics cannot be caught across
-    // extern "C" boundaries. The runtime will panic with a helpful error message
-    // "divide: division by zero (attempted X / 0)" which is validated at compile time
-    // by the type checker in production code.
+    #[test]
+    fn test_divide_by_zero_sets_error() {
+        unsafe {
+            crate::error::clear_runtime_error();
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push_int(stack, 42);
+            let stack = push_int(stack, 0);
+            let stack = divide(stack);
+
+            // Should have set an error
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("division by zero"));
+
+            // Should have pushed 0 as sentinel
+            let (_stack, result) = pop(stack);
+            assert_eq!(result, Value::Int(0));
+        }
+    }
 }

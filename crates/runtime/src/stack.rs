@@ -788,8 +788,9 @@ pub unsafe extern "C" fn patch_seq_pick_op(stack: Stack) -> Stack {
         let n_raw = match n_val {
             Value::Int(i) => i,
             _ => {
+                // Value already consumed by pop, return sp (index consumed)
                 crate::error::set_runtime_error("pick: expected Int index on top of stack");
-                return stack;
+                return sp;
             }
         };
 
@@ -842,8 +843,9 @@ pub unsafe extern "C" fn patch_seq_roll(stack: Stack) -> Stack {
         let n_raw = match n_val {
             Value::Int(i) => i,
             _ => {
+                // Value already consumed by pop, return sp (index consumed)
                 crate::error::set_runtime_error("roll: expected Int index on top of stack");
-                return stack;
+                return sp;
             }
         };
 
@@ -1123,4 +1125,73 @@ macro_rules! test_stack {
         static mut BUFFER: [StackValue; 256] = unsafe { std::mem::zeroed() };
         unsafe { BUFFER.as_mut_ptr() }
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pick_negative_index_sets_error() {
+        unsafe {
+            crate::error::clear_runtime_error();
+            let stack = alloc_test_stack();
+            let stack = push(stack, Value::Int(100)); // some value
+            let stack = push(stack, Value::Int(-1)); // negative index
+
+            let _stack = patch_seq_pick_op(stack);
+
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("negative"));
+        }
+    }
+
+    #[test]
+    fn test_pick_out_of_bounds_sets_error() {
+        unsafe {
+            crate::error::clear_runtime_error();
+            let stack = alloc_test_stack();
+            let stack = push(stack, Value::Int(100)); // only one value
+            let stack = push(stack, Value::Int(10)); // index way too large
+
+            let _stack = patch_seq_pick_op(stack);
+
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("exceeds stack depth"));
+        }
+    }
+
+    #[test]
+    fn test_roll_negative_index_sets_error() {
+        unsafe {
+            crate::error::clear_runtime_error();
+            let stack = alloc_test_stack();
+            let stack = push(stack, Value::Int(100));
+            let stack = push(stack, Value::Int(-1)); // negative index
+
+            let _stack = patch_seq_roll(stack);
+
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("negative"));
+        }
+    }
+
+    #[test]
+    fn test_roll_out_of_bounds_sets_error() {
+        unsafe {
+            crate::error::clear_runtime_error();
+            let stack = alloc_test_stack();
+            let stack = push(stack, Value::Int(100));
+            let stack = push(stack, Value::Int(10)); // index way too large
+
+            let _stack = patch_seq_roll(stack);
+
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("exceeds stack depth"));
+        }
+    }
 }

@@ -97,236 +97,842 @@ struct RuntimeDecl {
 static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
     vec![
         // Core push operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_int(ptr, i64)", category: Some("; Runtime function declarations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_string(ptr, ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_symbol(ptr, ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_interned_symbol(ptr, ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_int(ptr, i64)",
+            category: Some("; Runtime function declarations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_string(ptr, ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_symbol(ptr, ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_interned_symbol(ptr, ptr)",
+            category: None,
+        },
         // I/O operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_write(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_write_line(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_read_line(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_read_line_plus(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_read_n(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_write(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_write_line(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_read_line(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_read_line_plus(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_read_n(ptr)",
+            category: None,
+        },
         // Type conversions
-        RuntimeDecl { decl: "declare ptr @patch_seq_int_to_string(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_symbol_to_string(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_to_symbol(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_int_to_string(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_symbol_to_string(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_to_symbol(ptr)",
+            category: None,
+        },
         // Integer arithmetic
-        RuntimeDecl { decl: "declare ptr @patch_seq_add(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_subtract(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_multiply(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_divide(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_add(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_subtract(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_multiply(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_divide(ptr)",
+            category: None,
+        },
         // Integer comparisons
-        RuntimeDecl { decl: "declare ptr @patch_seq_eq(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_lt(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_gt(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_lte(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_gte(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_neq(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_eq(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_lt(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_gt(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_lte(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_gte(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_neq(ptr)",
+            category: None,
+        },
         // Boolean operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_and(ptr)", category: Some("; Boolean operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_or(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_not(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_and(ptr)",
+            category: Some("; Boolean operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_or(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_not(ptr)",
+            category: None,
+        },
         // Bitwise operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_band(ptr)", category: Some("; Bitwise operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_bor(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_bxor(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_bnot(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_shl(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_shr(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_popcount(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_clz(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_ctz(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_int_bits(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_band(ptr)",
+            category: Some("; Bitwise operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_bor(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_bxor(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_bnot(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_shl(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_shr(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_popcount(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_clz(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_ctz(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_int_bits(ptr)",
+            category: None,
+        },
         // LLVM intrinsics
-        RuntimeDecl { decl: "declare i64 @llvm.ctpop.i64(i64)", category: None },
-        RuntimeDecl { decl: "declare i64 @llvm.ctlz.i64(i64, i1)", category: None },
-        RuntimeDecl { decl: "declare i64 @llvm.cttz.i64(i64, i1)", category: None },
-        RuntimeDecl { decl: "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)", category: None },
-        RuntimeDecl { decl: "declare void @llvm.trap() noreturn nounwind", category: None },
+        RuntimeDecl {
+            decl: "declare i64 @llvm.ctpop.i64(i64)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @llvm.ctlz.i64(i64, i1)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @llvm.cttz.i64(i64, i1)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @llvm.trap() noreturn nounwind",
+            category: None,
+        },
         // Stack operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_dup(ptr)", category: Some("; Stack operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_drop_op(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_swap(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_over(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_rot(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_nip(ptr)", category: None },
-        RuntimeDecl { decl: "declare void @patch_seq_clone_value(ptr, ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_tuck(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_2dup(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_3drop(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_pick_op(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_roll(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_value(ptr, %Value)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_dup(ptr)",
+            category: Some("; Stack operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_drop_op(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_swap(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_over(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_rot(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_nip(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_clone_value(ptr, ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_tuck(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_2dup(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_3drop(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_pick_op(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_roll(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_value(ptr, %Value)",
+            category: None,
+        },
         // Quotation operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_quotation(ptr, i64, i64)", category: Some("; Quotation operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_call(ptr)", category: None },
-        RuntimeDecl { decl: "declare i64 @patch_seq_peek_is_quotation(ptr)", category: None },
-        RuntimeDecl { decl: "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_times(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_while_loop(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_until_loop(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_spawn(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_weave(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_resume(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_weave_cancel(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_yield(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_cond(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_quotation(ptr, i64, i64)",
+            category: Some("; Quotation operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_call(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_peek_is_quotation(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_peek_quotation_fn_ptr(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_times(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_while_loop(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_until_loop(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_spawn(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_weave(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_resume(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_weave_cancel(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_yield(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_cond(ptr)",
+            category: None,
+        },
         // Closure operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_create_env(i32)", category: Some("; Closure operations") },
-        RuntimeDecl { decl: "declare void @patch_seq_env_set(ptr, i32, %Value)", category: None },
-        RuntimeDecl { decl: "declare %Value @patch_seq_env_get(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare i64 @patch_seq_env_get_int(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare double @patch_seq_env_get_float(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_env_get_string(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_env_push_string(ptr, ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare %Value @patch_seq_make_closure(i64, ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_closure(ptr, i64, i32)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_seqstring(ptr, ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_create_env(i32)",
+            category: Some("; Closure operations"),
+        },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_env_set(ptr, i32, %Value)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare %Value @patch_seq_env_get(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_env_get_int(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_env_get_bool(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare double @patch_seq_env_get_float(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_env_get_quotation(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_env_get_string(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_env_push_string(ptr, ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare %Value @patch_seq_make_closure(i64, ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_closure(ptr, i64, i32)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_seqstring(ptr, ptr)",
+            category: None,
+        },
         // Concurrency operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_channel(ptr)", category: Some("; Concurrency operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_chan_send(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_chan_receive(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_close_channel(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_yield_strand(ptr)", category: None },
-        RuntimeDecl { decl: "declare void @patch_seq_maybe_yield()", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_channel(ptr)",
+            category: Some("; Concurrency operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_chan_send(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_chan_receive(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_close_channel(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_yield_strand(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_maybe_yield()",
+            category: None,
+        },
         // Scheduler operations
-        RuntimeDecl { decl: "declare void @patch_seq_scheduler_init()", category: Some("; Scheduler operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_scheduler_run()", category: None },
-        RuntimeDecl { decl: "declare i64 @patch_seq_strand_spawn(ptr, ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_scheduler_init()",
+            category: Some("; Scheduler operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_scheduler_run()",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_strand_spawn(ptr, ptr)",
+            category: None,
+        },
         // Command-line argument operations
-        RuntimeDecl { decl: "declare void @patch_seq_args_init(i32, ptr)", category: Some("; Command-line argument operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_arg_count(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_arg_at(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_args_init(i32, ptr)",
+            category: Some("; Command-line argument operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_arg_count(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_arg_at(ptr)",
+            category: None,
+        },
         // File operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_file_slurp(ptr)", category: Some("; File operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_file_exists(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_file_for_each_line_plus(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_slurp(ptr)",
+            category: Some("; File operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_exists(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_for_each_line_plus(ptr)",
+            category: None,
+        },
         // List operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_make(ptr)", category: Some("; List operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_push(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_get(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_set(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_map(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_filter(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_fold(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_each(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_length(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_list_empty(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_make(ptr)",
+            category: Some("; List operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_push(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_get(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_set(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_map(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_filter(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_fold(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_each(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_length(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_list_empty(ptr)",
+            category: None,
+        },
         // Map operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_map(ptr)", category: Some("; Map operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_get(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_set(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_has(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_remove(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_keys(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_values(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_size(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_map_empty(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_map(ptr)",
+            category: Some("; Map operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_get(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_set(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_has(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_remove(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_keys(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_values(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_size(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_map_empty(ptr)",
+            category: None,
+        },
         // TCP operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_tcp_listen(ptr)", category: Some("; TCP operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_tcp_accept(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_tcp_read(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_tcp_write(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_tcp_close(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_tcp_listen(ptr)",
+            category: Some("; TCP operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_tcp_accept(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_tcp_read(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_tcp_write(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_tcp_close(ptr)",
+            category: None,
+        },
         // OS operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_getenv(ptr)", category: Some("; OS operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_home_dir(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_current_dir(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_path_exists(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_path_is_file(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_path_is_dir(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_path_join(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_path_parent(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_path_filename(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_exit(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_os_name(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_os_arch(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_getenv(ptr)",
+            category: Some("; OS operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_home_dir(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_current_dir(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_path_exists(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_path_is_file(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_path_is_dir(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_path_join(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_path_parent(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_path_filename(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_exit(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_os_name(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_os_arch(ptr)",
+            category: None,
+        },
         // String operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_concat(ptr)", category: Some("; String operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_length(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_byte_length(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_char_at(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_substring(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_char_to_string(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_find(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_split(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_contains(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_starts_with(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_empty(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_trim(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_chomp(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_to_upper(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_to_lower(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_equal(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_json_escape(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_to_int(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_concat(ptr)",
+            category: Some("; String operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_length(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_byte_length(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_char_at(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_substring(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_char_to_string(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_find(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_split(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_contains(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_starts_with(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_empty(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_trim(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_chomp(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_to_upper(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_to_lower(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_equal(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_json_escape(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_to_int(ptr)",
+            category: None,
+        },
         // Symbol operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_symbol_equal(ptr)", category: Some("; Symbol operations") },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_symbol_equal(ptr)",
+            category: Some("; Symbol operations"),
+        },
         // Variant operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_variant_field_count(ptr)", category: Some("; Variant operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_variant_tag(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_variant_field_at(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_variant_append(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_variant_last(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_variant_init(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_variant_0(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_variant_1(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_variant_2(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_variant_3(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_make_variant_4(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_unpack_variant(ptr, i64)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_symbol_eq_cstr(ptr, ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_variant_field_count(ptr)",
+            category: Some("; Variant operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_variant_tag(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_variant_field_at(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_variant_append(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_variant_last(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_variant_init(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_0(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_1(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_2(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_3(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_4(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_unpack_variant(ptr, i64)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_symbol_eq_cstr(ptr, ptr)",
+            category: None,
+        },
         // Float operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_push_float(ptr, double)", category: Some("; Float operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_add(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_subtract(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_multiply(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_divide(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_eq(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_lt(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_gt(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_lte(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_gte(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_f_neq(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_int_to_float(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_float_to_int(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_float_to_string(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_string_to_float(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_push_float(ptr, double)",
+            category: Some("; Float operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_add(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_subtract(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_multiply(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_divide(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_eq(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_lt(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_gt(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_lte(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_gte(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_f_neq(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_int_to_float(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_float_to_int(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_float_to_string(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_string_to_float(ptr)",
+            category: None,
+        },
         // Test framework operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_init(ptr)", category: Some("; Test framework operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_finish(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_has_failures(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_assert(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_assert_not(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_assert_eq(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_assert_eq_str(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_fail(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_pass_count(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_test_fail_count(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_init(ptr)",
+            category: Some("; Test framework operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_finish(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_has_failures(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_assert(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_assert_not(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_assert_eq(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_assert_eq_str(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_fail(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_pass_count(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_test_fail_count(ptr)",
+            category: None,
+        },
         // Time operations
-        RuntimeDecl { decl: "declare ptr @patch_seq_time_now(ptr)", category: Some("; Time operations") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_time_nanos(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_time_sleep_ms(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_time_now(ptr)",
+            category: Some("; Time operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_time_nanos(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_time_sleep_ms(ptr)",
+            category: None,
+        },
         // Stack introspection
-        RuntimeDecl { decl: "declare ptr @patch_seq_stack_dump(ptr)", category: Some("; Stack introspection") },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_stack_dump(ptr)",
+            category: Some("; Stack introspection"),
+        },
         // SON serialization
-        RuntimeDecl { decl: "declare ptr @patch_seq_son_dump(ptr)", category: Some("; SON serialization") },
-        RuntimeDecl { decl: "declare ptr @patch_seq_son_dump_pretty(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_son_dump(ptr)",
+            category: Some("; SON serialization"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_son_dump_pretty(ptr)",
+            category: None,
+        },
         // Helpers for conditionals
-        RuntimeDecl { decl: "declare i64 @patch_seq_peek_int_value(ptr)", category: Some("; Helpers for conditionals") },
-        RuntimeDecl { decl: "declare i1 @patch_seq_peek_bool_value(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @patch_seq_pop_stack(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare i64 @patch_seq_peek_int_value(ptr)",
+            category: Some("; Helpers for conditionals"),
+        },
+        RuntimeDecl {
+            decl: "declare i1 @patch_seq_peek_bool_value(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_pop_stack(ptr)",
+            category: None,
+        },
         // Tagged stack operations
-        RuntimeDecl { decl: "declare ptr @seq_stack_new_default()", category: Some("; Tagged stack operations") },
-        RuntimeDecl { decl: "declare void @seq_stack_free(ptr)", category: None },
-        RuntimeDecl { decl: "declare ptr @seq_stack_base(ptr)", category: None },
-        RuntimeDecl { decl: "declare i64 @seq_stack_sp(ptr)", category: None },
-        RuntimeDecl { decl: "declare void @seq_stack_set_sp(ptr, i64)", category: None },
-        RuntimeDecl { decl: "declare void @seq_stack_grow(ptr, i64)", category: None },
-        RuntimeDecl { decl: "declare void @patch_seq_set_stack_base(ptr)", category: None },
+        RuntimeDecl {
+            decl: "declare ptr @seq_stack_new_default()",
+            category: Some("; Tagged stack operations"),
+        },
+        RuntimeDecl {
+            decl: "declare void @seq_stack_free(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @seq_stack_base(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare i64 @seq_stack_sp(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @seq_stack_set_sp(ptr, i64)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @seq_stack_grow(ptr, i64)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_set_stack_base(ptr)",
+            category: None,
+        },
     ]
 });
 

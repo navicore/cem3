@@ -217,14 +217,25 @@ impl App {
         if let Some(path) = Self::history_file_path() {
             // Ensure parent directory exists
             if let Some(parent) = path.parent() {
-                let _ = fs::create_dir_all(parent);
+                if let Err(e) = fs::create_dir_all(parent) {
+                    eprintln!("Warning: could not create history directory: {e}");
+                    return;
+                }
             }
 
-            if let Ok(mut file) = fs::File::create(&path) {
-                // Save the last 1000 entries
-                let start = self.repl_state.history.len().saturating_sub(1000);
-                for entry in &self.repl_state.history[start..] {
-                    let _ = writeln!(file, "{}", entry.input);
+            match fs::File::create(&path) {
+                Ok(mut file) => {
+                    // Save the last 1000 entries
+                    let start = self.repl_state.history.len().saturating_sub(1000);
+                    for entry in &self.repl_state.history[start..] {
+                        if let Err(e) = writeln!(file, "{}", entry.input) {
+                            eprintln!("Warning: could not write history entry: {e}");
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: could not create history file: {e}");
                 }
             }
         }

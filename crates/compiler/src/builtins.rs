@@ -10,6 +10,7 @@
 
 use crate::types::{Effect, SideEffect, StackType, Type};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 /// Convert a type token to a Type expression
 macro_rules! ty {
@@ -753,11 +754,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
 /// Get documentation for a built-in word
 pub fn builtin_doc(name: &str) -> Option<&'static str> {
-    builtin_docs().get(name).copied()
+    BUILTIN_DOCS.get(name).copied()
 }
 
-/// Get all built-in word documentation
-pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
+/// Get all built-in word documentation (cached with LazyLock for performance)
+pub fn builtin_docs() -> &'static HashMap<&'static str, &'static str> {
+    &BUILTIN_DOCS
+}
+
+/// Lazily initialized documentation for all built-in words
+static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     let mut docs = HashMap::new();
 
     // I/O Operations
@@ -1140,7 +1146,7 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     );
 
     docs
-}
+});
 
 #[cfg(test)]
 mod tests {
@@ -1208,5 +1214,33 @@ mod tests {
             sigs.contains_key("string->float"),
             "string->float should be a builtin"
         );
+    }
+
+    #[test]
+    fn test_all_docs_have_signatures() {
+        let sigs = builtin_signatures();
+        let docs = builtin_docs();
+
+        for name in docs.keys() {
+            assert!(
+                sigs.contains_key(*name),
+                "Builtin '{}' has documentation but no signature",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_signatures_have_docs() {
+        let sigs = builtin_signatures();
+        let docs = builtin_docs();
+
+        for name in sigs.keys() {
+            assert!(
+                docs.contains_key(name.as_str()),
+                "Builtin '{}' has signature but no documentation",
+                name
+            );
+        }
     }
 }

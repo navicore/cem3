@@ -761,30 +761,72 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     let mut docs = HashMap::new();
 
     // I/O Operations
-    docs.insert("io.write", "Write a string to stdout without a trailing newline.");
-    docs.insert("io.write-line", "Write a string to stdout followed by a newline.");
-    docs.insert("io.read-line", "Read a line from stdin. Returns (line, success).");
-    docs.insert("io.read-line+", "Read a line from stdin. Returns (line, status_code).");
-    docs.insert("io.read-n", "Read N bytes from stdin. Returns (bytes, status_code).");
+    docs.insert(
+        "io.write",
+        "Write a string to stdout without a trailing newline.",
+    );
+    docs.insert(
+        "io.write-line",
+        "Write a string to stdout followed by a newline.",
+    );
+    docs.insert(
+        "io.read-line",
+        "Read a line from stdin. Returns (line, success).",
+    );
+    docs.insert(
+        "io.read-line+",
+        "Read a line from stdin. Returns (line, status_code).",
+    );
+    docs.insert(
+        "io.read-n",
+        "Read N bytes from stdin. Returns (bytes, status_code).",
+    );
 
     // Command-line Arguments
     docs.insert("args.count", "Get the number of command-line arguments.");
     docs.insert("args.at", "Get the command-line argument at index N.");
 
     // File Operations
-    docs.insert("file.slurp", "Read entire file contents. Returns (content, success).");
+    docs.insert(
+        "file.slurp",
+        "Read entire file contents. Returns (content, success).",
+    );
     docs.insert("file.exists?", "Check if a file exists at the given path.");
-    docs.insert("file.for-each-line+", "Execute a quotation for each line in a file.");
+    docs.insert(
+        "file.for-each-line+",
+        "Execute a quotation for each line in a file.",
+    );
 
     // Type Conversions
-    docs.insert("int->string", "Convert an integer to its string representation.");
-    docs.insert("int->float", "Convert an integer to a floating-point number.");
+    docs.insert(
+        "int->string",
+        "Convert an integer to its string representation.",
+    );
+    docs.insert(
+        "int->float",
+        "Convert an integer to a floating-point number.",
+    );
     docs.insert("float->int", "Truncate a float to an integer.");
-    docs.insert("float->string", "Convert a float to its string representation.");
-    docs.insert("string->int", "Parse a string as an integer. Returns (value, success).");
-    docs.insert("string->float", "Parse a string as a float. Returns (value, success).");
-    docs.insert("char->string", "Convert a Unicode codepoint to a single-character string.");
-    docs.insert("symbol->string", "Convert a symbol to its string representation.");
+    docs.insert(
+        "float->string",
+        "Convert a float to its string representation.",
+    );
+    docs.insert(
+        "string->int",
+        "Parse a string as an integer. Returns (value, success).",
+    );
+    docs.insert(
+        "string->float",
+        "Parse a string as a float. Returns (value, success).",
+    );
+    docs.insert(
+        "char->string",
+        "Convert a Unicode codepoint to a single-character string.",
+    );
+    docs.insert(
+        "symbol->string",
+        "Convert a symbol to its string representation.",
+    );
     docs.insert("string->symbol", "Intern a string as a symbol.");
 
     // Integer Arithmetic
@@ -802,14 +844,26 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     docs.insert("i.=", "Test if two integers are equal.");
     docs.insert("i.<", "Test if first integer is less than second.");
     docs.insert("i.>", "Test if first integer is greater than second.");
-    docs.insert("i.<=", "Test if first integer is less than or equal to second.");
-    docs.insert("i.>=", "Test if first integer is greater than or equal to second.");
+    docs.insert(
+        "i.<=",
+        "Test if first integer is less than or equal to second.",
+    );
+    docs.insert(
+        "i.>=",
+        "Test if first integer is greater than or equal to second.",
+    );
     docs.insert("i.<>", "Test if two integers are not equal.");
     docs.insert("i.eq", "Test if two integers are equal.");
     docs.insert("i.lt", "Test if first integer is less than second.");
     docs.insert("i.gt", "Test if first integer is greater than second.");
-    docs.insert("i.lte", "Test if first integer is less than or equal to second.");
-    docs.insert("i.gte", "Test if first integer is greater than or equal to second.");
+    docs.insert(
+        "i.lte",
+        "Test if first integer is less than or equal to second.",
+    );
+    docs.insert(
+        "i.gte",
+        "Test if first integer is greater than or equal to second.",
+    );
     docs.insert("i.neq", "Test if two integers are not equal.");
 
     // Boolean Operations
@@ -843,57 +897,123 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     docs.insert("roll", "Rotate N+1 items, bringing depth N to top.");
 
     // Channel Operations
-    docs.insert("chan.make", "Create a new channel for inter-strand communication.");
-    docs.insert("chan.send", "Send a value on a channel. Returns success flag.");
-    docs.insert("chan.receive", "Receive a value from a channel. Returns (value, success).");
+    docs.insert(
+        "chan.make",
+        "Create a new channel for inter-strand communication.",
+    );
+    docs.insert(
+        "chan.send",
+        "Send a value on a channel. Returns success flag.",
+    );
+    docs.insert(
+        "chan.receive",
+        "Receive a value from a channel. Returns (value, success).",
+    );
     docs.insert("chan.close", "Close a channel.");
     docs.insert("chan.yield", "Yield control to the scheduler.");
 
     // Control Flow
     docs.insert("call", "Call a quotation or closure.");
-    docs.insert("cond", "Multi-way conditional: test clauses until one succeeds.");
+    docs.insert(
+        "cond",
+        "Multi-way conditional: test clauses until one succeeds.",
+    );
     docs.insert("times", "Execute a quotation N times.");
     docs.insert("while", "Loop while condition is true: [cond] [body] while");
     docs.insert("until", "Loop until condition is true: [body] [cond] until");
 
     // Concurrency
-    docs.insert("strand.spawn", "Spawn a concurrent strand. Returns strand ID.");
-    docs.insert("strand.weave", "Create a generator/coroutine. Returns handle.");
-    docs.insert("strand.resume", "Resume a weave with a value. Returns (handle, value, has_more).");
-    docs.insert("yield", "Yield a value from a weave and receive resume value.");
-    docs.insert("strand.weave-cancel", "Cancel a weave and release its resources.");
+    docs.insert(
+        "strand.spawn",
+        "Spawn a concurrent strand. Returns strand ID.",
+    );
+    docs.insert(
+        "strand.weave",
+        "Create a generator/coroutine. Returns handle.",
+    );
+    docs.insert(
+        "strand.resume",
+        "Resume a weave with a value. Returns (handle, value, has_more).",
+    );
+    docs.insert(
+        "yield",
+        "Yield a value from a weave and receive resume value.",
+    );
+    docs.insert(
+        "strand.weave-cancel",
+        "Cancel a weave and release its resources.",
+    );
 
     // TCP Operations
-    docs.insert("tcp.listen", "Start listening on a port. Returns socket ID.");
-    docs.insert("tcp.accept", "Accept a connection. Returns client socket ID.");
+    docs.insert(
+        "tcp.listen",
+        "Start listening on a port. Returns socket ID.",
+    );
+    docs.insert(
+        "tcp.accept",
+        "Accept a connection. Returns client socket ID.",
+    );
     docs.insert("tcp.read", "Read data from a socket. Returns string.");
     docs.insert("tcp.write", "Write data to a socket.");
     docs.insert("tcp.close", "Close a socket.");
 
     // OS Operations
-    docs.insert("os.getenv", "Get environment variable. Returns (value, exists).");
-    docs.insert("os.home-dir", "Get user's home directory. Returns (path, success).");
-    docs.insert("os.current-dir", "Get current working directory. Returns (path, success).");
+    docs.insert(
+        "os.getenv",
+        "Get environment variable. Returns (value, exists).",
+    );
+    docs.insert(
+        "os.home-dir",
+        "Get user's home directory. Returns (path, success).",
+    );
+    docs.insert(
+        "os.current-dir",
+        "Get current working directory. Returns (path, success).",
+    );
     docs.insert("os.path-exists", "Check if a path exists.");
     docs.insert("os.path-is-file", "Check if path is a regular file.");
     docs.insert("os.path-is-dir", "Check if path is a directory.");
     docs.insert("os.path-join", "Join two path components.");
-    docs.insert("os.path-parent", "Get parent directory. Returns (path, success).");
-    docs.insert("os.path-filename", "Get filename component. Returns (name, success).");
+    docs.insert(
+        "os.path-parent",
+        "Get parent directory. Returns (path, success).",
+    );
+    docs.insert(
+        "os.path-filename",
+        "Get filename component. Returns (name, success).",
+    );
     docs.insert("os.exit", "Exit the program with a status code.");
-    docs.insert("os.name", "Get the operating system name (e.g., \"macos\", \"linux\").");
-    docs.insert("os.arch", "Get the CPU architecture (e.g., \"aarch64\", \"x86_64\").");
+    docs.insert(
+        "os.name",
+        "Get the operating system name (e.g., \"macos\", \"linux\").",
+    );
+    docs.insert(
+        "os.arch",
+        "Get the CPU architecture (e.g., \"aarch64\", \"x86_64\").",
+    );
 
     // String Operations
     docs.insert("string.concat", "Concatenate two strings.");
     docs.insert("string.length", "Get the character length of a string.");
     docs.insert("string.byte-length", "Get the byte length of a string.");
-    docs.insert("string.char-at", "Get Unicode codepoint at character index.");
-    docs.insert("string.substring", "Extract substring from start index with length.");
-    docs.insert("string.find", "Find substring. Returns index or -1 if not found.");
+    docs.insert(
+        "string.char-at",
+        "Get Unicode codepoint at character index.",
+    );
+    docs.insert(
+        "string.substring",
+        "Extract substring from start index with length.",
+    );
+    docs.insert(
+        "string.find",
+        "Find substring. Returns index or -1 if not found.",
+    );
     docs.insert("string.split", "Split string by delimiter. Returns a list.");
     docs.insert("string.contains", "Check if string contains a substring.");
-    docs.insert("string.starts-with", "Check if string starts with a prefix.");
+    docs.insert(
+        "string.starts-with",
+        "Check if string starts with a prefix.",
+    );
     docs.insert("string.empty?", "Check if string is empty.");
     docs.insert("string.equal?", "Check if two strings are equal.");
     docs.insert("string.trim", "Remove leading and trailing whitespace.");
@@ -904,10 +1024,19 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     docs.insert("symbol.=", "Check if two symbols are equal.");
 
     // Variant Operations
-    docs.insert("variant.field-count", "Get the number of fields in a variant.");
-    docs.insert("variant.tag", "Get the tag (constructor name) of a variant.");
+    docs.insert(
+        "variant.field-count",
+        "Get the number of fields in a variant.",
+    );
+    docs.insert(
+        "variant.tag",
+        "Get the tag (constructor name) of a variant.",
+    );
     docs.insert("variant.field-at", "Get the field at index N.");
-    docs.insert("variant.append", "Append a value to a variant (creates new).");
+    docs.insert(
+        "variant.append",
+        "Append a value to a variant (creates new).",
+    );
     docs.insert("variant.last", "Get the last field of a variant.");
     docs.insert("variant.init", "Get all fields except the last.");
     docs.insert("variant.make-0", "Create a variant with 0 fields.");
@@ -928,10 +1057,16 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     docs.insert("list.set", "Set value at index. Returns (list, success).");
     docs.insert("list.length", "Get the number of elements in a list.");
     docs.insert("list.empty?", "Check if a list is empty.");
-    docs.insert("list.map", "Apply quotation to each element. Returns new list.");
+    docs.insert(
+        "list.map",
+        "Apply quotation to each element. Returns new list.",
+    );
     docs.insert("list.filter", "Keep elements where quotation returns true.");
     docs.insert("list.fold", "Reduce list with accumulator and quotation.");
-    docs.insert("list.each", "Execute quotation for each element (side effects).");
+    docs.insert(
+        "list.each",
+        "Execute quotation for each element (side effects).",
+    );
 
     // Map Operations
     docs.insert("map.make", "Create an empty map.");
@@ -969,7 +1104,10 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
     docs.insert("f.neq", "Test if two floats are not equal.");
 
     // Test Framework
-    docs.insert("test.init", "Initialize the test framework with a test name.");
+    docs.insert(
+        "test.init",
+        "Initialize the test framework with a test name.",
+    );
     docs.insert("test.finish", "Finish testing and print results.");
     docs.insert("test.has-failures", "Check if any tests have failed.");
     docs.insert("test.assert", "Assert that a boolean is true.");
@@ -982,15 +1120,24 @@ pub fn builtin_docs() -> HashMap<&'static str, &'static str> {
 
     // Time Operations
     docs.insert("time.now", "Get current Unix timestamp in seconds.");
-    docs.insert("time.nanos", "Get high-resolution monotonic time in nanoseconds.");
+    docs.insert(
+        "time.nanos",
+        "Get high-resolution monotonic time in nanoseconds.",
+    );
     docs.insert("time.sleep-ms", "Sleep for N milliseconds.");
 
     // Serialization
     docs.insert("son.dump", "Serialize any value to SON format (compact).");
-    docs.insert("son.dump-pretty", "Serialize any value to SON format (pretty-printed).");
+    docs.insert(
+        "son.dump-pretty",
+        "Serialize any value to SON format (pretty-printed).",
+    );
 
     // Stack Introspection
-    docs.insert("stack.dump", "Print all stack values and clear the stack (REPL).");
+    docs.insert(
+        "stack.dump",
+        "Print all stack values and clear the stack (REPL).",
+    );
 
     docs
 }

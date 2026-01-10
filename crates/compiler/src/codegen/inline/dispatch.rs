@@ -3,13 +3,13 @@
 //! This module contains the main `try_codegen_inline_op` function that dispatches
 //! to appropriate inline implementations for stack, arithmetic, and other operations.
 
-use super::{CodeGen, CodeGenError};
+use super::super::{CodeGen, CodeGenError};
 use std::fmt::Write as _;
 
 impl CodeGen {
     /// Try to generate inline code for a tagged stack operation.
     /// Returns Some(result_var) if the operation was inlined, None otherwise.
-    pub(super) fn try_codegen_inline_op(
+    pub(in crate::codegen) fn try_codegen_inline_op(
         &mut self,
         stack_var: &str,
         name: &str,

@@ -71,48 +71,6 @@ pub fn format_panic_payload(payload: &Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
-/// Macro to wrap an FFI function with catch_unwind for panic safety
-///
-/// This wraps an inner unsafe function with panic catching to prevent
-/// undefined behavior when panics would otherwise cross the FFI boundary.
-///
-/// # Usage
-/// ```ignore
-/// ffi_safe! {
-///     /// Documentation
-///     pub fn patch_seq_example(stack: Stack) -> Stack {
-///         patch_seq_example_inner(stack)
-///     }
-/// }
-///
-/// unsafe fn patch_seq_example_inner(stack: Stack) -> Stack {
-///     // implementation that might panic
-/// }
-/// ```
-#[macro_export]
-macro_rules! ffi_safe {
-    (
-        $(#[$meta:meta])*
-        pub fn $name:ident($stack:ident : Stack) -> Stack $body:block
-    ) => {
-        $(#[$meta])*
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name($stack: $crate::stack::Stack) -> $crate::stack::Stack {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                $body
-            })) {
-                Ok(result) => result,
-                Err(e) => {
-                    $crate::error::set_runtime_error(
-                        $crate::error::format_panic_payload(&e)
-                    );
-                    $stack // Return unchanged stack on panic
-                }
-            }
-        }
-    };
-}
-
 // FFI-safe error access functions
 
 /// Check if there's a pending runtime error (FFI-safe)

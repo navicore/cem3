@@ -158,7 +158,18 @@ impl App {
             fs::write(&path, &c).map_err(|e| format!("Failed to create session file: {}", e))?;
             c
         } else {
-            fs::read_to_string(&path).unwrap_or_default()
+            match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Could not read session file '{}': {}",
+                        path.display(),
+                        e
+                    );
+                    eprintln!("Starting with empty session.");
+                    String::new()
+                }
+            }
         };
 
         // Try to start LSP client
@@ -490,7 +501,12 @@ impl App {
             }
             Err(e) => {
                 // Rollback
-                let _ = fs::write(&self.session_path, &original);
+                if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                    self.status_message = Some(format!(
+                        "Warning: Could not rollback session file: {}",
+                        rollback_err
+                    ));
+                }
                 self.add_error_entry(def, &e.to_string());
             }
         }
@@ -580,7 +596,12 @@ impl App {
             }
             Err(e) => {
                 // Rollback
-                let _ = fs::write(&self.session_path, &original);
+                if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                    self.status_message = Some(format!(
+                        "Warning: Could not rollback session file: {}",
+                        rollback_err
+                    ));
+                }
                 self.add_error_entry(expr, &e.to_string());
             }
         }
@@ -675,10 +696,13 @@ impl App {
 
     /// Clear the session (reset to template)
     fn clear_session(&mut self) {
-        let _ = fs::write(
+        if let Err(e) = fs::write(
             &self.session_path,
             format!("{}{}", REPL_TEMPLATE, MAIN_CLOSE),
-        );
+        ) {
+            self.status_message = Some(format!("Warning: Could not clear session file: {}", e));
+            return;
+        }
         self.repl_state = ReplState::new();
         self.ir_content = IrContent::new();
     }
@@ -739,8 +763,14 @@ impl App {
                 self.status_message = Some(format!("Included '{}'.", module));
             }
             Err(e) => {
-                let _ = fs::write(&self.session_path, &original);
-                self.status_message = Some(format!("Include error: {}", e));
+                if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                    self.status_message = Some(format!(
+                        "Include error: {} (also failed to rollback: {})",
+                        e, rollback_err
+                    ));
+                } else {
+                    self.status_message = Some(format!("Include error: {}", e));
+                }
             }
         }
         self.repl_state.clear_input();

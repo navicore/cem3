@@ -2839,7 +2839,11 @@ impl CodeGen {
         )?;
 
         let cmp_var = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = icmp eq i64 %{}, 1", cmp_var, is_quot_var)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp eq i64 %{}, 1",
+            cmp_var, is_quot_var
+        )?;
 
         // Create labels for branching
         let quot_block = self.fresh_block("call_quotation");
@@ -2880,7 +2884,11 @@ impl CodeGen {
         )?;
 
         let fn_var = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = inttoptr i64 %{} to ptr", fn_var, fn_ptr_var)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = inttoptr i64 %{} to ptr",
+            fn_var, fn_ptr_var
+        )?;
 
         // Yield check before tail call to prevent starvation in tight loops
         writeln!(&mut self.output, "  call void @patch_seq_maybe_yield()")?;
@@ -4602,7 +4610,11 @@ impl CodeGen {
         )?;
 
         // Store result at slot1 (discriminant 1 already at slot0)
-        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", result_bits, slot1_a)?;
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            result_bits, slot1_a
+        )?;
 
         // SP = SP - 1 (consumed b)
         let result_var = self.fresh_temp();
@@ -4651,15 +4663,31 @@ impl CodeGen {
 
         // Load values from slot1 as i64 (raw bits)
         let bits_a = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", bits_a, slot1_a)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_a, slot1_a
+        )?;
         let bits_b = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", bits_b, slot1_b)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            bits_b, slot1_b
+        )?;
 
         // Bitcast to double
         let val_a = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = bitcast i64 %{} to double", val_a, bits_a)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_a, bits_a
+        )?;
         let val_b = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = bitcast i64 %{} to double", val_b, bits_b)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast i64 %{} to double",
+            val_b, bits_b
+        )?;
 
         Ok((ptr_a, slot1_a, val_a, val_b))
     }
@@ -4688,7 +4716,11 @@ impl CodeGen {
 
         // Convert i1 to i64
         let zext = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = zext i1 %{} to i64", zext, cmp_result)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = zext i1 %{} to i64",
+            zext, cmp_result
+        )?;
 
         // Store result as Value::Bool (discriminant 2 at slot0, 0/1 at slot1)
         writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
@@ -4803,7 +4835,11 @@ impl CodeGen {
         let op_result = self.codegen_shift_compute(&val_a, &val_b, is_left)?;
 
         // Store result (discriminant stays 0 for Int, just update slot1)
-        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", op_result, slot1_a)?;
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
 
         // SP = SP - 1 (consumed b)
         let result_var = self.fresh_temp();
@@ -4852,9 +4888,17 @@ impl CodeGen {
 
         // Load values from slot1
         let val_a = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_a, slot1_a)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_a, slot1_a
+        )?;
         let val_b = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val_b, slot1_b)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            val_b, slot1_b
+        )?;
 
         Ok((slot1_a, val_a, val_b))
     }
@@ -4869,7 +4913,11 @@ impl CodeGen {
     ) -> Result<String, CodeGenError> {
         // Check if shift count is negative
         let is_neg = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = icmp slt i64 %{}, 0", is_neg, val_b)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp slt i64 %{}, 0",
+            is_neg, val_b
+        )?;
 
         // Check if shift count >= 64
         let is_overflow = self.fresh_temp();
@@ -5084,7 +5132,11 @@ impl CodeGen {
             slot1_ptr, top_ptr
         )?;
         let cond_val = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", cond_val, slot1_ptr)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
         let popped_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -5161,7 +5213,11 @@ impl CodeGen {
 
         // Branch: if condition is TRUE, exit; if FALSE, continue loop
         let cond_bool = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = icmp ne i64 %{}, 0", cond_bool, cond_val)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cond_bool, cond_val
+        )?;
         writeln!(
             &mut self.output,
             "  br i1 %{}, label %{}, label %{}",
@@ -5190,7 +5246,11 @@ impl CodeGen {
             slot1_ptr, top_ptr
         )?;
         let cond_val = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", cond_val, slot1_ptr)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
         let popped_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -5236,7 +5296,11 @@ impl CodeGen {
         let body_end_block = format!("{}_end", body_block);
         writeln!(&mut self.output, "  br label %{}", body_end_block)?;
         writeln!(&mut self.output, "{}:", body_end_block)?;
-        writeln!(&mut self.output, "  %{}_next = sub i64 %{}, 1", counter, counter)?;
+        writeln!(
+            &mut self.output,
+            "  %{}_next = sub i64 %{}, 1",
+            counter, counter
+        )?;
         writeln!(
             &mut self.output,
             "  %{}_body_end = getelementptr i8, ptr %{}, i64 0",
@@ -5252,7 +5316,10 @@ impl CodeGen {
 
     /// Pop count value from stack for times loop (Issue #215: extracted helper).
     /// Returns (count_val, init_stack).
-    fn codegen_times_pop_count(&mut self, stack_var: &str) -> Result<(String, String), CodeGenError> {
+    fn codegen_times_pop_count(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String), CodeGenError> {
         let top_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -5266,7 +5333,11 @@ impl CodeGen {
             slot1_ptr, top_ptr
         )?;
         let count_val = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = load i64, ptr %{}", count_val, slot1_ptr)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            count_val, slot1_ptr
+        )?;
         let init_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -5304,7 +5375,11 @@ impl CodeGen {
 
         // Check if counter > 0
         let cond_bool = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = icmp sgt i64 %{}, 0", cond_bool, counter)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sgt i64 %{}, 0",
+            cond_bool, counter
+        )?;
         writeln!(
             &mut self.output,
             "  br i1 %{}, label %{}, label %{}",
@@ -5496,7 +5571,11 @@ impl CodeGen {
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();
-        writeln!(&mut self.output, "  %{} = icmp ne i64 %{}, 0", cmp_temp, cond_val)?;
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cmp_temp, cond_val
+        )?;
 
         // Generate unique block labels
         let then_block = self.fresh_block("if_then");

@@ -423,14 +423,14 @@ pub unsafe extern "C" fn patch_seq_list_push(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
     unsafe {
         if stack.is_null() {
-            set_runtime_error("list.get: stack is empty");
+            set_runtime_error("list.get: stack underflow (need 2 values)");
             return stack;
         }
         let (stack, index_val) = pop(stack);
         if stack.is_null() {
+            // Stack underflow - can't push to null stack, just return with error
             set_runtime_error("list.get: stack underflow (need 2 values)");
-            let stack = push(stack, Value::Int(0));
-            return push(stack, Value::Bool(false));
+            return stack;
         }
         let (stack, list_val) = pop(stack);
 
@@ -488,18 +488,20 @@ pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_list_set(stack: Stack) -> Stack {
     unsafe {
         if stack.is_null() {
-            set_runtime_error("list.set: stack is empty");
+            set_runtime_error("list.set: stack underflow (need 3 values)");
             return stack;
         }
         let (stack, value) = pop(stack);
         if stack.is_null() {
+            // Stack underflow - can't push to null stack, just return with error
             set_runtime_error("list.set: stack underflow (need 3 values)");
-            return push(stack, Value::Bool(false));
+            return stack;
         }
         let (stack, index_val) = pop(stack);
         if stack.is_null() {
+            // Stack underflow - can't push to null stack, just return with error
             set_runtime_error("list.set: stack underflow (need 3 values)");
-            return push(stack, Value::Bool(false));
+            return stack;
         }
         let (stack, list_val) = pop(stack);
 

@@ -10,6 +10,7 @@
 
 use crate::types::{Effect, SideEffect, StackType, Type};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 /// Convert a type token to a Type expression
 macro_rules! ty {
@@ -751,6 +752,402 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     sigs
 }
 
+/// Get documentation for a built-in word
+pub fn builtin_doc(name: &str) -> Option<&'static str> {
+    BUILTIN_DOCS.get(name).copied()
+}
+
+/// Get all built-in word documentation (cached with LazyLock for performance)
+pub fn builtin_docs() -> &'static HashMap<&'static str, &'static str> {
+    &BUILTIN_DOCS
+}
+
+/// Lazily initialized documentation for all built-in words
+static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    let mut docs = HashMap::new();
+
+    // I/O Operations
+    docs.insert(
+        "io.write",
+        "Write a string to stdout without a trailing newline.",
+    );
+    docs.insert(
+        "io.write-line",
+        "Write a string to stdout followed by a newline.",
+    );
+    docs.insert(
+        "io.read-line",
+        "Read a line from stdin. Returns (line, success).",
+    );
+    docs.insert(
+        "io.read-line+",
+        "Read a line from stdin. Returns (line, status_code).",
+    );
+    docs.insert(
+        "io.read-n",
+        "Read N bytes from stdin. Returns (bytes, status_code).",
+    );
+
+    // Command-line Arguments
+    docs.insert("args.count", "Get the number of command-line arguments.");
+    docs.insert("args.at", "Get the command-line argument at index N.");
+
+    // File Operations
+    docs.insert(
+        "file.slurp",
+        "Read entire file contents. Returns (content, success).",
+    );
+    docs.insert("file.exists?", "Check if a file exists at the given path.");
+    docs.insert(
+        "file.for-each-line+",
+        "Execute a quotation for each line in a file.",
+    );
+
+    // Type Conversions
+    docs.insert(
+        "int->string",
+        "Convert an integer to its string representation.",
+    );
+    docs.insert(
+        "int->float",
+        "Convert an integer to a floating-point number.",
+    );
+    docs.insert("float->int", "Truncate a float to an integer.");
+    docs.insert(
+        "float->string",
+        "Convert a float to its string representation.",
+    );
+    docs.insert(
+        "string->int",
+        "Parse a string as an integer. Returns (value, success).",
+    );
+    docs.insert(
+        "string->float",
+        "Parse a string as a float. Returns (value, success).",
+    );
+    docs.insert(
+        "char->string",
+        "Convert a Unicode codepoint to a single-character string.",
+    );
+    docs.insert(
+        "symbol->string",
+        "Convert a symbol to its string representation.",
+    );
+    docs.insert("string->symbol", "Intern a string as a symbol.");
+
+    // Integer Arithmetic
+    docs.insert("i.add", "Add two integers.");
+    docs.insert("i.subtract", "Subtract second integer from first.");
+    docs.insert("i.multiply", "Multiply two integers.");
+    docs.insert("i.divide", "Integer division (truncates toward zero).");
+    docs.insert("i.+", "Add two integers.");
+    docs.insert("i.-", "Subtract second integer from first.");
+    docs.insert("i.*", "Multiply two integers.");
+    docs.insert("i./", "Integer division (truncates toward zero).");
+    docs.insert("i.%", "Integer modulo (remainder after division).");
+
+    // Integer Comparison
+    docs.insert("i.=", "Test if two integers are equal.");
+    docs.insert("i.<", "Test if first integer is less than second.");
+    docs.insert("i.>", "Test if first integer is greater than second.");
+    docs.insert(
+        "i.<=",
+        "Test if first integer is less than or equal to second.",
+    );
+    docs.insert(
+        "i.>=",
+        "Test if first integer is greater than or equal to second.",
+    );
+    docs.insert("i.<>", "Test if two integers are not equal.");
+    docs.insert("i.eq", "Test if two integers are equal.");
+    docs.insert("i.lt", "Test if first integer is less than second.");
+    docs.insert("i.gt", "Test if first integer is greater than second.");
+    docs.insert(
+        "i.lte",
+        "Test if first integer is less than or equal to second.",
+    );
+    docs.insert(
+        "i.gte",
+        "Test if first integer is greater than or equal to second.",
+    );
+    docs.insert("i.neq", "Test if two integers are not equal.");
+
+    // Boolean Operations
+    docs.insert("and", "Logical AND of two booleans.");
+    docs.insert("or", "Logical OR of two booleans.");
+    docs.insert("not", "Logical NOT of a boolean.");
+
+    // Bitwise Operations
+    docs.insert("band", "Bitwise AND of two integers.");
+    docs.insert("bor", "Bitwise OR of two integers.");
+    docs.insert("bxor", "Bitwise XOR of two integers.");
+    docs.insert("bnot", "Bitwise NOT (complement) of an integer.");
+    docs.insert("shl", "Shift left by N bits.");
+    docs.insert("shr", "Shift right by N bits (arithmetic).");
+    docs.insert("popcount", "Count the number of set bits.");
+    docs.insert("clz", "Count leading zeros.");
+    docs.insert("ctz", "Count trailing zeros.");
+    docs.insert("int-bits", "Push the bit width of integers (64).");
+
+    // Stack Operations
+    docs.insert("dup", "Duplicate the top stack value.");
+    docs.insert("drop", "Remove the top stack value.");
+    docs.insert("swap", "Swap the top two stack values.");
+    docs.insert("over", "Copy the second value to the top.");
+    docs.insert("rot", "Rotate the top three values (third to top).");
+    docs.insert("nip", "Remove the second value from the stack.");
+    docs.insert("tuck", "Copy the top value below the second.");
+    docs.insert("2dup", "Duplicate the top two values.");
+    docs.insert("3drop", "Remove the top three values.");
+    docs.insert("pick", "Copy the value at depth N to the top.");
+    docs.insert("roll", "Rotate N+1 items, bringing depth N to top.");
+
+    // Channel Operations
+    docs.insert(
+        "chan.make",
+        "Create a new channel for inter-strand communication.",
+    );
+    docs.insert(
+        "chan.send",
+        "Send a value on a channel. Returns success flag.",
+    );
+    docs.insert(
+        "chan.receive",
+        "Receive a value from a channel. Returns (value, success).",
+    );
+    docs.insert("chan.close", "Close a channel.");
+    docs.insert("chan.yield", "Yield control to the scheduler.");
+
+    // Control Flow
+    docs.insert("call", "Call a quotation or closure.");
+    docs.insert(
+        "cond",
+        "Multi-way conditional: test clauses until one succeeds.",
+    );
+    docs.insert("times", "Execute a quotation N times.");
+    docs.insert("while", "Loop while condition is true: [cond] [body] while");
+    docs.insert("until", "Loop until condition is true: [body] [cond] until");
+
+    // Concurrency
+    docs.insert(
+        "strand.spawn",
+        "Spawn a concurrent strand. Returns strand ID.",
+    );
+    docs.insert(
+        "strand.weave",
+        "Create a generator/coroutine. Returns handle.",
+    );
+    docs.insert(
+        "strand.resume",
+        "Resume a weave with a value. Returns (handle, value, has_more).",
+    );
+    docs.insert(
+        "yield",
+        "Yield a value from a weave and receive resume value.",
+    );
+    docs.insert(
+        "strand.weave-cancel",
+        "Cancel a weave and release its resources.",
+    );
+
+    // TCP Operations
+    docs.insert(
+        "tcp.listen",
+        "Start listening on a port. Returns socket ID.",
+    );
+    docs.insert(
+        "tcp.accept",
+        "Accept a connection. Returns client socket ID.",
+    );
+    docs.insert("tcp.read", "Read data from a socket. Returns string.");
+    docs.insert("tcp.write", "Write data to a socket.");
+    docs.insert("tcp.close", "Close a socket.");
+
+    // OS Operations
+    docs.insert(
+        "os.getenv",
+        "Get environment variable. Returns (value, exists).",
+    );
+    docs.insert(
+        "os.home-dir",
+        "Get user's home directory. Returns (path, success).",
+    );
+    docs.insert(
+        "os.current-dir",
+        "Get current working directory. Returns (path, success).",
+    );
+    docs.insert("os.path-exists", "Check if a path exists.");
+    docs.insert("os.path-is-file", "Check if path is a regular file.");
+    docs.insert("os.path-is-dir", "Check if path is a directory.");
+    docs.insert("os.path-join", "Join two path components.");
+    docs.insert(
+        "os.path-parent",
+        "Get parent directory. Returns (path, success).",
+    );
+    docs.insert(
+        "os.path-filename",
+        "Get filename component. Returns (name, success).",
+    );
+    docs.insert("os.exit", "Exit the program with a status code.");
+    docs.insert(
+        "os.name",
+        "Get the operating system name (e.g., \"macos\", \"linux\").",
+    );
+    docs.insert(
+        "os.arch",
+        "Get the CPU architecture (e.g., \"aarch64\", \"x86_64\").",
+    );
+
+    // String Operations
+    docs.insert("string.concat", "Concatenate two strings.");
+    docs.insert("string.length", "Get the character length of a string.");
+    docs.insert("string.byte-length", "Get the byte length of a string.");
+    docs.insert(
+        "string.char-at",
+        "Get Unicode codepoint at character index.",
+    );
+    docs.insert(
+        "string.substring",
+        "Extract substring from start index with length.",
+    );
+    docs.insert(
+        "string.find",
+        "Find substring. Returns index or -1 if not found.",
+    );
+    docs.insert("string.split", "Split string by delimiter. Returns a list.");
+    docs.insert("string.contains", "Check if string contains a substring.");
+    docs.insert(
+        "string.starts-with",
+        "Check if string starts with a prefix.",
+    );
+    docs.insert("string.empty?", "Check if string is empty.");
+    docs.insert("string.equal?", "Check if two strings are equal.");
+    docs.insert("string.trim", "Remove leading and trailing whitespace.");
+    docs.insert("string.chomp", "Remove trailing newline.");
+    docs.insert("string.to-upper", "Convert to uppercase.");
+    docs.insert("string.to-lower", "Convert to lowercase.");
+    docs.insert("string.json-escape", "Escape special characters for JSON.");
+    docs.insert("symbol.=", "Check if two symbols are equal.");
+
+    // Variant Operations
+    docs.insert(
+        "variant.field-count",
+        "Get the number of fields in a variant.",
+    );
+    docs.insert(
+        "variant.tag",
+        "Get the tag (constructor name) of a variant.",
+    );
+    docs.insert("variant.field-at", "Get the field at index N.");
+    docs.insert(
+        "variant.append",
+        "Append a value to a variant (creates new).",
+    );
+    docs.insert("variant.last", "Get the last field of a variant.");
+    docs.insert("variant.init", "Get all fields except the last.");
+    docs.insert("variant.make-0", "Create a variant with 0 fields.");
+    docs.insert("variant.make-1", "Create a variant with 1 field.");
+    docs.insert("variant.make-2", "Create a variant with 2 fields.");
+    docs.insert("variant.make-3", "Create a variant with 3 fields.");
+    docs.insert("variant.make-4", "Create a variant with 4 fields.");
+    docs.insert("wrap-0", "Create a variant with 0 fields (alias).");
+    docs.insert("wrap-1", "Create a variant with 1 field (alias).");
+    docs.insert("wrap-2", "Create a variant with 2 fields (alias).");
+    docs.insert("wrap-3", "Create a variant with 3 fields (alias).");
+    docs.insert("wrap-4", "Create a variant with 4 fields (alias).");
+
+    // List Operations
+    docs.insert("list.make", "Create an empty list.");
+    docs.insert("list.push", "Push a value onto a list. Returns new list.");
+    docs.insert("list.get", "Get value at index. Returns (value, success).");
+    docs.insert("list.set", "Set value at index. Returns (list, success).");
+    docs.insert("list.length", "Get the number of elements in a list.");
+    docs.insert("list.empty?", "Check if a list is empty.");
+    docs.insert(
+        "list.map",
+        "Apply quotation to each element. Returns new list.",
+    );
+    docs.insert("list.filter", "Keep elements where quotation returns true.");
+    docs.insert("list.fold", "Reduce list with accumulator and quotation.");
+    docs.insert(
+        "list.each",
+        "Execute quotation for each element (side effects).",
+    );
+
+    // Map Operations
+    docs.insert("map.make", "Create an empty map.");
+    docs.insert("map.get", "Get value for key. Returns (value, success).");
+    docs.insert("map.set", "Set key to value. Returns new map.");
+    docs.insert("map.has?", "Check if map contains a key.");
+    docs.insert("map.remove", "Remove a key. Returns new map.");
+    docs.insert("map.keys", "Get all keys as a list.");
+    docs.insert("map.values", "Get all values as a list.");
+    docs.insert("map.size", "Get the number of key-value pairs.");
+    docs.insert("map.empty?", "Check if map is empty.");
+
+    // Float Arithmetic
+    docs.insert("f.add", "Add two floats.");
+    docs.insert("f.subtract", "Subtract second float from first.");
+    docs.insert("f.multiply", "Multiply two floats.");
+    docs.insert("f.divide", "Divide first float by second.");
+    docs.insert("f.+", "Add two floats.");
+    docs.insert("f.-", "Subtract second float from first.");
+    docs.insert("f.*", "Multiply two floats.");
+    docs.insert("f./", "Divide first float by second.");
+
+    // Float Comparison
+    docs.insert("f.=", "Test if two floats are equal.");
+    docs.insert("f.<", "Test if first float is less than second.");
+    docs.insert("f.>", "Test if first float is greater than second.");
+    docs.insert("f.<=", "Test if first float is less than or equal.");
+    docs.insert("f.>=", "Test if first float is greater than or equal.");
+    docs.insert("f.<>", "Test if two floats are not equal.");
+    docs.insert("f.eq", "Test if two floats are equal.");
+    docs.insert("f.lt", "Test if first float is less than second.");
+    docs.insert("f.gt", "Test if first float is greater than second.");
+    docs.insert("f.lte", "Test if first float is less than or equal.");
+    docs.insert("f.gte", "Test if first float is greater than or equal.");
+    docs.insert("f.neq", "Test if two floats are not equal.");
+
+    // Test Framework
+    docs.insert(
+        "test.init",
+        "Initialize the test framework with a test name.",
+    );
+    docs.insert("test.finish", "Finish testing and print results.");
+    docs.insert("test.has-failures", "Check if any tests have failed.");
+    docs.insert("test.assert", "Assert that a boolean is true.");
+    docs.insert("test.assert-not", "Assert that a boolean is false.");
+    docs.insert("test.assert-eq", "Assert that two integers are equal.");
+    docs.insert("test.assert-eq-str", "Assert that two strings are equal.");
+    docs.insert("test.fail", "Mark a test as failed with a message.");
+    docs.insert("test.pass-count", "Get the number of passed assertions.");
+    docs.insert("test.fail-count", "Get the number of failed assertions.");
+
+    // Time Operations
+    docs.insert("time.now", "Get current Unix timestamp in seconds.");
+    docs.insert(
+        "time.nanos",
+        "Get high-resolution monotonic time in nanoseconds.",
+    );
+    docs.insert("time.sleep-ms", "Sleep for N milliseconds.");
+
+    // Serialization
+    docs.insert("son.dump", "Serialize any value to SON format (compact).");
+    docs.insert(
+        "son.dump-pretty",
+        "Serialize any value to SON format (pretty-printed).",
+    );
+
+    // Stack Introspection
+    docs.insert(
+        "stack.dump",
+        "Print all stack values and clear the stack (REPL).",
+    );
+
+    docs
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,5 +1214,33 @@ mod tests {
             sigs.contains_key("string->float"),
             "string->float should be a builtin"
         );
+    }
+
+    #[test]
+    fn test_all_docs_have_signatures() {
+        let sigs = builtin_signatures();
+        let docs = builtin_docs();
+
+        for name in docs.keys() {
+            assert!(
+                sigs.contains_key(*name),
+                "Builtin '{}' has documentation but no signature",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_signatures_have_docs() {
+        let sigs = builtin_signatures();
+        let docs = builtin_docs();
+
+        for name in sigs.keys() {
+            assert!(
+                docs.contains_key(name.as_str()),
+                "Builtin '{}' has signature but no documentation",
+                name
+            );
+        }
     }
 }

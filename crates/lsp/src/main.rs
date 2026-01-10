@@ -740,10 +740,19 @@ fn lookup_word_hover(
     for (name, effect) in seqc::builtins::builtin_signatures() {
         if name == word {
             let signature = completion::format_effect(&effect);
+            let doc = seqc::builtins::builtin_doc(word).unwrap_or("");
+            let doc_section = if doc.is_empty() {
+                String::new()
+            } else {
+                format!("\n\n{}", doc)
+            };
             return Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: format!("```seq\n{} {}\n```\n\n*Built-in*", word, signature),
+                    value: format!(
+                        "```seq\n{} {}\n```{}\n\n*Built-in*",
+                        word, signature, doc_section
+                    ),
                 }),
                 range: None,
             });

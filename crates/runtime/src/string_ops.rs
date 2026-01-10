@@ -1605,4 +1605,27 @@ mod tests {
             assert_eq!(value, Value::Int(7));
         }
     }
+
+    #[test]
+    fn test_string_to_int_type_error() {
+        unsafe {
+            crate::error::clear_runtime_error();
+
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(42)); // Wrong type - should be String
+
+            let stack = string_to_int(stack);
+
+            // Should have set an error
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("expected String"));
+
+            // Should return (0, false)
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(false));
+            let (_stack, value) = pop(stack);
+            assert_eq!(value, Value::Int(0));
+        }
+    }
 }

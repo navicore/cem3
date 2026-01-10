@@ -20,9 +20,22 @@
 //! ```
 
 use crate::error::set_runtime_error;
-use crate::stack::{Stack, drop_stack_value, pop, pop_sv, push};
+use crate::stack::{Stack, drop_stack_value, get_stack_base, pop, pop_sv, push, stack_value_size};
 use crate::value::{Value, VariantData};
 use std::sync::Arc;
+
+/// Check if the stack has at least `n` values
+#[inline]
+fn stack_depth(stack: Stack) -> usize {
+    if stack.is_null() {
+        return 0;
+    }
+    let base = get_stack_base();
+    if base.is_null() {
+        return 0;
+    }
+    (stack as usize - base as usize) / stack_value_size()
+}
 
 /// Helper to drain any remaining stack values back to the base
 ///
@@ -422,16 +435,12 @@ pub unsafe extern "C" fn patch_seq_list_push(stack: Stack) -> Stack {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
     unsafe {
-        if stack.is_null() {
+        // Check stack depth before any pops to avoid partial consumption
+        if stack_depth(stack) < 2 {
             set_runtime_error("list.get: stack underflow (need 2 values)");
             return stack;
         }
         let (stack, index_val) = pop(stack);
-        if stack.is_null() {
-            // Stack underflow - can't push to null stack, just return with error
-            set_runtime_error("list.get: stack underflow (need 2 values)");
-            return stack;
-        }
         let (stack, list_val) = pop(stack);
 
         let index = match index_val {
@@ -487,22 +496,13 @@ pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_list_set(stack: Stack) -> Stack {
     unsafe {
-        if stack.is_null() {
+        // Check stack depth before any pops to avoid partial consumption
+        if stack_depth(stack) < 3 {
             set_runtime_error("list.set: stack underflow (need 3 values)");
             return stack;
         }
         let (stack, value) = pop(stack);
-        if stack.is_null() {
-            // Stack underflow - can't push to null stack, just return with error
-            set_runtime_error("list.set: stack underflow (need 3 values)");
-            return stack;
-        }
         let (stack, index_val) = pop(stack);
-        if stack.is_null() {
-            // Stack underflow - can't push to null stack, just return with error
-            set_runtime_error("list.set: stack underflow (need 3 values)");
-            return stack;
-        }
         let (stack, list_val) = pop(stack);
 
         let index = match index_val {

@@ -216,11 +216,11 @@ impl App {
     pub fn save_history(&self) {
         if let Some(path) = Self::history_file_path() {
             // Ensure parent directory exists
-            if let Some(parent) = path.parent() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    eprintln!("Warning: could not create history directory: {e}");
-                    return;
-                }
+            if let Some(parent) = path.parent()
+                && let Err(e) = fs::create_dir_all(parent)
+            {
+                eprintln!("Warning: could not create history directory: {e}");
+                return;
             }
 
             match fs::File::create(&path) {

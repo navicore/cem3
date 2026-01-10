@@ -6,15 +6,14 @@
 //! Session file management is ported from the original REPL (crates/repl/src/main.rs).
 //! Expressions accumulate in a temp file with `stack.dump` to show values.
 
+use crate::completion::CompletionManager;
 use crate::engine::{AnalysisResult, analyze, analyze_expression};
 use crate::ir::stack_art::{Stack, StackEffect, render_transition};
 use crate::keys::convert_key;
-use crate::lsp_client::LspClient;
 use crate::ui::ir_pane::{IrContent, IrPane, IrViewMode};
 use crate::ui::layout::{ComputedLayout, LayoutConfig, StatusContent};
 use crate::ui::repl_pane::{HistoryEntry, ReplPane, ReplState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use lsp_types::CompletionItem;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -24,7 +23,6 @@ use ratatui::{
 };
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
@@ -77,14 +75,8 @@ pub struct App {
     pub session_path: PathBuf,
     /// Temp file handle (kept alive to prevent deletion)
     _temp_file: Option<NamedTempFile>,
-    /// LSP client for completions (None if unavailable)
-    lsp_client: Option<LspClient>,
-    /// Current completion items
-    completions: Vec<CompletionItem>,
-    /// Selected completion index
-    completion_index: usize,
-    /// Whether completion popup is visible
-    show_completions: bool,
+    /// Completion manager (handles LSP and builtin completions)
+    completions: CompletionManager,
 }
 
 // Note: App intentionally does not implement Default because App::new() can fail
@@ -123,8 +115,8 @@ impl App {
         fs::write(&session_path, &initial_content)
             .map_err(|e| format!("Failed to write session file: {}", e))?;
 
-        // Try to start LSP client (like old REPL)
-        let lsp_client = Self::try_start_lsp(&session_path, &initial_content);
+        // Create completion manager with LSP if available
+        let completions = CompletionManager::try_with_lsp(&session_path, &initial_content);
 
         let mut app = Self {
             repl_state: ReplState::new(),
@@ -139,10 +131,7 @@ impl App {
             status_message: None,
             session_path,
             _temp_file: Some(temp_file),
-            lsp_client,
-            completions: Vec::new(),
-            completion_index: 0,
-            show_completions: false,
+            completions,
         };
         app.load_history();
         Ok(app)
@@ -172,8 +161,8 @@ impl App {
             }
         };
 
-        // Try to start LSP client
-        let lsp_client = Self::try_start_lsp(&path, &content);
+        // Create completion manager with LSP if available
+        let completions = CompletionManager::try_with_lsp(&path, &content);
 
         let mut app = Self {
             repl_state: ReplState::new(),
@@ -188,28 +177,10 @@ impl App {
             status_message: None,
             session_path: path,
             _temp_file: None,
-            lsp_client,
-            completions: Vec::new(),
-            completion_index: 0,
-            show_completions: false,
+            completions,
         };
         app.load_history();
         Ok(app)
-    }
-
-    /// Try to start the LSP client (like old REPL's SeqHelper::new)
-    fn try_start_lsp(session_path: &Path, content: &str) -> Option<LspClient> {
-        match LspClient::new(session_path) {
-            Ok(mut client) => {
-                // Open the document (like old REPL)
-                if client.did_open(content).is_ok() {
-                    Some(client)
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
     }
 
     /// Get the history file path (shared with original REPL)
@@ -270,30 +241,30 @@ impl App {
         self.status_message = None;
 
         // Handle completion popup navigation first
-        if self.show_completions {
+        if self.completions.is_visible() {
             match key.code {
                 KeyCode::Esc => {
-                    self.hide_completions();
+                    self.completions.hide();
                     return;
                 }
                 KeyCode::Up | KeyCode::Char('k') if self.is_normal_mode() => {
-                    self.completion_up();
+                    self.completions.up();
                     return;
                 }
                 KeyCode::Down | KeyCode::Char('j') if self.is_normal_mode() => {
-                    self.completion_down();
+                    self.completions.down();
                     return;
                 }
                 KeyCode::Up => {
-                    self.completion_up();
+                    self.completions.up();
                     return;
                 }
                 KeyCode::Down => {
-                    self.completion_down();
+                    self.completions.down();
                     return;
                 }
                 KeyCode::Tab => {
-                    self.completion_down();
+                    self.completions.down();
                     return;
                 }
                 KeyCode::Enter => {
@@ -302,7 +273,7 @@ impl App {
                 }
                 _ => {
                     // Any other key hides completions and continues
-                    self.hide_completions();
+                    self.completions.hide();
                 }
             }
         }
@@ -1065,164 +1036,31 @@ impl App {
         crate::ir::stack_effects::get_effect(word).cloned()
     }
 
-    /// Request completions from LSP (mirrors old REPL's SeqHelper::complete)
+    /// Request completions from LSP or builtins
     fn request_completions(&mut self) {
-        let line = self.repl_state.input.clone();
-        let pos = self.repl_state.cursor;
+        let input = &self.repl_state.input;
+        let cursor = self.repl_state.cursor;
 
-        // Find word start for replacement
-        let word_start = line[..pos]
-            .rfind(|c: char| c.is_whitespace())
-            .map(|i| i + 1)
-            .unwrap_or(0);
-
-        // Get the prefix the user has typed
-        let prefix = &line[word_start..pos];
-
-        // Don't show completions for empty prefix - too noisy
-        if prefix.is_empty() {
-            self.status_message = Some("Tab: type a prefix first".to_string());
-            return;
-        }
-
-        // If no LSP client, fall back to built-in completions
-        let Some(ref mut lsp) = self.lsp_client else {
-            self.builtin_completions(prefix);
-            return;
-        };
-
-        // Get file content
-        let Ok(file_content) = fs::read_to_string(&self.session_path) else {
-            self.builtin_completions(prefix);
-            return;
-        };
-
-        // Find where to insert (before stack.dump) - like old REPL
-        let Some(insert_pos) = file_content.find("  stack.dump") else {
-            self.builtin_completions(prefix);
-            return;
-        };
-
-        // Create virtual document: file content + current line at end of main
-        let virtual_content = format!(
-            "{}  {}\n{}",
-            &file_content[..insert_pos],
-            line,
-            &file_content[insert_pos..]
-        );
-
-        // Calculate line/column in virtual document
-        let lines_before: u32 = file_content[..insert_pos].matches('\n').count() as u32;
-        let line_num = lines_before; // 0-indexed
-        let col_num = pos as u32 + 2; // +2 for the "  " indent
-
-        // Sync virtual document and get completions
-        if lsp.did_change(&virtual_content).is_err() {
-            self.builtin_completions(prefix);
-            return;
-        }
-
-        let items = match lsp.completions(line_num, col_num) {
-            Ok(items) => items,
-            Err(_) => {
-                // Restore original and fall back
-                let _ = lsp.did_change(&file_content);
-                self.builtin_completions(prefix);
-                return;
-            }
-        };
-
-        // Restore original document
-        let _ = lsp.did_change(&file_content);
-
-        // Filter by prefix (case-insensitive)
-        let prefix_lower = prefix.to_lowercase();
-        self.completions = items
-            .into_iter()
-            .filter(|item| item.label.to_lowercase().starts_with(&prefix_lower))
-            .take(10)
-            .collect();
-
-        if !self.completions.is_empty() {
-            self.completion_index = 0;
-            self.show_completions = true;
-        } else {
+        if let Some(msg) = self.completions.request(input, cursor, &self.session_path) {
+            self.status_message = Some(msg);
+        } else if self.completions.items().is_empty() {
             self.status_message = Some("No completions".to_string());
-        }
-    }
-
-    /// Provide built-in completions when LSP is not available
-    fn builtin_completions(&mut self, prefix: &str) {
-        // Get all builtin names from the compiler's canonical source
-        let signatures = seqc::builtins::builtin_signatures();
-        let builtins: Vec<&str> = signatures.keys().map(|s| s.as_str()).collect();
-
-        self.completions = builtins
-            .iter()
-            .filter(|b| b.starts_with(prefix) && **b != prefix)
-            .take(10)
-            .map(|s| CompletionItem {
-                label: s.to_string(),
-                ..Default::default()
-            })
-            .collect();
-
-        if !self.completions.is_empty() {
-            self.completion_index = 0;
-            self.show_completions = true;
-        } else if !prefix.is_empty() {
-            self.status_message = Some("No completions".to_string());
-        }
-    }
-
-    /// Move up in completion list
-    fn completion_up(&mut self) {
-        if !self.completions.is_empty() {
-            if self.completion_index > 0 {
-                self.completion_index -= 1;
-            } else {
-                self.completion_index = self.completions.len() - 1;
-            }
-        }
-    }
-
-    /// Move down in completion list
-    fn completion_down(&mut self) {
-        if !self.completions.is_empty() {
-            self.completion_index = (self.completion_index + 1) % self.completions.len();
         }
     }
 
     /// Accept the current completion
     fn accept_completion(&mut self) {
-        if let Some(item) = self.completions.get(self.completion_index) {
-            let input = &self.repl_state.input;
-            let cursor = self.repl_state.cursor;
+        let input = &self.repl_state.input;
+        let cursor = self.repl_state.cursor;
 
-            // Find start of current word
-            let word_start = input[..cursor]
-                .rfind(|c: char| c.is_whitespace())
-                .map(|i| i + 1)
-                .unwrap_or(0);
-
-            // Replace current word with completion
-            let completion = &item.label;
+        if let Some((word_start, completion)) = self.completions.accept(input, cursor) {
             let before = &input[..word_start];
             let after = &input[cursor..];
 
             self.repl_state.input = format!("{}{}{}", before, completion, after);
             self.repl_state.cursor = word_start + completion.len();
-
-            self.hide_completions();
             self.update_ir_preview();
         }
-    }
-
-    /// Hide completion popup
-    fn hide_completions(&mut self) {
-        self.show_completions = false;
-        self.completions.clear();
-        self.completion_index = 0;
     }
 
     /// Render the application to a frame
@@ -1251,7 +1089,7 @@ impl App {
         self.render_status_bar(frame, layout.status);
 
         // Render completion popup (on top of everything)
-        if self.show_completions && !self.completions.is_empty() {
+        if self.completions.is_visible() && !self.completions.items().is_empty() {
             self.render_completions(frame, layout.repl);
         }
     }
@@ -1276,15 +1114,12 @@ impl App {
 
     /// Render the completion popup
     fn render_completions(&self, frame: &mut Frame, repl_area: Rect) {
+        let items = self.completions.items();
+        let selected_index = self.completions.index();
+
         // Calculate popup position (above the input line)
-        let popup_height = (self.completions.len() + 2) as u16; // +2 for border
-        let popup_width = self
-            .completions
-            .iter()
-            .map(|c| c.label.len())
-            .max()
-            .unwrap_or(10) as u16
-            + 4; // +4 for padding and border
+        let popup_height = (items.len() + 2) as u16; // +2 for border
+        let popup_width = items.iter().map(|c| c.label.len()).max().unwrap_or(10) as u16 + 4; // +4 for padding and border
 
         // Position popup near the cursor
         let prompt_len = 5; // "seq> " or "seq: "
@@ -1304,12 +1139,11 @@ impl App {
         frame.render_widget(Clear, popup_area);
 
         // Build completion lines
-        let lines: Vec<Line> = self
-            .completions
+        let lines: Vec<Line> = items
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let style = if i == self.completion_index {
+                let style = if i == selected_index {
                     Style::default()
                         .bg(Color::Blue)
                         .fg(Color::White)
@@ -1630,15 +1464,15 @@ mod tests {
 
         // Should show completions with "dup" matching
         assert!(
-            app.show_completions,
+            app.completions.is_visible(),
             "Completions should be visible after Tab"
         );
         assert!(
-            !app.completions.is_empty(),
+            !app.completions.items().is_empty(),
             "Should have completions for 'du'"
         );
         assert!(
-            app.completions.iter().any(|c| c.label == "dup"),
+            app.completions.items().iter().any(|c| c.label == "dup"),
             "Should include 'dup' in completions"
         );
 
@@ -1654,7 +1488,7 @@ mod tests {
 
         // Should not show completions, should show status message
         assert!(
-            !app.show_completions,
+            !app.completions.is_visible(),
             "Should not show completions for empty prefix"
         );
         assert!(

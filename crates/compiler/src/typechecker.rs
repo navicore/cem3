@@ -982,6 +982,12 @@ impl TypeChecker {
         name: &str,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        // Special handling for `call`: extract and apply the quotation's actual effect
+        // This ensures stack pollution through quotations is caught (Issue #228)
+        if name == "call" {
+            return self.infer_call(current_stack);
+        }
+
         // Look up word's effect
         let effect = self
             .lookup_word_effect(name)
@@ -997,12 +1003,6 @@ impl TypeChecker {
             current_stack
         };
 
-        // Phase 2c: Check if `call` is being used on a quotation with Yield effects
-        // Quotations with Yield must be used with strand.weave, not called directly
-        if name == "call" {
-            self.check_call_yield_effect(&adjusted_stack)?;
-        }
-
         // Apply the freshened effect to current stack
         let (result_stack, subst) = self.apply_effect(&fresh_effect, adjusted_stack, name)?;
 
@@ -1014,25 +1014,62 @@ impl TypeChecker {
         Ok((result_stack, subst, propagated_effects))
     }
 
-    /// Check if `call` is being applied to a quotation with Yield effects.
-    /// Quotations with Yield must be wrapped in strand.weave to handle the yields.
-    fn check_call_yield_effect(&self, stack: &StackType) -> Result<(), String> {
-        // Peek at what's on top of the stack (what will be called)
-        if let Some((_rest, top_type)) = stack.clone().pop() {
-            let has_yield = match &top_type {
-                Type::Quotation(effect) => effect.has_yield(),
-                Type::Closure { effect, .. } => effect.has_yield(),
-                _ => false,
-            };
+    /// Special handling for `call` to properly propagate quotation effects (Issue #228)
+    ///
+    /// The generic `call` signature `( ..a Q -- ..b )` has independent row variables,
+    /// which doesn't constrain the output based on the quotation's actual effect.
+    /// This function extracts the quotation's effect and applies it properly.
+    fn infer_call(
+        &self,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        // Pop the quotation from the stack
+        let (remaining_stack, quot_type) = current_stack
+            .clone()
+            .pop()
+            .ok_or_else(|| "call: stack underflow - expected quotation on stack".to_string())?;
 
-            if has_yield {
-                return Err("Cannot call quotation with Yield effect directly.\n\
-                     Quotations that yield values must be wrapped with `strand.weave`.\n\
-                     Example: `[ yielding-code ] strand.weave` instead of `[ yielding-code ] call`"
-                    .to_string());
+        // Extract the quotation's effect
+        let quot_effect = match &quot_type {
+            Type::Quotation(effect) => (**effect).clone(),
+            Type::Closure { effect, .. } => (**effect).clone(),
+            Type::Var(_) => {
+                // Type variable - fall back to polymorphic behavior
+                // This happens when the quotation type isn't known yet
+                let effect = self
+                    .lookup_word_effect("call")
+                    .ok_or_else(|| "Unknown word: 'call'".to_string())?;
+                let fresh_effect = self.freshen_effect(&effect);
+                let (result_stack, subst) =
+                    self.apply_effect(&fresh_effect, current_stack, "call")?;
+                return Ok((result_stack, subst, vec![]));
             }
+            _ => {
+                return Err(format!(
+                    "call: expected quotation or closure on stack, got {}",
+                    quot_type
+                ));
+            }
+        };
+
+        // Check for Yield effects - quotations with Yield must use strand.weave
+        if quot_effect.has_yield() {
+            return Err("Cannot call quotation with Yield effect directly.\n\
+                 Quotations that yield values must be wrapped with `strand.weave`.\n\
+                 Example: `[ yielding-code ] strand.weave` instead of `[ yielding-code ] call`"
+                .to_string());
         }
-        Ok(())
+
+        // Freshen the quotation's effect to avoid variable clashes
+        let fresh_effect = self.freshen_effect(&quot_effect);
+
+        // Apply the quotation's effect to the remaining stack
+        let (result_stack, subst) = self.apply_effect(&fresh_effect, remaining_stack, "call")?;
+
+        // Propagate side effects from the quotation
+        let propagated_effects = fresh_effect.effects.clone();
+
+        Ok((result_stack, subst, propagated_effects))
     }
 
     /// Infer the resulting stack type after a statement
@@ -3164,5 +3201,402 @@ mod tests {
             "Calling pure quotation should pass: {:?}",
             result.err()
         );
+    }
+
+    // ==========================================================================
+    // Stack Pollution Detection Tests (Issue #228)
+    // These tests verify the type checker catches stack effect mismatches
+    // ==========================================================================
+
+    #[test]
+    fn test_pollution_extra_push() {
+        // : test ( Int -- Int ) 42 ;
+        // Declares consuming 1 Int, producing 1 Int
+        // But body pushes 42 on top of input, leaving 2 values
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::IntLiteral(42)],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: declares ( Int -- Int ) but leaves 2 values on stack"
+        );
+    }
+
+    #[test]
+    fn test_pollution_extra_dup() {
+        // : test ( Int -- Int ) dup ;
+        // Declares producing 1 Int, but dup produces 2
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::WordCall {
+                    name: "dup".to_string(),
+                    span: None,
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: declares ( Int -- Int ) but dup produces 2 values"
+        );
+    }
+
+    #[test]
+    fn test_pollution_consumes_extra() {
+        // : test ( Int -- Int ) drop drop 42 ;
+        // Declares consuming 1 Int, but body drops twice
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
+                    Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(42),
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: declares ( Int -- Int ) but consumes 2 values"
+        );
+    }
+
+    #[test]
+    fn test_pollution_in_then_branch() {
+        // : test ( Bool -- Int )
+        //   if 1 2 else 3 then ;
+        // Then branch pushes 2 values, else pushes 1
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Bool),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::If {
+                    then_branch: vec![
+                        Statement::IntLiteral(1),
+                        Statement::IntLiteral(2), // Extra value!
+                    ],
+                    else_branch: Some(vec![Statement::IntLiteral(3)]),
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: then branch pushes 2 values, else pushes 1"
+        );
+    }
+
+    #[test]
+    fn test_pollution_in_else_branch() {
+        // : test ( Bool -- Int )
+        //   if 1 else 2 3 then ;
+        // Then branch pushes 1, else pushes 2 values
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Bool),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::If {
+                    then_branch: vec![Statement::IntLiteral(1)],
+                    else_branch: Some(vec![
+                        Statement::IntLiteral(2),
+                        Statement::IntLiteral(3), // Extra value!
+                    ]),
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: then branch pushes 1 value, else pushes 2"
+        );
+    }
+
+    #[test]
+    fn test_pollution_both_branches_extra() {
+        // : test ( Bool -- Int )
+        //   if 1 2 else 3 4 then ;
+        // Both branches push 2 values but declared output is 1
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Bool),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::If {
+                    then_branch: vec![Statement::IntLiteral(1), Statement::IntLiteral(2)],
+                    else_branch: Some(vec![Statement::IntLiteral(3), Statement::IntLiteral(4)]),
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: both branches push 2 values, but declared output is 1"
+        );
+    }
+
+    #[test]
+    fn test_pollution_branch_consumes_extra() {
+        // : test ( Bool Int -- Int )
+        //   if drop drop 1 else then ;
+        // Then branch consumes more than available from declared inputs
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty.push(Type::Bool).push(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::If {
+                    then_branch: vec![
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                        Statement::IntLiteral(1),
+                    ],
+                    else_branch: Some(vec![]),
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: then branch consumes Bool (should only have Int after if)"
+        );
+    }
+
+    #[test]
+    fn test_pollution_quotation_wrong_arity_output() {
+        // : test ( Int -- Int )
+        //   [ dup ] call ;
+        // Quotation produces 2 values, but word declares 1 output
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    Statement::Quotation {
+                        id: 0,
+                        body: vec![Statement::WordCall {
+                            name: "dup".to_string(),
+                            span: None,
+                        }],
+                    },
+                    Statement::WordCall {
+                        name: "call".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: quotation [dup] produces 2 values, declared output is 1"
+        );
+    }
+
+    #[test]
+    fn test_pollution_quotation_wrong_arity_input() {
+        // : test ( Int -- Int )
+        //   [ drop drop 42 ] call ;
+        // Quotation consumes 2 values, but only 1 available
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    Statement::Quotation {
+                        id: 0,
+                        body: vec![
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                            Statement::IntLiteral(42),
+                        ],
+                    },
+                    Statement::WordCall {
+                        name: "call".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_err(),
+            "Should reject: quotation [drop drop 42] consumes 2 values, only 1 available"
+        );
+    }
+
+    #[test]
+    fn test_no_effect_annotation_pollution() {
+        // : test 42 ;
+        // No effect annotation - should infer ( -- Int )
+        // This is valid, not pollution
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: None, // No annotation
+                body: vec![Statement::IntLiteral(42)],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(
+            result.is_ok(),
+            "Should accept: no effect annotation means effect is inferred"
+        );
+    }
+
+    #[test]
+    fn test_valid_effect_exact_match() {
+        // : test ( Int Int -- Int ) i.+ ;
+        // Exact match - consumes 2, produces 1
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty.push(Type::Int).push(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![Statement::WordCall {
+                    name: "i.add".to_string(),
+                    span: None,
+                }],
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_ok(), "Should accept: effect matches exactly");
+    }
+
+    #[test]
+    fn test_valid_polymorphic_passthrough() {
+        // : test ( a -- a ) ;
+        // Identity function - row polymorphism allows this
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Var("a".to_string()),
+                    },
+                    StackType::Cons {
+                        rest: Box::new(StackType::RowVar("rest".to_string())),
+                        top: Type::Var("a".to_string()),
+                    },
+                )),
+                body: vec![], // Empty body - just pass through
+                source: None,
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_ok(), "Should accept: polymorphic identity");
     }
 }

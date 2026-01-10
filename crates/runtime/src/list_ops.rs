@@ -19,6 +19,7 @@
 //! my-list [ write_line ] list-each
 //! ```
 
+use crate::error::set_runtime_error;
 use crate::stack::{Stack, drop_stack_value, pop, pop_sv, push};
 use crate::value::{Value, VariantData};
 use std::sync::Arc;
@@ -421,12 +422,26 @@ pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
 
         let index = match index_val {
             Value::Int(i) => i,
-            _ => panic!("list.get: expected Int (index), got {:?}", index_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.get: expected Int (index), got {:?}",
+                    index_val
+                ));
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         let variant_data = match list_val {
             Value::Variant(v) => v,
-            _ => panic!("list.get: expected Variant (list), got {:?}", list_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.get: expected Variant (list), got {:?}",
+                    list_val
+                ));
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         if index < 0 || index as usize >= variant_data.fields.len() {
@@ -459,12 +474,27 @@ pub unsafe extern "C" fn patch_seq_list_set(stack: Stack) -> Stack {
 
         let index = match index_val {
             Value::Int(i) => i,
-            _ => panic!("list.set: expected Int (index), got {:?}", index_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.set: expected Int (index), got {:?}",
+                    index_val
+                ));
+                // Return the list and false
+                let stack = push(stack, list_val);
+                return push(stack, Value::Bool(false));
+            }
         };
 
         let variant_data = match &list_val {
             Value::Variant(v) => v,
-            _ => panic!("list.set: expected Variant (list), got {:?}", list_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.set: expected Variant (list), got {:?}",
+                    list_val
+                ));
+                let stack = push(stack, list_val);
+                return push(stack, Value::Bool(false));
+            }
         };
 
         if index < 0 || index as usize >= variant_data.fields.len() {

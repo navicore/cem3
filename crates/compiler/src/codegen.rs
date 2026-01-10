@@ -2838,7 +2838,6 @@ impl CodeGen {
             is_quot_var, stack_var
         )?;
 
-        // Compare to 1 (true = quotation)
         let cmp_var = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2856,8 +2855,20 @@ impl CodeGen {
             cmp_var, quot_block, closure_block
         )?;
 
-        // Quotation path: extract fn_ptr and musttail call
+        // Quotation path: extract fn_ptr and musttail call (Issue #215: extracted helper)
         writeln!(&mut self.output, "{}:", quot_block)?;
+        self.codegen_tail_call_quotation_path(stack_var)?;
+
+        // Closure path: fall back to regular patch_seq_call (Issue #215: extracted helper)
+        writeln!(&mut self.output, "{}:", closure_block)?;
+        let closure_result = self.codegen_tail_call_closure_path(stack_var)?;
+
+        // Return a dummy value - both branches emit ret, so this won't be used
+        Ok(closure_result)
+    }
+
+    /// Generate tail call path for quotation (Issue #215: extracted helper).
+    fn codegen_tail_call_quotation_path(&mut self, stack_var: &str) -> Result<(), CodeGenError> {
         let fn_ptr_var = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2865,7 +2876,6 @@ impl CodeGen {
             fn_ptr_var, stack_var
         )?;
 
-        // Pop the quotation from the stack
         let popped_stack = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2873,7 +2883,6 @@ impl CodeGen {
             popped_stack, stack_var
         )?;
 
-        // Convert i64 fn_ptr to function pointer type
         let fn_var = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2881,8 +2890,6 @@ impl CodeGen {
             fn_var, fn_ptr_var
         )?;
 
-        // Tail call the quotation's impl function using musttail + tailcc
-        // This is guaranteed TCO: caller is tailcc, quotation impl is tailcc
         // Yield check before tail call to prevent starvation in tight loops
         writeln!(&mut self.output, "  call void @patch_seq_maybe_yield()")?;
         let quot_result = self.fresh_temp();
@@ -2892,14 +2899,13 @@ impl CodeGen {
             quot_result, fn_var, popped_stack
         )?;
         writeln!(&mut self.output, "  ret ptr %{}", quot_result)?;
+        Ok(())
+    }
 
-        // Closure path: fall back to regular patch_seq_call
-        // Use a fresh temp to ensure proper SSA numbering (must be >= quotation branch temps)
-        //
+    /// Generate tail call path for closure (Issue #215: extracted helper).
+    fn codegen_tail_call_closure_path(&mut self, stack_var: &str) -> Result<String, CodeGenError> {
         // Note: No yield check here because closures use regular calls (not musttail),
-        // so recursive closures will eventually hit stack limits. The yield safety valve
-        // is specifically for unbounded TCO loops which can run infinitely.
-        writeln!(&mut self.output, "{}:", closure_block)?;
+        // so recursive closures will eventually hit stack limits.
         let closure_result = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -2907,8 +2913,6 @@ impl CodeGen {
             closure_result, stack_var
         )?;
         writeln!(&mut self.output, "  ret ptr %{}", closure_result)?;
-
-        // Return a dummy value - both branches emit ret, so this won't be used
         Ok(closure_result)
     }
 
@@ -4586,61 +4590,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Get pointers to Value slots
-        let ptr_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            ptr_b, stack_var
-        )?;
-        let ptr_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-            ptr_a, stack_var
-        )?;
-
-        // Get slot1 pointers (values at offset 8)
-        let slot1_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_a, ptr_a
-        )?;
-        let slot1_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_b, ptr_b
-        )?;
-
-        // Load values from slot1 as i64 (raw bits)
-        let bits_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            bits_a, slot1_a
-        )?;
-        let bits_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            bits_b, slot1_b
-        )?;
-
-        // Bitcast to double
-        let val_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = bitcast i64 %{} to double",
-            val_a, bits_a
-        )?;
-        let val_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = bitcast i64 %{} to double",
-            val_b, bits_b
-        )?;
+        // Load operands as doubles (Issue #215: extracted helper)
+        let (_ptr_a, slot1_a, val_a, val_b) = self.codegen_float_load_operands(stack_var)?;
 
         // Perform the float operation
         let op_result = self.fresh_temp();
@@ -4676,17 +4627,12 @@ impl CodeGen {
         Ok(Some(result_var))
     }
 
-    /// Generate inline code for float comparison operations.
-    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
-    fn codegen_inline_float_comparison(
+    /// Load two float operands from stack (Issue #215: extracted helper).
+    /// Returns (ptr_a, slot1_a, val_a, val_b) where vals are doubles.
+    fn codegen_float_load_operands(
         &mut self,
         stack_var: &str,
-        fcmp_op: &str,
-    ) -> Result<Option<String>, CodeGenError> {
-        // Spill virtual registers (Issue #189)
-        let stack_var = self.spill_virtual_stack(stack_var)?;
-        let stack_var = stack_var.as_str();
-
+    ) -> Result<(String, String, String, String), CodeGenError> {
         // Get pointers to Value slots
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -4742,6 +4688,23 @@ impl CodeGen {
             "  %{} = bitcast i64 %{} to double",
             val_b, bits_b
         )?;
+
+        Ok((ptr_a, slot1_a, val_a, val_b))
+    }
+
+    /// Generate inline code for float comparison operations.
+    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
+    fn codegen_inline_float_comparison(
+        &mut self,
+        stack_var: &str,
+        fcmp_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Spill virtual registers (Issue #189)
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+        let stack_var = stack_var.as_str();
+
+        // Load operands as doubles (Issue #215: reuse helper)
+        let (ptr_a, slot1_a, val_a, val_b) = self.codegen_float_load_operands(stack_var)?;
 
         // Compare using fcmp
         let cmp_result = self.fresh_temp();
@@ -4865,6 +4828,36 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
+        // Load operands from memory (Issue #215: extracted helper)
+        let (slot1_a, val_a, val_b) = self.codegen_shift_load_operands(stack_var)?;
+
+        // Perform bounds-checked shift (Issue #215: extracted helper)
+        let op_result = self.codegen_shift_compute(&val_a, &val_b, is_left)?;
+
+        // Store result (discriminant stays 0 for Int, just update slot1)
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            op_result, slot1_a
+        )?;
+
+        // SP = SP - 1 (consumed b)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            result_var, stack_var
+        )?;
+
+        Ok(Some(result_var))
+    }
+
+    /// Load two operands for shift operation (Issue #215: extracted helper).
+    /// Returns (slot1_a, val_a, val_b) where slot1_a is the store target.
+    fn codegen_shift_load_operands(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String, String), CodeGenError> {
         // Get pointers to Value slots (b = shift count, a = value to shift)
         let ptr_b = self.fresh_temp();
         writeln!(
@@ -4893,7 +4886,7 @@ impl CodeGen {
             slot1_b, ptr_b
         )?;
 
-        // Load values from slot1 (val_a = value to shift, val_b = shift count)
+        // Load values from slot1
         let val_a = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -4907,6 +4900,17 @@ impl CodeGen {
             val_b, slot1_b
         )?;
 
+        Ok((slot1_a, val_a, val_b))
+    }
+
+    /// Perform bounds-checked shift operation (Issue #215: extracted helper).
+    /// Returns the result SSA variable name.
+    fn codegen_shift_compute(
+        &mut self,
+        val_a: &str,
+        val_b: &str,
+        is_left: bool,
+    ) -> Result<String, CodeGenError> {
         // Check if shift count is negative
         let is_neg = self.fresh_temp();
         writeln!(
@@ -4956,22 +4960,7 @@ impl CodeGen {
             op_result, is_invalid, shift_result
         )?;
 
-        // Store result (discriminant stays 0 for Int, just update slot1)
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            op_result, slot1_a
-        )?;
-
-        // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
-
-        Ok(Some(result_var))
+        Ok(op_result)
     }
 
     /// Generate inline code for integer unary intrinsic operations.
@@ -5079,36 +5068,11 @@ impl CodeGen {
             loop_stack_phi, stack_var, loop_stack_next, body_block
         )?;
 
-        // Execute condition body
+        // Execute condition body and get result
         let cond_stack = self.codegen_statements(cond_body, &loop_stack_phi, false)?;
+        let (popped_stack, cond_val) = self.codegen_peek_pop_bool(&cond_stack)?;
 
-        // Inline peek and pop for condition
-        let top_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            top_ptr, cond_stack
-        )?;
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, top_ptr
-        )?;
-        let cond_val = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            cond_val, slot1_ptr
-        )?;
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            popped_stack, cond_stack
-        )?;
-
-        // Branch on condition
+        // Branch: continue if condition is true (ne 0)
         let cond_bool = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -5123,8 +5087,6 @@ impl CodeGen {
 
         // Body block
         writeln!(&mut self.output, "{}:", body_block)?;
-
-        // Execute loop body
         let body_end_stack = self.codegen_statements(loop_body, &popped_stack, false)?;
 
         // Create landing block for phi node
@@ -5160,17 +5122,15 @@ impl CodeGen {
         let cond_block = self.fresh_block("until_cond");
         let end_block = self.fresh_block("until_end");
 
-        // Use named variables for phi nodes to avoid SSA ordering issues
+        // Use named variables for phi nodes
         let loop_stack_phi = format!("{}_stack", body_block);
         let loop_stack_next = format!("{}_stack_next", body_block);
 
         // Jump to body (do-while style)
         writeln!(&mut self.output, "  br label %{}", body_block)?;
 
-        // Body block
+        // Body block with phi
         writeln!(&mut self.output, "{}:", body_block)?;
-
-        // Phi for stack pointer at loop entry
         writeln!(
             &mut self.output,
             "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
@@ -5179,48 +5139,19 @@ impl CodeGen {
 
         // Execute loop body
         let body_end_stack = self.codegen_statements(loop_body, &loop_stack_phi, false)?;
-
-        // Jump to condition
         writeln!(&mut self.output, "  br label %{}", cond_block)?;
 
         // Condition block
         writeln!(&mut self.output, "{}:", cond_block)?;
-
-        // Execute condition body
         let cond_stack = self.codegen_statements(cond_body, &body_end_stack, false)?;
 
-        // Inline peek and pop for condition
-        let top_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            top_ptr, cond_stack
-        )?;
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, top_ptr
-        )?;
-        let cond_val = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            cond_val, slot1_ptr
-        )?;
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            popped_stack, cond_stack
-        )?;
+        // Peek/pop condition and get value (Issue #215: extracted helper)
+        let (popped_stack, cond_val) = self.codegen_peek_pop_bool(&cond_stack)?;
 
         // Create landing block for phi
         let cond_end_block = format!("{}_end", cond_block);
         writeln!(&mut self.output, "  br label %{}", cond_end_block)?;
         writeln!(&mut self.output, "{}:", cond_end_block)?;
-
-        // Store result for phi
         writeln!(
             &mut self.output,
             "  %{} = getelementptr i8, ptr %{}, i64 0",
@@ -5246,6 +5177,36 @@ impl CodeGen {
         Ok(popped_stack)
     }
 
+    /// Peek and pop a boolean value from stack (Issue #215: extracted helper).
+    /// Returns (popped_stack, cond_val) where cond_val is the i64 condition.
+    fn codegen_peek_pop_bool(&mut self, stack_var: &str) -> Result<(String, String), CodeGenError> {
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, stack_var
+        )?;
+        Ok((popped_stack, cond_val))
+    }
+
     /// Generate inline code for `times` loop: n [body] times
     ///
     /// Pops count from stack, executes body that many times.
@@ -5259,10 +5220,53 @@ impl CodeGen {
         let body_block = self.fresh_block("times_body");
         let end_block = self.fresh_block("times_end");
 
-        // Pop count from stack (it was pushed before the quotation)
-        // Actually, the quotation is at top, count is below it
-        // But in our pattern, we detected [body] times, so count is already on stack
-        // We need to pop the count that's on the stack
+        // Pop count from stack (Issue #215: extracted helper)
+        let (count_val, init_stack) = self.codegen_times_pop_count(stack_var)?;
+
+        // Jump to condition
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // Condition block with phi nodes (Issue #215: extracted helper)
+        let (counter, loop_stack) = self.codegen_times_condition(
+            &cond_block,
+            &body_block,
+            &end_block,
+            &count_val,
+            &init_stack,
+        )?;
+
+        // Body block
+        writeln!(&mut self.output, "{}:", body_block)?;
+        let body_end_stack = self.codegen_statements(loop_body, &loop_stack, false)?;
+
+        // Create landing block and loop back
+        let body_end_block = format!("{}_end", body_block);
+        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
+        writeln!(&mut self.output, "{}:", body_end_block)?;
+        writeln!(
+            &mut self.output,
+            "  %{}_next = sub i64 %{}, 1",
+            counter, counter
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{}_body_end = getelementptr i8, ptr %{}, i64 0",
+            body_block, body_end_stack
+        )?;
+        writeln!(&mut self.output, "  br label %{}", cond_block)?;
+
+        // End block
+        writeln!(&mut self.output, "{}:", end_block)?;
+
+        Ok(loop_stack)
+    }
+
+    /// Pop count value from stack for times loop (Issue #215: extracted helper).
+    /// Returns (count_val, init_stack).
+    fn codegen_times_pop_count(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String), CodeGenError> {
         let top_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -5287,11 +5291,19 @@ impl CodeGen {
             "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             init_stack, stack_var
         )?;
+        Ok((count_val, init_stack))
+    }
 
-        // Jump to condition
-        writeln!(&mut self.output, "  br label %{}", cond_block)?;
-
-        // Condition block
+    /// Generate condition block with phi nodes for times loop (Issue #215: extracted helper).
+    /// Returns (counter, loop_stack).
+    fn codegen_times_condition(
+        &mut self,
+        cond_block: &str,
+        body_block: &str,
+        end_block: &str,
+        count_val: &str,
+        init_stack: &str,
+    ) -> Result<(String, String), CodeGenError> {
         writeln!(&mut self.output, "{}:", cond_block)?;
 
         // Phi for counter and stack
@@ -5321,34 +5333,7 @@ impl CodeGen {
             cond_bool, body_block, end_block
         )?;
 
-        // Body block
-        writeln!(&mut self.output, "{}:", body_block)?;
-
-        // Execute loop body
-        let body_end_stack = self.codegen_statements(loop_body, &loop_stack, false)?;
-
-        // Create landing block
-        let body_end_block = format!("{}_end", body_block);
-        writeln!(&mut self.output, "  br label %{}", body_end_block)?;
-        writeln!(&mut self.output, "{}:", body_end_block)?;
-
-        // Decrement counter and store for phi
-        writeln!(
-            &mut self.output,
-            "  %{}_next = sub i64 %{}, 1",
-            counter, counter
-        )?;
-        writeln!(
-            &mut self.output,
-            "  %{}_body_end = getelementptr i8, ptr %{}, i64 0",
-            body_block, body_end_stack
-        )?;
-        writeln!(&mut self.output, "  br label %{}", cond_block)?;
-
-        // End block
-        writeln!(&mut self.output, "{}:", end_block)?;
-
-        Ok(loop_stack)
+        Ok((counter, loop_stack))
     }
 
     /// Generate inline code for `times` loop with literal count: [body] n times
@@ -5528,45 +5513,15 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Peek the condition value, then pop (inline)
-        // Get pointer to top Value (at SP-1)
-        let top_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            top_ptr, stack_var
-        )?;
-
-        // Get pointer to slot1 (value at offset 8)
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, top_ptr
-        )?;
-
-        // Load condition value from slot1
-        let cond_temp = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            cond_temp, slot1_ptr
-        )?;
-
-        // Pop: SP = SP - 1
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            popped_stack, stack_var
-        )?;
+        // Peek and pop condition (Issue #215: reuse helper)
+        let (popped_stack, cond_val) = self.codegen_peek_pop_bool(stack_var)?;
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = icmp ne i64 %{}, 0",
-            cmp_temp, cond_temp
+            cmp_temp, cond_val
         )?;
 
         // Generate unique block labels
@@ -5708,77 +5663,12 @@ impl CodeGen {
         // Step 4-5: Generate cascading if-else dispatch (Issue #215: extracted helper)
         self.codegen_match_dispatch(&tagged_stack, &arm_info, &default_block)?;
 
-        // Step 6: Generate each match arm
-        // We use the original stack_var which still has the variant
-        let mut arm_results: Vec<BranchResult> = Vec::new();
-        for (i, (arm, (_variant_name, block, field_count, field_names))) in
-            arms.iter().zip(arm_info.iter()).enumerate()
-        {
-            writeln!(&mut self.output, "{}:", block)?;
+        // Step 6: Generate each match arm (Issue #215: extracted helper)
+        let arm_results =
+            self.codegen_match_arms(stack_var, arms, &arm_info, position, &merge_block)?;
 
-            // Extract fields based on pattern type
-            let unpacked_stack = match &arm.pattern {
-                Pattern::Variant(_) => {
-                    // Stack-based: unpack all fields in declaration order
-                    let result = self.fresh_temp();
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
-                        result, stack_var, field_count
-                    )?;
-                    result
-                }
-                Pattern::VariantWithBindings { bindings, .. } => {
-                    // Issue #213: Extracted to helper to reduce nesting
-                    self.codegen_extract_variant_bindings(stack_var, bindings, field_names)?
-                }
-            };
-
-            // Generate the arm body
-            let result = self.codegen_branch(
-                &arm.body,
-                &unpacked_stack,
-                position,
-                &merge_block,
-                &format!("match_arm_{}", i),
-            )?;
-            arm_results.push(result);
-        }
-
-        // Step 7: Generate merge block with phi node
-        // Check if all arms emitted tail calls
-        let all_tail_calls = arm_results.iter().all(|r| r.emitted_tail_call);
-        if all_tail_calls {
-            // All branches tail-called, no merge needed
-            // Return any stack var (won't be used)
-            return Ok(arm_results[0].stack_var.clone());
-        }
-
-        writeln!(&mut self.output, "{}:", merge_block)?;
-        let result_var = self.fresh_temp();
-
-        // Build phi node from non-tail-call branches
-        let phi_entries: Vec<_> = arm_results
-            .iter()
-            .filter(|r| !r.emitted_tail_call)
-            .map(|r| format!("[ %{}, %{} ]", r.stack_var, r.predecessor))
-            .collect();
-
-        if phi_entries.is_empty() {
-            // Shouldn't happen if not all_tail_calls
-            return Err(CodeGenError::Logic(
-                "Match codegen: unexpected empty phi".to_string(),
-            ));
-        }
-
-        writeln!(
-            &mut self.output,
-            "  %{} = phi ptr {}",
-            result_var,
-            phi_entries.join(", ")
-        )?;
-
-        Ok(result_var)
+        // Step 7: Generate merge block with phi node (Issue #215: extracted helper)
+        self.codegen_match_merge(&arm_results, &merge_block)
     }
 
     /// Extract fields from a variant using named bindings (Issue #213: extracted to reduce nesting).
@@ -5958,6 +5848,92 @@ impl CodeGen {
         writeln!(&mut self.output, "  unreachable")?;
 
         Ok(())
+    }
+
+    /// Generate code for each match arm body (Issue #215: extracted helper).
+    fn codegen_match_arms(
+        &mut self,
+        stack_var: &str,
+        arms: &[MatchArm],
+        arm_info: &[(String, String, usize, Vec<String>)],
+        position: TailPosition,
+        merge_block: &str,
+    ) -> Result<Vec<BranchResult>, CodeGenError> {
+        let mut arm_results: Vec<BranchResult> = Vec::new();
+        for (i, (arm, (_variant_name, block, field_count, field_names))) in
+            arms.iter().zip(arm_info.iter()).enumerate()
+        {
+            writeln!(&mut self.output, "{}:", block)?;
+
+            // Extract fields based on pattern type
+            let unpacked_stack = match &arm.pattern {
+                Pattern::Variant(_) => {
+                    // Stack-based: unpack all fields in declaration order
+                    let result = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
+                        result, stack_var, field_count
+                    )?;
+                    result
+                }
+                Pattern::VariantWithBindings { bindings, .. } => {
+                    // Issue #213: Extracted to helper to reduce nesting
+                    self.codegen_extract_variant_bindings(stack_var, bindings, field_names)?
+                }
+            };
+
+            // Generate the arm body
+            let result = self.codegen_branch(
+                &arm.body,
+                &unpacked_stack,
+                position,
+                merge_block,
+                &format!("match_arm_{}", i),
+            )?;
+            arm_results.push(result);
+        }
+        Ok(arm_results)
+    }
+
+    /// Generate merge block with phi node for match (Issue #215: extracted helper).
+    fn codegen_match_merge(
+        &mut self,
+        arm_results: &[BranchResult],
+        merge_block: &str,
+    ) -> Result<String, CodeGenError> {
+        // Check if all arms emitted tail calls
+        let all_tail_calls = arm_results.iter().all(|r| r.emitted_tail_call);
+        if all_tail_calls {
+            // All branches tail-called, no merge needed
+            return Ok(arm_results[0].stack_var.clone());
+        }
+
+        writeln!(&mut self.output, "{}:", merge_block)?;
+        let result_var = self.fresh_temp();
+
+        // Build phi node from non-tail-call branches
+        let phi_entries: Vec<_> = arm_results
+            .iter()
+            .filter(|r| !r.emitted_tail_call)
+            .map(|r| format!("[ %{}, %{} ]", r.stack_var, r.predecessor))
+            .collect();
+
+        if phi_entries.is_empty() {
+            // Shouldn't happen if not all_tail_calls
+            return Err(CodeGenError::Logic(
+                "Match codegen: unexpected empty phi".to_string(),
+            ));
+        }
+
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr {}",
+            result_var,
+            phi_entries.join(", ")
+        )?;
+
+        Ok(result_var)
     }
 
     /// Generate code for pushing a quotation or closure onto the stack

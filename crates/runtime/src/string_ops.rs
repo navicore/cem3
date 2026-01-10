@@ -10,6 +10,7 @@
 //! This is the simplest approach, requiring no new types.
 //! The count allows the caller to know how many parts were pushed.
 
+use crate::error::set_runtime_error;
 use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
@@ -510,17 +511,24 @@ pub unsafe extern "C" fn patch_seq_json_escape(stack: Stack) -> Stack {
     }
 }
 
-/// Convert String to Int: ( String -- Int Int )
-/// Returns the parsed int and 1 on success, or 0 and 0 on failure.
+/// Convert String to Int: ( String -- Int Bool )
+/// Returns the parsed int and true on success, or 0 and false on failure.
 /// Accepts integers in range [-9223372036854775808, 9223372036854775807] (i64).
 /// Trims leading/trailing whitespace before parsing.
 /// Leading zeros are accepted (e.g., "007" parses to 7).
+///
+/// # Error Handling
+/// - Empty stack: Sets runtime error, returns unchanged stack
+/// - Type mismatch: Sets runtime error, returns 0 and false
 ///
 /// # Safety
 /// Stack must have a String value on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_string_to_int(stack: Stack) -> Stack {
-    assert!(!stack.is_null(), "string->int: stack is empty");
+    if stack.is_null() {
+        set_runtime_error("string->int: stack is empty");
+        return stack;
+    }
     let (stack, val) = unsafe { pop(stack) };
 
     match val {
@@ -534,7 +542,11 @@ pub unsafe extern "C" fn patch_seq_string_to_int(stack: Stack) -> Stack {
                 unsafe { push(stack, Value::Bool(false)) }
             }
         },
-        _ => panic!("string->int: expected String on stack"),
+        _ => {
+            set_runtime_error("string->int: expected String on stack");
+            let stack = unsafe { push(stack, Value::Int(0)) };
+            unsafe { push(stack, Value::Bool(false)) }
+        }
     }
 }
 

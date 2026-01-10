@@ -4471,10 +4471,9 @@ impl CodeGen {
 
         // Both must be integers for this optimization
         let (ssa_a, ssa_b) = match (&val_a, &val_b) {
-            (
-                VirtualValue::Int { ssa_var: a, .. },
-                VirtualValue::Int { ssa_var: b, .. },
-            ) => (a.clone(), b.clone()),
+            (VirtualValue::Int { ssa_var: a, .. }, VirtualValue::Int { ssa_var: b, .. }) => {
+                (a.clone(), b.clone())
+            }
             _ => {
                 // Not both integers - restore and signal fallback needed
                 self.virtual_stack.push(val_a);

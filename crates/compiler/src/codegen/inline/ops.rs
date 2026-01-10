@@ -4,14 +4,14 @@
 //! for common operations like comparisons, arithmetic, and loops.
 //! These are called by try_codegen_inline_op in the main module.
 
-use super::{CodeGen, CodeGenError, VirtualValue};
+use super::super::{CodeGen, CodeGenError, VirtualValue};
 use crate::ast::Statement;
 use std::fmt::Write as _;
 
 impl CodeGen {
     /// Generate inline code for comparison operations.
     /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
-    pub(super) fn codegen_inline_comparison(
+    pub(in crate::codegen) fn codegen_inline_comparison(
         &mut self,
         stack_var: &str,
         icmp_op: &str,
@@ -96,7 +96,7 @@ impl CodeGen {
     /// Generate inline code for binary arithmetic (add/subtract).
     /// Issue #189: Uses virtual registers when both operands are available.
     /// Issue #215: Split into fast/slow path helpers to reduce function size.
-    pub(super) fn codegen_inline_binary_op(
+    pub(in crate::codegen) fn codegen_inline_binary_op(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
@@ -115,7 +115,7 @@ impl CodeGen {
 
     /// Fast path: both operands in virtual registers (Issue #215: extracted helper).
     /// Returns None if operands aren't both integers, leaving virtual_stack unchanged.
-    pub(super) fn codegen_binary_op_virtual(
+    pub(in crate::codegen) fn codegen_binary_op_virtual(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
@@ -153,7 +153,7 @@ impl CodeGen {
     }
 
     /// Slow path: spill virtual stack and operate on memory (Issue #215: extracted helper).
-    pub(super) fn codegen_binary_op_memory(
+    pub(in crate::codegen) fn codegen_binary_op_memory(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
@@ -231,7 +231,7 @@ impl CodeGen {
 
     /// Generate inline code for float binary operations (f.add, f.subtract, etc.)
     /// Values are stored as f64 bits in slot1, discriminant 1 (Float).
-    pub(super) fn codegen_inline_float_binary_op(
+    pub(in crate::codegen) fn codegen_inline_float_binary_op(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
@@ -279,7 +279,7 @@ impl CodeGen {
 
     /// Load two float operands from stack (Issue #215: extracted helper).
     /// Returns (ptr_a, slot1_a, val_a, val_b) where vals are doubles.
-    pub(super) fn codegen_float_load_operands(
+    pub(in crate::codegen) fn codegen_float_load_operands(
         &mut self,
         stack_var: &str,
     ) -> Result<(String, String, String, String), CodeGenError> {
@@ -344,7 +344,7 @@ impl CodeGen {
 
     /// Generate inline code for float comparison operations.
     /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
-    pub(super) fn codegen_inline_float_comparison(
+    pub(in crate::codegen) fn codegen_inline_float_comparison(
         &mut self,
         stack_var: &str,
         fcmp_op: &str,
@@ -389,7 +389,7 @@ impl CodeGen {
 
     /// Generate inline code for integer bitwise binary operations.
     /// Returns tagged int (discriminant 0).
-    pub(super) fn codegen_inline_int_bitwise_binary(
+    pub(in crate::codegen) fn codegen_inline_int_bitwise_binary(
         &mut self,
         stack_var: &str,
         llvm_op: &str, // "and", "or", "xor"
@@ -469,7 +469,7 @@ impl CodeGen {
     /// Generate inline code for shift operations with proper edge case handling.
     /// Matches runtime behavior: returns 0 for negative shift or shift >= 64.
     /// For shr, uses logical (not arithmetic) shift to match runtime.
-    pub(super) fn codegen_inline_shift(
+    pub(in crate::codegen) fn codegen_inline_shift(
         &mut self,
         stack_var: &str,
         is_left: bool, // true for shl, false for shr
@@ -504,7 +504,7 @@ impl CodeGen {
 
     /// Load two operands for shift operation (Issue #215: extracted helper).
     /// Returns (slot1_a, val_a, val_b) where slot1_a is the store target.
-    pub(super) fn codegen_shift_load_operands(
+    pub(in crate::codegen) fn codegen_shift_load_operands(
         &mut self,
         stack_var: &str,
     ) -> Result<(String, String, String), CodeGenError> {
@@ -555,7 +555,7 @@ impl CodeGen {
 
     /// Perform bounds-checked shift operation (Issue #215: extracted helper).
     /// Returns the result SSA variable name.
-    pub(super) fn codegen_shift_compute(
+    pub(in crate::codegen) fn codegen_shift_compute(
         &mut self,
         val_a: &str,
         val_b: &str,
@@ -615,7 +615,7 @@ impl CodeGen {
 
     /// Generate inline code for integer unary intrinsic operations.
     /// Used for popcount, clz, ctz which use LLVM intrinsics.
-    pub(super) fn codegen_inline_int_unary_intrinsic(
+    pub(in crate::codegen) fn codegen_inline_int_unary_intrinsic(
         &mut self,
         stack_var: &str,
         intrinsic: &str, // "llvm.ctpop.i64", "llvm.ctlz.i64", "llvm.cttz.i64"
@@ -691,7 +691,7 @@ impl CodeGen {
     /// while_end:
     ///   ...
     /// ```
-    pub(super) fn codegen_inline_while(
+    pub(in crate::codegen) fn codegen_inline_while(
         &mut self,
         stack_var: &str,
         cond_body: &[Statement],
@@ -762,7 +762,7 @@ impl CodeGen {
     ///
     /// Like while but executes body first, then checks condition.
     /// Continues until condition is TRUE (opposite of while).
-    pub(super) fn codegen_inline_until(
+    pub(in crate::codegen) fn codegen_inline_until(
         &mut self,
         stack_var: &str,
         cond_body: &[Statement],
@@ -829,7 +829,7 @@ impl CodeGen {
 
     /// Peek and pop a boolean value from stack (Issue #215: extracted helper).
     /// Returns (popped_stack, cond_val) where cond_val is the i64 condition.
-    pub(super) fn codegen_peek_pop_bool(
+    pub(in crate::codegen) fn codegen_peek_pop_bool(
         &mut self,
         stack_var: &str,
     ) -> Result<(String, String), CodeGenError> {
@@ -864,7 +864,7 @@ impl CodeGen {
     ///
     /// Pops count from stack, executes body that many times.
     #[allow(dead_code)] // Reserved for future dynamic count support
-    pub(super) fn codegen_inline_times(
+    pub(in crate::codegen) fn codegen_inline_times(
         &mut self,
         stack_var: &str,
         loop_body: &[Statement],
@@ -916,7 +916,7 @@ impl CodeGen {
 
     /// Pop count value from stack for times loop (Issue #215: extracted helper).
     /// Returns (count_val, init_stack).
-    pub(super) fn codegen_times_pop_count(
+    pub(in crate::codegen) fn codegen_times_pop_count(
         &mut self,
         stack_var: &str,
     ) -> Result<(String, String), CodeGenError> {
@@ -949,7 +949,7 @@ impl CodeGen {
 
     /// Generate condition block with phi nodes for times loop (Issue #215: extracted helper).
     /// Returns (counter, loop_stack).
-    pub(super) fn codegen_times_condition(
+    pub(in crate::codegen) fn codegen_times_condition(
         &mut self,
         cond_block: &str,
         body_block: &str,
@@ -992,7 +992,7 @@ impl CodeGen {
     /// Generate inline code for `times` loop with literal count: [body] n times
     ///
     /// The count is known at compile time, so we don't need to pop it from stack.
-    pub(super) fn codegen_inline_times_literal(
+    pub(in crate::codegen) fn codegen_inline_times_literal(
         &mut self,
         stack_var: &str,
         loop_body: &[Statement],

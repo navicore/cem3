@@ -1,499 +1,107 @@
-//! LLVM IR Code Generation via Text
+//! LLVM IR Code Generation
 //!
-//! Generates LLVM IR as text (.ll files) and invokes clang to produce executables.
-//! This approach is simpler and more portable than using FFI bindings (inkwell).
+//! This module generates LLVM IR as text (.ll files) for Seq programs.
+//! The code generation is split into focused submodules for maintainability.
 //!
-//! # Code Generation Strategy
+//! # Key Concepts
 //!
-//! Stack is threaded through all operations as a pointer:
-//! 1. Start with null stack pointer
-//! 2. Each operation takes stack, returns new stack
-//! 3. Final stack is ignored (should be null for well-typed programs)
+//! ## Value Representation
 //!
-//! # Runtime Function Declarations
+//! All Seq values use the `%Value` type, a 40-byte Rust enum with `#[repr(C)]`.
+//! Layout: `{ i64, i64, i64, i64, i64 }` (discriminant + largest variant payload).
+//! This fixed size allows pass-by-value, required for Alpine/musl compatibility.
 //!
-//! All runtime functions follow the pattern:
-//! - `define ptr @name(ptr %stack) { ... }` for stack operations
-//! - `define ptr @push_int(ptr %stack, i64 %value) { ... }` for literals
-//! - Stack type is represented as `ptr` (opaque pointer in modern LLVM)
+//! ## Calling Conventions
+//!
+//! - **User-defined words**: Use `tailcc` (tail call convention) to enable TCO.
+//!   Each word has two functions: a C-convention wrapper (`seq_word_*`) for
+//!   external calls and a `tailcc` implementation (`seq_word_*_impl`) for
+//!   internal calls that can use `musttail`.
+//!
+//! - **Runtime functions**: Use C convention (`ccc`). Declared in `runtime.rs`.
+//!
+//! - **Quotations**: Use C convention. Quotations are first-class functions that
+//!   capture their environment. They have wrapper/impl pairs but currently don't
+//!   support TCO due to closure complexity.
+//!
+//! ## Virtual Stack Optimization
+//!
+//! The top N values (default 4) are kept in SSA virtual registers instead of
+//! memory. This avoids store/load overhead for common patterns like `2 3 i.+`.
+//! Values are "spilled" to the memory stack at control flow points (if/else,
+//! loops) and function calls. See `virtual_stack.rs` and `VirtualValue` in
+//! `state.rs`.
+//!
+//! ## Tail Call Optimization (TCO)
+//!
+//! Word calls in tail position use LLVM's `musttail` for guaranteed TCO.
+//! A call is in tail position when it's the last operation before return.
+//! TCO is disabled in these contexts:
+//! - Inside `main` (uses C convention for entry point)
+//! - Inside quotations (closure semantics require stack frames)
+//! - Inside closures that capture variables
+//!
+//! ## Quotations and Closures
+//!
+//! Quotations (`[ ... ]`) compile to function pointers pushed onto the stack.
+//! - **Pure quotations**: No captured variables, just a function pointer.
+//! - **Closures**: Capture variables from enclosing scope. The runtime allocates
+//!   a closure struct containing the function pointer and captured values.
+//!
+//! Each quotation generates a wrapper function (C convention, for `call` builtin)
+//! and an impl function. Closure captures are analyzed at compile time by
+//! `capture_analysis.rs`.
+//!
+//! # Module Structure
+//!
+//! - `state.rs`: Core types (CodeGen, VirtualValue, TailPosition)
+//! - `program.rs`: Main entry points (codegen_program*)
+//! - `words.rs`: Word and quotation code generation
+//! - `statements.rs`: Statement dispatch and main function
+//! - `inline/`: Inline operation code generation (no runtime calls)
+//!   - `dispatch.rs`: Main inline dispatch logic
+//!   - `ops.rs`: Individual inline operations
+//! - `control_flow.rs`: If/else, match statements
+//! - `virtual_stack.rs`: Virtual register optimization
+//! - `types.rs`: Type helpers and exhaustiveness checking
+//! - `globals.rs`: String and symbol constants
+//! - `runtime.rs`: Runtime function declarations
+//! - `ffi_wrappers.rs`: FFI wrapper generation
+//! - `platform.rs`: Platform detection
+//! - `error.rs`: Error types
 
 // Submodules
 mod control_flow;
 mod error;
 mod ffi_wrappers;
 mod globals;
-mod inline_dispatch;
-mod inline_ops;
+mod inline;
 mod platform;
+mod program;
 mod runtime;
+mod state;
 mod statements;
 mod types;
 mod virtual_stack;
 mod words;
 
-// Re-exports
+// Public re-exports
 pub use error::CodeGenError;
 pub use platform::{ffi_c_args, ffi_return_type, get_target_triple};
 pub use runtime::{BUILTIN_SYMBOLS, RUNTIME_DECLARATIONS, emit_runtime_decls};
+pub use state::CodeGen;
 
-use crate::ast::{Program, UnionDef};
-use crate::config::CompilerConfig;
-use crate::ffi::FfiBindings;
-use crate::types::Type;
-use std::collections::HashMap;
-use std::fmt::Write as _;
-
-/// Sentinel value for unreachable predecessors in phi nodes.
-/// Used when a branch ends with a tail call (which emits ret directly).
-const UNREACHABLE_PREDECESSOR: &str = "unreachable";
-
-/// Maximum number of values to keep in virtual registers (Issue #189).
-/// Values beyond this are spilled to memory.
-///
-/// Tuned for common patterns:
-/// - Binary ops need 2 values (`a b i.+`)
-/// - Dup patterns need 3 values (`a dup i.* b i.+`)
-/// - Complex expressions may use 4 (`a b i.+ c d i.* i.-`)
-///
-/// Larger values increase register pressure with diminishing returns,
-/// as most operations trigger spills (control flow, function calls, etc.).
-const MAX_VIRTUAL_STACK: usize = 4;
-
-/// Tracks whether a statement is in tail position.
-///
-/// A statement is in tail position when its result is directly returned
-/// from the function without further processing. For tail calls, we can
-/// use LLVM's `musttail` to guarantee tail call optimization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TailPosition {
-    /// This is the last operation before return - can use musttail
-    Tail,
-    /// More operations follow - use regular call
-    NonTail,
-}
-
-/// Result of generating code for an if-statement branch.
-struct BranchResult {
-    /// The stack variable after executing the branch
-    stack_var: String,
-    /// Whether the branch emitted a tail call (and thus a ret)
-    emitted_tail_call: bool,
-    /// The predecessor block label for the phi node (or UNREACHABLE_PREDECESSOR)
-    predecessor: String,
-}
-
-/// Mangle a Seq word name into a valid LLVM IR identifier.
-///
-/// LLVM IR identifiers can contain: letters, digits, underscores, dollars, periods.
-/// Seq words can contain: letters, digits, hyphens, question marks, arrows, etc.
-///
-/// We escape special characters using underscore-based encoding:
-/// - `-` (hyphen) -> `_` (hyphens not valid in LLVM IR identifiers)
-/// - `?` -> `_Q_` (question)
-/// - `>` -> `_GT_` (greater than, for ->)
-/// - `<` -> `_LT_` (less than)
-/// - `!` -> `_BANG_`
-/// - `*` -> `_STAR_`
-/// - `/` -> `_SLASH_`
-/// - `+` -> `_PLUS_`
-/// - `=` -> `_EQ_`
-/// - `.` -> `_DOT_`
-fn mangle_name(name: &str) -> String {
-    let mut result = String::new();
-    for c in name.chars() {
-        match c {
-            '?' => result.push_str("_Q_"),
-            '>' => result.push_str("_GT_"),
-            '<' => result.push_str("_LT_"),
-            '!' => result.push_str("_BANG_"),
-            '*' => result.push_str("_STAR_"),
-            '/' => result.push_str("_SLASH_"),
-            '+' => result.push_str("_PLUS_"),
-            '=' => result.push_str("_EQ_"),
-            // Hyphens converted to underscores (hyphens not valid in LLVM IR)
-            '-' => result.push('_'),
-            // Keep these as-is (valid in LLVM IR)
-            '_' | '.' | '$' => result.push(c),
-            // Alphanumeric kept as-is
-            c if c.is_alphanumeric() => result.push(c),
-            // Any other character gets hex-encoded
-            _ => result.push_str(&format!("_x{:02X}_", c as u32)),
-        }
-    }
-    result
-}
-
-/// Result of generating a quotation: wrapper and impl function names
-/// For closures, both names are the same (no TCO support yet)
-struct QuotationFunctions {
-    /// C-convention wrapper function (for runtime calls)
-    wrapper: String,
-    /// tailcc implementation function (for TCO via musttail)
-    impl_: String,
-}
-
-/// A value held in an LLVM virtual register instead of memory (Issue #189).
-///
-/// This optimization keeps recently-pushed values in SSA variables,
-/// avoiding memory stores/loads for common patterns like `2 3 i.+`.
-/// Values are spilled to memory at control flow points and function calls.
-#[derive(Clone, Debug)]
-#[allow(dead_code)] // Float and Bool variants for Phase 2
-enum VirtualValue {
-    /// Integer value in an SSA variable (i64)
-    Int {
-        ssa_var: String,
-        #[allow(dead_code)] // Used for constant folding in Phase 2
-        value: i64,
-    },
-    /// Float value in an SSA variable (double)
-    Float { ssa_var: String },
-    /// Boolean value in an SSA variable (i64: 0 or 1)
-    Bool { ssa_var: String },
-}
-
-#[allow(dead_code)] // ssa_var method used in spill_virtual_stack
-impl VirtualValue {
-    /// Get the SSA variable name
-    fn ssa_var(&self) -> &str {
-        match self {
-            VirtualValue::Int { ssa_var, .. } => ssa_var,
-            VirtualValue::Float { ssa_var } => ssa_var,
-            VirtualValue::Bool { ssa_var } => ssa_var,
-        }
-    }
-
-    /// Get the discriminant for this value type
-    fn discriminant(&self) -> i64 {
-        match self {
-            VirtualValue::Int { .. } => 0,
-            VirtualValue::Float { .. } => 1,
-            VirtualValue::Bool { .. } => 2,
-        }
-    }
-}
-
-pub struct CodeGen {
-    output: String,
-    string_globals: String,
-    temp_counter: usize,
-    string_counter: usize,
-    block_counter: usize, // For generating unique block labels
-    quot_counter: usize,  // For generating unique quotation function names
-    string_constants: HashMap<String, String>, // string content -> global name
-    quotation_functions: String, // Accumulates generated quotation functions
-    type_map: HashMap<usize, Type>, // Maps quotation ID to inferred type (from typechecker)
-    external_builtins: HashMap<String, String>, // seq_name -> symbol (for external builtins)
-    inside_closure: bool, // Track if we're generating code inside a closure (disables TCO)
-    inside_main: bool, // Track if we're generating code for main (uses C convention, no musttail)
-    inside_quotation: bool, // Track if we're generating code for a quotation (uses C convention, no musttail)
-    unions: Vec<UnionDef>,  // Union type definitions for pattern matching
-    ffi_bindings: FfiBindings, // FFI function bindings
-    ffi_wrapper_code: String, // Generated FFI wrapper functions
-    /// Pure inline test mode: bypasses scheduler, returns top of stack as exit code.
-    /// Used for testing pure integer programs without FFI dependencies.
-    pure_inline_test: bool,
-    // Symbol interning for O(1) equality (Issue #166)
-    symbol_globals: String, // LLVM IR for static symbol globals
-    symbol_counter: usize,  // Counter for unique symbol names
-    symbol_constants: HashMap<String, String>, // symbol name -> global name (deduplication)
-    /// Per-statement type info for optimization (Issue #186)
-    /// Maps (word_name, statement_index) -> top-of-stack type before statement
-    statement_types: HashMap<(String, usize), Type>,
-    /// Current word being compiled (for statement type lookup)
-    current_word_name: Option<String>,
-    /// Current statement index within the word (for statement type lookup)
-    current_stmt_index: usize,
-    /// Nesting depth for type lookup - only depth 0 can use type info
-    /// Nested contexts (if/else, loops) increment this to disable lookups
-    codegen_depth: usize,
-    /// True if the previous statement was a trivially-copyable literal (Issue #195)
-    /// Used to optimize `dup` after literal push (e.g., `42 dup`)
-    prev_stmt_is_trivial_literal: bool,
-    /// If previous statement was IntLiteral, stores its value (Issue #192)
-    /// Used to optimize `roll`/`pick` with constant N (e.g., `2 roll` -> rot)
-    prev_stmt_int_value: Option<i64>,
-    /// Virtual register stack for top N values (Issue #189)
-    /// Values here are in SSA variables, not yet written to memory.
-    /// The memory stack pointer tracks where memory ends; virtual values are "above" it.
-    virtual_stack: Vec<VirtualValue>,
-}
-
-impl Default for CodeGen {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CodeGen {
-    pub fn new() -> Self {
-        CodeGen {
-            output: String::new(),
-            string_globals: String::new(),
-            temp_counter: 0,
-            string_counter: 0,
-            block_counter: 0,
-            inside_closure: false,
-            inside_main: false,
-            inside_quotation: false,
-            quot_counter: 0,
-            string_constants: HashMap::new(),
-            quotation_functions: String::new(),
-            type_map: HashMap::new(),
-            external_builtins: HashMap::new(),
-            unions: Vec::new(),
-            ffi_bindings: FfiBindings::new(),
-            ffi_wrapper_code: String::new(),
-            pure_inline_test: false,
-            symbol_globals: String::new(),
-            symbol_counter: 0,
-            symbol_constants: HashMap::new(),
-            statement_types: HashMap::new(),
-            current_word_name: None,
-            current_stmt_index: 0,
-            codegen_depth: 0,
-            prev_stmt_is_trivial_literal: false,
-            prev_stmt_int_value: None,
-            virtual_stack: Vec::new(),
-        }
-    }
-
-    /// Create a CodeGen for pure inline testing.
-    /// Bypasses the scheduler, returning top of stack as exit code.
-    /// Only supports operations that are fully inlined (integers, arithmetic, stack ops).
-    #[allow(dead_code)]
-    pub fn new_pure_inline_test() -> Self {
-        let mut cg = Self::new();
-        cg.pure_inline_test = true;
-        cg
-    }
-
-    /// Generate LLVM IR for entire program
-    pub fn codegen_program(
-        &mut self,
-        program: &Program,
-        type_map: HashMap<usize, Type>,
-        statement_types: HashMap<(String, usize), Type>,
-    ) -> Result<String, CodeGenError> {
-        self.codegen_program_with_config(
-            program,
-            type_map,
-            statement_types,
-            &CompilerConfig::default(),
-        )
-    }
-
-    /// Generate LLVM IR for entire program with custom configuration
-    ///
-    /// This allows external projects to extend the compiler with additional
-    /// builtins that will be declared and callable from Seq code.
-    pub fn codegen_program_with_config(
-        &mut self,
-        program: &Program,
-        type_map: HashMap<usize, Type>,
-        statement_types: HashMap<(String, usize), Type>,
-        config: &CompilerConfig,
-    ) -> Result<String, CodeGenError> {
-        // Store type map for use during code generation
-        self.type_map = type_map;
-        self.statement_types = statement_types;
-
-        // Store union definitions for pattern matching
-        self.unions = program.unions.clone();
-
-        // Build external builtins map from config
-        self.external_builtins = config
-            .external_builtins
-            .iter()
-            .map(|b| (b.seq_name.clone(), b.symbol.clone()))
-            .collect();
-
-        // Verify we have a main word
-        if program.find_word("main").is_none() {
-            return Err(CodeGenError::Logic("No main word defined".to_string()));
-        }
-
-        // Generate all user-defined words
-        for word in &program.words {
-            self.codegen_word(word)?;
-        }
-
-        // Generate main function
-        self.codegen_main()?;
-
-        // Assemble final IR
-        let mut ir = String::new();
-
-        // Target and type declarations
-        writeln!(&mut ir, "; ModuleID = 'main'")?;
-        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
-        writeln!(&mut ir)?;
-
-        // Value type (Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload)
-        // We define concrete size so LLVM can pass by value (required for Alpine/musl)
-        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
-        writeln!(&mut ir)?;
-
-        // String and symbol constants
-        self.emit_string_and_symbol_globals(&mut ir)?;
-
-        // Runtime function declarations
-        emit_runtime_decls(&mut ir)?;
-
-        // External builtin declarations (from config)
-        if !self.external_builtins.is_empty() {
-            writeln!(&mut ir, "; External builtin declarations")?;
-            for symbol in self.external_builtins.values() {
-                // All external builtins follow the standard stack convention: ptr -> ptr
-                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol)?;
-            }
-            writeln!(&mut ir)?;
-        }
-
-        // Quotation functions (generated from quotation literals)
-        if !self.quotation_functions.is_empty() {
-            writeln!(&mut ir, "; Quotation functions")?;
-            ir.push_str(&self.quotation_functions);
-            writeln!(&mut ir)?;
-        }
-
-        // User-defined words and main
-        ir.push_str(&self.output);
-
-        Ok(ir)
-    }
-
-    /// Generate LLVM IR for entire program with FFI support
-    ///
-    /// This is the main entry point for compiling programs that use FFI.
-    pub fn codegen_program_with_ffi(
-        &mut self,
-        program: &Program,
-        type_map: HashMap<usize, Type>,
-        statement_types: HashMap<(String, usize), Type>,
-        config: &CompilerConfig,
-        ffi_bindings: &FfiBindings,
-    ) -> Result<String, CodeGenError> {
-        // Store FFI bindings
-        self.ffi_bindings = ffi_bindings.clone();
-
-        // Generate FFI wrapper functions
-        self.generate_ffi_wrappers()?;
-
-        // Store type map for use during code generation
-        self.type_map = type_map;
-        self.statement_types = statement_types;
-
-        // Store union definitions for pattern matching
-        self.unions = program.unions.clone();
-
-        // Build external builtins map from config
-        self.external_builtins = config
-            .external_builtins
-            .iter()
-            .map(|b| (b.seq_name.clone(), b.symbol.clone()))
-            .collect();
-
-        // Verify we have a main word
-        if program.find_word("main").is_none() {
-            return Err(CodeGenError::Logic("No main word defined".to_string()));
-        }
-
-        // Generate all user-defined words
-        for word in &program.words {
-            self.codegen_word(word)?;
-        }
-
-        // Generate main function
-        self.codegen_main()?;
-
-        // Assemble final IR
-        let mut ir = String::new();
-
-        // Target and type declarations
-        writeln!(&mut ir, "; ModuleID = 'main'")?;
-        writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
-        writeln!(&mut ir)?;
-
-        // Value type (Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload)
-        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
-        writeln!(&mut ir)?;
-
-        // String and symbol constants
-        self.emit_string_and_symbol_globals(&mut ir)?;
-
-        // Runtime function declarations (same as codegen_program_with_config)
-        self.emit_runtime_declarations(&mut ir)?;
-
-        // FFI C function declarations
-        if !self.ffi_bindings.functions.is_empty() {
-            writeln!(&mut ir, "; FFI C function declarations")?;
-            writeln!(&mut ir, "declare ptr @malloc(i64)")?;
-            writeln!(&mut ir, "declare void @free(ptr)")?;
-            writeln!(&mut ir, "declare i64 @strlen(ptr)")?;
-            writeln!(&mut ir, "declare ptr @memcpy(ptr, ptr, i64)")?;
-            // Declare FFI string helpers from runtime
-            writeln!(
-                &mut ir,
-                "declare ptr @patch_seq_string_to_cstring(ptr, ptr)"
-            )?;
-            writeln!(
-                &mut ir,
-                "declare ptr @patch_seq_cstring_to_string(ptr, ptr)"
-            )?;
-            for func in self.ffi_bindings.functions.values() {
-                let c_ret_type = ffi_return_type(&func.return_spec);
-                let c_args = ffi_c_args(&func.args);
-                writeln!(
-                    &mut ir,
-                    "declare {} @{}({})",
-                    c_ret_type, func.c_name, c_args
-                )?;
-            }
-            writeln!(&mut ir)?;
-        }
-
-        // External builtin declarations (from config)
-        if !self.external_builtins.is_empty() {
-            writeln!(&mut ir, "; External builtin declarations")?;
-            for symbol in self.external_builtins.values() {
-                writeln!(&mut ir, "declare ptr @{}(ptr)", symbol)?;
-            }
-            writeln!(&mut ir)?;
-        }
-
-        // FFI wrapper functions
-        if !self.ffi_wrapper_code.is_empty() {
-            writeln!(&mut ir, "; FFI wrapper functions")?;
-            ir.push_str(&self.ffi_wrapper_code);
-            writeln!(&mut ir)?;
-        }
-
-        // Quotation functions
-        if !self.quotation_functions.is_empty() {
-            writeln!(&mut ir, "; Quotation functions")?;
-            ir.push_str(&self.quotation_functions);
-            writeln!(&mut ir)?;
-        }
-
-        // User-defined words and main
-        ir.push_str(&self.output);
-
-        Ok(ir)
-    }
-
-    /// Emit runtime function declarations
-    fn emit_runtime_declarations(&self, ir: &mut String) -> Result<(), CodeGenError> {
-        emit_runtime_decls(ir)
-    }
-}
+// Internal re-exports for submodules
+use state::{
+    BranchResult, MAX_VIRTUAL_STACK, QuotationFunctions, TailPosition, UNREACHABLE_PREDECESSOR,
+    VirtualValue, mangle_name,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::{Program, Statement, WordDef};
+    use std::collections::HashMap;
 
     #[test]
     fn test_codegen_hello_world() {
@@ -950,6 +558,8 @@ mod tests {
         // Test that dup on Int uses optimized load/store instead of clone_value
         // This verifies the Issue #186 optimization actually fires
         let mut codegen = CodeGen::new();
+
+        use crate::types::Type;
 
         let program = Program {
             includes: vec![],

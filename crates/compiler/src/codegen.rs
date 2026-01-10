@@ -4449,10 +4449,10 @@ impl CodeGen {
         _adjust_op: &str, // No longer needed, kept for compatibility
     ) -> Result<Option<String>, CodeGenError> {
         // Try fast path with virtual registers
-        if self.virtual_stack.len() >= 2 {
-            if let Some(result) = self.codegen_binary_op_virtual(stack_var, llvm_op)? {
-                return Ok(Some(result));
-            }
+        if self.virtual_stack.len() >= 2
+            && let Some(result) = self.codegen_binary_op_virtual(stack_var, llvm_op)?
+        {
+            return Ok(Some(result));
         }
 
         // Fall back to memory path

@@ -5058,16 +5058,31 @@ impl CodeGen {
         // Jump to condition check
         writeln!(&mut self.output, "  br label %{}", cond_block)?;
 
-        // Condition block with phi (Issue #215: extracted helper)
-        let popped_stack = self.codegen_loop_condition_block(
-            &cond_block,
-            &body_block,
-            &end_block,
-            stack_var,
-            &loop_stack_phi,
-            &loop_stack_next,
-            cond_body,
-            false, // while: continue when true
+        // Condition block
+        writeln!(&mut self.output, "{}:", cond_block)?;
+
+        // Phi for stack pointer at loop entry
+        writeln!(
+            &mut self.output,
+            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
+            loop_stack_phi, stack_var, loop_stack_next, body_block
+        )?;
+
+        // Execute condition body and get result
+        let cond_stack = self.codegen_statements(cond_body, &loop_stack_phi, false)?;
+        let (popped_stack, cond_val) = self.codegen_peek_pop_bool(&cond_stack)?;
+
+        // Branch: continue if condition is true (ne 0)
+        let cond_bool = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp ne i64 %{}, 0",
+            cond_bool, cond_val
+        )?;
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            cond_bool, body_block, end_block
         )?;
 
         // Body block
@@ -5089,74 +5104,6 @@ impl CodeGen {
 
         // End block
         writeln!(&mut self.output, "{}:", end_block)?;
-
-        Ok(popped_stack)
-    }
-
-    /// Generate loop condition block with phi nodes (Issue #215: extracted helper).
-    /// If `invert_condition` is true, continue when condition is false (until loop).
-    fn codegen_loop_condition_block(
-        &mut self,
-        cond_block: &str,
-        body_block: &str,
-        end_block: &str,
-        stack_var: &str,
-        loop_stack_phi: &str,
-        loop_stack_next: &str,
-        cond_body: &[Statement],
-        invert_condition: bool,
-    ) -> Result<String, CodeGenError> {
-        writeln!(&mut self.output, "{}:", cond_block)?;
-
-        // Phi for stack pointer at loop entry
-        writeln!(
-            &mut self.output,
-            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
-            loop_stack_phi, stack_var, loop_stack_next, body_block
-        )?;
-
-        // Execute condition body
-        let cond_stack = self.codegen_statements(cond_body, loop_stack_phi, false)?;
-
-        // Peek and pop condition value
-        let top_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            top_ptr, cond_stack
-        )?;
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, top_ptr
-        )?;
-        let cond_val = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            cond_val, slot1_ptr
-        )?;
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            popped_stack, cond_stack
-        )?;
-
-        // Branch on condition
-        let cond_bool = self.fresh_temp();
-        let cmp_op = if invert_condition { "eq" } else { "ne" };
-        writeln!(
-            &mut self.output,
-            "  %{} = icmp {} i64 %{}, 0",
-            cond_bool, cmp_op, cond_val
-        )?;
-        writeln!(
-            &mut self.output,
-            "  br i1 %{}, label %{}, label %{}",
-            cond_bool, body_block, end_block
-        )?;
 
         Ok(popped_stack)
     }

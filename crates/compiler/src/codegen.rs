@@ -5776,88 +5776,8 @@ impl CodeGen {
                     result
                 }
                 Pattern::VariantWithBindings { bindings, .. } => {
-                    // Named bindings: extract only bound fields using variant_field_at
-                    // variant_field_at expects: ( variant index -- field_value )
-                    //
-                    // Algorithm for bindings [a, b, c]:
-                    // - For each binding except last: dup, push idx, field_at, swap
-                    // - For last binding: push idx, field_at
-                    // This leaves fields in binding order: ( a b c )
-
-                    if bindings.is_empty() {
-                        // No bindings: just drop the variant
-                        let drop_stack = self.fresh_temp();
-                        writeln!(
-                            &mut self.output,
-                            "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
-                            drop_stack, stack_var
-                        )?;
-                        drop_stack
-                    } else {
-                        let mut current_stack = stack_var.to_string();
-                        let is_last = |idx: usize| idx == bindings.len() - 1;
-
-                        for (bind_idx, binding) in bindings.iter().enumerate() {
-                            // Find the field index for this binding
-                            let field_idx = field_names
-                                .iter()
-                                .position(|f| f == binding)
-                                .expect("binding validation should have caught unknown field");
-
-                            if !is_last(bind_idx) {
-                                // Not the last binding: dup, push idx, field_at, swap
-                                let dup_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
-                                    dup_stack, current_stack
-                                )?;
-
-                                let idx_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                                    idx_stack, dup_stack, field_idx
-                                )?;
-
-                                let field_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
-                                    field_stack, idx_stack
-                                )?;
-
-                                // Swap to get variant back on top: ( field variant )
-                                let swap_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_swap(ptr %{})",
-                                    swap_stack, field_stack
-                                )?;
-
-                                current_stack = swap_stack;
-                            } else {
-                                // Last binding: push idx, field_at
-                                let idx_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                                    idx_stack, current_stack, field_idx
-                                )?;
-
-                                let field_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
-                                    field_stack, idx_stack
-                                )?;
-
-                                current_stack = field_stack;
-                            }
-                        }
-
-                        current_stack
-                    }
+                    // Issue #213: Extracted to helper to reduce nesting
+                    self.codegen_extract_variant_bindings(stack_var, bindings, field_names)?
                 }
             };
 
@@ -5906,6 +5826,106 @@ impl CodeGen {
         )?;
 
         Ok(result_var)
+    }
+
+    /// Extract fields from a variant using named bindings (Issue #213: extracted to reduce nesting).
+    ///
+    /// Uses variant_field_at to extract only the bound fields in binding order.
+    /// For bindings [a, b, c], produces stack: ( a b c )
+    fn codegen_extract_variant_bindings(
+        &mut self,
+        stack_var: &str,
+        bindings: &[String],
+        field_names: &[String],
+    ) -> Result<String, CodeGenError> {
+        if bindings.is_empty() {
+            // No bindings: just drop the variant
+            let drop_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                drop_stack, stack_var
+            )?;
+            return Ok(drop_stack);
+        }
+
+        let mut current_stack = stack_var.to_string();
+        let last_idx = bindings.len() - 1;
+
+        for (bind_idx, binding) in bindings.iter().enumerate() {
+            let field_idx = field_names
+                .iter()
+                .position(|f| f == binding)
+                .expect("binding validation should have caught unknown field");
+
+            current_stack = if bind_idx != last_idx {
+                self.codegen_extract_field_middle(&current_stack, field_idx)?
+            } else {
+                self.codegen_extract_field_last(&current_stack, field_idx)?
+            };
+        }
+
+        Ok(current_stack)
+    }
+
+    /// Extract a field (not last) and keep variant on top: dup, push idx, field_at, swap
+    fn codegen_extract_field_middle(
+        &mut self,
+        stack_var: &str,
+        field_idx: usize,
+    ) -> Result<String, CodeGenError> {
+        let dup_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_dup(ptr %{})",
+            dup_stack, stack_var
+        )?;
+
+        let idx_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+            idx_stack, dup_stack, field_idx
+        )?;
+
+        let field_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+            field_stack, idx_stack
+        )?;
+
+        let swap_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_swap(ptr %{})",
+            swap_stack, field_stack
+        )?;
+
+        Ok(swap_stack)
+    }
+
+    /// Extract the last field (consumes variant): push idx, field_at
+    fn codegen_extract_field_last(
+        &mut self,
+        stack_var: &str,
+        field_idx: usize,
+    ) -> Result<String, CodeGenError> {
+        let idx_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+            idx_stack, stack_var, field_idx
+        )?;
+
+        let field_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+            field_stack, idx_stack
+        )?;
+
+        Ok(field_stack)
     }
 
     /// Generate code for pushing a quotation or closure onto the stack

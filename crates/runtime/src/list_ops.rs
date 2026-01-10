@@ -19,9 +19,23 @@
 //! my-list [ write_line ] list-each
 //! ```
 
-use crate::stack::{Stack, drop_stack_value, pop, pop_sv, push};
+use crate::error::set_runtime_error;
+use crate::stack::{Stack, drop_stack_value, get_stack_base, pop, pop_sv, push, stack_value_size};
 use crate::value::{Value, VariantData};
 use std::sync::Arc;
+
+/// Check if the stack has at least `n` values
+#[inline]
+fn stack_depth(stack: Stack) -> usize {
+    if stack.is_null() {
+        return 0;
+    }
+    let base = get_stack_base();
+    if base.is_null() {
+        return 0;
+    }
+    (stack as usize - base as usize) / stack_value_size()
+}
 
 /// Helper to drain any remaining stack values back to the base
 ///
@@ -411,22 +425,46 @@ pub unsafe extern "C" fn patch_seq_list_push(stack: Stack) -> Stack {
 /// Returns the value at the given index and true, or
 /// a placeholder value and false if index is out of bounds.
 ///
+/// # Error Handling
+/// - Empty stack: Sets runtime error, returns 0 and false
+/// - Type mismatch: Sets runtime error, returns 0 and false
+/// - Out of bounds: Returns 0 and false (no error set, this is expected)
+///
 /// # Safety
 /// Stack must have an Int on top and a Variant (list) below
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
     unsafe {
+        // Check stack depth before any pops to avoid partial consumption
+        if stack_depth(stack) < 2 {
+            set_runtime_error("list.get: stack underflow (need 2 values)");
+            return stack;
+        }
         let (stack, index_val) = pop(stack);
         let (stack, list_val) = pop(stack);
 
         let index = match index_val {
             Value::Int(i) => i,
-            _ => panic!("list.get: expected Int (index), got {:?}", index_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.get: expected Int (index), got {:?}",
+                    index_val
+                ));
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         let variant_data = match list_val {
             Value::Variant(v) => v,
-            _ => panic!("list.get: expected Variant (list), got {:?}", list_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.get: expected Variant (list), got {:?}",
+                    list_val
+                ));
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         if index < 0 || index as usize >= variant_data.fields.len() {
@@ -448,23 +486,48 @@ pub unsafe extern "C" fn patch_seq_list_get(stack: Stack) -> Stack {
 /// Returns a new list with the value at the given index replaced, and true.
 /// If index is out of bounds, returns the original list and false.
 ///
+/// # Error Handling
+/// - Empty stack: Sets runtime error, returns unchanged stack
+/// - Type mismatch: Sets runtime error, returns original list and false
+/// - Out of bounds: Returns original list and false (no error set, this is expected)
+///
 /// # Safety
 /// Stack must have Value on top, Int below, and Variant (list) below that
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_list_set(stack: Stack) -> Stack {
     unsafe {
+        // Check stack depth before any pops to avoid partial consumption
+        if stack_depth(stack) < 3 {
+            set_runtime_error("list.set: stack underflow (need 3 values)");
+            return stack;
+        }
         let (stack, value) = pop(stack);
         let (stack, index_val) = pop(stack);
         let (stack, list_val) = pop(stack);
 
         let index = match index_val {
             Value::Int(i) => i,
-            _ => panic!("list.set: expected Int (index), got {:?}", index_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.set: expected Int (index), got {:?}",
+                    index_val
+                ));
+                // Return the list and false
+                let stack = push(stack, list_val);
+                return push(stack, Value::Bool(false));
+            }
         };
 
         let variant_data = match &list_val {
             Value::Variant(v) => v,
-            _ => panic!("list.set: expected Variant (list), got {:?}", list_val),
+            _ => {
+                set_runtime_error(format!(
+                    "list.set: expected Variant (list), got {:?}",
+                    list_val
+                ));
+                let stack = push(stack, list_val);
+                return push(stack, Value::Bool(false));
+            }
         };
 
         if index < 0 || index as usize >= variant_data.fields.len() {
@@ -834,6 +897,110 @@ mod tests {
                 }
                 _ => panic!("Expected Variant"),
             }
+        }
+    }
+
+    #[test]
+    fn test_list_get_type_error_index() {
+        unsafe {
+            crate::error::clear_runtime_error();
+
+            let list = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                vec![Value::Int(1), Value::Int(2)],
+            )));
+
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, list);
+            let stack = push(stack, Value::Bool(true)); // Wrong type - should be Int
+            let stack = list_get(stack);
+
+            // Should have set an error
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("expected Int"));
+
+            // Should return (0, false)
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(false));
+            let (_stack, value) = pop(stack);
+            assert_eq!(value, Value::Int(0));
+        }
+    }
+
+    #[test]
+    fn test_list_get_type_error_list() {
+        unsafe {
+            crate::error::clear_runtime_error();
+
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(42)); // Wrong type - should be Variant
+            let stack = push(stack, Value::Int(0)); // index
+            let stack = list_get(stack);
+
+            // Should have set an error
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("expected Variant"));
+
+            // Should return (0, false)
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(false));
+            let (_stack, value) = pop(stack);
+            assert_eq!(value, Value::Int(0));
+        }
+    }
+
+    #[test]
+    fn test_list_set_type_error_index() {
+        unsafe {
+            crate::error::clear_runtime_error();
+
+            let list = Value::Variant(Arc::new(VariantData::new(
+                global_string("List".to_string()),
+                vec![Value::Int(1), Value::Int(2)],
+            )));
+
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, list);
+            let stack = push(stack, Value::Bool(true)); // Wrong type - should be Int
+            let stack = push(stack, Value::Int(99)); // new value
+            let stack = list_set(stack);
+
+            // Should have set an error
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("expected Int"));
+
+            // Should return (list, false)
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(false));
+            let (_stack, returned_list) = pop(stack);
+            assert!(matches!(returned_list, Value::Variant(_)));
+        }
+    }
+
+    #[test]
+    fn test_list_set_type_error_list() {
+        unsafe {
+            crate::error::clear_runtime_error();
+
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(42)); // Wrong type - should be Variant
+            let stack = push(stack, Value::Int(0)); // index
+            let stack = push(stack, Value::Int(99)); // new value
+            let stack = list_set(stack);
+
+            // Should have set an error
+            assert!(crate::error::has_runtime_error());
+            let error = crate::error::take_runtime_error().unwrap();
+            assert!(error.contains("expected Variant"));
+
+            // Should return (original value, false)
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(false));
+            let (_stack, returned) = pop(stack);
+            assert_eq!(returned, Value::Int(42)); // Original value returned
         }
     }
 }

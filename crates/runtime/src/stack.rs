@@ -17,6 +17,12 @@ use std::sync::Arc;
 /// sp - 1 points to the top value, sp - 2 to second, etc.
 pub type Stack = *mut StackValue;
 
+/// Returns the size of a StackValue in bytes (for stack depth calculations)
+#[inline]
+pub fn stack_value_size() -> usize {
+    std::mem::size_of::<StackValue>()
+}
+
 /// Discriminant values matching codegen
 pub const DISC_INT: u64 = 0;
 pub const DISC_FLOAT: u64 = 1;

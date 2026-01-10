@@ -4441,47 +4441,69 @@ impl CodeGen {
 
     /// Generate inline code for binary arithmetic (add/subtract).
     /// Issue #189: Uses virtual registers when both operands are available.
+    /// Issue #215: Split into fast/slow path helpers to reduce function size.
     fn codegen_inline_binary_op(
         &mut self,
         stack_var: &str,
         llvm_op: &str,
         _adjust_op: &str, // No longer needed, kept for compatibility
     ) -> Result<Option<String>, CodeGenError> {
-        // Issue #189: Check if both operands are in virtual registers
-        if self.virtual_stack.len() >= 2 {
-            // Fast path: both values in virtual registers
-            let val_b = self.virtual_stack.pop().unwrap();
-            let val_a = self.virtual_stack.pop().unwrap();
-
-            // Both must be integers for this optimization
-            if let (
-                VirtualValue::Int { ssa_var: ssa_a, .. },
-                VirtualValue::Int { ssa_var: ssa_b, .. },
-            ) = (&val_a, &val_b)
-            {
-                // Perform the operation directly on SSA values
-                let op_result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = {} i64 %{}, %{}",
-                    op_result, llvm_op, ssa_a, ssa_b
-                )?;
-
-                // Push result to virtual stack
-                let result = VirtualValue::Int {
-                    ssa_var: op_result,
-                    value: 0, // We don't track constant values through operations yet
-                };
-                return Ok(Some(self.push_virtual(result, stack_var)?));
-            } else {
-                // Not both integers - restore original order and fall through to memory path
-                // Order: push a first (second from top), then b (top) - same order as before pops
-                self.virtual_stack.push(val_a);
-                self.virtual_stack.push(val_b);
-            }
+        // Try fast path with virtual registers
+        if self.virtual_stack.len() >= 2
+            && let Some(result) = self.codegen_binary_op_virtual(stack_var, llvm_op)?
+        {
+            return Ok(Some(result));
         }
 
-        // Slow path: spill and use memory
+        // Fall back to memory path
+        self.codegen_binary_op_memory(stack_var, llvm_op)
+    }
+
+    /// Fast path: both operands in virtual registers (Issue #215: extracted helper).
+    /// Returns None if operands aren't both integers, leaving virtual_stack unchanged.
+    fn codegen_binary_op_virtual(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        let val_b = self.virtual_stack.pop().unwrap();
+        let val_a = self.virtual_stack.pop().unwrap();
+
+        // Both must be integers for this optimization
+        let (ssa_a, ssa_b) = match (&val_a, &val_b) {
+            (VirtualValue::Int { ssa_var: a, .. }, VirtualValue::Int { ssa_var: b, .. }) => {
+                (a.clone(), b.clone())
+            }
+            _ => {
+                // Not both integers - restore and signal fallback needed
+                self.virtual_stack.push(val_a);
+                self.virtual_stack.push(val_b);
+                return Ok(None);
+            }
+        };
+
+        // Perform the operation directly on SSA values
+        let op_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            op_result, llvm_op, ssa_a, ssa_b
+        )?;
+
+        // Push result to virtual stack
+        let result = VirtualValue::Int {
+            ssa_var: op_result,
+            value: 0, // We don't track constant values through operations yet
+        };
+        Ok(Some(self.push_virtual(result, stack_var)?))
+    }
+
+    /// Slow path: spill virtual stack and operate on memory (Issue #215: extracted helper).
+    fn codegen_binary_op_memory(
+        &mut self,
+        stack_var: &str,
+        llvm_op: &str,
+    ) -> Result<Option<String>, CodeGenError> {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
@@ -4535,8 +4557,7 @@ impl CodeGen {
             op_result, llvm_op, val_a, val_b
         )?;
 
-        // Store result: discriminant 0 at slot0, result at slot1
-        // ptr_a already has discriminant 0 from the original push, so we only need to update slot1
+        // Store result (discriminant already 0 from original push)
         writeln!(
             &mut self.output,
             "  store i64 %{}, ptr %{}",
@@ -5684,76 +5705,8 @@ impl CodeGen {
             arm_info.push((variant_name, block, field_count, field_names));
         }
 
-        // Step 4: Generate cascading if-else for each arm
-        // We need to preserve the stack with symbol on top for each comparison
-        let mut current_tag_stack = tagged_stack.clone();
-        for (i, (variant_name, arm_block, _, _)) in arm_info.iter().enumerate() {
-            let is_last = i == arm_info.len() - 1;
-            let next_check = if is_last {
-                default_block.clone()
-            } else {
-                self.fresh_block(&format!("match_check_{}", i + 1))
-            };
-
-            // For all but last arm: dup the tag, compare, branch
-            // For last arm: just compare (tag will be consumed)
-            let compare_stack = if !is_last {
-                let dup = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
-                    dup, current_tag_stack
-                )?;
-                dup
-            } else {
-                current_tag_stack.clone()
-            };
-
-            // Create string constant for variant name
-            let str_const = self.get_string_global(variant_name)?;
-
-            // Compare symbol with C string
-            let cmp_stack = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_symbol_eq_cstr(ptr %{}, ptr {})",
-                cmp_stack, compare_stack, str_const
-            )?;
-
-            // Peek the bool result
-            let cmp_val = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call i1 @patch_seq_peek_bool_value(ptr %{})",
-                cmp_val, cmp_stack
-            )?;
-
-            // Pop the bool and update stack for next iteration
-            let popped = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
-                popped, cmp_stack
-            )?;
-
-            // Branch: if true goto arm, else continue checking
-            writeln!(
-                &mut self.output,
-                "  br i1 %{}, label %{}, label %{}",
-                cmp_val, arm_block, next_check
-            )?;
-
-            // Start next check block (unless this was the last arm)
-            if !is_last {
-                writeln!(&mut self.output, "{}:", next_check)?;
-                // Update current_tag_stack to the popped version for next iteration
-                current_tag_stack = popped;
-            }
-        }
-
-        // Step 5: Generate unreachable default block (should never reach for exhaustive match)
-        writeln!(&mut self.output, "{}:", default_block)?;
-        writeln!(&mut self.output, "  unreachable")?;
+        // Step 4-5: Generate cascading if-else dispatch (Issue #215: extracted helper)
+        self.codegen_match_dispatch(&tagged_stack, &arm_info, &default_block)?;
 
         // Step 6: Generate each match arm
         // We use the original stack_var which still has the variant
@@ -5776,88 +5729,8 @@ impl CodeGen {
                     result
                 }
                 Pattern::VariantWithBindings { bindings, .. } => {
-                    // Named bindings: extract only bound fields using variant_field_at
-                    // variant_field_at expects: ( variant index -- field_value )
-                    //
-                    // Algorithm for bindings [a, b, c]:
-                    // - For each binding except last: dup, push idx, field_at, swap
-                    // - For last binding: push idx, field_at
-                    // This leaves fields in binding order: ( a b c )
-
-                    if bindings.is_empty() {
-                        // No bindings: just drop the variant
-                        let drop_stack = self.fresh_temp();
-                        writeln!(
-                            &mut self.output,
-                            "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
-                            drop_stack, stack_var
-                        )?;
-                        drop_stack
-                    } else {
-                        let mut current_stack = stack_var.to_string();
-                        let is_last = |idx: usize| idx == bindings.len() - 1;
-
-                        for (bind_idx, binding) in bindings.iter().enumerate() {
-                            // Find the field index for this binding
-                            let field_idx = field_names
-                                .iter()
-                                .position(|f| f == binding)
-                                .expect("binding validation should have caught unknown field");
-
-                            if !is_last(bind_idx) {
-                                // Not the last binding: dup, push idx, field_at, swap
-                                let dup_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
-                                    dup_stack, current_stack
-                                )?;
-
-                                let idx_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                                    idx_stack, dup_stack, field_idx
-                                )?;
-
-                                let field_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
-                                    field_stack, idx_stack
-                                )?;
-
-                                // Swap to get variant back on top: ( field variant )
-                                let swap_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_swap(ptr %{})",
-                                    swap_stack, field_stack
-                                )?;
-
-                                current_stack = swap_stack;
-                            } else {
-                                // Last binding: push idx, field_at
-                                let idx_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
-                                    idx_stack, current_stack, field_idx
-                                )?;
-
-                                let field_stack = self.fresh_temp();
-                                writeln!(
-                                    &mut self.output,
-                                    "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
-                                    field_stack, idx_stack
-                                )?;
-
-                                current_stack = field_stack;
-                            }
-                        }
-
-                        current_stack
-                    }
+                    // Issue #213: Extracted to helper to reduce nesting
+                    self.codegen_extract_variant_bindings(stack_var, bindings, field_names)?
                 }
             };
 
@@ -5906,6 +5779,185 @@ impl CodeGen {
         )?;
 
         Ok(result_var)
+    }
+
+    /// Extract fields from a variant using named bindings (Issue #213: extracted to reduce nesting).
+    ///
+    /// Uses variant_field_at to extract only the bound fields in binding order.
+    /// For bindings [a, b, c], produces stack: ( a b c )
+    fn codegen_extract_variant_bindings(
+        &mut self,
+        stack_var: &str,
+        bindings: &[String],
+        field_names: &[String],
+    ) -> Result<String, CodeGenError> {
+        if bindings.is_empty() {
+            // No bindings: just drop the variant
+            let drop_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                drop_stack, stack_var
+            )?;
+            return Ok(drop_stack);
+        }
+
+        let mut current_stack = stack_var.to_string();
+        let last_idx = bindings.len() - 1;
+
+        for (bind_idx, binding) in bindings.iter().enumerate() {
+            let field_idx = field_names
+                .iter()
+                .position(|f| f == binding)
+                .expect("binding validation should have caught unknown field");
+
+            current_stack = if bind_idx != last_idx {
+                self.codegen_extract_field_middle(&current_stack, field_idx)?
+            } else {
+                self.codegen_extract_field_last(&current_stack, field_idx)?
+            };
+        }
+
+        Ok(current_stack)
+    }
+
+    /// Extract a field (not last) and keep variant on top: dup, push idx, field_at, swap
+    fn codegen_extract_field_middle(
+        &mut self,
+        stack_var: &str,
+        field_idx: usize,
+    ) -> Result<String, CodeGenError> {
+        let dup_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_dup(ptr %{})",
+            dup_stack, stack_var
+        )?;
+
+        let idx_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+            idx_stack, dup_stack, field_idx
+        )?;
+
+        let field_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+            field_stack, idx_stack
+        )?;
+
+        let swap_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_swap(ptr %{})",
+            swap_stack, field_stack
+        )?;
+
+        Ok(swap_stack)
+    }
+
+    /// Extract the last field (consumes variant): push idx, field_at
+    fn codegen_extract_field_last(
+        &mut self,
+        stack_var: &str,
+        field_idx: usize,
+    ) -> Result<String, CodeGenError> {
+        let idx_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_push_int(ptr %{}, i64 {})",
+            idx_stack, stack_var, field_idx
+        )?;
+
+        let field_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_variant_field_at(ptr %{})",
+            field_stack, idx_stack
+        )?;
+
+        Ok(field_stack)
+    }
+
+    /// Generate cascading if-else dispatch for match arms (Issue #215: extracted helper).
+    ///
+    /// Compares the tag symbol against each variant name, branching to the matching arm.
+    fn codegen_match_dispatch(
+        &mut self,
+        tagged_stack: &str,
+        arm_info: &[(String, String, usize, Vec<String>)],
+        default_block: &str,
+    ) -> Result<(), CodeGenError> {
+        let mut current_tag_stack = tagged_stack.to_string();
+
+        for (i, (variant_name, arm_block, _, _)) in arm_info.iter().enumerate() {
+            let is_last = i == arm_info.len() - 1;
+            let next_check = if is_last {
+                default_block.to_string()
+            } else {
+                self.fresh_block(&format!("match_check_{}", i + 1))
+            };
+
+            // For all but last arm: dup the tag, compare, branch
+            // For last arm: just compare (tag will be consumed)
+            let compare_stack = if !is_last {
+                let dup = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
+                    dup, current_tag_stack
+                )?;
+                dup
+            } else {
+                current_tag_stack.clone()
+            };
+
+            // Compare symbol with C string
+            let str_const = self.get_string_global(variant_name)?;
+            let cmp_stack = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_symbol_eq_cstr(ptr %{}, ptr {})",
+                cmp_stack, compare_stack, str_const
+            )?;
+
+            // Peek the bool result
+            let cmp_val = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call i1 @patch_seq_peek_bool_value(ptr %{})",
+                cmp_val, cmp_stack
+            )?;
+
+            // Pop the bool
+            let popped = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = call ptr @patch_seq_pop_stack(ptr %{})",
+                popped, cmp_stack
+            )?;
+
+            // Branch: if true goto arm, else continue checking
+            writeln!(
+                &mut self.output,
+                "  br i1 %{}, label %{}, label %{}",
+                cmp_val, arm_block, next_check
+            )?;
+
+            // Start next check block (unless this was the last arm)
+            if !is_last {
+                writeln!(&mut self.output, "{}:", next_check)?;
+                current_tag_stack = popped;
+            }
+        }
+
+        // Generate unreachable default block (should never reach for exhaustive match)
+        writeln!(&mut self.output, "{}:", default_block)?;
+        writeln!(&mut self.output, "  unreachable")?;
+
+        Ok(())
     }
 
     /// Generate code for pushing a quotation or closure onto the stack

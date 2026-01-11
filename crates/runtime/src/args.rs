@@ -22,7 +22,7 @@
 //! ;
 //! ```
 
-use crate::stack::{push, Stack};
+use crate::stack::{Stack, push};
 use crate::value::Value;
 use std::ffi::CStr;
 use std::sync::OnceLock;

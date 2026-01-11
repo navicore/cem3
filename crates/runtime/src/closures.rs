@@ -24,7 +24,7 @@
 //!
 //! See <https://github.com/navicore/patch-seq> for roadmap.
 
-use crate::stack::{pop, push, Stack};
+use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use std::sync::Arc;
 

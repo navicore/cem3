@@ -178,7 +178,7 @@ pub enum Value {
         /// Function pointer (transmuted to function taking Stack + environment)
         fn_ptr: usize,
         /// Captured values from creation site (Arc for TCO support)
-        /// Ordered top-down: env[0] is top of stack at creation
+        /// Ordered top-down: `env[0]` is top of stack at creation
         env: Arc<[Value]>,
     },
 

@@ -22,7 +22,7 @@
 //! ;
 //! ```
 
-use crate::stack::{Stack, push};
+use crate::stack::{push, Stack};
 use crate::value::Value;
 use std::ffi::CStr;
 use std::sync::OnceLock;
@@ -59,7 +59,7 @@ pub unsafe extern "C" fn patch_seq_args_init(argc: i32, argv: *const *const i8) 
 ///
 /// Stack effect: ( -- Int )
 ///
-/// Returns the total count including the program name (argv[0]).
+/// Returns the total count including the program name (argv\[0\]).
 /// A program run with no arguments returns 1.
 ///
 /// # Safety

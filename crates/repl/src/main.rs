@@ -19,7 +19,7 @@
 //!   :clear                  # Clear the session (reset stack)
 //!   :show                   # Show current file contents
 //!   :edit, :e               # Open file in $EDITOR
-//!   :include <mod>          # Include a module (e.g., std:math)
+//!   :include \<mod\>        # Include a module (e.g., std:math)
 //!   :help                   # Show help
 
 mod app;

@@ -7,6 +7,14 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    // When building for docs.rs, skip runtime embedding entirely
+    // docs.rs sets DOCS_RS=1 in the environment
+    if env::var("DOCS_RS").is_ok() {
+        // Set a dummy path - lib.rs will use cfg(docsrs) to skip include_bytes
+        println!("cargo:rustc-env=SEQ_RUNTIME_LIB_PATH=/dev/null");
+        return;
+    }
+
     // Verify that seq-runtime version matches compiler version
     verify_runtime_version();
 

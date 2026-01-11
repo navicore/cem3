@@ -29,5 +29,15 @@ toml.workspace = true
 name = "seqc"
 path = "src/lib.rs"
 
+[features]
+# Feature enabled when building on docs.rs to skip runtime embedding
+docsrs = []
+
+[package.metadata.docs.rs]
+# Enable the docsrs feature when building on docs.rs
+features = ["docsrs"]
+# Set cfg flag for conditional compilation
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dev-dependencies]
 tempfile.workspace = true

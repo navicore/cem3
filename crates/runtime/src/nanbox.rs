@@ -181,11 +181,11 @@ impl NanBoxedValue {
     #[inline(always)]
     pub fn tag(self) -> u8 {
         debug_assert!(self.is_boxed(), "tag() called on float value");
-        // Tag is in bits 47:44
+        // Tag is in bits 50:47
         ((self.0 & TAG_MASK) >> TAG_SHIFT) as u8
     }
 
-    /// Get the 44-bit payload (only valid if is_boxed() is true)
+    /// Get the 47-bit payload (only valid if is_boxed() is true)
     #[inline(always)]
     pub fn payload(self) -> u64 {
         debug_assert!(self.is_boxed(), "payload() called on float value");
@@ -259,10 +259,10 @@ impl NanBoxedValue {
     /// Helper to create a boxed value from tag and payload
     #[inline(always)]
     fn make_boxed(tag: NanBoxTag, payload: u64) -> Self {
-        // Encoding: 0xFFFC in bits 63:48, tag in bits 47:44, payload in bits 43:0
+        // Encoding: 0xFFF8 in bits 63:51, tag in bits 50:47, payload in bits 46:0
         debug_assert!(
             payload <= PAYLOAD_MASK,
-            "Payload 0x{:x} exceeds 44-bit limit",
+            "Payload 0x{:x} exceeds 47-bit limit",
             payload
         );
         NanBoxedValue(NANBOX_BASE | ((tag as u64) << TAG_SHIFT) | payload)
@@ -286,7 +286,7 @@ impl NanBoxedValue {
     /// Create a NaN-boxed integer
     ///
     /// # Panics
-    /// Panics if the integer is outside the 48-bit signed range.
+    /// Panics if the integer is outside the 47-bit signed range.
     #[inline(always)]
     pub fn from_int(n: i64) -> Self {
         debug_assert!(
@@ -639,7 +639,7 @@ impl NanBoxedValue {
     /// dropped (via `drop_nanboxed`) to avoid memory leaks.
     ///
     /// # Panics
-    /// Panics if an integer value is outside the 48-bit range.
+    /// Panics if an integer value is outside the 47-bit range.
     pub fn from_value(value: &Value) -> Self {
         match value {
             Value::Int(n) => {
@@ -969,12 +969,12 @@ mod tests {
         assert!(v.is_int());
         assert_eq!(v.as_int(), -42);
 
-        // Large positive (within 48-bit range)
+        // Large positive (within 47-bit range)
         let v = NanBoxedValue::from_int(MAX_NANBOX_INT);
         assert!(v.is_int());
         assert_eq!(v.as_int(), MAX_NANBOX_INT);
 
-        // Large negative (within 48-bit range)
+        // Large negative (within 47-bit range)
         let v = NanBoxedValue::from_int(MIN_NANBOX_INT);
         assert!(v.is_int());
         assert_eq!(v.as_int(), MIN_NANBOX_INT);

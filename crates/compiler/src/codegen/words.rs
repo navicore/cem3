@@ -588,10 +588,11 @@ impl CodeGen {
         self.push_virtual(value, stack_var)
     }
 
-    /// Generate code for a float literal: ( -- f )
+    /// Generate code for a float literal: ( -- f ) - Non-nanbox version
     ///
     /// Uses LLVM's hexadecimal floating point format for exact representation.
     /// Handles special values (NaN, Infinity) explicitly.
+    #[cfg(not(feature = "nanbox"))]
     pub(super) fn codegen_float_literal(
         &mut self,
         stack_var: &str,
@@ -636,7 +637,51 @@ impl CodeGen {
         Ok(result_var)
     }
 
-    /// Generate code for a boolean literal: ( -- b )
+    /// Generate code for a float literal: ( -- f ) - NaN-box version
+    ///
+    /// In NaN-box mode, floats are stored directly as their bit pattern.
+    /// NaN values that could collide with boxed values are canonicalized.
+    #[cfg(feature = "nanbox")]
+    pub(super) fn codegen_float_literal(
+        &mut self,
+        stack_var: &str,
+        f: f64,
+    ) -> Result<String, CodeGenError> {
+        // NaN-boxing threshold: values >= this are in our NaN-box range
+        const NANBOX_THRESHOLD: u64 = 0xFFF8_0000_0000_0000;
+        const CANONICAL_NAN: u64 = 0x7FF8_0000_0000_0000;
+
+        // Spill virtual values before writing to memory
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+
+        // Get float bits - canonicalize if it could collide with nanbox range
+        let float_bits = f.to_bits();
+        let stored_bits = if float_bits >= NANBOX_THRESHOLD {
+            CANONICAL_NAN
+        } else {
+            float_bits
+        };
+
+        // Store float bits directly as i64 (no encoding needed for normal floats)
+        writeln!(
+            &mut self.output,
+            "  store i64 {}, ptr %{}",
+            stored_bits, stack_var
+        )?;
+
+        // Return pointer to next Value slot (8 bytes in nanbox mode)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
+
+        Ok(result_var)
+    }
+
+    /// Generate code for a boolean literal: ( -- b ) - Non-nanbox version
+    #[cfg(not(feature = "nanbox"))]
     pub(super) fn codegen_bool_literal(
         &mut self,
         stack_var: &str,
@@ -670,6 +715,43 @@ impl CodeGen {
         writeln!(
             &mut self.output,
             "  %{} = getelementptr %Value, ptr %{}, i64 1",
+            result_var, stack_var
+        )?;
+
+        Ok(result_var)
+    }
+
+    /// Generate code for a boolean literal: ( -- b ) - NaN-box version
+    #[cfg(feature = "nanbox")]
+    pub(super) fn codegen_bool_literal(
+        &mut self,
+        stack_var: &str,
+        b: bool,
+    ) -> Result<String, CodeGenError> {
+        // NaN-boxing constants (must match runtime/nanbox.rs)
+        const NANBOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+        const TAG_SHIFT: u32 = 47;
+        const TAG_BOOL: u64 = 1;
+
+        // Spill virtual values before writing to memory
+        let stack_var = self.spill_virtual_stack(stack_var)?;
+
+        // Encode as NaN-boxed Bool: NANBOX_BASE | (TAG_BOOL << TAG_SHIFT) | payload
+        let payload = if b { 1 } else { 0 };
+        let nanboxed = NANBOX_BASE | (TAG_BOOL << TAG_SHIFT) | payload;
+
+        // Store single i64 NaN-boxed value
+        writeln!(
+            &mut self.output,
+            "  store i64 {}, ptr %{}",
+            nanboxed, stack_var
+        )?;
+
+        // Return pointer to next Value slot (8 bytes in nanbox mode)
+        let result_var = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
             result_var, stack_var
         )?;
 

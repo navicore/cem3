@@ -23,7 +23,7 @@ toml.workspace = true
 
 [build-dependencies]
 # Version must EXACTLY match workspace version - enforced by build.rs and CI
-seq-runtime = { path = "../runtime", version = "=0.19.10" }
+seq-runtime = { path = "../runtime", version = "=0.19.10", optional = true }
 toml.workspace = true
 
 [lib]
@@ -34,7 +34,10 @@ path = "src/lib.rs"
 # Feature enabled when building on docs.rs to skip runtime embedding
 docsrs = []
 # Enable NaN-boxing mode (8-byte values instead of 40-byte)
-nanbox = []
+# This MUST forward to seq-runtime to ensure compiler and runtime use same representation
+nanbox = ["seq-runtime/nanbox"]
+# Default: include seq-runtime for building
+default = ["seq-runtime"]
 
 [package.metadata.docs.rs]
 # Enable the docsrs feature when building on docs.rs

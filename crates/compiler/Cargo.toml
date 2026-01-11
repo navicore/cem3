@@ -33,6 +33,8 @@ path = "src/lib.rs"
 [features]
 # Feature enabled when building on docs.rs to skip runtime embedding
 docsrs = []
+# Enable NaN-boxing mode (8-byte values instead of 40-byte)
+nanbox = []
 
 [package.metadata.docs.rs]
 # Enable the docsrs feature when building on docs.rs

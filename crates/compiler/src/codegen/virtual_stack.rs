@@ -29,6 +29,7 @@ impl CodeGen {
     /// - Operations that access values deeper than virtual stack
     ///
     /// Returns the new stack pointer after spilling all values.
+    #[cfg(not(feature = "nanbox"))]
     pub(super) fn spill_virtual_stack(&mut self, stack_var: &str) -> Result<String, CodeGenError> {
         if self.virtual_stack.is_empty() {
             return Ok(stack_var.to_string());
@@ -79,11 +80,90 @@ impl CodeGen {
                 }
             }
 
-            // Advance stack pointer to next Value slot
+            // Advance stack pointer to next Value slot (40 bytes)
             let next_sp = self.fresh_temp();
             writeln!(
                 &mut self.output,
                 "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                next_sp, current_sp
+            )?;
+            current_sp = next_sp;
+        }
+
+        Ok(current_sp)
+    }
+
+    /// Spill all virtual register values to memory (NaN-box mode).
+    ///
+    /// In NaN-box mode, values are stored as single i64 values using NaN-boxing encoding.
+    #[cfg(feature = "nanbox")]
+    pub(super) fn spill_virtual_stack(&mut self, stack_var: &str) -> Result<String, CodeGenError> {
+        // NaN-boxing constants (must match runtime/nanbox.rs)
+        const NANBOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+        const TAG_SHIFT: u32 = 47;
+        const PAYLOAD_MASK: u64 = 0x0000_7FFF_FFFF_FFFF;
+        const TAG_INT: u64 = 0;
+        const TAG_BOOL: u64 = 1;
+
+        if self.virtual_stack.is_empty() {
+            return Ok(stack_var.to_string());
+        }
+
+        let mut current_sp = stack_var.to_string();
+
+        // Spill each value to memory (oldest first, so they're in correct order)
+        for value in std::mem::take(&mut self.virtual_stack) {
+            match &value {
+                VirtualValue::Int { ssa_var, .. } => {
+                    // Encode as NaN-boxed Int: NANBOX_BASE | (payload & PAYLOAD_MASK)
+                    let masked = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = and i64 %{}, {}",
+                        masked, ssa_var, PAYLOAD_MASK
+                    )?;
+                    let boxed = self.fresh_temp();
+                    let base = NANBOX_BASE | (TAG_INT << TAG_SHIFT);
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = or i64 %{}, {}",
+                        boxed, masked, base
+                    )?;
+                    writeln!(
+                        &mut self.output,
+                        "  store i64 %{}, ptr %{}",
+                        boxed, current_sp
+                    )?;
+                }
+                VirtualValue::Bool { ssa_var } => {
+                    // Bool is already boxed (from codegen_push_bool_nanbox)
+                    writeln!(
+                        &mut self.output,
+                        "  store i64 %{}, ptr %{}",
+                        ssa_var, current_sp
+                    )?;
+                }
+                VirtualValue::Float { ssa_var } => {
+                    // Float: store directly as i64 bits (floats are not NaN-boxed)
+                    let bits = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = bitcast double %{} to i64",
+                        bits, ssa_var
+                    )?;
+                    writeln!(
+                        &mut self.output,
+                        "  store i64 %{}, ptr %{}",
+                        bits, current_sp
+                    )?;
+                }
+            }
+
+            // Advance stack pointer to next Value slot (8 bytes in nanbox mode)
+            let next_sp = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
                 next_sp, current_sp
             )?;
             current_sp = next_sp;

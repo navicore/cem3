@@ -483,7 +483,7 @@ impl TypeChecker {
 
             // Look ahead: if this is a quotation followed by a word that expects specific quotation type,
             // set the expected type before checking the quotation
-            let saved_expected_type = if matches!(stmt, Statement::Quotation { span: None, .. }) {
+            let saved_expected_type = if matches!(stmt, Statement::Quotation { .. }) {
                 // Save the current expected type
                 let saved = self.expected_quotation_type.borrow().clone();
 

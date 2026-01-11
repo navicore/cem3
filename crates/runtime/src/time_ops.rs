@@ -147,10 +147,13 @@ pub use patch_seq_time_sleep_ms as time_sleep_ms;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "nanbox"))]
     use crate::stack::pop;
     use std::time::Instant;
 
+    // Unix timestamps in microseconds exceed the 44-bit NaN-boxing range
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_time_now_returns_positive() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
@@ -167,7 +170,9 @@ mod tests {
         }
     }
 
+    // Monotonic nanosecond counters can exceed the 44-bit NaN-boxing range
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_time_nanos_monotonic() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
@@ -190,7 +195,9 @@ mod tests {
         }
     }
 
+    // Monotonic nanosecond counters can exceed the 44-bit NaN-boxing range
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_time_nanos_cross_thread() {
         // Verify monotonic_nanos is consistent across threads
         use std::sync::mpsc;

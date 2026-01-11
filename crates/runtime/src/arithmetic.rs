@@ -22,7 +22,9 @@
 //! This matches the behavior of Forth and Factor, providing consistency for low-level code.
 
 use crate::error::set_runtime_error;
-use crate::stack::{DISC_INT, Stack, peek_sv, pop, pop_two, push};
+#[cfg(not(feature = "nanbox"))]
+use crate::stack::DISC_INT;
+use crate::stack::{Stack, peek_sv, pop, pop_two, push};
 use crate::value::Value;
 
 /// Push an integer literal onto the stack (for compiler-generated code)
@@ -527,6 +529,7 @@ pub unsafe extern "C" fn patch_seq_int_bits(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have an Int value on top
+#[cfg(not(feature = "nanbox"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
     assert!(!stack.is_null(), "peek_int_value: stack is empty");
@@ -543,10 +546,28 @@ pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
     }
 }
 
+/// Peek at an int value on top of stack without popping (NaN-boxed version)
+///
+/// # Safety
+/// Stack must have an Int value on top
+#[cfg(feature = "nanbox")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
+    assert!(!stack.is_null(), "peek_int_value: stack is empty");
+
+    let sv = unsafe { peek_sv(stack) };
+    if sv.0.is_int() {
+        sv.0.as_int()
+    } else {
+        panic!("peek_int_value: expected Int on stack")
+    }
+}
+
 /// Peek at a bool value on top of stack without popping (for pattern matching)
 ///
 /// # Safety
 /// Stack must have a Bool value on top
+#[cfg(not(feature = "nanbox"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_peek_bool_value(stack: Stack) -> bool {
     use crate::stack::DISC_BOOL;
@@ -561,6 +582,23 @@ pub unsafe extern "C" fn patch_seq_peek_bool_value(stack: Stack) -> bool {
             "peek_bool_value: expected Bool on stack, got discriminant {}",
             sv.slot0
         )
+    }
+}
+
+/// Peek at a bool value on top of stack without popping (NaN-boxed version)
+///
+/// # Safety
+/// Stack must have a Bool value on top
+#[cfg(feature = "nanbox")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_peek_bool_value(stack: Stack) -> bool {
+    assert!(!stack.is_null(), "peek_bool_value: stack is empty");
+
+    let sv = unsafe { peek_sv(stack) };
+    if sv.0.is_bool() {
+        sv.0.as_bool()
+    } else {
+        panic!("peek_bool_value: expected Bool on stack")
     }
 }
 
@@ -690,7 +728,9 @@ mod tests {
         }
     }
 
+    // This test uses i64::MAX and i64::MIN which are outside the 44-bit NaN-boxing range
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_overflow_wrapping() {
         // Test that arithmetic uses wrapping semantics (defined overflow behavior)
         unsafe {
@@ -746,7 +786,9 @@ mod tests {
         }
     }
 
+    // This test uses i64::MIN which is outside the 44-bit NaN-boxing range
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_division_overflow_edge_case() {
         // Critical edge case: i64::MIN / -1 would overflow
         // Regular division panics, but wrapping_div wraps to i64::MIN

@@ -9,8 +9,6 @@
 [![vim-line](https://img.shields.io/crates/v/vim-line.svg?label=vim-line)](https://crates.io/crates/vim-line)
 
 [![seq-compiler docs](https://img.shields.io/docsrs/seq-compiler?label=seq-compiler%20docs)](https://docs.rs/seq-compiler)
-[![seq-repl docs](https://img.shields.io/docsrs/seq-repl?label=seq-repl%20docs)](https://docs.rs/seq-repl)
-[![seq-lsp docs](https://img.shields.io/docsrs/seq-lsp?label=seq-lsp%20docs)](https://docs.rs/seq-lsp)
 [![seq-runtime docs](https://img.shields.io/docsrs/seq-runtime?label=seq-runtime%20docs)](https://docs.rs/seq-runtime)
 [![vim-line docs](https://img.shields.io/docsrs/vim-line?label=vim-line%20docs)](https://docs.rs/vim-line)
 

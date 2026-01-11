@@ -33,6 +33,8 @@ union Option {
 
 **In other languages:** Java traditionally uses inheritance hierarchies; Java 17+ added sealed classes and pattern matching. C# has similar recent additions. Rust and Swift have ADTs as core features. In JavaScript/TypeScript, discriminated unions with type fields achieve a similar pattern.
 
+**Disambiguation:** "ADT" also stands for "Abstract Data Type" (Barbara Liskov, CLU, 1974) - a different concept about encapsulation and defining types by their operations rather than their representation. Abstract data types influenced object-oriented programming. Seq uses ADT in the *algebraic* sense from ML, not the abstract sense from CLU.
+
 ---
 
 ## Closure

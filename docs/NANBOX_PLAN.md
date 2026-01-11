@@ -116,11 +116,13 @@ All runtime builtins need updated discriminant checks:
 3. Update conversion functions with both paths
 4. Ensure all 272+ tests pass in both modes
 
-### Phase 3: Codegen Updates
+### Phase 3: Codegen Updates (Highest Risk)
 1. Update `%Value` LLVM type conditionally
 2. Update pointer arithmetic (getelementptr offsets)
 3. Update inline operations for new layout
 4. Ensure virtual stack works with new size
+
+**Checkpoint**: Run full test suite after LLVM IR changes. Do not proceed to Phase 4 until all tests pass in nanbox mode.
 
 ### Phase 4: FFI Boundaries
 1. Update all `extern "C"` functions
@@ -171,12 +173,72 @@ struct WeaveCtxData { yield_chan: Arc<ChannelData>, resume_chan: Arc<ChannelData
 3. **Integration tests**: All existing tests must pass
 4. **Benchmarks**: Compare before/after on compute-heavy examples
 
-## Open Questions
+## Design Decisions
 
-1. **Integer overflow policy**: Error at compile time? Runtime? Silent wrap?
-2. **NaN canonicalization**: Store canonical NaN, or reserve NaN range?
-3. **Quotation allocation**: Arena allocator? Per-quotation heap alloc?
-4. **Phased rollout**: Feature flag for gradual adoption?
+### 1. Integer Overflow Policy
+
+**Decision**: Compile-time error for literals exceeding 48-bit range.
+
+Implementation:
+- Parser checks integer literals against 48-bit signed range: ±140,737,488,355,327
+- Error message: `Integer literal {value} exceeds 48-bit NaN-boxing range`
+- Runtime arithmetic overflow: wrap silently (matches current i64 behavior)
+
+Rationale: Catches obvious programmer errors without runtime overhead. Most programs never need integers > 140 trillion.
+
+### 2. NaN Canonicalization
+
+**Decision**: Reserve NaN range with canonical representation.
+
+Implementation:
+- Float operations producing NaN → canonicalize to `0x7FF8_0000_0000_0000`
+- Simple check in float ops: `if is_nan(result) { result = CANONICAL_NAN }`
+- Preserves NaN semantics for computations, avoids collision with boxed values
+
+Rationale: Minimal overhead, simpler than distinguishing "real NaN" from boxed values.
+
+### 3. Allocation Strategy
+
+**Decision**: Use existing arena allocator architecture.
+
+| Type | Allocation | Rationale |
+|------|------------|-----------|
+| QuotationData | Arena | Temporary, function-scoped lifetime |
+| ClosureData | Arena (body) + Arc (env) | Closure code in arena, captured values need Arc |
+| WeaveCtxData | Arc | Long-lived, crosses function boundaries |
+| String/Symbol | Existing SeqString | No change needed |
+| Variant/Map/Channel | Existing Arc/Box | No change needed |
+
+Arena allocator location: `crates/runtime/src/arena.rs`
+
+### 4. Feature Flag Strategy
+
+**Decision**: Use `#[cfg(feature = "nanbox")]` throughout migration.
+
+- Compile with `--features nanbox` to enable new representation
+- All 273+ tests must pass in both modes before proceeding
+- Keep dual-mode support for at least 2-3 releases after merge
+- Allows rollback if production issues discovered
+
+## Architecture Testing
+
+| Architecture | Pointer Size | Consideration |
+|--------------|--------------|---------------|
+| x86-64 | 48-bit canonical | Primary development platform |
+| ARM64 (Apple Silicon) | 48-bit (some 52-bit) | Test pointer encoding edge cases |
+| 32-bit | N/A | NaN-boxing requires 64-bit, not supported |
+
+**CI requirement**: Test both x86-64 and ARM64 before merging.
+
+## Rollback Plan
+
+If critical bugs discovered post-merge:
+
+1. **Immediate**: Disable nanbox feature in release builds
+2. **Investigate**: Use feature flag to reproduce in isolation
+3. **Fix or revert**: Either fix encoding logic or revert merge
+
+Safety: Dual-mode support (Phase 2) must remain until NaN-boxing is battle-tested.
 
 ## Estimated Effort
 

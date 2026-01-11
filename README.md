@@ -2,6 +2,18 @@
 [![CI - Linux](https://github.com/navicore/patch-seq/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/ci-linux.yml)
 [![Release with Auto Version](https://github.com/navicore/patch-seq/actions/workflows/release.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/release.yml)
 
+[![seq-compiler](https://img.shields.io/crates/v/seq-compiler.svg?label=seq-compiler)](https://crates.io/crates/seq-compiler)
+[![seq-repl](https://img.shields.io/crates/v/seq-repl.svg?label=seq-repl)](https://crates.io/crates/seq-repl)
+[![seq-lsp](https://img.shields.io/crates/v/seq-lsp.svg?label=seq-lsp)](https://crates.io/crates/seq-lsp)
+[![seq-runtime](https://img.shields.io/crates/v/seq-runtime.svg?label=seq-runtime)](https://crates.io/crates/seq-runtime)
+[![vim-line](https://img.shields.io/crates/v/vim-line.svg?label=vim-line)](https://crates.io/crates/vim-line)
+
+[![docs.rs](https://docs.rs/seq-compiler/badge.svg)](https://docs.rs/seq-compiler)
+[![docs.rs](https://docs.rs/seq-repl/badge.svg)](https://docs.rs/seq-repl)
+[![docs.rs](https://docs.rs/seq-lsp/badge.svg)](https://docs.rs/seq-lsp)
+[![docs.rs](https://docs.rs/seq-runtime/badge.svg)](https://docs.rs/seq-runtime)
+[![docs.rs](https://docs.rs/vim-line/badge.svg)](https://docs.rs/vim-line)
+
 # Seq - Concatenative Language
 
 A concatenative, stack-based programming language that compiles to native executables. Seq combines the elegance of stack-based programming with a sophisticated type system, guaranteed tail call optimization, and CSP-style concurrency.

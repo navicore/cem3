@@ -23,7 +23,7 @@ toml.workspace = true
 
 [build-dependencies]
 # Version must EXACTLY match workspace version - enforced by build.rs and CI
-seq-runtime = { path = "../runtime", version = "=0.19.7" }
+seq-runtime = { path = "../runtime", version = "=0.19.9" }
 toml.workspace = true
 
 [lib]

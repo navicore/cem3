@@ -332,7 +332,14 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Integer Arithmetic ( a Int Int -- a Int )
     // =========================================================================
 
-    builtins_int_int_to_int!(sigs, "i.add", "i.subtract", "i.multiply", "i.divide", "i.modulo");
+    builtins_int_int_to_int!(
+        sigs,
+        "i.add",
+        "i.subtract",
+        "i.multiply",
+        "i.divide",
+        "i.modulo"
+    );
     builtins_int_int_to_int!(sigs, "i.+", "i.-", "i.*", "i./", "i.%");
 
     // =========================================================================

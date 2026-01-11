@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 description = "TUI REPL for the Seq programming language with IR visualization"
 repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
 keywords = ["repl", "language", "seq", "tui"]
 categories = ["development-tools"]
 
@@ -40,3 +41,7 @@ serde_json.workspace = true
 
 # Safe shell command parsing for $EDITOR
 shlex = "1.3"
+
+[package.metadata.docs.rs]
+# Ensure seq-compiler builds correctly on docs.rs
+all-features = true

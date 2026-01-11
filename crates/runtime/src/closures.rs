@@ -22,9 +22,9 @@
 //! - Closure (nested closures with their own environments)
 //! - Variant (tagged unions)
 //!
-//! See https://github.com/navicore/patch-seq for roadmap.
+//! See <https://github.com/navicore/patch-seq> for roadmap.
 
-use crate::stack::{Stack, pop, push};
+use crate::stack::{pop, push, Stack};
 use crate::value::Value;
 use std::sync::Arc;
 

@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 description = "Runtime library for the Seq programming language"
 repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
 keywords = ["runtime", "language", "seq"]
 categories = ["compilers", "development-tools"]
 

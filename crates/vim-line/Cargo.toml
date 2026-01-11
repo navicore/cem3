@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
+keywords = ["vim", "editor", "tui", "line-editor"]
+categories = ["text-editors", "command-line-utilities"]
 
 [dependencies]
 # Intentionally minimal - this crate should be self-contained

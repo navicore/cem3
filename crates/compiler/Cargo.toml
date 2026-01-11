@@ -6,9 +6,10 @@ authors.workspace = true
 license.workspace = true
 description = "Compiler for the Seq programming language"
 repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
 keywords = ["compiler", "language", "seq"]
 categories = ["compilers", "development-tools"]
-include = ["src/**/*", "stdlib/**/*", "ffi/**/*", "build.rs", "Cargo.toml"]
+include = ["src/**/*", "stdlib/**/*", "ffi/**/*", "build.rs", "Cargo.toml", "README.md"]
 
 [[bin]]
 name = "seqc"

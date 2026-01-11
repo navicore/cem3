@@ -383,7 +383,7 @@ fn format_stack(stack: &seqc::StackType) -> String {
 }
 
 /// Format a type for display.
-fn format_type(ty: &seqc::Type) -> String {
+pub fn format_type(ty: &seqc::Type) -> String {
     use seqc::Type;
 
     match ty {

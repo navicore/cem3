@@ -1,4 +1,6 @@
 use crate::includes::IncludeResolution;
+use seqc::ast::{Program, QuotationSpan, Statement};
+use seqc::types::Type;
 use seqc::{Parser, TypeChecker, lint};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -8,27 +10,77 @@ use tower_lsp::lsp_types::{
 };
 use tracing::{debug, warn};
 
+/// Information about a quotation for LSP hover support
+#[derive(Debug, Clone)]
+pub struct QuotationInfo {
+    /// The quotation's source span
+    pub span: QuotationSpan,
+    /// The inferred type (Quotation or Closure with effect)
+    pub inferred_type: Type,
+}
+
+/// Collect all quotation spans from a program
+fn collect_quotation_spans(program: &Program) -> HashMap<usize, QuotationSpan> {
+    let mut spans = HashMap::new();
+    for word in &program.words {
+        collect_quotations_from_statements(&word.body, &mut spans);
+    }
+    spans
+}
+
+fn collect_quotations_from_statements(
+    stmts: &[Statement],
+    spans: &mut HashMap<usize, QuotationSpan>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Statement::Quotation { id, body, span } => {
+                if let Some(s) = span {
+                    spans.insert(*id, s.clone());
+                }
+                collect_quotations_from_statements(body, spans);
+            }
+            Statement::If {
+                then_branch,
+                else_branch,
+            } => {
+                collect_quotations_from_statements(then_branch, spans);
+                if let Some(else_stmts) = else_branch {
+                    collect_quotations_from_statements(else_stmts, spans);
+                }
+            }
+            Statement::Match { arms } => {
+                for arm in arms {
+                    collect_quotations_from_statements(&arm.body, spans);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Check a document for parse and type errors, returning LSP diagnostics.
 ///
-/// This version doesn't know about included words - use `check_document_with_includes`
+/// This version doesn't know about included words - use `check_document_with_quotations`
 /// for include-aware diagnostics.
 #[cfg(test)]
 pub fn check_document(source: &str) -> Vec<Diagnostic> {
-    check_document_with_includes(source, &IncludeResolution::default(), None)
+    let (diagnostics, _quotations) =
+        check_document_with_quotations(source, &IncludeResolution::default(), None);
+    diagnostics
 }
 
-/// Check a document for parse and type errors, with knowledge of included words and types.
+/// Check a document and return both diagnostics and quotation info for hover support.
 ///
-/// The `includes` parameter should contain all words and union types available from
-/// included modules.
-///
-/// The `file_path` parameter is used for lint diagnostics to identify the source file.
-pub fn check_document_with_includes(
+/// Parses the document, type-checks it, and collects quotation
+/// spans and their inferred types for LSP hover functionality.
+pub fn check_document_with_quotations(
     source: &str,
     includes: &IncludeResolution,
     file_path: Option<&Path>,
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, Vec<QuotationInfo>) {
     let mut diagnostics = Vec::new();
+    let mut quotation_info = Vec::new();
 
     // Phase 1: Parse
     let mut parser = Parser::new(source);
@@ -37,44 +89,31 @@ pub fn check_document_with_includes(
         Err(err) => {
             debug!("Parse error: {}", err);
             diagnostics.push(error_to_diagnostic(&err, source));
-            return diagnostics;
+            return (diagnostics, quotation_info);
         }
     };
 
-    // Phase 1.5: Generate ADT constructors (Make-VariantName words)
+    // Phase 1.5: Generate ADT constructors
     if let Err(err) = program.generate_constructors() {
         debug!("Constructor generation error: {}", err);
         diagnostics.push(error_to_diagnostic(&err, source));
-        return diagnostics;
+        return (diagnostics, quotation_info);
     }
 
-    // Extract names for word call validation
-    let included_word_names: Vec<&str> = includes.words.iter().map(|w| w.name.as_str()).collect();
+    // Collect quotation spans before type checking
+    let quotation_spans = collect_quotation_spans(&program);
 
-    // Phase 2: Validate word calls (check for undefined words)
-    // This catches references to words that don't exist as either
-    // user-defined words or builtins.
-    // We pass included word names so they aren't flagged as undefined.
+    // Phase 2: Validate word calls
+    let included_word_names: Vec<&str> = includes.words.iter().map(|w| w.name.as_str()).collect();
     if let Err(err) = program.validate_word_calls_with_externals(&included_word_names) {
         debug!("Validation error: {}", err);
         diagnostics.push(error_to_diagnostic(&err, source));
-        // Continue to type checking - may find additional errors
     }
 
     // Phase 3: Type check
-    // Register external words and union types with the typechecker
     let mut typechecker = TypeChecker::new();
-
-    // Register external union types so they can be referenced in field type declarations
     let external_unions: Vec<&str> = includes.union_names.iter().map(|s| s.as_str()).collect();
     typechecker.register_external_unions(&external_unions);
-
-    // Build list of external words with their effects (or None for placeholder)
-    // TODO: When effect is None, a maximally polymorphic placeholder (..a -- ..b) is used.
-    // This may allow type-incorrect code to pass the typechecker. Consider:
-    // - Emitting a warning when a word has no effect signature
-    // - Requiring all exported words to have effects
-    // - Tracking which words used placeholders and showing them in diagnostics
     let external_words: Vec<(&str, Option<&seqc::Effect>)> = includes
         .words
         .iter()
@@ -87,24 +126,29 @@ pub fn check_document_with_includes(
         diagnostics.push(error_to_diagnostic(&err, source));
     }
 
-    // Phase 4: Lint checks
-    // Run lint checks and add any warnings/hints
-    let lint_file_path = file_path
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("source.seq"));
-    match lint::Linter::with_defaults() {
-        Ok(linter) => {
-            let lint_diagnostics = linter.lint_program(&program, &lint_file_path);
-            for lint_diag in lint_diagnostics {
-                diagnostics.push(lint_to_diagnostic(&lint_diag, source));
-            }
-        }
-        Err(e) => {
-            warn!("Failed to create linter: {}", e);
+    // Get quotation types and combine with spans
+    let quotation_types = typechecker.take_quotation_types();
+    for (id, span) in quotation_spans {
+        if let Some(typ) = quotation_types.get(&id) {
+            quotation_info.push(QuotationInfo {
+                span,
+                inferred_type: typ.clone(),
+            });
         }
     }
 
-    diagnostics
+    // Phase 4: Lint checks
+    let lint_file_path = file_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("source.seq"));
+    if let Ok(linter) = lint::Linter::with_defaults() {
+        let lint_diagnostics = linter.lint_program(&program, &lint_file_path);
+        for lint_diag in lint_diagnostics {
+            diagnostics.push(lint_to_diagnostic(&lint_diag, source));
+        }
+    }
+
+    (diagnostics, quotation_info)
 }
 
 /// Get code actions for lint diagnostics that overlap with the given range.

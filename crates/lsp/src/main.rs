@@ -12,6 +12,7 @@ mod completion;
 mod diagnostics;
 mod includes;
 
+use diagnostics::QuotationInfo;
 use includes::{IncludeResolution, LocalWord};
 
 /// State for a single document
@@ -24,6 +25,8 @@ struct DocumentState {
     includes: IncludeResolution,
     /// Words defined in this document
     local_words: Vec<LocalWord>,
+    /// Quotation info for hover support
+    quotations: Vec<QuotationInfo>,
 }
 
 struct SeqLanguageServer {
@@ -40,18 +43,13 @@ impl SeqLanguageServer {
         }
     }
 
-    /// Get all words and union types available from includes for a document
-    fn get_includes(&self, uri: &str) -> IncludeResolution {
-        if let Ok(docs) = self.documents.read()
-            && let Some(state) = docs.get(uri)
-        {
-            return state.includes.clone();
-        }
-        IncludeResolution::default()
-    }
-
-    /// Update document state and resolve includes
-    fn update_document(&self, uri: &str, content: String, file_path: Option<PathBuf>) {
+    /// Update document state, resolve includes, and return diagnostics
+    fn update_document(
+        &self,
+        uri: &str,
+        content: String,
+        file_path: Option<PathBuf>,
+    ) -> Vec<tower_lsp::lsp_types::Diagnostic> {
         // Parse document to extract includes and local words
         let (include_stmts, local_words) = includes::parse_document(&content);
 
@@ -74,16 +72,25 @@ impl SeqLanguageServer {
             include_stmts.len()
         );
 
+        // Check document for diagnostics and collect quotation info
+        let (diagnostics, quotations) =
+            diagnostics::check_document_with_quotations(&content, &resolved, file_path.as_deref());
+
+        info!("Found {} quotations with type info", quotations.len());
+
         let state = DocumentState {
             content,
             file_path,
             includes: resolved,
             local_words,
+            quotations,
         };
 
         if let Ok(mut docs) = self.documents.write() {
             docs.insert(uri.to_string(), state);
         }
+
+        diagnostics
     }
 }
 
@@ -163,19 +170,9 @@ impl LanguageServer for SeqLanguageServer {
         let file_path = includes::uri_to_path(uri.as_str());
         info!("File path: {:?}", file_path);
 
-        // Update document state (parses includes)
-        self.update_document(uri.as_str(), text.clone(), file_path.clone());
+        // Update document state (parses includes) and get diagnostics
+        let diagnostics = self.update_document(uri.as_str(), text, file_path);
 
-        // Get included words and types for diagnostics
-        let includes = self.get_includes(uri.as_str());
-        info!(
-            "Got {} included words, {} included unions for diagnostics",
-            includes.words.len(),
-            includes.union_names.len()
-        );
-
-        let diagnostics =
-            diagnostics::check_document_with_includes(&text, &includes, file_path.as_deref());
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -197,14 +194,9 @@ impl LanguageServer for SeqLanguageServer {
                 None
             };
 
-            // Update document state (re-parses includes)
-            self.update_document(uri.as_str(), text.clone(), file_path.clone());
+            // Update document state (re-parses includes) and get diagnostics
+            let diagnostics = self.update_document(uri.as_str(), text, file_path);
 
-            // Get included words and types for diagnostics
-            let includes = self.get_includes(uri.as_str());
-
-            let diagnostics =
-                diagnostics::check_document_with_includes(&text, &includes, file_path.as_deref());
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
@@ -228,21 +220,49 @@ impl LanguageServer for SeqLanguageServer {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // Get document state and find word under cursor
-        let (word, local_words, included_words) = if let Ok(docs) = self.documents.read() {
-            if let Some(state) = docs.get(uri.as_str()) {
-                let word = get_word_at_position(&state.content, position);
-                (
-                    word,
-                    state.local_words.clone(),
-                    state.includes.words.clone(),
-                )
+        // Get document state
+        let (word, local_words, included_words, quotations) =
+            if let Ok(docs) = self.documents.read() {
+                if let Some(state) = docs.get(uri.as_str()) {
+                    let word = get_word_at_position(&state.content, position);
+                    (
+                        word,
+                        state.local_words.clone(),
+                        state.includes.words.clone(),
+                        state.quotations.clone(),
+                    )
+                } else {
+                    return Ok(None);
+                }
             } else {
                 return Ok(None);
+            };
+
+        // Check if cursor is inside a quotation
+        let line = position.line as usize;
+        let col = position.character as usize;
+        for q in &quotations {
+            if q.span.contains(line, col) {
+                // Format the quotation type for hover
+                let type_str = format_quotation_type(&q.inferred_type);
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: format!("```seq\n{}\n```\n\n*Quotation*", type_str),
+                    }),
+                    range: Some(Range {
+                        start: Position {
+                            line: q.span.start_line as u32,
+                            character: q.span.start_column as u32,
+                        },
+                        end: Position {
+                            line: q.span.end_line as u32,
+                            character: q.span.end_column as u32,
+                        },
+                    }),
+                }));
             }
-        } else {
-            return Ok(None);
-        };
+        }
 
         let Some(word) = word else {
             return Ok(None);
@@ -682,6 +702,11 @@ fn make_definition_range(start_line: usize, name: &str) -> Range {
             character: (name.chars().count() + 2) as u32,
         },
     }
+}
+
+/// Format a quotation type for display
+fn format_quotation_type(typ: &seqc::types::Type) -> String {
+    completion::format_type(typ)
 }
 
 /// Look up a word and return hover information

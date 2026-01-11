@@ -483,7 +483,7 @@ impl TypeChecker {
 
             // Look ahead: if this is a quotation followed by a word that expects specific quotation type,
             // set the expected type before checking the quotation
-            let saved_expected_type = if matches!(stmt, Statement::Quotation { .. }) {
+            let saved_expected_type = if matches!(stmt, Statement::Quotation { span: None, .. }) {
                 // Save the current expected type
                 let saved = self.expected_quotation_type.borrow().clone();
 
@@ -1105,7 +1105,7 @@ impl TypeChecker {
                 then_branch,
                 else_branch,
             } => self.infer_if(then_branch, else_branch, current_stack),
-            Statement::Quotation { id, body } => self.infer_quotation(*id, body, current_stack),
+            Statement::Quotation { id, body, .. } => self.infer_quotation(*id, body, current_stack),
         }
     }
 
@@ -2468,6 +2468,7 @@ mod tests {
                     )))),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![
                         Statement::IntLiteral(1),
@@ -2506,6 +2507,7 @@ mod tests {
                     )))),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 1,
                     body: vec![],
                 }],
@@ -2568,8 +2570,10 @@ mod tests {
                     StackType::singleton(outer_quot_type),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 2,
                     body: vec![Statement::Quotation {
+                        span: None,
                         id: 3,
                         body: vec![
                             Statement::IntLiteral(1),
@@ -3117,6 +3121,7 @@ mod tests {
                     // Push a dummy value that will be yielded
                     Statement::IntLiteral(42),
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "yield".to_string(),
@@ -3159,6 +3164,7 @@ mod tests {
                 body: vec![
                     Statement::IntLiteral(42),
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "yield".to_string(),
@@ -3198,6 +3204,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![
                             Statement::IntLiteral(1),
@@ -3474,6 +3481,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "dup".to_string(),
@@ -3513,6 +3521,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![
                             Statement::WordCall {
@@ -3650,6 +3659,7 @@ mod tests {
                     }),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![Statement::WordCall {
                         name: "i.add".to_string(),
@@ -3693,8 +3703,10 @@ mod tests {
                     )))),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![
                             Statement::IntLiteral(1),
@@ -3746,10 +3758,13 @@ mod tests {
                     StackType::singleton(Type::Quotation(Box::new(outer_effect))),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![Statement::Quotation {
+                            span: None,
                             id: 2,
                             body: vec![
                                 Statement::IntLiteral(1),
@@ -3800,6 +3815,7 @@ mod tests {
                         StackType::singleton(adder_type.clone()),
                     )),
                     body: vec![Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "i.add".to_string(),
@@ -3868,6 +3884,7 @@ mod tests {
                         StackType::singleton(adder_type.clone()),
                     )),
                     body: vec![Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "i.add".to_string(),
@@ -3932,6 +3949,7 @@ mod tests {
                     )))),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![
                         // Simplified: just do a comparison that uses all 3 values
@@ -3974,6 +3992,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![], // Empty quotation is stack-neutral
                     },
@@ -4056,6 +4075,7 @@ mod tests {
                     }),
                 )),
                 body: vec![Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![
                         // The captured Int and the caller's Int are on stack
@@ -4099,6 +4119,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::IntLiteral(1)], // Pushes extra value!
                     },
@@ -4139,6 +4160,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "drop".to_string(),
@@ -4179,10 +4201,12 @@ mod tests {
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::IntLiteral(1)], // Returns Int, not Bool!
                     },
                     Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![],
                     },
@@ -4217,10 +4241,12 @@ mod tests {
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::BoolLiteral(true)],
                     },
                     Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![Statement::IntLiteral(1)], // Pushes!
                     },
@@ -4261,10 +4287,12 @@ mod tests {
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![],
                     },
                     Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![Statement::IntLiteral(1)], // Returns Int, not Bool!
                     },
@@ -4304,6 +4332,7 @@ mod tests {
                 effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![Statement::WordCall {
                             name: "drop".to_string(),
@@ -4311,6 +4340,7 @@ mod tests {
                         }], // Consumes!
                     },
                     Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![Statement::BoolLiteral(true)],
                     },
@@ -4347,6 +4377,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![
                             Statement::WordCall {
@@ -4361,6 +4392,7 @@ mod tests {
                         ],
                     },
                     Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![
                             Statement::IntLiteral(1),
@@ -4404,6 +4436,7 @@ mod tests {
                 )),
                 body: vec![
                     Statement::Quotation {
+                        span: None,
                         id: 0,
                         body: vec![
                             Statement::IntLiteral(1),
@@ -4414,6 +4447,7 @@ mod tests {
                         ],
                     },
                     Statement::Quotation {
+                        span: None,
                         id: 1,
                         body: vec![
                             Statement::WordCall {

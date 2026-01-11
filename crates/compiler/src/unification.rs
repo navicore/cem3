@@ -510,4 +510,30 @@ mod tests {
         let stack = StackType::Empty.push(Type::Int).push(Type::String);
         assert!(!occurs_in_stack("a", &stack));
     }
+
+    #[test]
+    fn test_quotation_type_unification_stack_neutral() {
+        // Q[..a -- ..a] should NOT unify with Q[..b -- ..b Int]
+        // because the second quotation pushes a value
+        use crate::types::Effect;
+
+        let stack_neutral = Type::Quotation(Box::new(Effect::new(
+            StackType::RowVar("a".to_string()),
+            StackType::RowVar("a".to_string()),
+        )));
+
+        let pushes_int = Type::Quotation(Box::new(Effect::new(
+            StackType::RowVar("b".to_string()),
+            StackType::RowVar("b".to_string()).push(Type::Int),
+        )));
+
+        let result = unify_types(&stack_neutral, &pushes_int);
+        // This SHOULD fail because unifying outputs would require ..a = ..a Int
+        // which is an infinite type
+        assert!(
+            result.is_err(),
+            "Unifying stack-neutral with stack-pushing quotation should fail, got {:?}",
+            result
+        );
+    }
 }

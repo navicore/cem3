@@ -829,6 +829,8 @@ impl CodeGen {
 
     /// Peek and pop a boolean value from stack (Issue #215: extracted helper).
     /// Returns (popped_stack, cond_val) where cond_val is the i64 condition.
+    /// Non-nanbox version: reads slot1 from the Value struct.
+    #[cfg(not(feature = "nanbox"))]
     pub(in crate::codegen) fn codegen_peek_pop_bool(
         &mut self,
         stack_var: &str,
@@ -857,6 +859,52 @@ impl CodeGen {
             "  %{} = getelementptr %Value, ptr %{}, i64 -1",
             popped_stack, stack_var
         )?;
+        Ok((popped_stack, cond_val))
+    }
+
+    /// Peek and pop a boolean value from stack (Issue #215: extracted helper).
+    /// Returns (popped_stack, cond_val) where cond_val is the i64 condition.
+    /// NaN-box version: loads the nanboxed value and extracts the bool payload.
+    #[cfg(feature = "nanbox")]
+    pub(in crate::codegen) fn codegen_peek_pop_bool(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String), CodeGenError> {
+        // NaN-boxing: value is stored as single i64, payload in low bits
+        const PAYLOAD_MASK: u64 = 0x0000_7FFF_FFFF_FFFF;
+
+        // Get pointer to top value (8-byte element)
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+
+        // Load the nanboxed value
+        let nanboxed = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            nanboxed, top_ptr
+        )?;
+
+        // Extract payload (the boolean value is in the low bits)
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = and i64 %{}, {}",
+            cond_val, nanboxed, PAYLOAD_MASK
+        )?;
+
+        // Pop: decrement stack by 1 i64
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 -1",
+            popped_stack, stack_var
+        )?;
+
         Ok((popped_stack, cond_val))
     }
 

@@ -27,11 +27,7 @@ This installs the `seqr` binary.
 ## Usage
 
 ```bash
-# Start the REPL
 seqr
-
-# Start with IR panel visible
-seqr --show-ir
 ```
 
 ## Features

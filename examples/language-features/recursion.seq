@@ -1,0 +1,76 @@
+# Recursion patterns in Seq
+
+# Classic factorial with tail-call optimization
+: factorial ( Int -- Int )
+  1 factorial-acc
+;
+
+: factorial-acc ( Int Int -- Int )
+  over 0 i.<=
+  if
+    swap drop
+  else
+    over i.*
+    swap 1 i.- swap
+    factorial-acc
+  then
+;
+
+# Fibonacci - not tail recursive
+: fib ( Int -- Int )
+  dup 2 i.<
+  if
+  else
+    dup 1 i.- fib
+    swap 2 i.- fib
+    i.add
+  then
+;
+
+# Tail-recursive fibonacci with accumulators
+: fib-fast ( Int -- Int )
+  0 1 fib-acc
+;
+
+: fib-acc ( Int Int Int -- Int )
+  rot dup 0 i.<=
+  if
+    drop drop
+  else
+    1 i.-
+    rot rot
+    over i.add swap
+    fib-acc
+  then
+;
+
+# GCD using Euclidean algorithm
+: gcd ( Int Int -- Int )
+  dup 0 i.=
+  if
+    drop
+  else
+    swap over i.% gcd
+  then
+;
+
+# Main
+: main ( -- )
+  "=== Recursion Examples ===" io.write-line
+  "" io.write-line
+
+  "5 factorial = " io.write-line
+  5 factorial int->string io.write-line
+
+  "" io.write-line
+  "10 fib = " io.write-line
+  10 fib int->string io.write-line
+
+  "" io.write-line
+  "10 fib-fast = " io.write-line
+  10 fib-fast int->string io.write-line
+
+  "" io.write-line
+  "48 18 gcd = " io.write-line
+  48 18 gcd int->string io.write-line
+;

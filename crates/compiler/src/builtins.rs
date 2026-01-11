@@ -332,7 +332,14 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Integer Arithmetic ( a Int Int -- a Int )
     // =========================================================================
 
-    builtins_int_int_to_int!(sigs, "i.add", "i.subtract", "i.multiply", "i.divide");
+    builtins_int_int_to_int!(
+        sigs,
+        "i.add",
+        "i.subtract",
+        "i.multiply",
+        "i.divide",
+        "i.modulo"
+    );
     builtins_int_int_to_int!(sigs, "i.+", "i.-", "i.*", "i./", "i.%");
 
     // =========================================================================
@@ -840,6 +847,7 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert("i.subtract", "Subtract second integer from first.");
     docs.insert("i.multiply", "Multiply two integers.");
     docs.insert("i.divide", "Integer division (truncates toward zero).");
+    docs.insert("i.modulo", "Integer modulo (remainder after division).");
     docs.insert("i.+", "Add two integers.");
     docs.insert("i.-", "Subtract second integer from first.");
     docs.insert("i.*", "Multiply two integers.");

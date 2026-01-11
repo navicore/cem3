@@ -1366,6 +1366,7 @@ mod tests {
             effect: None,
             body: vec![
                 Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![make_word_call("gen")],
                 },
@@ -1391,6 +1392,7 @@ mod tests {
             effect: None,
             body: vec![
                 Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![make_word_call("gen")],
                 },
@@ -1419,6 +1421,7 @@ mod tests {
             effect: None,
             body: vec![
                 Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![make_word_call("gen")],
                 },
@@ -1449,6 +1452,7 @@ mod tests {
             effect: None,
             body: vec![
                 Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![make_word_call("gen")],
                 },
@@ -1586,6 +1590,7 @@ mod tests {
                 make_word_call("chan.make"),
                 make_word_call("dup"),
                 Statement::Quotation {
+                    span: None,
                     id: 0,
                     body: vec![make_word_call("worker")],
                 },

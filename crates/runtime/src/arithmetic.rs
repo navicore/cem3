@@ -132,6 +132,40 @@ pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
     }
 }
 
+/// Modulo (remainder) of two integers (a % b)
+///
+/// Stack effect: ( a b -- a%b )
+///
+/// # Error Handling
+/// - Division by zero: Sets runtime error and returns 0
+/// - Type mismatch: Sets runtime error and returns 0
+///
+/// # Safety
+/// Stack must have at least two values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_modulo(stack: Stack) -> Stack {
+    let (rest, a, b) = unsafe { pop_two(stack, "modulo") };
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(0)) => {
+            // Division by zero - set error and return 0
+            set_runtime_error(format!(
+                "modulo: division by zero (attempted {} % 0)",
+                a_val
+            ));
+            unsafe { push(rest, Value::Int(0)) }
+        }
+        (Value::Int(a_val), Value::Int(b_val)) => {
+            // Use wrapping_rem to handle i64::MIN % -1 overflow edge case
+            unsafe { push(rest, Value::Int(a_val.wrapping_rem(b_val))) }
+        }
+        _ => {
+            // Type error - should not happen with type-checked code
+            set_runtime_error("modulo: expected two integers on stack");
+            unsafe { push(rest, Value::Int(0)) }
+        }
+    }
+}
+
 /// Integer equality: =
 ///
 /// Returns 1 if equal, 0 if not (Forth-style boolean)

@@ -679,9 +679,11 @@ pub unsafe extern "C" fn seq_free_heap_object(obj: *mut HeapObject) {
                 let layout = Layout::new::<QuotationObject>();
                 dealloc(obj as *mut u8, layout);
             }
-            // TODO: Add other types as needed
+            // Note: String, Variant, Map, and Closure are stored inline in the 40-byte Value
+            // enum in non-nanbox mode, not as separate heap objects. Only types explicitly
+            // allocated via seq_alloc_* need handling here.
             _ => {
-                // Unknown type, use minimum HeapObject size
+                // Unknown type, use minimum HeapObject size as fallback
                 let layout = Layout::new::<HeapObject>();
                 dealloc(obj as *mut u8, layout);
             }

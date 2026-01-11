@@ -171,6 +171,44 @@ impl Span {
     }
 }
 
+/// Source span for a quotation, supporting multi-line ranges
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct QuotationSpan {
+    /// Start line (0-indexed)
+    pub start_line: usize,
+    /// Start column (0-indexed)
+    pub start_column: usize,
+    /// End line (0-indexed)
+    pub end_line: usize,
+    /// End column (0-indexed, exclusive)
+    pub end_column: usize,
+}
+
+impl QuotationSpan {
+    pub fn new(start_line: usize, start_column: usize, end_line: usize, end_column: usize) -> Self {
+        QuotationSpan {
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        }
+    }
+
+    /// Check if a position (line, column) falls within this span
+    pub fn contains(&self, line: usize, column: usize) -> bool {
+        if line < self.start_line || line > self.end_line {
+            return false;
+        }
+        if line == self.start_line && column < self.start_column {
+            return false;
+        }
+        if line == self.end_line && column >= self.end_column {
+            return false;
+        }
+        true
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     /// Integer literal: pushes value onto stack
@@ -214,7 +252,12 @@ pub enum Statement {
     ///
     /// The id field is used by the typechecker to track the inferred type
     /// (Quotation vs Closure) for this quotation. The id is assigned during parsing.
-    Quotation { id: usize, body: Vec<Statement> },
+    /// The span field records the source location for LSP hover support.
+    Quotation {
+        id: usize,
+        body: Vec<Statement>,
+        span: Option<QuotationSpan>,
+    },
 
     /// Match expression: pattern matching on union types
     ///
@@ -350,6 +393,7 @@ impl Program {
             "i.subtract",
             "i.multiply",
             "i.divide",
+            "i.modulo",
             // Terse integer arithmetic
             "i.+",
             "i.-",

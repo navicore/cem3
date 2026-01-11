@@ -89,6 +89,10 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_divide(ptr)",
             category: None,
         },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_modulo(ptr)",
+            category: None,
+        },
         // Integer comparisons
         RuntimeDecl {
             decl: "declare ptr @patch_seq_eq(ptr)",
@@ -886,12 +890,13 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("i.subtract", "patch_seq_subtract"),
         ("i.multiply", "patch_seq_multiply"),
         ("i.divide", "patch_seq_divide"),
+        ("i.modulo", "patch_seq_modulo"),
         // Terse integer arithmetic aliases
         ("i.+", "patch_seq_add"),
         ("i.-", "patch_seq_subtract"),
         ("i.*", "patch_seq_multiply"),
         ("i./", "patch_seq_divide"),
-        // Note: i.% (modulo) is fully inlined, no runtime function needed
+        ("i.%", "patch_seq_modulo"),
         // Integer comparison (symbol form)
         ("i.=", "patch_seq_eq"),
         ("i.<", "patch_seq_lt"),

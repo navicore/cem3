@@ -496,7 +496,7 @@ impl Parser {
 
         // Check for quotation
         if token == "[" {
-            return self.parse_quotation();
+            return self.parse_quotation(tok_line, tok_column);
         }
 
         // Check for match expression
@@ -563,7 +563,12 @@ impl Parser {
         }
     }
 
-    fn parse_quotation(&mut self) -> Result<Statement, String> {
+    fn parse_quotation(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+    ) -> Result<Statement, String> {
+        use crate::ast::QuotationSpan;
         let mut body = Vec::new();
 
         // Parse statements until ']'
@@ -576,10 +581,18 @@ impl Parser {
             self.skip_comments();
 
             if self.check("]") {
-                self.advance();
+                let end_tok = self.advance_token().unwrap();
+                let end_line = end_tok.line;
+                let end_column = end_tok.column + 1; // exclusive
                 let id = self.next_quotation_id;
                 self.next_quotation_id += 1;
-                return Ok(Statement::Quotation { id, body });
+                // Span from '[' to ']' inclusive
+                let span = QuotationSpan::new(start_line, start_column, end_line, end_column);
+                return Ok(Statement::Quotation {
+                    id,
+                    body,
+                    span: Some(span),
+                });
             }
 
             body.push(self.parse_statement()?);

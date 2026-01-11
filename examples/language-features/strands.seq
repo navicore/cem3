@@ -1,0 +1,53 @@
+# Strands - Seq's cooperative concurrency model
+# See examples/weave/counter.seq for a complete example
+
+# Counter using weave/yield
+: counter-loop ( Ctx Int -- | Yield Int )
+  tuck
+  yield
+  rot
+  i.add
+  counter-loop
+;
+
+: counter-body ( Ctx Int -- | Yield Int )
+  counter-loop
+;
+
+# Using a counter strand
+: use-counter ( -- )
+  [ counter-body ] strand.weave
+
+  "Created counter weave" io.write-line
+
+  10 strand.resume
+  if
+    "First yield: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+
+  1 strand.resume
+  if
+    "After +1: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+
+  5 strand.resume
+  if
+    "After +5: " swap int->string string.concat io.write-line
+  else
+    drop "Weave ended unexpectedly" io.write-line
+  then
+
+  drop
+;
+
+: main ( -- )
+  "=== Strands Demo ===" io.write-line
+  "" io.write-line
+  use-counter
+  "" io.write-line
+  "Done!" io.write-line
+;

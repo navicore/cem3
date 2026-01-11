@@ -311,8 +311,8 @@ impl CodeGen {
                 Ok(Some(result_var))
             }
 
-            // i.%: ( a b -- a%b ) - integer modulo/remainder
-            "i.%" => {
+            // i.% / i.modulo: ( a b -- a%b ) - integer modulo/remainder
+            "i.modulo" | "i.%" => {
                 // Spill virtual registers (Issue #189) - modulo has control flow for zero check
                 let stack_var = self.spill_virtual_stack(stack_var)?;
                 let stack_var = stack_var.as_str();

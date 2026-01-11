@@ -50,25 +50,27 @@ use crate::value::{ChannelData, MapKey, Value, VariantData, WeaveChannelData};
 /// This leaves all positive floats (including +inf, +NaN) untouched.
 const NANBOX_THRESHOLD: u64 = 0xFFFC_0000_0000_0000;
 
-/// The base prefix for boxed values (0xFFFC in the high 16 bits)
-/// Tag 0 uses 0xFFFC, tag 1 uses 0xFFFD, etc.
-const NANBOX_PREFIX_BASE: u64 = 0xFFFC;
+/// Base value for boxed types (0xFFFC in high 16 bits)
+const NANBOX_BASE: u64 = 0xFFFC_0000_0000_0000;
 
-/// Mask for the 48-bit payload
-const PAYLOAD_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
+/// Mask for the 4-bit type tag (stored in bits 47:44)
+const TAG_MASK: u64 = 0x0000_F000_0000_0000;
 
-/// Shift amount for the prefix (48 bits)
-const PREFIX_SHIFT: u32 = 48;
+/// Shift amount for the type tag (44 bits)
+const TAG_SHIFT: u32 = 44;
+
+/// Mask for the 44-bit payload (stored in bits 43:0)
+const PAYLOAD_MASK: u64 = 0x0000_0FFF_FFFF_FFFF;
 
 /// Canonical NaN value (used when float operations produce NaN)
 /// This is a positive quiet NaN that doesn't collide with our boxed encoding
 pub const CANONICAL_NAN: u64 = 0x7FF8_0000_0000_0000;
 
-/// Maximum 48-bit signed integer: 2^47 - 1 = 140,737,488,355,327
-pub const MAX_NANBOX_INT: i64 = (1i64 << 47) - 1;
+/// Maximum 44-bit signed integer: 2^43 - 1 = 8,796,093,022,207 (~8.8 trillion)
+pub const MAX_NANBOX_INT: i64 = (1i64 << 43) - 1;
 
-/// Minimum 48-bit signed integer: -2^47 = -140,737,488,355,328
-pub const MIN_NANBOX_INT: i64 = -(1i64 << 47);
+/// Minimum 44-bit signed integer: -2^43 = -8,796,093,022,208
+pub const MIN_NANBOX_INT: i64 = -(1i64 << 43);
 
 // =============================================================================
 // Type Tags
@@ -168,11 +170,11 @@ impl NanBoxedValue {
     #[inline(always)]
     pub fn tag(self) -> u8 {
         debug_assert!(self.is_boxed(), "tag() called on float value");
-        // The high 16 bits are (0xFFFC + tag), so subtract 0xFFFC to get the tag
-        ((self.0 >> PREFIX_SHIFT) - NANBOX_PREFIX_BASE) as u8
+        // Tag is in bits 47:44
+        ((self.0 & TAG_MASK) >> TAG_SHIFT) as u8
     }
 
-    /// Get the 48-bit payload (only valid if is_boxed() is true)
+    /// Get the 44-bit payload (only valid if is_boxed() is true)
     #[inline(always)]
     pub fn payload(self) -> u64 {
         debug_assert!(self.is_boxed(), "payload() called on float value");
@@ -246,9 +248,13 @@ impl NanBoxedValue {
     /// Helper to create a boxed value from tag and payload
     #[inline(always)]
     fn make_boxed(tag: NanBoxTag, payload: u64) -> Self {
-        // Encoding: (0xFFFC + tag) in high 16 bits, payload in low 48 bits
-        let prefix = (NANBOX_PREFIX_BASE + tag as u64) << PREFIX_SHIFT;
-        NanBoxedValue(prefix | payload)
+        // Encoding: 0xFFFC in bits 63:48, tag in bits 47:44, payload in bits 43:0
+        debug_assert!(
+            payload <= PAYLOAD_MASK,
+            "Payload 0x{:x} exceeds 44-bit limit",
+            payload
+        );
+        NanBoxedValue(NANBOX_BASE | ((tag as u64) << TAG_SHIFT) | payload)
     }
 
     /// Create a NaN-boxed float
@@ -416,12 +422,12 @@ impl NanBoxedValue {
     #[inline(always)]
     pub fn as_int(self) -> i64 {
         debug_assert!(self.is_int(), "as_int() called on non-int value");
-        // Sign-extend from 48 bits to 64 bits
+        // Sign-extend from 44 bits to 64 bits
         let payload = self.payload();
-        // Check if the sign bit (bit 47) is set
-        if payload & (1 << 47) != 0 {
-            // Negative: sign-extend by setting upper 16 bits
-            (payload | 0xFFFF_0000_0000_0000) as i64
+        // Check if the sign bit (bit 43) is set
+        if payload & (1 << 43) != 0 {
+            // Negative: sign-extend by setting upper 20 bits
+            (payload | 0xFFFF_F000_0000_0000) as i64
         } else {
             payload as i64
         }
@@ -609,6 +615,280 @@ impl Default for NanBoxedValue {
 // Safety: NanBoxedValue is just a u64, which is Send + Sync
 unsafe impl Send for NanBoxedValue {}
 unsafe impl Sync for NanBoxedValue {}
+
+// =============================================================================
+// Value <-> NanBoxedValue Conversions
+// =============================================================================
+
+impl NanBoxedValue {
+    /// Convert a Value to a NanBoxedValue
+    ///
+    /// This clones heap-allocated data and stores pointers in the NaN-boxed format.
+    /// The caller is responsible for ensuring the returned NanBoxedValue is properly
+    /// dropped (via `drop_nanboxed`) to avoid memory leaks.
+    ///
+    /// # Panics
+    /// Panics if an integer value is outside the 48-bit range.
+    pub fn from_value(value: &Value) -> Self {
+        match value {
+            Value::Int(n) => {
+                // Check range at runtime - in production, compiler should reject out-of-range literals
+                if *n < MIN_NANBOX_INT || *n > MAX_NANBOX_INT {
+                    panic!(
+                        "Integer {} outside NaN-boxing range [{}, {}]",
+                        n, MIN_NANBOX_INT, MAX_NANBOX_INT
+                    );
+                }
+                Self::from_int(*n)
+            }
+            Value::Float(f) => Self::from_float(*f),
+            Value::Bool(b) => Self::from_bool(*b),
+            Value::String(s) => {
+                // Clone the SeqString and leak it
+                let boxed = Box::new(s.clone());
+                let ptr = Box::into_raw(boxed);
+                Self::from_string_ptr(ptr)
+            }
+            Value::Symbol(s) => {
+                let boxed = Box::new(s.clone());
+                let ptr = Box::into_raw(boxed);
+                Self::from_symbol_ptr(ptr)
+            }
+            Value::Variant(arc) => {
+                // Clone the Arc and leak it
+                let arc_clone = arc.clone();
+                let boxed = Box::new(arc_clone);
+                let ptr = Box::into_raw(boxed);
+                Self::from_variant_ptr(ptr)
+            }
+            Value::Map(map) => {
+                // Clone the map and leak it
+                let map_clone = map.clone();
+                let boxed = Box::new(map_clone);
+                let ptr = Box::into_raw(boxed);
+                Self::from_map_ptr(ptr)
+            }
+            Value::Quotation { wrapper, impl_ } => {
+                let data = Box::new(QuotationData {
+                    wrapper: *wrapper,
+                    impl_: *impl_,
+                });
+                let ptr = Box::into_raw(data);
+                Self::from_quotation_ptr(ptr)
+            }
+            Value::Closure { fn_ptr, env } => {
+                let data = Box::new(ClosureData {
+                    fn_ptr: *fn_ptr,
+                    env: env.clone(),
+                });
+                let ptr = Box::into_raw(data);
+                Self::from_closure_ptr(ptr)
+            }
+            Value::Channel(arc) => {
+                let arc_clone = arc.clone();
+                let boxed = Box::new(arc_clone);
+                let ptr = Box::into_raw(boxed);
+                Self::from_channel_ptr(ptr)
+            }
+            Value::WeaveCtx {
+                yield_chan,
+                resume_chan,
+            } => {
+                let data = Box::new(WeaveCtxData {
+                    yield_chan: yield_chan.clone(),
+                    resume_chan: resume_chan.clone(),
+                });
+                let ptr = Box::into_raw(data);
+                Self::from_weave_ctx_ptr(ptr)
+            }
+        }
+    }
+
+    /// Convert a NanBoxedValue back to a Value
+    ///
+    /// This reconstructs the Value from the NaN-boxed representation.
+    /// For heap-allocated types, this takes ownership of the underlying memory.
+    ///
+    /// # Safety
+    /// The NanBoxedValue must have been created by `from_value` and not yet
+    /// converted back or dropped. Each NanBoxedValue should only be converted
+    /// to Value once.
+    pub unsafe fn to_value(self) -> Value {
+        if self.is_float() {
+            return Value::Float(self.as_float());
+        }
+
+        match self.tag() {
+            t if t == NanBoxTag::Int as u8 => Value::Int(self.as_int()),
+            t if t == NanBoxTag::Bool as u8 => Value::Bool(self.as_bool()),
+            t if t == NanBoxTag::String as u8 => unsafe {
+                let ptr = self.as_string_ptr() as *mut SeqString;
+                let boxed = Box::from_raw(ptr);
+                Value::String(*boxed)
+            },
+            t if t == NanBoxTag::Symbol as u8 => unsafe {
+                let ptr = self.as_symbol_ptr() as *mut SeqString;
+                let boxed = Box::from_raw(ptr);
+                Value::Symbol(*boxed)
+            },
+            t if t == NanBoxTag::Variant as u8 => unsafe {
+                let ptr = self.as_variant_ptr() as *mut Arc<VariantData>;
+                let boxed = Box::from_raw(ptr);
+                Value::Variant(*boxed)
+            },
+            t if t == NanBoxTag::Map as u8 => unsafe {
+                let ptr = self.as_map_ptr() as *mut Box<HashMap<MapKey, Value>>;
+                let boxed = Box::from_raw(ptr);
+                Value::Map(*boxed)
+            },
+            t if t == NanBoxTag::Quotation as u8 => unsafe {
+                let ptr = self.as_quotation_ptr() as *mut QuotationData;
+                let data = Box::from_raw(ptr);
+                Value::Quotation {
+                    wrapper: data.wrapper,
+                    impl_: data.impl_,
+                }
+            },
+            t if t == NanBoxTag::Closure as u8 => unsafe {
+                let ptr = self.as_closure_ptr() as *mut ClosureData;
+                let data = Box::from_raw(ptr);
+                Value::Closure {
+                    fn_ptr: data.fn_ptr,
+                    env: data.env,
+                }
+            },
+            t if t == NanBoxTag::Channel as u8 => unsafe {
+                let ptr = self.as_channel_ptr() as *mut Arc<ChannelData>;
+                let boxed = Box::from_raw(ptr);
+                Value::Channel(*boxed)
+            },
+            t if t == NanBoxTag::WeaveCtx as u8 => unsafe {
+                let ptr = self.as_weave_ctx_ptr() as *mut WeaveCtxData;
+                let data = Box::from_raw(ptr);
+                Value::WeaveCtx {
+                    yield_chan: data.yield_chan,
+                    resume_chan: data.resume_chan,
+                }
+            },
+            _ => panic!("Unknown NanBoxedValue tag: {}", self.tag()),
+        }
+    }
+
+    /// Clone a NanBoxedValue, properly cloning any heap-allocated data
+    ///
+    /// For pointer types, this creates new heap allocations.
+    pub fn clone_nanboxed(&self) -> Self {
+        if self.is_float() {
+            return *self;
+        }
+
+        match self.tag() {
+            t if t == NanBoxTag::Int as u8 => *self,
+            t if t == NanBoxTag::Bool as u8 => *self,
+            t if t == NanBoxTag::String as u8 => {
+                let ptr = unsafe { self.as_string_ptr() };
+                let s = unsafe { &*ptr };
+                let boxed = Box::new(s.clone());
+                Self::from_string_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::Symbol as u8 => {
+                let ptr = unsafe { self.as_symbol_ptr() };
+                let s = unsafe { &*ptr };
+                let boxed = Box::new(s.clone());
+                Self::from_symbol_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::Variant as u8 => {
+                let ptr = unsafe { self.as_variant_ptr() };
+                let arc = unsafe { &*ptr };
+                let boxed = Box::new(arc.clone());
+                Self::from_variant_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::Map as u8 => {
+                let ptr = unsafe { self.as_map_ptr() };
+                let map = unsafe { &*ptr };
+                let boxed = Box::new(map.clone());
+                Self::from_map_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::Quotation as u8 => {
+                let ptr = unsafe { self.as_quotation_ptr() };
+                let data = unsafe { &*ptr };
+                let boxed = Box::new(data.clone());
+                Self::from_quotation_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::Closure as u8 => {
+                let ptr = unsafe { self.as_closure_ptr() };
+                let data = unsafe { &*ptr };
+                let boxed = Box::new(data.clone());
+                Self::from_closure_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::Channel as u8 => {
+                let ptr = unsafe { self.as_channel_ptr() };
+                let arc = unsafe { &*ptr };
+                let boxed = Box::new(arc.clone());
+                Self::from_channel_ptr(Box::into_raw(boxed))
+            }
+            t if t == NanBoxTag::WeaveCtx as u8 => {
+                let ptr = unsafe { self.as_weave_ctx_ptr() };
+                let data = unsafe { &*ptr };
+                let boxed = Box::new(data.clone());
+                Self::from_weave_ctx_ptr(Box::into_raw(boxed))
+            }
+            _ => *self, // Unknown tag, just copy bits
+        }
+    }
+
+    /// Drop a NanBoxedValue, freeing any heap-allocated data
+    ///
+    /// This must be called for NanBoxedValues that hold pointer types
+    /// to avoid memory leaks.
+    ///
+    /// # Safety
+    /// The NanBoxedValue must have been created by `from_value` or `clone_nanboxed`
+    /// and not yet dropped or converted to Value.
+    pub unsafe fn drop_nanboxed(self) {
+        if self.is_float() {
+            return;
+        }
+
+        match self.tag() {
+            t if t == NanBoxTag::Int as u8 => {}
+            t if t == NanBoxTag::Bool as u8 => {}
+            t if t == NanBoxTag::String as u8 => unsafe {
+                let ptr = self.as_string_ptr() as *mut SeqString;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::Symbol as u8 => unsafe {
+                let ptr = self.as_symbol_ptr() as *mut SeqString;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::Variant as u8 => unsafe {
+                let ptr = self.as_variant_ptr() as *mut Arc<VariantData>;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::Map as u8 => unsafe {
+                let ptr = self.as_map_ptr() as *mut Box<HashMap<MapKey, Value>>;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::Quotation as u8 => unsafe {
+                let ptr = self.as_quotation_ptr() as *mut QuotationData;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::Closure as u8 => unsafe {
+                let ptr = self.as_closure_ptr() as *mut ClosureData;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::Channel as u8 => unsafe {
+                let ptr = self.as_channel_ptr() as *mut Arc<ChannelData>;
+                drop(Box::from_raw(ptr));
+            },
+            t if t == NanBoxTag::WeaveCtx as u8 => unsafe {
+                let ptr = self.as_weave_ctx_ptr() as *mut WeaveCtxData;
+                drop(Box::from_raw(ptr));
+            },
+            _ => {} // Unknown tag, nothing to drop
+        }
+    }
+}
 
 // =============================================================================
 // Tests
@@ -930,26 +1210,45 @@ mod tests {
     #[test]
     fn test_encoding_bit_patterns() {
         // Verify specific bit patterns for debugging
+        // New encoding: 0xFFFC in bits 63:48, tag in bits 47:44, payload in bits 43:0
 
-        // Int 0: should have tag 0
+        // Int 0: tag=0, payload=0
         let int_zero = NanBoxedValue::from_int(0);
         let bits = int_zero.to_bits();
-        // High 16 bits should be 0xFFFC (base) + 0 (tag) = 0xFFFC
-        assert_eq!(bits >> 48, 0xFFFC, "Int(0) should have prefix 0xFFFC");
+        assert_eq!(
+            bits >> 48,
+            0xFFFC,
+            "All boxed values have 0xFFFC in high 16 bits"
+        );
+        assert_eq!(int_zero.tag(), 0, "Int should have tag 0");
         assert_eq!(bits & PAYLOAD_MASK, 0, "Int(0) should have payload 0");
 
-        // Bool true: should have tag 1
+        // Bool true: tag=1, payload=1
         let bool_true = NanBoxedValue::from_bool(true);
         let bits = bool_true.to_bits();
-        // High 16 bits should be 0xFFFC + 1 = 0xFFFD
-        assert_eq!(bits >> 48, 0xFFFD, "Bool(true) should have prefix 0xFFFD");
+        assert_eq!(
+            bits >> 48,
+            0xFFFC,
+            "All boxed values have 0xFFFC in high 16 bits"
+        );
+        assert_eq!(bool_true.tag(), 1, "Bool should have tag 1");
         assert_eq!(bits & PAYLOAD_MASK, 1, "Bool(true) should have payload 1");
 
-        // Int 42
+        // Int 42: tag=0, payload=42
         let int_42 = NanBoxedValue::from_int(42);
         let bits = int_42.to_bits();
         assert_eq!(bits >> 48, 0xFFFC);
+        assert_eq!(int_42.tag(), 0);
         assert_eq!(bits & PAYLOAD_MASK, 42);
+
+        // Verify tag is in correct position (bits 47:44)
+        // Bool(true) should be: 0xFFFC_1000_0000_0001
+        let expected_bool_bits = 0xFFFC_0000_0000_0000_u64 | (1_u64 << 44) | 1;
+        assert_eq!(
+            bool_true.to_bits(),
+            expected_bool_bits,
+            "Bool(true) bit pattern should be 0xFFFC_1000_0000_0001"
+        );
     }
 
     #[test]
@@ -979,5 +1278,118 @@ mod tests {
         assert!(std::mem::size_of::<ClosureData>() >= 24);
         // WeaveCtxData has 2 x Arc<WeaveChannelData>
         assert!(std::mem::size_of::<WeaveCtxData>() >= 16);
+    }
+
+    // =========================================================================
+    // Value <-> NanBoxedValue Conversion Tests
+    // =========================================================================
+
+    #[test]
+    fn test_value_int_roundtrip() {
+        let original = Value::Int(42);
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+
+        // Negative
+        let original = Value::Int(-12345);
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_value_float_roundtrip() {
+        let original = Value::Float(std::f64::consts::PI);
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+
+        // Negative
+        let original = Value::Float(-std::f64::consts::E);
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_value_bool_roundtrip() {
+        let original = Value::Bool(true);
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+
+        let original = Value::Bool(false);
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_value_string_roundtrip() {
+        let original = Value::String(SeqString::from("hello world"));
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_value_symbol_roundtrip() {
+        let original = Value::Symbol(SeqString::from("my-symbol"));
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_value_quotation_roundtrip() {
+        let original = Value::Quotation {
+            wrapper: 0x1234,
+            impl_: 0x5678,
+        };
+        let nb = NanBoxedValue::from_value(&original);
+        let restored = unsafe { nb.to_value() };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_clone_nanboxed_int() {
+        let original = NanBoxedValue::from_int(42);
+        let cloned = original.clone_nanboxed();
+        assert_eq!(cloned.as_int(), 42);
+        // Both should be valid (no double-free for primitives)
+        assert_eq!(original.as_int(), 42);
+    }
+
+    #[test]
+    fn test_clone_nanboxed_string() {
+        let value = Value::String(SeqString::from("test"));
+        let nb = NanBoxedValue::from_value(&value);
+        let cloned = nb.clone_nanboxed();
+
+        // Both should be valid and contain the same string
+        let restored1 = unsafe { nb.to_value() };
+        let restored2 = unsafe { cloned.to_value() };
+
+        assert_eq!(restored1, value);
+        assert_eq!(restored2, value);
+    }
+
+    #[test]
+    fn test_drop_nanboxed_string() {
+        let value = Value::String(SeqString::from("test"));
+        let nb = NanBoxedValue::from_value(&value);
+        // This should not leak memory
+        unsafe { nb.drop_nanboxed() };
+        // Test passes if no memory issues (detected by miri or valgrind)
+    }
+
+    #[test]
+    fn test_drop_nanboxed_primitive() {
+        let nb = NanBoxedValue::from_int(42);
+        // Dropping a primitive should be a no-op
+        unsafe { nb.drop_nanboxed() };
+        // The value is still valid (Copy type)
+        assert_eq!(nb.as_int(), 42);
     }
 }

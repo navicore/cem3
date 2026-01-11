@@ -789,11 +789,15 @@ impl App {
             ":pop" => {
                 if self.pop_last_expression() {
                     // Recompile and show new stack state
-                    self.compile_and_show_stack();
+                    self.compile_and_show_stack("(after pop)");
                     self.status_message = Some("Popped last expression.".to_string());
                 } else {
                     self.status_message = Some("Nothing to pop.".to_string());
                 }
+            }
+            ":stack" | ":s" => {
+                // Show current stack state
+                self.compile_and_show_stack("Stack:");
             }
             ":show" => {
                 // Show session file contents in IR pane
@@ -848,6 +852,7 @@ impl App {
                         "  :q, :quit     Exit the REPL".to_string(),
                         "  :clear        Clear session and history".to_string(),
                         "  :pop          Remove last expression".to_string(),
+                        "  :stack, :s    Show current stack".to_string(),
                         "  :show         Show session file".to_string(),
                         "  :edit, :e     Open in $EDITOR".to_string(),
                         "  :ir           Toggle IR pane".to_string(),
@@ -902,7 +907,7 @@ impl App {
     }
 
     /// Compile session and show current stack (used after :pop)
-    fn compile_and_show_stack(&mut self) {
+    fn compile_and_show_stack(&mut self, label: &str) {
         let output_path = self.session_path.with_extension("");
         match seqc::compile_file(&self.session_path, &output_path, false) {
             Ok(_) => {
@@ -915,9 +920,12 @@ impl App {
                     let stdout = String::from_utf8_lossy(&result.stdout);
                     let output_text = stdout.trim();
                     if !output_text.is_empty() {
-                        // Add a "stack state" entry to show current stack
+                        // Add an entry to show current stack
                         self.repl_state
-                            .add_entry(HistoryEntry::new("(after pop)").with_output(output_text));
+                            .add_entry(HistoryEntry::new(label).with_output(output_text));
+                    } else {
+                        self.repl_state
+                            .add_entry(HistoryEntry::new(label).with_output("(empty)"));
                     }
                 }
             }

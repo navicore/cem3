@@ -9,7 +9,7 @@ use crate::capture_analysis::calculate_captures;
 use crate::types::{
     Effect, SideEffect, StackType, Type, UnionTypeInfo, VariantFieldInfo, VariantInfo,
 };
-use crate::unification::{Subst, unify_stacks};
+use crate::unification::{Subst, unify_stacks, unify_types};
 use std::collections::HashMap;
 
 pub struct TypeChecker {
@@ -941,8 +941,16 @@ impl TypeChecker {
         body: &[Statement],
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        // Save and clear expected type so nested quotations don't inherit it
+        // The expected type applies only to THIS quotation, not inner ones
+        let expected_for_this_quotation = self.expected_quotation_type.borrow().clone();
+        *self.expected_quotation_type.borrow_mut() = None;
+
         // Infer the effect of the quotation body (includes computational effects)
         let body_effect = self.infer_statements(body)?;
+
+        // Restore expected type for capture analysis of THIS quotation
+        *self.expected_quotation_type.borrow_mut() = expected_for_this_quotation;
 
         // Perform capture analysis
         let quot_type = self.analyze_captures(&body_effect, &current_stack)?;
@@ -1319,6 +1327,20 @@ impl TypeChecker {
                         captures,
                     })
                 } else {
+                    // Verify the body effect is compatible with the expected effect
+                    // by unifying the quotation types. This catches:
+                    // - Stack pollution: body pushes values when expected is stack-neutral
+                    // - Stack underflow: body consumes values when expected is stack-neutral
+                    // - Wrong return type: body returns Int when Bool expected
+                    let body_quot = Type::Quotation(Box::new(body_effect.clone()));
+                    let expected_quot = Type::Quotation(expected_effect.clone());
+                    unify_types(&body_quot, &expected_quot).map_err(|e| {
+                        format!(
+                            "quotation effect mismatch: expected {}, got {}: {}",
+                            expected_effect, body_effect, e
+                        )
+                    })?;
+
                     // Body is compatible with expected effect - stateless quotation
                     Ok(Type::Quotation(expected_effect))
                 }
@@ -4182,14 +4204,11 @@ mod tests {
     }
 
     #[test]
-    fn test_while_body_stack_neutral_gap() {
-        // KNOWN GAP: while body [ 1 ] should be rejected but isn't
+    fn test_while_body_must_be_stack_neutral() {
+        // while body [ 1 ] should be rejected because it pushes a value
         // : bad-while ( -- )
         //   [ true ] [ 1 ] while ;
-        // while body must be ( ..a -- ..a ) but [ 1 ] pushes
-        //
-        // The row variable unification allows this to pass incorrectly.
-        // When ..a unifies, it absorbs the pushed value rather than failing.
+        // while body must be ( ..a -- ..a ) but [ 1 ] pushes Int
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -4216,23 +4235,24 @@ mod tests {
 
         let mut checker = TypeChecker::new();
         let result = checker.check_program(&program);
-        // KNOWN GAP: This should be is_err() but currently passes
-        // TODO: Fix row variable unification for quotation type matching
         assert!(
-            result.is_ok(),
-            "KNOWN GAP: while body that pushes should be rejected but isn't"
+            result.is_err(),
+            "while body that pushes values should be rejected"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("quotation effect mismatch"),
+            "Error should mention quotation effect mismatch, got: {}",
+            err
         );
     }
 
     #[test]
-    fn test_until_cond_return_type_gap() {
-        // KNOWN GAP: until cond [ 1 ] should be rejected but isn't
+    fn test_until_cond_must_return_bool() {
+        // until cond [ 1 ] should be rejected because it returns Int, not Bool
         // : bad-until ( -- )
         //   [ ] [ 1 ] until ;
         // until cond must be ( ..a -- ..a Bool ) but [ 1 ] returns Int
-        //
-        // The row variable unification absorbs the Int instead of
-        // checking it matches Bool.
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -4259,11 +4279,15 @@ mod tests {
 
         let mut checker = TypeChecker::new();
         let result = checker.check_program(&program);
-        // KNOWN GAP: This should be is_err() but currently passes
-        // TODO: Fix quotation type matching to check concrete return types
         assert!(
-            result.is_ok(),
-            "KNOWN GAP: until cond returning Int should be rejected but isn't"
+            result.is_err(),
+            "until cond returning Int instead of Bool should be rejected"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("quotation effect mismatch") || err.contains("Type mismatch"),
+            "Error should mention type mismatch, got: {}",
+            err
         );
     }
 

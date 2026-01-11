@@ -304,7 +304,9 @@ mod tests {
     use super::*;
     use std::mem::{align_of, size_of};
 
+    // In non-nanbox mode, Value and StackValue must have matching layouts
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_value_layout() {
         // Print sizes for debugging
         println!("size_of::<Value>() = {}", size_of::<Value>());
@@ -329,6 +331,30 @@ mod tests {
 
         // Verify alignment is 8 (for 64-bit pointers)
         assert_eq!(align_of::<Value>(), 8);
+    }
+
+    // In nanbox mode, StackValue is 8 bytes (NaN-boxed), Value is still 40 bytes
+    #[test]
+    #[cfg(feature = "nanbox")]
+    fn test_value_layout_nanbox() {
+        use crate::tagged_stack::StackValue;
+        // StackValue is 8 bytes in nanbox mode
+        assert_eq!(
+            size_of::<StackValue>(),
+            8,
+            "StackValue must be 8 bytes in nanbox mode, got {}",
+            size_of::<StackValue>()
+        );
+        // Value is still 40 bytes (it's used for conversion)
+        assert_eq!(
+            size_of::<Value>(),
+            40,
+            "Value must be exactly 40 bytes, got {}",
+            size_of::<Value>()
+        );
+        // Both should be 8-byte aligned
+        assert_eq!(align_of::<Value>(), 8);
+        assert_eq!(align_of::<StackValue>(), 8);
     }
 
     #[test]

@@ -9,6 +9,7 @@
 
 use crate::tagged_stack::StackValue;
 use crate::value::Value;
+#[cfg(not(feature = "nanbox"))]
 use std::sync::Arc;
 
 /// Stack: A pointer to the current position in a contiguous array of StackValue.
@@ -37,6 +38,7 @@ pub const DISC_WEAVECTX: u64 = 9;
 pub const DISC_SYMBOL: u64 = 10;
 
 /// Convert a Value to a StackValue for pushing onto the tagged stack
+#[cfg(not(feature = "nanbox"))]
 #[inline]
 pub fn value_to_stack_value(value: Value) -> StackValue {
     match value {
@@ -152,10 +154,18 @@ pub fn value_to_stack_value(value: Value) -> StackValue {
     }
 }
 
+/// Convert a Value to a StackValue for pushing onto the tagged stack (NaN-boxed version)
+#[cfg(feature = "nanbox")]
+#[inline]
+pub fn value_to_stack_value(value: Value) -> StackValue {
+    StackValue(crate::nanbox::NanBoxedValue::from_value(&value))
+}
+
 /// Convert a StackValue back to a Value
 ///
 /// # Safety
 /// The StackValue must contain valid data for its discriminant
+#[cfg(not(feature = "nanbox"))]
 #[inline]
 pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
     unsafe {
@@ -221,6 +231,16 @@ pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
     }
 }
 
+/// Convert a StackValue back to a Value (NaN-boxed version)
+///
+/// # Safety
+/// The StackValue must contain a valid NanBoxedValue
+#[cfg(feature = "nanbox")]
+#[inline]
+pub unsafe fn stack_value_to_value(sv: StackValue) -> Value {
+    unsafe { sv.0.to_value() }
+}
+
 /// Clone a StackValue from LLVM IR - reads from src pointer, writes to dst pointer.
 /// This is the FFI-callable version for inline codegen that avoids ABI issues
 /// with passing large structs by value.
@@ -250,6 +270,7 @@ pub unsafe extern "C" fn patch_seq_clone_value(src: *const StackValue, dst: *mut
 ///
 /// # Safety
 /// The StackValue must contain valid data for its discriminant.
+#[cfg(not(feature = "nanbox"))]
 #[inline]
 pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
     unsafe {
@@ -431,10 +452,21 @@ pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
     }
 }
 
+/// Clone a StackValue (NaN-boxed version)
+///
+/// # Safety
+/// The StackValue must contain a valid NanBoxedValue
+#[cfg(feature = "nanbox")]
+#[inline]
+pub unsafe fn clone_stack_value(sv: &StackValue) -> StackValue {
+    StackValue(sv.0.clone_nanboxed())
+}
+
 /// Drop a StackValue, decrementing refcounts for heap types
 ///
 /// # Safety
 /// The StackValue must contain valid data for its discriminant.
+#[cfg(not(feature = "nanbox"))]
 #[inline]
 pub unsafe fn drop_stack_value(sv: StackValue) {
     unsafe {
@@ -486,6 +518,16 @@ pub unsafe fn drop_stack_value(sv: StackValue) {
             _ => panic!("Invalid discriminant for drop: {}", sv.slot0),
         }
     }
+}
+
+/// Drop a StackValue (NaN-boxed version)
+///
+/// # Safety
+/// The StackValue must contain a valid NanBoxedValue
+#[cfg(feature = "nanbox")]
+#[inline]
+pub unsafe fn drop_stack_value(sv: StackValue) {
+    unsafe { sv.0.drop_nanboxed() }
 }
 
 // ============================================================================

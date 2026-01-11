@@ -51,7 +51,12 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 /// Embedded runtime library (built by build.rs)
+/// On docs.rs, this is an empty slice since the runtime isn't available.
+#[cfg(not(docsrs))]
 static RUNTIME_LIB: &[u8] = include_bytes!(env!("SEQ_RUNTIME_LIB_PATH"));
+
+#[cfg(docsrs)]
+static RUNTIME_LIB: &[u8] = &[];
 
 /// Minimum clang/LLVM version required.
 /// Our generated IR uses opaque pointers (`ptr`), which requires LLVM 15+.

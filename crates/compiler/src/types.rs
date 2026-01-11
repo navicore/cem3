@@ -52,13 +52,13 @@ pub enum Type {
     /// No captured values - backward compatible with existing quotations
     Quotation(Box<Effect>),
     /// Closure type (quotation with captured environment)
-    /// Example: Closure { effect: [Int -- Int], captures: [Int] }
+    /// Example: `Closure { effect: [Int -- Int], captures: [Int] }`
     /// A closure that captures one Int and takes another Int to produce Int
     Closure {
         /// Stack effect when the closure is called
         effect: Box<Effect>,
         /// Types of values captured from the creation site
-        /// Ordered top-down: captures[0] is top of stack at creation
+        /// Ordered top-down: `captures[0]` is top of stack at creation
         captures: Vec<Type>,
     },
     /// Union type - references a union definition by name

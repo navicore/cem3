@@ -147,6 +147,7 @@ pub use patch_seq_time_sleep_ms as time_sleep_ms;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "nanbox"))]
     use crate::stack::pop;
     use std::time::Instant;
 

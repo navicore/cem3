@@ -7,27 +7,28 @@
 //! ## Encoding Scheme
 //!
 //! IEEE 754 doubles use specific bit patterns for NaN. We encode non-float
-//! values in the "quiet NaN" space:
+//! values in the negative quiet NaN space (>= 0xFFF8_0000_0000_0000):
 //!
 //! ```text
-//! Float (normal):    [any valid IEEE 754 double that isn't in our quiet NaN range]
-//! Boxed values:      0x7FF8_TTTT_PPPP_PPPP
-//!                         ^^^^-- 4-bit type tag (0-15)
-//!                              ^^^^^^^^^^^-- 48-bit payload
+//! Float (normal):    [any valid IEEE 754 double below 0xFFF8_0000_0000_0000]
+//! Boxed values:      0xFFF8 + (tag << 47) + payload
+//!                    Bits 63:51 = 0x1FFF (negative quiet NaN)
+//!                    Bits 50:47 = 4-bit type tag (0-15)
+//!                    Bits 46:0  = 47-bit payload
 //! ```
 //!
 //! ## Type Tags
 //!
-//! - 0x0: Int (48-bit signed integer, range ~±140 trillion)
+//! - 0x0: Int (47-bit signed integer, range ~±70 trillion)
 //! - 0x1: Bool (0 or 1 in low bit)
-//! - 0x2: String (48-bit pointer to SeqString)
-//! - 0x3: Symbol (48-bit pointer to SeqString)
-//! - 0x4: Variant (48-bit pointer to Arc<VariantData>)
-//! - 0x5: Map (48-bit pointer to Box<HashMap>)
-//! - 0x6: Quotation (48-bit pointer to QuotationData)
-//! - 0x7: Closure (48-bit pointer to ClosureData)
-//! - 0x8: Channel (48-bit pointer to Arc<ChannelData>)
-//! - 0x9: WeaveCtx (48-bit pointer to WeaveCtxData)
+//! - 0x2: String (47-bit pointer to SeqString)
+//! - 0x3: Symbol (47-bit pointer to SeqString)
+//! - 0x4: Variant (47-bit pointer to Arc<VariantData>)
+//! - 0x5: Map (47-bit pointer to Box<HashMap>)
+//! - 0x6: Quotation (47-bit pointer to QuotationData)
+//! - 0x7: Closure (47-bit pointer to ClosureData)
+//! - 0x8: Channel (47-bit pointer to Arc<ChannelData>)
+//! - 0x9: WeaveCtx (47-bit pointer to WeaveCtxData)
 //!
 //! ## Float Handling
 //!
@@ -48,29 +49,39 @@ use crate::value::{ChannelData, MapKey, Value, VariantData, WeaveChannelData};
 /// We use negative quiet NaNs (sign bit + exponent all 1s + quiet bit) for boxing.
 /// Any value >= this threshold is a boxed value, not a float.
 /// This leaves all positive floats (including +inf, +NaN) untouched.
-const NANBOX_THRESHOLD: u64 = 0xFFFC_0000_0000_0000;
+///
+/// Bit layout for negative quiet NaN:
+/// - Bit 63: 1 (sign, negative)
+/// - Bits 62:52: 0x7FF (exponent, all 1s)
+/// - Bit 51: 1 (quiet bit)
+/// - Bits 50:0: 51 bits available for tag + payload
+///
+/// We use: bits 50:47 for 4-bit tag, bits 46:0 for 47-bit payload
+const NANBOX_THRESHOLD: u64 = 0xFFF8_0000_0000_0000;
 
-/// Base value for boxed types (0xFFFC in high 16 bits)
-const NANBOX_BASE: u64 = 0xFFFC_0000_0000_0000;
+/// Base value for boxed types (negative quiet NaN with quiet bit set)
+const NANBOX_BASE: u64 = 0xFFF8_0000_0000_0000;
 
-/// Mask for the 4-bit type tag (stored in bits 47:44)
-const TAG_MASK: u64 = 0x0000_F000_0000_0000;
+/// Mask for the 4-bit type tag (stored in bits 50:47)
+const TAG_MASK: u64 = 0x0007_8000_0000_0000;
 
-/// Shift amount for the type tag (44 bits)
-const TAG_SHIFT: u32 = 44;
+/// Shift amount for the type tag (47 bits)
+const TAG_SHIFT: u32 = 47;
 
-/// Mask for the 44-bit payload (stored in bits 43:0)
-const PAYLOAD_MASK: u64 = 0x0000_0FFF_FFFF_FFFF;
+/// Mask for the 47-bit payload (stored in bits 46:0)
+/// 47 bits is enough for x86_64 user-space pointers (48-bit virtual address space,
+/// but user space is limited to 47 bits with the high bit being 0)
+const PAYLOAD_MASK: u64 = 0x0000_7FFF_FFFF_FFFF;
 
 /// Canonical NaN value (used when float operations produce NaN)
 /// This is a positive quiet NaN that doesn't collide with our boxed encoding
 pub const CANONICAL_NAN: u64 = 0x7FF8_0000_0000_0000;
 
-/// Maximum 44-bit signed integer: 2^43 - 1 = 8,796,093,022,207 (~8.8 trillion)
-pub const MAX_NANBOX_INT: i64 = (1i64 << 43) - 1;
+/// Maximum 47-bit signed integer: 2^46 - 1 = 70,368,744,177,663 (~70 trillion)
+pub const MAX_NANBOX_INT: i64 = (1i64 << 46) - 1;
 
-/// Minimum 44-bit signed integer: -2^43 = -8,796,093,022,208
-pub const MIN_NANBOX_INT: i64 = -(1i64 << 43);
+/// Minimum 47-bit signed integer: -2^46 = -70,368,744,177,664
+pub const MIN_NANBOX_INT: i64 = -(1i64 << 46);
 
 // =============================================================================
 // Type Tags
@@ -316,7 +327,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "String pointer exceeds 48-bit address space"
+            "String pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::String, payload)
     }
@@ -330,7 +341,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "Symbol pointer exceeds 48-bit address space"
+            "Symbol pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::Symbol, payload)
     }
@@ -341,7 +352,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "Variant pointer exceeds 48-bit address space"
+            "Variant pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::Variant, payload)
     }
@@ -352,7 +363,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "Map pointer exceeds 48-bit address space"
+            "Map pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::Map, payload)
     }
@@ -363,7 +374,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "Quotation pointer exceeds 48-bit address space"
+            "Quotation pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::Quotation, payload)
     }
@@ -374,7 +385,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "Closure pointer exceeds 48-bit address space"
+            "Closure pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::Closure, payload)
     }
@@ -385,7 +396,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "Channel pointer exceeds 48-bit address space"
+            "Channel pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::Channel, payload)
     }
@@ -396,7 +407,7 @@ impl NanBoxedValue {
         let payload = (ptr as u64) & PAYLOAD_MASK;
         debug_assert_eq!(
             payload, ptr as u64,
-            "WeaveCtx pointer exceeds 48-bit address space"
+            "WeaveCtx pointer exceeds 47-bit address space"
         );
         Self::make_boxed(NanBoxTag::WeaveCtx, payload)
     }
@@ -422,12 +433,12 @@ impl NanBoxedValue {
     #[inline(always)]
     pub fn as_int(self) -> i64 {
         debug_assert!(self.is_int(), "as_int() called on non-int value");
-        // Sign-extend from 44 bits to 64 bits
+        // Sign-extend from 47 bits to 64 bits
         let payload = self.payload();
-        // Check if the sign bit (bit 43) is set
-        if payload & (1 << 43) != 0 {
-            // Negative: sign-extend by setting upper 20 bits
-            (payload | 0xFFFF_F000_0000_0000) as i64
+        // Check if the sign bit (bit 46) is set
+        if payload & (1 << 46) != 0 {
+            // Negative: sign-extend by setting upper 17 bits
+            (payload | 0xFFFF_8000_0000_0000) as i64
         } else {
             payload as i64
         }
@@ -1042,11 +1053,11 @@ mod tests {
         let boxed: Box<u64> = Box::new(42);
         let ptr = Box::into_raw(boxed);
 
-        // The pointer should fit in 48 bits on x86-64 and ARM64
+        // The pointer should fit in 47 bits on x86-64 (user space is 47 bits) and ARM64
         let ptr_val = ptr as u64;
         assert!(
             ptr_val <= PAYLOAD_MASK,
-            "Pointer 0x{:x} exceeds 48-bit range",
+            "Pointer 0x{:x} exceeds 47-bit range",
             ptr_val
         );
 
@@ -1169,8 +1180,9 @@ mod tests {
 
     #[test]
     fn test_no_float_boxed_collision() {
-        // Verify that no valid float value >= NANBOX_THRESHOLD
-        // The threshold is 0xFFFC_0000_0000_0000
+        // Verify that normal float values don't collide with our boxed range.
+        // The threshold is 0xFFF8_0000_0000_0000, so negative quiet NaNs
+        // (which start at 0xFFF8...) are canonicalized by from_float().
 
         // Negative infinity: 0xFFF0_0000_0000_0000 - below threshold
         assert!(f64::NEG_INFINITY.to_bits() < NANBOX_THRESHOLD);
@@ -1181,10 +1193,15 @@ mod tests {
         // -1.0: 0xBFF0_0000_0000_0000 - way below threshold
         assert!((-1.0_f64).to_bits() < NANBOX_THRESHOLD);
 
-        // Negative quiet NaN starts at 0xFFF8... which is below our 0xFFFC threshold
-        // so those are safe as floats
+        // Negative quiet NaN starts at 0xFFF8... which IS our threshold.
+        // Such NaNs get canonicalized by from_float() to avoid collision.
         let neg_qnan = f64::from_bits(0xFFF8_0000_0000_0000);
-        assert!(neg_qnan.to_bits() < NANBOX_THRESHOLD);
+        assert!(neg_qnan.to_bits() >= NANBOX_THRESHOLD);
+
+        // Verify canonicalization works
+        let boxed = NanBoxedValue::from_float(neg_qnan);
+        assert!(boxed.is_float());
+        assert_eq!(boxed.to_bits(), CANONICAL_NAN);
     }
 
     #[test]
@@ -1210,15 +1227,15 @@ mod tests {
     #[test]
     fn test_encoding_bit_patterns() {
         // Verify specific bit patterns for debugging
-        // New encoding: 0xFFFC in bits 63:48, tag in bits 47:44, payload in bits 43:0
+        // Encoding: 0xFFF8 base (bits 63:51), tag in bits 50:47, payload in bits 46:0
 
         // Int 0: tag=0, payload=0
         let int_zero = NanBoxedValue::from_int(0);
         let bits = int_zero.to_bits();
         assert_eq!(
-            bits >> 48,
-            0xFFFC,
-            "All boxed values have 0xFFFC in high 16 bits"
+            bits >> 51,
+            0x1FFF,
+            "All boxed values have 0x1FFF in high 13 bits (negative quiet NaN)"
         );
         assert_eq!(int_zero.tag(), 0, "Int should have tag 0");
         assert_eq!(bits & PAYLOAD_MASK, 0, "Int(0) should have payload 0");
@@ -1227,9 +1244,9 @@ mod tests {
         let bool_true = NanBoxedValue::from_bool(true);
         let bits = bool_true.to_bits();
         assert_eq!(
-            bits >> 48,
-            0xFFFC,
-            "All boxed values have 0xFFFC in high 16 bits"
+            bits >> 51,
+            0x1FFF,
+            "All boxed values have 0x1FFF in high 13 bits (negative quiet NaN)"
         );
         assert_eq!(bool_true.tag(), 1, "Bool should have tag 1");
         assert_eq!(bits & PAYLOAD_MASK, 1, "Bool(true) should have payload 1");
@@ -1237,17 +1254,17 @@ mod tests {
         // Int 42: tag=0, payload=42
         let int_42 = NanBoxedValue::from_int(42);
         let bits = int_42.to_bits();
-        assert_eq!(bits >> 48, 0xFFFC);
+        assert_eq!(bits >> 51, 0x1FFF);
         assert_eq!(int_42.tag(), 0);
         assert_eq!(bits & PAYLOAD_MASK, 42);
 
-        // Verify tag is in correct position (bits 47:44)
-        // Bool(true) should be: 0xFFFC_1000_0000_0001
-        let expected_bool_bits = 0xFFFC_0000_0000_0000_u64 | (1_u64 << 44) | 1;
+        // Verify tag is in correct position (bits 50:47)
+        // Bool(true) should be: 0xFFF8_0000_0000_0000 | (1 << 47) | 1 = 0xFFF8_8000_0000_0001
+        let expected_bool_bits = 0xFFF8_0000_0000_0000_u64 | (1_u64 << 47) | 1;
         assert_eq!(
             bool_true.to_bits(),
             expected_bool_bits,
-            "Bool(true) bit pattern should be 0xFFFC_1000_0000_0001"
+            "Bool(true) bit pattern should be 0xFFF8_8000_0000_0001"
         );
     }
 

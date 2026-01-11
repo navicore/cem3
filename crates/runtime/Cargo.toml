@@ -16,6 +16,7 @@ crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testi
 [features]
 default = ["diagnostics"]
 diagnostics = ["signal-hook"]  # Strand registry + SIGQUIT handler for production debugging
+nanbox = []  # NaN-boxing: 8-byte values instead of 40-byte (Phase 2 of issue #188)
 
 [dependencies]
 # May - Erlang-style green threads / coroutines for CSP concurrency

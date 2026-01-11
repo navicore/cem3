@@ -46,10 +46,15 @@
 
 use std::alloc::{Layout, alloc, dealloc, realloc};
 
+// =============================================================================
+// StackValue - Conditional on nanbox feature
+// =============================================================================
+
 /// A 40-byte stack value, layout-compatible with LLVM's %Value type.
 ///
 /// This matches `%Value = type { i64, i64, i64, i64, i64 }` in the generated IR.
 /// The size matches Rust's Value enum with #[repr(C)].
+#[cfg(not(feature = "nanbox"))]
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct StackValue {
@@ -65,6 +70,17 @@ pub struct StackValue {
     pub slot4: u64,
 }
 
+/// An 8-byte NaN-boxed stack value.
+///
+/// When the `nanbox` feature is enabled, all values are encoded in 8 bytes
+/// using IEEE 754 NaN-boxing. This reduces memory usage by 5x and improves
+/// cache utilization.
+#[cfg(feature = "nanbox")]
+#[repr(transparent)]
+#[derive(Clone, Copy, Default)]
+pub struct StackValue(pub crate::nanbox::NanBoxedValue);
+
+#[cfg(not(feature = "nanbox"))]
 impl std::fmt::Debug for StackValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Discriminant 0 = Int
@@ -83,11 +99,30 @@ impl std::fmt::Debug for StackValue {
     }
 }
 
-/// Size of StackValue in bytes (should be 40)
+#[cfg(feature = "nanbox")]
+impl std::fmt::Debug for StackValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StackValue({:?})", self.0)
+    }
+}
+
+/// Size of StackValue in bytes
+/// - Without nanbox: 40 bytes (5 x u64)
+/// - With nanbox: 8 bytes (NaN-boxed)
 pub const STACK_VALUE_SIZE: usize = std::mem::size_of::<StackValue>();
 
-// Compile-time assertion that StackValue is 40 bytes
-const _: () = assert!(STACK_VALUE_SIZE == 40, "StackValue must be 40 bytes");
+// Compile-time assertions for StackValue size
+#[cfg(not(feature = "nanbox"))]
+const _: () = assert!(
+    STACK_VALUE_SIZE == 40,
+    "StackValue must be 40 bytes without nanbox"
+);
+
+#[cfg(feature = "nanbox")]
+const _: () = assert!(
+    STACK_VALUE_SIZE == 8,
+    "StackValue must be 8 bytes with nanbox"
+);
 
 /// Legacy type alias for backward compatibility
 pub type TaggedValue = u64;
@@ -344,6 +379,7 @@ impl TaggedStack {
 
     /// Push an integer value using Value::Int layout
     /// slot0 = 0 (Int discriminant), slot1 = value
+    #[cfg(not(feature = "nanbox"))]
     #[inline]
     pub fn push_int(&mut self, val: i64) {
         self.push(StackValue {
@@ -355,9 +391,17 @@ impl TaggedStack {
         });
     }
 
+    /// Push an integer value (NaN-boxed version)
+    #[cfg(feature = "nanbox")]
+    #[inline]
+    pub fn push_int(&mut self, val: i64) {
+        self.push(StackValue(crate::nanbox::NanBoxedValue::from_int(val)));
+    }
+
     /// Pop and return an integer value
     ///
     /// Panics if the top value is not an integer.
+    #[cfg(not(feature = "nanbox"))]
     #[inline]
     pub fn pop_int(&mut self) -> i64 {
         let val = self.pop();
@@ -367,6 +411,17 @@ impl TaggedStack {
             val.slot0
         );
         val.slot1 as i64
+    }
+
+    /// Pop and return an integer value (NaN-boxed version)
+    ///
+    /// Panics if the top value is not an integer.
+    #[cfg(feature = "nanbox")]
+    #[inline]
+    pub fn pop_int(&mut self) -> i64 {
+        let val = self.pop();
+        assert!(val.0.is_int(), "pop_int: expected Int");
+        val.0.as_int()
     }
 
     /// Clone this stack (for spawn)
@@ -780,6 +835,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_stack_peek() {
         let mut stack = TaggedStack::new(16);
         stack.push_int(42);
@@ -788,6 +844,22 @@ mod tests {
         let peeked = stack.peek();
         assert_eq!(peeked.slot0, 0); // Int discriminant
         assert_eq!(peeked.slot1 as i64, 42); // Value in slot1
+        assert_eq!(stack.depth(), 1); // Still there
+
+        assert_eq!(stack.pop_int(), 42);
+        assert!(stack.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "nanbox")]
+    fn test_stack_peek_nanbox() {
+        let mut stack = TaggedStack::new(16);
+        stack.push_int(42);
+
+        // With NaN-boxing: verify the value via is_int/as_int
+        let peeked = stack.peek();
+        assert!(peeked.0.is_int());
+        assert_eq!(peeked.0.as_int(), 42);
         assert_eq!(stack.depth(), 1); // Still there
 
         assert_eq!(stack.pop_int(), 42);
@@ -902,6 +974,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_stack_with_heap_objects() {
         let mut stack = TaggedStack::new(16);
 
@@ -942,10 +1015,19 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "nanbox"))]
     fn test_stack_value_size() {
         // Verify StackValue is 40 bytes, matching LLVM's %Value type
         // (5 x i64 = 5 x 8 = 40 bytes, compatible with Rust's Value with #[repr(C)])
         assert_eq!(std::mem::size_of::<StackValue>(), 40);
         assert_eq!(STACK_VALUE_SIZE, 40);
+    }
+
+    #[test]
+    #[cfg(feature = "nanbox")]
+    fn test_stack_value_size_nanbox() {
+        // With nanbox feature, StackValue is 8 bytes (NaN-boxed)
+        assert_eq!(std::mem::size_of::<StackValue>(), 8);
+        assert_eq!(STACK_VALUE_SIZE, 8);
     }
 }

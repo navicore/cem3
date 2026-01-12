@@ -658,6 +658,27 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_hex_decode(ptr)",
             category: None,
         },
+        // Crypto operations
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_sha256(ptr)",
+            category: Some("; Crypto operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_hmac_sha256(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_constant_time_eq(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_random_bytes(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_uuid4(ptr)",
+            category: None,
+        },
         // Symbol operations
         RuntimeDecl {
             decl: "declare ptr @patch_seq_symbol_equal(ptr)",
@@ -1025,6 +1046,12 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("encoding.base64url-decode", "patch_seq_base64url_decode"),
         ("encoding.hex-encode", "patch_seq_hex_encode"),
         ("encoding.hex-decode", "patch_seq_hex_decode"),
+        // Crypto operations
+        ("crypto.sha256", "patch_seq_sha256"),
+        ("crypto.hmac-sha256", "patch_seq_hmac_sha256"),
+        ("crypto.constant-time-eq", "patch_seq_constant_time_eq"),
+        ("crypto.random-bytes", "patch_seq_random_bytes"),
+        ("crypto.uuid4", "patch_seq_uuid4"),
         // Symbol operations
         ("symbol.=", "patch_seq_symbol_equal"),
         // File operations

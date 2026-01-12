@@ -11,6 +11,7 @@ pub mod arithmetic;
 pub mod channel;
 pub mod closures;
 pub mod cond;
+pub mod crypto;
 pub mod diagnostics;
 pub mod encoding;
 pub mod error;
@@ -119,6 +120,12 @@ pub use encoding::{
     patch_seq_base64_decode as base64_decode, patch_seq_base64_encode as base64_encode,
     patch_seq_base64url_decode as base64url_decode, patch_seq_base64url_encode as base64url_encode,
     patch_seq_hex_decode as hex_decode, patch_seq_hex_encode as hex_encode,
+};
+
+// Crypto operations (exported for LLVM linking)
+pub use crypto::{
+    patch_seq_constant_time_eq as constant_time_eq, patch_seq_hmac_sha256 as hmac_sha256,
+    patch_seq_random_bytes as random_bytes, patch_seq_sha256 as sha256, patch_seq_uuid4 as uuid4,
 };
 
 // Quotation operations (exported for LLVM linking)

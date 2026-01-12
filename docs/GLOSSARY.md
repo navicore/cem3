@@ -153,6 +153,28 @@ In Seq, generators are called **weaves**:
 
 ---
 
+## NaN-Boxing
+
+A memory optimization technique that encodes multiple value types within a single 64-bit word by exploiting the unused bits in IEEE 754 floating-point NaN (Not a Number) representations.
+
+IEEE 754 doubles use 64 bits: 1 sign, 11 exponent, 52 mantissa. When the exponent is all 1s and the mantissa is non-zero, the value is NaN. The "quiet NaN" range (with the top mantissa bit set) provides ~51 bits of payload that hardware ignores - perfect for smuggling in pointers, integers, or type tags.
+
+```
+Normal f64:    stored directly (bit pattern < 0xFFF8...)
+NaN-boxed Int: 0xFFF8 | (tag << 47) | (47-bit payload)
+NaN-boxed Ptr: 0xFFF8 | (tag << 47) | (pointer)
+```
+
+**Why it matters:** NaN-boxing shrinks value representation from multi-word tagged unions to a single 64-bit word. This improves cache utilization, reduces memory bandwidth, and enables faster stack operations. JavaScript engines (V8, SpiderMonkey) use variants of this technique for significant performance gains.
+
+**The tradeoff:** Integers are limited to ~47-51 bits (depending on tag space), not full 64-bit. This breaks operations expecting i64::MIN/MAX (like `1 63 shl`). Languages using NaN-boxing either accept this limit (JavaScript's 53-bit integers via f64 mantissa) or fall back to heap-allocated "BigInt" for large values.
+
+**History:** The technique emerged from Lisp implementations in the 1970s-80s, where tagged pointers were common. Modern popularization came from LuaJIT (Mike Pall, 2005) and JavaScript engines. WebKit's JavaScriptCore, Mozilla's SpiderMonkey, and early V8 all use NaN-boxing or similar "pointer tagging" schemes.
+
+**In other languages:** LuaJIT uses NaN-boxing extensively. JavaScript engines use it for the `number` type. Ruby's CRuby uses tagged pointers (a related technique). OCaml uses tagged integers with the low bit. Seq explored NaN-boxing but currently uses 40-byte tagged values to preserve full 64-bit integer range.
+
+---
+
 ## Point-Free Programming
 
 Writing functions without explicitly naming their arguments. Also called "tacit programming."

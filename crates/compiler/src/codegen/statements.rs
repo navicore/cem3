@@ -20,12 +20,7 @@ impl CodeGen {
         position: TailPosition,
     ) -> Result<String, CodeGenError> {
         // Inline operations for common stack/arithmetic ops
-        #[cfg(not(feature = "nanbox"))]
         if let Some(result) = self.try_codegen_inline_op(stack_var, name)? {
-            return Ok(result);
-        }
-        #[cfg(feature = "nanbox")]
-        if let Some(result) = self.try_codegen_inline_op_nanbox(stack_var, name)? {
             return Ok(result);
         }
 

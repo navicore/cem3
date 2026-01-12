@@ -76,8 +76,6 @@ mod error;
 mod ffi_wrappers;
 mod globals;
 mod inline;
-#[cfg(feature = "nanbox")]
-mod inline_nanbox;
 mod platform;
 mod program;
 mod runtime;
@@ -614,34 +612,16 @@ mod tests {
         let test_dup_fn = &ir[func_start..func_end];
 
         // The optimized path should use load/store directly (no clone_value call)
-        // In nanbox mode: load i64 / store i64
-        // In non-nanbox mode: load %Value / store %Value
-        #[cfg(not(feature = "nanbox"))]
-        {
-            assert!(
-                test_dup_fn.contains("load %Value"),
-                "Optimized dup should use 'load %Value', got:\n{}",
-                test_dup_fn
-            );
-            assert!(
-                test_dup_fn.contains("store %Value"),
-                "Optimized dup should use 'store %Value', got:\n{}",
-                test_dup_fn
-            );
-        }
-        #[cfg(feature = "nanbox")]
-        {
-            assert!(
-                test_dup_fn.contains("load i64"),
-                "Optimized dup should use 'load i64', got:\n{}",
-                test_dup_fn
-            );
-            assert!(
-                test_dup_fn.contains("store i64"),
-                "Optimized dup should use 'store i64', got:\n{}",
-                test_dup_fn
-            );
-        }
+        assert!(
+            test_dup_fn.contains("load %Value"),
+            "Optimized dup should use 'load %Value', got:\n{}",
+            test_dup_fn
+        );
+        assert!(
+            test_dup_fn.contains("store %Value"),
+            "Optimized dup should use 'store %Value', got:\n{}",
+            test_dup_fn
+        );
 
         // The optimized path should NOT call clone_value
         assert!(
@@ -705,32 +685,16 @@ mod tests {
         let test_dup_fn = &ir[func_start..func_end];
 
         // With literal heuristic, should use optimized path
-        #[cfg(not(feature = "nanbox"))]
-        {
-            assert!(
-                test_dup_fn.contains("load %Value"),
-                "Dup after int literal should use optimized load, got:\n{}",
-                test_dup_fn
-            );
-            assert!(
-                test_dup_fn.contains("store %Value"),
-                "Dup after int literal should use optimized store, got:\n{}",
-                test_dup_fn
-            );
-        }
-        #[cfg(feature = "nanbox")]
-        {
-            assert!(
-                test_dup_fn.contains("load i64"),
-                "Dup after int literal should use optimized load i64, got:\n{}",
-                test_dup_fn
-            );
-            assert!(
-                test_dup_fn.contains("store i64"),
-                "Dup after int literal should use optimized store i64, got:\n{}",
-                test_dup_fn
-            );
-        }
+        assert!(
+            test_dup_fn.contains("load %Value"),
+            "Dup after int literal should use optimized load, got:\n{}",
+            test_dup_fn
+        );
+        assert!(
+            test_dup_fn.contains("store %Value"),
+            "Dup after int literal should use optimized store, got:\n{}",
+            test_dup_fn
+        );
         assert!(
             !test_dup_fn.contains("@patch_seq_clone_value"),
             "Dup after int literal should NOT call clone_value, got:\n{}",

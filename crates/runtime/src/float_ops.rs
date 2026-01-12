@@ -521,7 +521,6 @@ mod tests {
 
     // This test uses i64::MAX which is outside the 44-bit NaN-boxing range
     #[test]
-    #[cfg(not(feature = "nanbox"))]
     fn test_float_to_int_overflow_positive() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
@@ -536,7 +535,6 @@ mod tests {
 
     // This test uses i64::MIN which is outside the 44-bit NaN-boxing range
     #[test]
-    #[cfg(not(feature = "nanbox"))]
     fn test_float_to_int_overflow_negative() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
@@ -564,7 +562,6 @@ mod tests {
 
     // This test uses i64::MAX which is outside the 44-bit NaN-boxing range
     #[test]
-    #[cfg(not(feature = "nanbox"))]
     fn test_float_to_int_infinity() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();

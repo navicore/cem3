@@ -627,7 +627,6 @@ pub use patch_seq_string_trim as string_trim;
 /// # Safety
 /// Stack must have a String value on top. The unused second argument
 /// exists for future extension (passing output buffer).
-#[cfg(not(feature = "nanbox"))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_string_to_cstring(stack: Stack, _out: *mut u8) -> *mut u8 {
     assert!(!stack.is_null(), "string_to_cstring: stack is empty");
@@ -646,54 +645,6 @@ pub unsafe extern "C" fn patch_seq_string_to_cstring(stack: Stack, _out: *mut u8
     // Extract string data from StackValue slots
     let str_ptr = sv.slot1 as *const u8;
     let len = sv.slot2 as usize;
-
-    // Guard against overflow: len + 1 for null terminator
-    let alloc_size = len.checked_add(1).unwrap_or_else(|| {
-        panic!(
-            "string_to_cstring: string too large for C conversion (len={})",
-            len
-        )
-    });
-
-    // Allocate space for string + null terminator
-    let ptr = unsafe { libc::malloc(alloc_size) as *mut u8 };
-    if ptr.is_null() {
-        panic!("string_to_cstring: malloc failed");
-    }
-
-    // Copy string data
-    unsafe {
-        std::ptr::copy_nonoverlapping(str_ptr, ptr, len);
-        // Add null terminator
-        *ptr.add(len) = 0;
-    }
-
-    ptr
-}
-
-/// Convert the String on top of stack to a null-terminated C string (NaN-boxed version)
-///
-/// # Safety
-/// Stack must have a String value on top. The unused second argument
-/// exists for future extension (passing output buffer).
-#[cfg(feature = "nanbox")]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_string_to_cstring(stack: Stack, _out: *mut u8) -> *mut u8 {
-    assert!(!stack.is_null(), "string_to_cstring: stack is empty");
-
-    use crate::stack::peek_sv;
-
-    // Peek the string value (don't pop - caller will pop after we return)
-    let sv = unsafe { peek_sv(stack) };
-    if !sv.0.is_string() {
-        panic!("string_to_cstring: expected String on stack");
-    }
-
-    // Get the SeqString pointer from the NanBoxedValue
-    let seq_str_ptr = unsafe { sv.0.as_string_ptr() };
-    let seq_str = unsafe { &*seq_str_ptr };
-    let str_ptr = seq_str.as_ptr();
-    let len = seq_str.len();
 
     // Guard against overflow: len + 1 for null terminator
     let alloc_size = len.checked_add(1).unwrap_or_else(|| {

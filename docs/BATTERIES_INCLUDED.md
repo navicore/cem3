@@ -358,6 +358,24 @@ then
 - **TLS**: Built-in via `rustls` (no OpenSSL dependency)
 - **Timeout**: 30 seconds default
 - **Max body size**: 10 MB
+- **Connection pooling**: Enabled via shared agent instance
+
+### Security Considerations
+
+**SSRF Warning**: The HTTP client does not restrict which URLs can be accessed.
+If user-controlled input is passed to HTTP functions, applications may be vulnerable
+to Server-Side Request Forgery (SSRF) attacks.
+
+**Risks**:
+- Access to internal services (`http://localhost:*`)
+- Internal network scanning (`http://192.168.x.x`)
+- Cloud metadata access (`http://169.254.169.254/`)
+
+**Mitigations**:
+- Validate/sanitize URLs before use
+- Use domain allowlists
+- Block private IP ranges in production
+- Use network-level egress filtering
 
 ### HTTP Server Improvements
 

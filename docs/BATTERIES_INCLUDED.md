@@ -360,22 +360,21 @@ then
 - **Max body size**: 10 MB
 - **Connection pooling**: Enabled via shared agent instance
 
-### Security Considerations
+### Security: SSRF Protection
 
-**SSRF Warning**: The HTTP client does not restrict which URLs can be accessed.
-If user-controlled input is passed to HTTP functions, applications may be vulnerable
-to Server-Side Request Forgery (SSRF) attacks.
+The HTTP client includes **built-in SSRF protection**. The following are automatically blocked:
 
-**Risks**:
-- Access to internal services (`http://localhost:*`)
-- Internal network scanning (`http://192.168.x.x`)
-- Cloud metadata access (`http://169.254.169.254/`)
+- **Localhost**: `localhost`, `*.localhost`, `127.x.x.x`
+- **Private networks**: `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`
+- **Link-local/Cloud metadata**: `169.254.x.x` (blocks AWS/GCP/Azure metadata)
+- **IPv6 private**: loopback, link-local, unique local addresses
+- **Non-HTTP schemes**: `file://`, `ftp://`, `gopher://`, etc.
 
-**Mitigations**:
-- Validate/sanitize URLs before use
-- Use domain allowlists
-- Block private IP ranges in production
-- Use network-level egress filtering
+Blocked requests return an error response with `ok=false`.
+
+**Additional recommendations**:
+- Use domain allowlists for sensitive applications
+- Apply network-level egress filtering
 
 ### HTTP Server Improvements
 

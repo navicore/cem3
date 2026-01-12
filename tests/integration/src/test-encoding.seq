@@ -1,0 +1,92 @@
+# Test encoding operations (Base64, Hex)
+
+# Base64 standard encoding
+: test-base64-encode ( -- )
+  "hello" encoding.base64-encode "aGVsbG8=" test.assert-eq-str
+;
+
+: test-base64-encode-empty ( -- )
+  "" encoding.base64-encode "" test.assert-eq-str
+;
+
+: test-base64-decode-success ( -- )
+  "aGVsbG8=" encoding.base64-decode
+  test.assert   # success flag
+  "hello" test.assert-eq-str  # decoded string
+;
+
+: test-base64-decode-failure ( -- )
+  "not valid base64!!!" encoding.base64-decode
+  test.assert-not  # failure flag
+  drop  # discard empty string
+;
+
+: test-base64-roundtrip ( -- )
+  "Hello, World! 123" encoding.base64-encode encoding.base64-decode
+  test.assert
+  "Hello, World! 123" test.assert-eq-str
+;
+
+# Base64 URL-safe encoding
+: test-base64url-encode ( -- )
+  "hello" encoding.base64url-encode
+  # Should not contain + / = characters
+  dup "+" string.contains not test.assert
+  dup "/" string.contains not test.assert
+  "=" string.contains not test.assert
+;
+
+: test-base64url-roundtrip ( -- )
+  "data with special chars: +/=" encoding.base64url-encode encoding.base64url-decode
+  test.assert
+  "data with special chars: +/=" test.assert-eq-str
+;
+
+# Hex encoding
+: test-hex-encode ( -- )
+  "hello" encoding.hex-encode "68656c6c6f" test.assert-eq-str
+;
+
+: test-hex-encode-empty ( -- )
+  "" encoding.hex-encode "" test.assert-eq-str
+;
+
+: test-hex-decode-success ( -- )
+  "68656c6c6f" encoding.hex-decode
+  test.assert   # success flag
+  "hello" test.assert-eq-str  # decoded string
+;
+
+: test-hex-decode-uppercase ( -- )
+  "68656C6C6F" encoding.hex-decode
+  test.assert
+  "hello" test.assert-eq-str
+;
+
+: test-hex-decode-failure ( -- )
+  "not hex!" encoding.hex-decode
+  test.assert-not  # failure flag
+  drop  # discard empty string
+;
+
+: test-hex-roundtrip ( -- )
+  "Hello, World! 123" encoding.hex-encode encoding.hex-decode
+  test.assert
+  "Hello, World! 123" test.assert-eq-str
+;
+
+# Edge cases
+: test-base64-with-padding ( -- )
+  # "a" encodes to "YQ==" (2 padding chars)
+  "a" encoding.base64-encode "YQ==" test.assert-eq-str
+  # "ab" encodes to "YWI=" (1 padding char)
+  "ab" encoding.base64-encode "YWI=" test.assert-eq-str
+  # "abc" encodes to "YWJj" (no padding)
+  "abc" encoding.base64-encode "YWJj" test.assert-eq-str
+;
+
+: test-hex-binary-data ( -- )
+  # Test specific byte values via roundtrip
+  # Space (0x20) and tilde (0x7e)
+  " ~" encoding.hex-encode "207e" test.assert-eq-str
+;

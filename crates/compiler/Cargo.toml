@@ -33,10 +33,7 @@ path = "src/lib.rs"
 [features]
 # Feature enabled when building on docs.rs to skip runtime embedding
 docsrs = []
-# Enable NaN-boxing mode (8-byte values instead of 40-byte)
-# This MUST forward to seq-runtime to ensure compiler and runtime use same representation
-nanbox = ["seq-runtime/nanbox"]
-# Default: include seq-runtime for building
+# Default: include seq-runtime for embedding in compiled binaries
 default = ["seq-runtime"]
 
 [package.metadata.docs.rs]

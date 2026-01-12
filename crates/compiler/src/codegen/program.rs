@@ -75,19 +75,9 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type definition
-        #[cfg(not(feature = "nanbox"))]
-        {
-            // Non-nanbox: Rust enum with #[repr(C)], 40 bytes: discriminant + largest variant payload
-            writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
-            writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
-        }
-        #[cfg(feature = "nanbox")]
-        {
-            // Nanbox: Single i64 with NaN-boxing encoding (8 bytes)
-            writeln!(&mut ir, "; Value type (NaN-boxed - 8 bytes)")?;
-            writeln!(&mut ir, "%Value = type i64")?;
-        }
+        // Value type definition: Rust enum with #[repr(C)], 40 bytes
+        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
         // String and symbol constants
@@ -171,17 +161,9 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type definition
-        #[cfg(not(feature = "nanbox"))]
-        {
-            writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
-            writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
-        }
-        #[cfg(feature = "nanbox")]
-        {
-            writeln!(&mut ir, "; Value type (NaN-boxed - 8 bytes)")?;
-            writeln!(&mut ir, "%Value = type i64")?;
-        }
+        // Value type definition: Rust enum with #[repr(C)], 40 bytes
+        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
+        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
         writeln!(&mut ir)?;
 
         // String and symbol constants

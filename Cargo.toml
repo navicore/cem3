@@ -61,6 +61,7 @@ sha2 = "0.10"
 hmac = "0.12"
 rand = "0.8"
 uuid = { version = "1.11", features = ["v4"] }
+subtle = "2.6"  # Constant-time comparison
 
 [profile.release]
 opt-level = 3

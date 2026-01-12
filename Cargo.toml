@@ -64,7 +64,7 @@ uuid = { version = "1.11", features = ["v4"] }
 subtle = "2.6"  # Constant-time comparison
 
 # HTTP client
-ureq = { version = "2.10", features = ["tls"] }
+ureq = { version = "2.12", features = ["tls"] }
 
 [profile.release]
 opt-level = 3

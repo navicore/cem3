@@ -182,13 +182,16 @@ pub unsafe extern "C" fn patch_seq_http_delete(stack: Stack) -> Stack {
     }
 }
 
-/// Internal: Perform GET request
-fn perform_get(url: &str) -> Value {
-    let agent = ureq::AgentBuilder::new()
+/// Create a configured HTTP agent with timeout
+fn build_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .build();
+        .build()
+}
 
-    match agent.get(url).call() {
+/// Handle HTTP response result and convert to Value
+fn handle_response(result: Result<ureq::Response, ureq::Error>) -> Value {
+    match result {
         Ok(response) => {
             let status = response.status() as i64;
             let ok = (200..300).contains(&response.status());
@@ -225,129 +228,34 @@ fn perform_get(url: &str) -> Value {
     }
 }
 
+/// Internal: Perform GET request
+fn perform_get(url: &str) -> Value {
+    handle_response(build_agent().get(url).call())
+}
+
 /// Internal: Perform POST request
 fn perform_post(url: &str, body: &str, content_type: &str) -> Value {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .build();
-
-    match agent
-        .post(url)
-        .set("Content-Type", content_type)
-        .send_string(body)
-    {
-        Ok(response) => {
-            let status = response.status() as i64;
-            let ok = (200..300).contains(&response.status());
-
-            match response.into_string() {
-                Ok(resp_body) => {
-                    if resp_body.len() > MAX_BODY_SIZE {
-                        error_response(format!(
-                            "Response body too large ({} bytes, max {})",
-                            resp_body.len(),
-                            MAX_BODY_SIZE
-                        ))
-                    } else {
-                        build_response_map(status, resp_body, ok, None)
-                    }
-                }
-                Err(e) => error_response(format!("Failed to read response body: {}", e)),
-            }
-        }
-        Err(ureq::Error::Status(code, response)) => {
-            let resp_body = response.into_string().unwrap_or_default();
-            build_response_map(
-                code as i64,
-                resp_body,
-                false,
-                Some(format!("HTTP error: {}", code)),
-            )
-        }
-        Err(ureq::Error::Transport(e)) => error_response(format!("Connection error: {}", e)),
-    }
+    handle_response(
+        build_agent()
+            .post(url)
+            .set("Content-Type", content_type)
+            .send_string(body),
+    )
 }
 
 /// Internal: Perform PUT request
 fn perform_put(url: &str, body: &str, content_type: &str) -> Value {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .build();
-
-    match agent
-        .put(url)
-        .set("Content-Type", content_type)
-        .send_string(body)
-    {
-        Ok(response) => {
-            let status = response.status() as i64;
-            let ok = (200..300).contains(&response.status());
-
-            match response.into_string() {
-                Ok(resp_body) => {
-                    if resp_body.len() > MAX_BODY_SIZE {
-                        error_response(format!(
-                            "Response body too large ({} bytes, max {})",
-                            resp_body.len(),
-                            MAX_BODY_SIZE
-                        ))
-                    } else {
-                        build_response_map(status, resp_body, ok, None)
-                    }
-                }
-                Err(e) => error_response(format!("Failed to read response body: {}", e)),
-            }
-        }
-        Err(ureq::Error::Status(code, response)) => {
-            let resp_body = response.into_string().unwrap_or_default();
-            build_response_map(
-                code as i64,
-                resp_body,
-                false,
-                Some(format!("HTTP error: {}", code)),
-            )
-        }
-        Err(ureq::Error::Transport(e)) => error_response(format!("Connection error: {}", e)),
-    }
+    handle_response(
+        build_agent()
+            .put(url)
+            .set("Content-Type", content_type)
+            .send_string(body),
+    )
 }
 
 /// Internal: Perform DELETE request
 fn perform_delete(url: &str) -> Value {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .build();
-
-    match agent.delete(url).call() {
-        Ok(response) => {
-            let status = response.status() as i64;
-            let ok = (200..300).contains(&response.status());
-
-            match response.into_string() {
-                Ok(body) => {
-                    if body.len() > MAX_BODY_SIZE {
-                        error_response(format!(
-                            "Response body too large ({} bytes, max {})",
-                            body.len(),
-                            MAX_BODY_SIZE
-                        ))
-                    } else {
-                        build_response_map(status, body, ok, None)
-                    }
-                }
-                Err(e) => error_response(format!("Failed to read response body: {}", e)),
-            }
-        }
-        Err(ureq::Error::Status(code, response)) => {
-            let body = response.into_string().unwrap_or_default();
-            build_response_map(
-                code as i64,
-                body,
-                false,
-                Some(format!("HTTP error: {}", code)),
-            )
-        }
-        Err(ureq::Error::Transport(e)) => error_response(format!("Connection error: {}", e)),
-    }
+    handle_response(build_agent().delete(url).call())
 }
 
 #[cfg(test)]

@@ -52,18 +52,42 @@ pub unsafe extern "C" fn patch_seq_time_now(stack: Stack) -> Stack {
 ///
 /// Stack effect: ( -- Int )
 ///
-/// Returns nanoseconds from system boot (CLOCK_MONOTONIC).
-/// Uses raw clock_gettime for consistent values across all threads -
-/// critical for timing when coroutines migrate between OS threads.
-///
-/// Note: Saturates at i64::MAX (~292 years of uptime) to prevent overflow.
+/// Returns nanoseconds elapsed since the first call to this function.
+/// Uses CLOCK_MONOTONIC for thread-independent consistent values.
+/// Values start near zero for easier arithmetic.
 ///
 /// # Safety
 /// - `stack` must be a valid stack pointer (may be null for empty stack)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_time_nanos(stack: Stack) -> Stack {
-    let nanos = monotonic_nanos();
+    let nanos = elapsed_nanos();
     unsafe { push(stack, Value::Int(nanos)) }
+}
+
+/// Get elapsed nanoseconds since program start.
+///
+/// Thread-safe, consistent across all threads. Uses a lazily-initialized
+/// base time to ensure values start near zero.
+#[inline]
+fn elapsed_nanos() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    // Base time is initialized on first call (value 0 means uninitialized)
+    static BASE_NANOS: AtomicI64 = AtomicI64::new(0);
+
+    let current = raw_monotonic_nanos();
+
+    // Try to read existing base time
+    let base = BASE_NANOS.load(Ordering::Relaxed);
+    if base != 0 {
+        return current.saturating_sub(base);
+    }
+
+    // First call: try to set the base time
+    match BASE_NANOS.compare_exchange(0, current, Ordering::Relaxed, Ordering::Relaxed) {
+        Ok(_) => 0,                                              // We set the base, elapsed is 0
+        Err(actual_base) => current.saturating_sub(actual_base), // Another thread set it
+    }
 }
 
 /// Get raw monotonic nanoseconds from the system clock.
@@ -73,10 +97,9 @@ pub unsafe extern "C" fn patch_seq_time_nanos(stack: Stack) -> Stack {
 /// returned regardless of which OS thread calls it.
 ///
 /// On Windows: Falls back to `Instant::now()` with a process-wide base time.
-/// This has a one-time initialization cost but is still thread-safe.
 #[inline]
 #[cfg(unix)]
-fn monotonic_nanos() -> i64 {
+fn raw_monotonic_nanos() -> i64 {
     let mut ts = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
@@ -97,7 +120,7 @@ fn monotonic_nanos() -> i64 {
 /// Uses OnceLock for thread-safe one-time initialization.
 #[inline]
 #[cfg(not(unix))]
-fn monotonic_nanos() -> i64 {
+fn raw_monotonic_nanos() -> i64 {
     use std::sync::OnceLock;
     use std::time::Instant;
 
@@ -147,13 +170,10 @@ pub use patch_seq_time_sleep_ms as time_sleep_ms;
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(feature = "nanbox"))]
     use crate::stack::pop;
     use std::time::Instant;
 
-    // Unix timestamps in microseconds exceed the 44-bit NaN-boxing range
     #[test]
-    #[cfg(not(feature = "nanbox"))]
     fn test_time_now_returns_positive() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
@@ -170,9 +190,7 @@ mod tests {
         }
     }
 
-    // Monotonic nanosecond counters can exceed the 44-bit NaN-boxing range
     #[test]
-    #[cfg(not(feature = "nanbox"))]
     fn test_time_nanos_monotonic() {
         unsafe {
             let stack = crate::stack::alloc_test_stack();
@@ -195,11 +213,9 @@ mod tests {
         }
     }
 
-    // Monotonic nanosecond counters can exceed the 44-bit NaN-boxing range
     #[test]
-    #[cfg(not(feature = "nanbox"))]
     fn test_time_nanos_cross_thread() {
-        // Verify monotonic_nanos is consistent across threads
+        // Verify raw_monotonic_nanos is consistent across threads
         use std::sync::mpsc;
         use std::thread;
 
@@ -207,11 +223,11 @@ mod tests {
         let (tx2, rx2) = mpsc::channel();
 
         // Get time on main thread
-        let t1 = monotonic_nanos();
+        let t1 = raw_monotonic_nanos();
 
         // Spawn thread, get time there
         let handle = thread::spawn(move || {
-            let t2 = monotonic_nanos();
+            let t2 = raw_monotonic_nanos();
             tx1.send(t2).unwrap();
             rx2.recv().unwrap() // wait for main to continue
         });
@@ -219,7 +235,7 @@ mod tests {
         let t2 = rx1.recv().unwrap();
 
         // Get time on main thread again
-        let t3 = monotonic_nanos();
+        let t3 = raw_monotonic_nanos();
         tx2.send(()).unwrap();
         handle.join().unwrap();
 

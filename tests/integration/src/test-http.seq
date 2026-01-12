@@ -1,28 +1,22 @@
 # Test HTTP client operations
 # Note: These tests require network access. Connection failures are handled gracefully.
 
-# Helper to check response map structure
-: has-response-keys ( response -- bool )
-  dup "status" map.has?
-  over "body" map.has? and
-  over "ok" map.has? and
-  swap drop
-;
-
 # Test GET request response structure (uses httpbin.org for reliable testing)
 : test-http-get-structure ( -- )
   "https://httpbin.org/get" http.get
-  dup has-response-keys test.assert
+  dup "status" map.has? test.assert
+  dup "body" map.has? test.assert
+  dup "ok" map.has? test.assert
   drop
 ;
 
 # Test GET request on success returns ok=true
 : test-http-get-ok-on-success ( -- )
   "https://httpbin.org/get" http.get
-  dup "ok" map.get drop  # get ok value (ignore success flag)
+  dup "ok" map.get drop  # get ok value (map ok)
   if
     "status" map.get drop  # status code
-    dup 200 >= swap 299 <= and test.assert
+    dup 200 i.>= swap 299 i.<= and test.assert
   else
     # Network might fail - that's ok, just drop and pass
     drop true test.assert
@@ -32,19 +26,21 @@
 # Test GET request 404 returns ok=false
 : test-http-get-404 ( -- )
   "https://httpbin.org/status/404" http.get
-  dup "ok" map.get drop  # ok value
+  dup "ok" map.get drop  # ok value (map ok)
   if
     # Should not be ok for 404
     drop false test.assert
   else
     # Either got ok=false (correct) or network failed
-    dup "status" map.get drop
-    dup 0 = if
+    dup "status" map.get drop  # (map status)
+    dup 0 i.= if
       # Network error - that's acceptable
       drop drop true test.assert
     else
       # Got status but ok=false - verify it's 404
-      404 = test.assert
+      404 i.=
+      swap drop  # drop the map
+      test.assert
     then
   then
 ;
@@ -52,21 +48,27 @@
 # Test POST request structure
 : test-http-post-structure ( -- )
   "https://httpbin.org/post" "{\"key\":\"value\"}" "application/json" http.post
-  dup has-response-keys test.assert
+  dup "status" map.has? test.assert
+  dup "body" map.has? test.assert
+  dup "ok" map.has? test.assert
   drop
 ;
 
 # Test PUT request structure
 : test-http-put-structure ( -- )
   "https://httpbin.org/put" "{\"key\":\"value\"}" "application/json" http.put
-  dup has-response-keys test.assert
+  dup "status" map.has? test.assert
+  dup "body" map.has? test.assert
+  dup "ok" map.has? test.assert
   drop
 ;
 
 # Test DELETE request structure
 : test-http-delete-structure ( -- )
   "https://httpbin.org/delete" http.delete
-  dup has-response-keys test.assert
+  dup "status" map.has? test.assert
+  dup "body" map.has? test.assert
+  dup "ok" map.has? test.assert
   drop
 ;
 
@@ -83,5 +85,5 @@
 : test-http-response-body-is-string ( -- )
   "https://httpbin.org/get" http.get
   "body" map.get drop  # body value
-  string.length 0 >= test.assert  # can call string.length on it
+  string.length 0 i.>= test.assert  # can call string.length on it
 ;

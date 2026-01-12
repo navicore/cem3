@@ -40,6 +40,7 @@ sha2.workspace = true
 hmac.workspace = true
 rand.workspace = true
 uuid.workspace = true
+subtle.workspace = true
 
 # Signal handling for SIGQUIT diagnostics (Unix only, optional via diagnostics feature)
 [target.'cfg(unix)'.dependencies]

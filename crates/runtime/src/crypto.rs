@@ -28,6 +28,7 @@ use crate::value::Value;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -97,6 +98,10 @@ pub unsafe extern "C" fn patch_seq_hmac_sha256(stack: Stack) -> Stack {
 /// Compares two strings in constant time to prevent timing attacks.
 /// Essential for comparing signatures, hashes, tokens, etc.
 ///
+/// Uses the `subtle` crate for cryptographically secure constant-time comparison.
+/// This prevents timing side-channel attacks where an attacker could deduce
+/// secret values by measuring comparison duration.
+///
 /// # Safety
 /// Stack must have two String values on top
 #[unsafe(no_mangle)]
@@ -111,16 +116,11 @@ pub unsafe extern "C" fn patch_seq_constant_time_eq(stack: Stack) -> Stack {
             let a_bytes = a.as_str().as_bytes();
             let b_bytes = b.as_str().as_bytes();
 
-            // Constant-time comparison: always compare all bytes
-            // XOR accumulator approach - timing doesn't depend on where mismatch occurs
-            let mut result = a_bytes.len() ^ b_bytes.len();
-            for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
-                result |= (*x as usize) ^ (*y as usize);
-            }
-            // If lengths differ, we've only compared up to the shorter length,
-            // but result is already non-zero from the length XOR
+            // Use subtle crate for truly constant-time comparison
+            // This handles different-length strings correctly without timing leaks
+            let eq = a_bytes.ct_eq(b_bytes);
 
-            unsafe { push(stack, Value::Bool(result == 0)) }
+            unsafe { push(stack, Value::Bool(bool::from(eq))) }
         }
         (a, b) => panic!(
             "constant-time-eq: expected (String, String) on stack, got ({:?}, {:?})",
@@ -135,6 +135,10 @@ pub unsafe extern "C" fn patch_seq_constant_time_eq(stack: Stack) -> Stack {
 ///
 /// Returns the random bytes as a lowercase hex string (2 chars per byte).
 /// Uses the operating system's secure random number generator.
+///
+/// # Limits
+/// - Maximum: 1024 bytes (to prevent memory exhaustion)
+/// - Common use cases: 16-32 bytes for tokens/nonces, 32-64 bytes for keys
 ///
 /// # Safety
 /// Stack must have an Int value on top (number of bytes to generate)
@@ -369,4 +373,24 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_random_bytes_max_limit() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(1024)); // Max allowed
+            let stack = patch_seq_random_bytes(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::String(s) => {
+                    // 1024 bytes = 2048 hex chars
+                    assert_eq!(s.as_str().len(), 2048);
+                }
+                _ => panic!("Expected String"),
+            }
+        }
+    }
+    // Note: Exceeding the 1024 byte limit causes a panic, which aborts in FFI context.
+    // This is intentional - the limit prevents memory exhaustion attacks.
 }

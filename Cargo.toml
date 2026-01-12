@@ -56,6 +56,12 @@ tempfile = "3"
 base64 = "0.22"
 hex = "0.4"
 
+# Crypto
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.8"
+uuid = { version = "1.11", features = ["v4"] }
+
 [profile.release]
 opt-level = 3
 lto = true

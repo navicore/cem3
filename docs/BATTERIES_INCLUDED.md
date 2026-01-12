@@ -45,6 +45,7 @@ This isn't theoretical - Seq already uses this pattern successfully:
 | Time | `std::time` |
 | String ops | `std::string` |
 | Base64/Hex encoding | `base64`, `hex` |
+| Crypto (SHA-256, HMAC, Random, UUID) | `sha2`, `hmac`, `rand`, `uuid` |
 | Arena allocator | Custom, but Rust memory safety |
 
 Each builtin is a thin FFI wrapper that exposes Rust functionality to Seq. Adding crypto, HTTP client, or regex follows the exact same pattern.
@@ -168,6 +169,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Testing** | Assertions, test runner, pass/fail counts |
 | **Serialization** | SON format (Seq Object Notation) |
 | **Encoding** | Base64 (standard + URL-safe), Hex |
+| **Crypto** | SHA-256, HMAC-SHA256, secure random, UUID v4 |
 | **OS** | Args, env vars, path operations, exec, exit |
 
 ### Standard Library (Pure Seq)
@@ -240,6 +242,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **Testing** | Complete (builtin) |
 | **Result/Option** | Complete (268 lines) |
 | **Base64/Hex** | Complete (builtin) - standard, URL-safe, hex |
+| **Crypto Phase 1** | Complete (builtin) - SHA-256, HMAC, random, UUID |
 
 ---
 
@@ -494,19 +497,19 @@ data swap template.render
 
 Crypto is essential for real-world applications but often requires hunting through external packages. A batteries-included approach means shipping these out of the box.
 
-### Tier 1: Essential (FFI to Rust crates)
+### Tier 1: Essential (Implemented)
 
-| API | Rust Crate | Use Cases |
-|-----|------------|-----------|
-| `crypto.sha256` | `sha2` | Checksums, content addressing, password hashing input |
-| `crypto.sha512` | `sha2` | Higher security hashing |
-| `crypto.hmac-sha256` | `hmac` + `sha2` | Webhook verification, JWT signing, API auth |
-| `crypto.random-bytes` | `rand` | Tokens, nonces, salts, session IDs |
+| API | Rust Crate | Use Cases | Status |
+|-----|------------|-----------|--------|
+| `crypto.sha256` | `sha2` | Checksums, content addressing, password hashing input | **Done** |
+| `crypto.hmac-sha256` | `hmac` + `sha2` | Webhook verification, JWT signing, API auth | **Done** |
+| `crypto.random-bytes` | `rand` | Tokens, nonces, salts, session IDs | **Done** |
+| `crypto.uuid4` | `uuid` | Unique identifiers | **Done** |
+| `crypto.constant-time-eq` | custom | Timing-safe comparison for signatures | **Done** |
 
 ```seq
 // Hashing
 "hello world" crypto.sha256          // ( String -- String ) hex-encoded
-"hello world" crypto.sha256-bytes    // ( String -- Bytes ) raw bytes
 
 // HMAC for API authentication
 "webhook-payload" "secret-key" crypto.hmac-sha256
@@ -517,8 +520,7 @@ received-sig computed-sig crypto.constant-time-eq
 // ( String String -- Bool ) timing-safe comparison
 
 // Generate secure random token
-32 crypto.random-bytes crypto.hex-encode
-// ( n -- String ) 32 random bytes as 64-char hex string
+32 crypto.random-bytes    // ( n -- String ) 32 random bytes as 64-char hex string
 
 // Generate UUID v4
 crypto.uuid4    // ( -- String ) "550e8400-e29b-41d4-a716-446655440000"
@@ -582,12 +584,12 @@ encoded encoding.base64url-decode // ( String -- String Bool )
 
 | Phase | APIs | Status |
 |-------|------|--------|
-| **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4 | Not started |
-| **Phase 2** | base64, hex, constant-time-eq | **Base64/Hex complete** |
+| **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4, constant-time-eq | **Complete** |
+| **Phase 2** | base64, hex | **Complete** |
 | **Phase 3** | aes-gcm, pbkdf2 | Not started |
 | **Phase 4** | ed25519 | Not started |
 
-Phase 1 unlocks: JWT verification, webhook handling, secure tokens, API authentication.
+Phase 1+2 complete: JWT verification, webhook handling, secure tokens, API authentication now possible.
 
 ---
 
@@ -671,6 +673,7 @@ ui.screen [
 - [x] LSP server (2200+ lines) - diagnostics, completions, include resolution
 - [x] REPL with LSP integration and vim keybindings
 - [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
+- [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
 
 ### Phase 1: HTTP Client & Tooling
 - [ ] HTTP client FFI (ureq or reqwest)

@@ -356,6 +356,12 @@ impl Program {
             "encoding.base64url-decode",
             "encoding.hex-encode",
             "encoding.hex-decode",
+            // Crypto operations
+            "crypto.sha256",
+            "crypto.hmac-sha256",
+            "crypto.constant-time-eq",
+            "crypto.random-bytes",
+            "crypto.uuid4",
             // List operations
             "list.make",
             "list.push",

@@ -605,6 +605,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "encoding.hex-decode", (a String -- a String Bool));
 
     // =========================================================================
+    // Crypto Operations
+    // =========================================================================
+
+    builtin!(sigs, "crypto.sha256", (a String -- a String));
+    builtin!(sigs, "crypto.hmac-sha256", (a String String -- a String));
+    builtin!(sigs, "crypto.constant-time-eq", (a String String -- a Bool));
+    builtin!(sigs, "crypto.random-bytes", (a Int -- a String));
+    builtin!(sigs, "crypto.uuid4", (a -- a String));
+
+    // =========================================================================
     // Variant Operations
     // =========================================================================
 
@@ -1073,6 +1083,25 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
         "encoding.hex-decode",
         "Decode a hexadecimal string. Returns (decoded, success).",
     );
+
+    // Crypto Operations
+    docs.insert(
+        "crypto.sha256",
+        "Compute SHA-256 hash of a string. Returns 64-char hex digest.",
+    );
+    docs.insert(
+        "crypto.hmac-sha256",
+        "Compute HMAC-SHA256 signature. ( message key -- signature )",
+    );
+    docs.insert(
+        "crypto.constant-time-eq",
+        "Timing-safe string comparison. Use for comparing signatures/tokens.",
+    );
+    docs.insert(
+        "crypto.random-bytes",
+        "Generate N cryptographically secure random bytes as hex string.",
+    );
+    docs.insert("crypto.uuid4", "Generate a random UUID v4 string.");
 
     // Variant Operations
     docs.insert(

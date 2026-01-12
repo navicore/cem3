@@ -772,9 +772,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "335ff9f135e4384c8150d6f27c6daed433577f86b4750418338c01a1a2528592"
+checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
  "libc",
@@ -1661,7 +1661,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
- "getrandom 0.2.16",
+ "getrandom 0.2.17",
  "libredox",
  "thiserror 2.0.17",
 ]
@@ -1756,7 +1756,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-compiler"
-version = "0.19.10"
+version = "0.19.11"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1768,7 +1768,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "0.19.10"
+version = "0.19.11"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -1781,7 +1781,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "0.19.10"
+version = "0.19.11"
 dependencies = [
  "clap",
  "crossterm 0.28.1",
@@ -1798,7 +1798,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "0.19.10"
+version = "0.19.11"
 dependencies = [
  "bincode",
  "bumpalo",
@@ -2490,7 +2490,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "0.19.10"
+version = "0.19.11"
 
 [[package]]
 name = "vtparse"
@@ -2935,6 +2935,6 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.12"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fc5a66a20078bf1251bde995aa2fdcc4b800c70b5d92dd2c62abc5c60f679f8"
+checksum = "ac93432f5b761b22864c774aac244fa5c0fd877678a4c37ebf6cf42208f9c9ec"

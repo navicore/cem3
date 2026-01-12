@@ -28,12 +28,36 @@
 //! - `"body"` (String): Response body as text
 //! - `"ok"` (Bool): true if status is 2xx, false otherwise
 //! - `"error"` (String): Error message (only present on failure)
+//!
+//! # Security Considerations
+//!
+//! **SSRF Warning**: This HTTP client does not restrict which URLs can be accessed.
+//! If your application passes user-controlled input to these functions, you may be
+//! vulnerable to Server-Side Request Forgery (SSRF) attacks. Attackers could:
+//!
+//! - Access internal services (e.g., `http://localhost:6379`)
+//! - Scan internal networks (e.g., `http://192.168.1.x`)
+//! - Access cloud metadata endpoints (e.g., `http://169.254.169.254/`)
+//!
+//! **Mitigations**:
+//! - Validate and sanitize URLs before passing to HTTP functions
+//! - Use allowlists for permitted domains/hosts
+//! - Block access to private IP ranges and localhost in production
+//! - Consider network-level controls (firewalls, egress filtering)
+//!
+//! # Resource Limits
+//!
+//! - **Timeout**: 30 seconds per request (prevents indefinite hangs)
+//! - **Max body size**: 10 MB (prevents memory exhaustion)
+//! - **TLS**: Enabled by default via rustls (no OpenSSL dependency)
+//! - **Connection pooling**: Enabled via shared agent instance
 
 use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::{MapKey, Value};
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 /// Default timeout for HTTP requests (30 seconds)
@@ -41,6 +65,14 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 /// Maximum response body size (10 MB)
 const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
+
+/// Global HTTP agent for connection pooling
+/// Using LazyLock for thread-safe lazy initialization
+static HTTP_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+    ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+        .build()
+});
 
 /// Build a response map from status, body, ok flag, and optional error
 fn build_response_map(status: i64, body: String, ok: bool, error: Option<String>) -> Value {
@@ -182,13 +214,6 @@ pub unsafe extern "C" fn patch_seq_http_delete(stack: Stack) -> Stack {
     }
 }
 
-/// Create a configured HTTP agent with timeout
-fn build_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .build()
-}
-
 /// Handle HTTP response result and convert to Value
 fn handle_response(result: Result<ureq::Response, ureq::Error>) -> Value {
     match result {
@@ -230,13 +255,13 @@ fn handle_response(result: Result<ureq::Response, ureq::Error>) -> Value {
 
 /// Internal: Perform GET request
 fn perform_get(url: &str) -> Value {
-    handle_response(build_agent().get(url).call())
+    handle_response(HTTP_AGENT.get(url).call())
 }
 
 /// Internal: Perform POST request
 fn perform_post(url: &str, body: &str, content_type: &str) -> Value {
     handle_response(
-        build_agent()
+        HTTP_AGENT
             .post(url)
             .set("Content-Type", content_type)
             .send_string(body),
@@ -246,7 +271,7 @@ fn perform_post(url: &str, body: &str, content_type: &str) -> Value {
 /// Internal: Perform PUT request
 fn perform_put(url: &str, body: &str, content_type: &str) -> Value {
     handle_response(
-        build_agent()
+        HTTP_AGENT
             .put(url)
             .set("Content-Type", content_type)
             .send_string(body),
@@ -255,7 +280,7 @@ fn perform_put(url: &str, body: &str, content_type: &str) -> Value {
 
 /// Internal: Perform DELETE request
 fn perform_delete(url: &str) -> Value {
-    handle_response(build_agent().delete(url).call())
+    handle_response(HTTP_AGENT.delete(url).call())
 }
 
 #[cfg(test)]

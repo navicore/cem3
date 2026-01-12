@@ -19,7 +19,6 @@ pub mod io;
 pub mod list_ops;
 pub mod map_ops;
 pub mod memory_stats;
-pub mod nanbox;
 pub mod os;
 pub mod quotations;
 pub mod scheduler;

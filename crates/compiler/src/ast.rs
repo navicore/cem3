@@ -349,6 +349,13 @@ impl Program {
             "string->int",
             // Symbol operations
             "symbol.=",
+            // Encoding operations
+            "encoding.base64-encode",
+            "encoding.base64-decode",
+            "encoding.base64url-encode",
+            "encoding.base64url-decode",
+            "encoding.hex-encode",
+            "encoding.hex-decode",
             // List operations
             "list.make",
             "list.push",

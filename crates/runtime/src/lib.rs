@@ -12,6 +12,7 @@ pub mod channel;
 pub mod closures;
 pub mod cond;
 pub mod diagnostics;
+pub mod encoding;
 pub mod error;
 pub mod file;
 pub mod float_ops;
@@ -111,6 +112,13 @@ pub use string_ops::{
     patch_seq_string_split as string_split, patch_seq_string_starts_with as string_starts_with,
     patch_seq_string_to_int as string_to_int, patch_seq_string_to_lower as string_to_lower,
     patch_seq_string_to_upper as string_to_upper, patch_seq_string_trim as string_trim,
+};
+
+// Encoding operations (exported for LLVM linking)
+pub use encoding::{
+    patch_seq_base64_decode as base64_decode, patch_seq_base64_encode as base64_encode,
+    patch_seq_base64url_decode as base64url_decode, patch_seq_base64url_encode as base64url_encode,
+    patch_seq_hex_decode as hex_decode, patch_seq_hex_encode as hex_encode,
 };
 
 // Quotation operations (exported for LLVM linking)

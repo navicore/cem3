@@ -1,0 +1,111 @@
+# Encoding Examples: Base64 and Hex
+#
+# This example demonstrates the encoding builtins for converting
+# data between text and encoded formats.
+
+# Helper to show a result
+: show ( String String -- )
+  swap string.concat io.write-line
+;
+
+# Base64 encoding (standard with padding)
+: demo-base64 ( -- )
+  "=== Base64 Encoding ===" io.write-line
+  ""  io.write-line
+
+  # Encode a message
+  "Hello, Seq!" encoding.base64-encode
+  dup "Encoded: " show
+
+  # Decode it back
+  encoding.base64-decode
+  if
+    "Decoded: " show
+  else
+    drop "Decode failed!" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Base64 URL-safe encoding (no padding, safe for URLs)
+: demo-base64url ( -- )
+  "=== Base64 URL-Safe Encoding ===" io.write-line
+  "" io.write-line
+
+  # Data that would have +/= in standard base64
+  "data?with+special/chars" encoding.base64url-encode
+  dup "URL-safe: " show
+
+  # Note: no + / = characters
+  encoding.base64url-decode
+  if
+    "Decoded: " show
+  else
+    drop "Decode failed!" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Hex encoding
+: demo-hex ( -- )
+  "=== Hex Encoding ===" io.write-line
+  "" io.write-line
+
+  # Encode to hex
+  "Hello!" encoding.hex-encode
+  dup "Hex: " show
+
+  # Decode back (case-insensitive)
+  encoding.hex-decode
+  if
+    "Decoded: " show
+  else
+    drop "Decode failed!" io.write-line
+  then
+
+  "" io.write-line
+
+  # Uppercase works too
+  "48454C4C4F" encoding.hex-decode
+  if
+    "From uppercase: " show
+  else
+    drop "Decode failed!" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Error handling example
+: demo-error-handling ( -- )
+  "=== Error Handling ===" io.write-line
+  "" io.write-line
+
+  # Invalid base64 returns false
+  "not!!valid!!base64" encoding.base64-decode
+  if
+    "Decoded: " show
+  else
+    drop "Base64 decode failed (expected)" io.write-line
+  then
+
+  # Invalid hex returns false
+  "xyz" encoding.hex-decode
+  if
+    "Decoded: " show
+  else
+    drop "Hex decode failed (expected)" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Run all demos
+: main ( -- )
+  demo-base64
+  demo-base64url
+  demo-hex
+  demo-error-handling
+;

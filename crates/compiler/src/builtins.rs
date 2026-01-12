@@ -594,6 +594,17 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     );
 
     // =========================================================================
+    // Encoding Operations
+    // =========================================================================
+
+    builtin!(sigs, "encoding.base64-encode", (a String -- a String));
+    builtin!(sigs, "encoding.base64-decode", (a String -- a String Bool));
+    builtin!(sigs, "encoding.base64url-encode", (a String -- a String));
+    builtin!(sigs, "encoding.base64url-decode", (a String -- a String Bool));
+    builtin!(sigs, "encoding.hex-encode", (a String -- a String));
+    builtin!(sigs, "encoding.hex-decode", (a String -- a String Bool));
+
+    // =========================================================================
     // Variant Operations
     // =========================================================================
 
@@ -1036,6 +1047,32 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert("string.to-lower", "Convert to lowercase.");
     docs.insert("string.json-escape", "Escape special characters for JSON.");
     docs.insert("symbol.=", "Check if two symbols are equal.");
+
+    // Encoding Operations
+    docs.insert(
+        "encoding.base64-encode",
+        "Encode a string to Base64 (standard alphabet with padding).",
+    );
+    docs.insert(
+        "encoding.base64-decode",
+        "Decode a Base64 string. Returns (decoded, success).",
+    );
+    docs.insert(
+        "encoding.base64url-encode",
+        "Encode to URL-safe Base64 (no padding). Suitable for JWTs and URLs.",
+    );
+    docs.insert(
+        "encoding.base64url-decode",
+        "Decode URL-safe Base64. Returns (decoded, success).",
+    );
+    docs.insert(
+        "encoding.hex-encode",
+        "Encode a string to lowercase hexadecimal.",
+    );
+    docs.insert(
+        "encoding.hex-decode",
+        "Decode a hexadecimal string. Returns (decoded, success).",
+    );
 
     // Variant Operations
     docs.insert(

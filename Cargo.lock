@@ -1800,8 +1800,10 @@ dependencies = [
 name = "seq-runtime"
 version = "0.19.12"
 dependencies = [
+ "base64",
  "bincode",
  "bumpalo",
+ "hex",
  "libc",
  "may",
  "serde",

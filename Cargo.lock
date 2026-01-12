@@ -1932,6 +1932,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "ureq",
+ "url",
  "uuid",
 ]
 

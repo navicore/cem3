@@ -362,6 +362,11 @@ impl Program {
             "crypto.constant-time-eq",
             "crypto.random-bytes",
             "crypto.uuid4",
+            // HTTP client operations
+            "http.get",
+            "http.post",
+            "http.put",
+            "http.delete",
             // List operations
             "list.make",
             "list.push",

@@ -17,6 +17,7 @@ pub mod encoding;
 pub mod error;
 pub mod file;
 pub mod float_ops;
+pub mod http_client;
 pub mod io;
 pub mod list_ops;
 pub mod map_ops;
@@ -224,4 +225,10 @@ pub use error::{
     clear_runtime_error, has_runtime_error, patch_seq_clear_error as clear_error,
     patch_seq_get_error as get_error, patch_seq_has_error as has_error,
     patch_seq_take_error as take_error, set_runtime_error, take_runtime_error,
+};
+
+// HTTP client operations (exported for LLVM linking)
+pub use http_client::{
+    patch_seq_http_delete as http_delete, patch_seq_http_get as http_get,
+    patch_seq_http_post as http_post, patch_seq_http_put as http_put,
 };

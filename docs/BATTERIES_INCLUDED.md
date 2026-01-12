@@ -170,6 +170,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Serialization** | SON format (Seq Object Notation) |
 | **Encoding** | Base64 (standard + URL-safe), Hex |
 | **Crypto** | SHA-256, HMAC-SHA256, secure random, UUID v4 |
+| **HTTP Client** | GET, POST, PUT, DELETE with TLS support |
 | **OS** | Args, env vars, path operations, exec, exit |
 
 ### Standard Library (Pure Seq)
@@ -217,14 +218,12 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 
 | Category | Status | Priority |
 |----------|--------|----------|
-| **HTTP client** | Not started | High |
+| **HTTP client** | **Complete** | High |
 | **Regex** | Not started | Medium |
-| **Crypto** | Not started | Medium |
-| **TLS/HTTPS** | Not started | Medium |
+| **TLS/HTTPS** | **Complete** (via ureq) | Medium |
 | **Templates** | Not started | Medium |
 | **`seq fmt`** | Not started | Medium |
 | **`seq.toml`** | Not started | Medium |
-| **UUID** | Not started | Low |
 | **Logging** | Not started | Low |
 | **Compression** | Not started | Low |
 | **Database** | Not started | Future |
@@ -237,6 +236,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **JSON** | Complete (1234 lines) |
 | **YAML** | Complete (750 lines) |
 | **HTTP server** | Working (helpers + example) |
+| **HTTP client** | Complete (builtin) - GET, POST, PUT, DELETE with TLS |
 | **LSP** | Complete (2200+ lines) - diagnostics, completions |
 | **REPL** | Complete - with LSP integration, vim keybindings |
 | **Testing** | Complete (builtin) |
@@ -308,54 +308,56 @@ response http.body
 
 ---
 
-## Priority 1: HTTP Client
+## Priority 1: HTTP Client (COMPLETE)
 
-JSON and HTTP server basics already exist. The main gap is an **HTTP client**.
+The HTTP client is now fully implemented using the `ureq` Rust crate.
 
-### Current HTTP Capabilities
+### API
 
-**Server-side (exists):**
-- `tcp.listen`, `tcp.accept`, `tcp.read`, `tcp.write`, `tcp.close`
-- `http-ok`, `http-not-found`, `http-response` (response builders)
-- `http-request-path`, `http-request-method` (request parsing)
-- Working concurrent server example in `examples/http/http_server.seq`
-
-**JSON (exists - 1234 lines):**
-- Full parser and encoder in `stdlib/json.seq`
-- Handles objects, arrays, strings, numbers, booleans, null
-
-### Missing: HTTP Client
-
-Currently no way to make outbound HTTP requests. Options:
-
-**Option A: Pure Seq over TCP**
 ```seq
-// Build HTTP/1.1 request manually
-"example.com" 80 tcp.connect
-"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n" swap tcp.write
-tcp.read http-parse-response
-```
-
-Pros: No new FFI. Cons: No TLS, complex parsing.
-
-**Option B: FFI to Rust HTTP client**
-```seq
-// New builtins wrapping ureq or reqwest
+# GET request - returns response map
 "https://api.example.com/users" http.get
-// ( String -- Response )
+# Stack: ( Map ) where Map = { "status": 200, "body": "...", "ok": true }
 
-response http.status   // ( Response -- Int )
-response http.body     // ( Response -- String )
+# POST request with body and content-type
+"https://api.example.com/users" "{\"name\":\"Alice\"}" "application/json" http.post
+# Stack: ( Map )
+
+# PUT request (same signature as POST)
+"https://api.example.com/users/1" "{\"name\":\"Bob\"}" "application/json" http.put
+
+# DELETE request
+"https://api.example.com/users/1" http.delete
+# Stack: ( Map )
 ```
 
-Pros: TLS support, proper HTTP handling. Cons: New FFI surface.
+### Response Map
 
-**Recommendation**: Option B with minimal API:
-- `http.get` ( url -- response )
-- `http.post` ( url body content-type -- response )
-- `http.status` ( response -- status-code )
-- `http.body` ( response -- body-string )
-- `http.header` ( response header-name -- header-value )
+All HTTP operations return a Map with these keys:
+- `"status"` (Int): HTTP status code (200, 404, 500, etc.) or 0 on connection error
+- `"body"` (String): Response body as text
+- `"ok"` (Bool): true if status is 2xx, false otherwise
+- `"error"` (String): Error message (only present on failure)
+
+### Example Usage
+
+```seq
+# Make a GET request and handle the response
+"https://httpbin.org/get" http.get
+dup "ok" map.get drop
+if
+  "body" map.get drop io.write-line
+else
+  "error" map.get drop "Error: " swap string.concat io.write-line
+then
+```
+
+### Implementation Details
+
+- **Crate**: `ureq` (pure Rust, blocking, minimal dependencies)
+- **TLS**: Built-in via `rustls` (no OpenSSL dependency)
+- **Timeout**: 30 seconds default
+- **Max body size**: 10 MB
 
 ### HTTP Server Improvements
 
@@ -674,9 +676,9 @@ ui.screen [
 - [x] REPL with LSP integration and vim keybindings
 - [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
 - [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
+- [x] HTTP client (builtin) - GET, POST, PUT, DELETE with TLS via ureq
 
-### Phase 1: HTTP Client & Tooling
-- [ ] HTTP client FFI (ureq or reqwest)
+### Phase 1: Tooling
 - [ ] `seq fmt` basic formatter
 - [ ] `seq.toml` project file
 - [ ] HTTP server improvements (path params, query strings)
@@ -687,10 +689,10 @@ ui.screen [
 - [ ] URL parsing (pure Seq or FFI)
 - [ ] `seq get` package fetching
 
-### Phase 3: Security & Docs
-- [ ] Crypto basics (hashing, HMAC)
-- [ ] TLS/HTTPS support
+### Phase 3: Docs & Crypto Phase 2
 - [ ] `seq doc` documentation generator
+- [ ] AES-GCM encryption
+- [ ] Ed25519 signatures
 
 ### Phase 4: Advanced
 - [ ] Database connectivity

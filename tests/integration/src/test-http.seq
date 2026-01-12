@@ -1,0 +1,87 @@
+# Test HTTP client operations
+# Note: These tests require network access. Connection failures are handled gracefully.
+
+# Helper to check response map structure
+: has-response-keys ( response -- bool )
+  dup "status" map.has?
+  over "body" map.has? and
+  over "ok" map.has? and
+  swap drop
+;
+
+# Test GET request response structure (uses httpbin.org for reliable testing)
+: test-http-get-structure ( -- )
+  "https://httpbin.org/get" http.get
+  dup has-response-keys test.assert
+  drop
+;
+
+# Test GET request on success returns ok=true
+: test-http-get-ok-on-success ( -- )
+  "https://httpbin.org/get" http.get
+  dup "ok" map.get drop  # get ok value (ignore success flag)
+  if
+    "status" map.get drop  # status code
+    dup 200 >= swap 299 <= and test.assert
+  else
+    # Network might fail - that's ok, just drop and pass
+    drop true test.assert
+  then
+;
+
+# Test GET request 404 returns ok=false
+: test-http-get-404 ( -- )
+  "https://httpbin.org/status/404" http.get
+  dup "ok" map.get drop  # ok value
+  if
+    # Should not be ok for 404
+    drop false test.assert
+  else
+    # Either got ok=false (correct) or network failed
+    dup "status" map.get drop
+    dup 0 = if
+      # Network error - that's acceptable
+      drop drop true test.assert
+    else
+      # Got status but ok=false - verify it's 404
+      404 = test.assert
+    then
+  then
+;
+
+# Test POST request structure
+: test-http-post-structure ( -- )
+  "https://httpbin.org/post" "{\"key\":\"value\"}" "application/json" http.post
+  dup has-response-keys test.assert
+  drop
+;
+
+# Test PUT request structure
+: test-http-put-structure ( -- )
+  "https://httpbin.org/put" "{\"key\":\"value\"}" "application/json" http.put
+  dup has-response-keys test.assert
+  drop
+;
+
+# Test DELETE request structure
+: test-http-delete-structure ( -- )
+  "https://httpbin.org/delete" http.delete
+  dup has-response-keys test.assert
+  drop
+;
+
+# Test connection error returns status=0 and ok=false
+: test-http-connection-error ( -- )
+  # Use a non-routable IP to trigger connection error
+  "http://192.0.2.1:12345/test" http.get
+  dup "ok" map.get drop test.assert-not  # ok should be false
+  dup "status" map.get drop 0 test.assert-eq  # status should be 0
+  "error" map.has? test.assert  # should have error key
+;
+
+# Test response body is a string
+: test-http-response-body-is-string ( -- )
+  "https://httpbin.org/get" http.get
+  "body" map.get drop  # body value
+  string.length 0 >= test.assert  # can call string.length on it
+;

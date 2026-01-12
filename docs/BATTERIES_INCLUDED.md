@@ -44,6 +44,7 @@ This isn't theoretical - Seq already uses this pattern successfully:
 | Channels | `crossbeam` |
 | Time | `std::time` |
 | String ops | `std::string` |
+| Base64/Hex encoding | `base64`, `hex` |
 | Arena allocator | Custom, but Rust memory safety |
 
 Each builtin is a thin FFI wrapper that exposes Rust functionality to Seq. Adding crypto, HTTP client, or regex follows the exact same pattern.
@@ -166,6 +167,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Time** | Unix timestamp, high-res time, sleep |
 | **Testing** | Assertions, test runner, pass/fail counts |
 | **Serialization** | SON format (Seq Object Notation) |
+| **Encoding** | Base64 (standard + URL-safe), Hex |
 | **OS** | Args, env vars, path operations, exec, exit |
 
 ### Standard Library (Pure Seq)
@@ -237,6 +239,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **REPL** | Complete - with LSP integration, vim keybindings |
 | **Testing** | Complete (builtin) |
 | **Result/Option** | Complete (268 lines) |
+| **Base64/Hex** | Complete (builtin) - standard, URL-safe, hex |
 
 ---
 
@@ -274,9 +277,10 @@ stdlib/
 │   ├── time.seq        # Timestamps, durations
 │   └── format.seq      # Date/time formatting
 │
-├── encoding/       # Data formats
-│   ├── base64.seq      # Base64 encode/decode
-│   ├── hex.seq         # Hex encode/decode
+├── encoding/       # Data formats (builtins available)
+│   ├── base64          # encoding.base64-encode/decode (builtin)
+│   ├── base64url       # encoding.base64url-encode/decode (builtin)
+│   ├── hex             # encoding.hex-encode/decode (builtin)
 │   └── son.seq         # SON format (wraps builtins)
 │
 ├── testing/        # Testing framework
@@ -556,31 +560,32 @@ message private-key crypto.ed25519-sign    // ( String String -- String )
 message signature public-key crypto.ed25519-verify  // ( String String String -- Bool )
 ```
 
-### Encoding Helpers
+### Encoding Helpers (Implemented)
 
-Often needed alongside crypto:
+Available now as `encoding.*` builtins:
 
 ```seq
-// Base64
-data crypto.base64-encode    // ( String -- String )
-encoded crypto.base64-decode // ( String -- String Result )
+// Base64 (standard with padding)
+"hello" encoding.base64-encode    // ( String -- String ) "aGVsbG8="
+"aGVsbG8=" encoding.base64-decode // ( String -- String Bool )
 
-// Hex
-bytes crypto.hex-encode      // ( Bytes -- String )
-hex crypto.hex-decode        // ( String -- Bytes Result )
+// URL-safe Base64 (no padding, for JWTs/URLs)
+data encoding.base64url-encode    // ( String -- String )
+encoded encoding.base64url-decode // ( String -- String Bool )
 
-// URL-safe base64 (for JWTs)
-data crypto.base64url-encode
+// Hex (lowercase output, case-insensitive decode)
+"hello" encoding.hex-encode       // ( String -- String ) "68656c6c6f"
+"68656c6c6f" encoding.hex-decode  // ( String -- String Bool )
 ```
 
 ### Implementation Priority
 
-| Phase | APIs | Effort |
+| Phase | APIs | Status |
 |-------|------|--------|
-| **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4 | 1-2 days |
-| **Phase 2** | base64, hex, constant-time-eq | 1 day |
-| **Phase 3** | aes-gcm, pbkdf2 | 2-3 days |
-| **Phase 4** | ed25519 | 2 days |
+| **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4 | Not started |
+| **Phase 2** | base64, hex, constant-time-eq | **Base64/Hex complete** |
+| **Phase 3** | aes-gcm, pbkdf2 | Not started |
+| **Phase 4** | ed25519 | Not started |
 
 Phase 1 unlocks: JWT verification, webhook handling, secure tokens, API authentication.
 
@@ -665,6 +670,7 @@ ui.screen [
 - [x] Testing framework
 - [x] LSP server (2200+ lines) - diagnostics, completions, include resolution
 - [x] REPL with LSP integration and vim keybindings
+- [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
 
 ### Phase 1: HTTP Client & Tooling
 - [ ] HTTP client FFI (ureq or reqwest)

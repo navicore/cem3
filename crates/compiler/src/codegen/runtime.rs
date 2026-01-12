@@ -633,6 +633,31 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_string_to_int(ptr)",
             category: None,
         },
+        // Encoding operations
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_base64_encode(ptr)",
+            category: Some("; Encoding operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_base64_decode(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_base64url_encode(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_base64url_decode(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_hex_encode(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_hex_decode(ptr)",
+            category: None,
+        },
         // Symbol operations
         RuntimeDecl {
             decl: "declare ptr @patch_seq_symbol_equal(ptr)",
@@ -993,6 +1018,13 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("string.equal?", "patch_seq_string_equal"),
         ("string.json-escape", "patch_seq_json_escape"),
         ("string->int", "patch_seq_string_to_int"),
+        // Encoding operations
+        ("encoding.base64-encode", "patch_seq_base64_encode"),
+        ("encoding.base64-decode", "patch_seq_base64_decode"),
+        ("encoding.base64url-encode", "patch_seq_base64url_encode"),
+        ("encoding.base64url-decode", "patch_seq_base64url_decode"),
+        ("encoding.hex-encode", "patch_seq_hex_encode"),
+        ("encoding.hex-decode", "patch_seq_hex_decode"),
         // Symbol operations
         ("symbol.=", "patch_seq_symbol_equal"),
         // File operations

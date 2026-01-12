@@ -21,7 +21,7 @@
   "https://httpbin.org/get" http.get
 
   # Check if request succeeded
-  dup "ok" map.get drop  # get ok value
+  dup "ok" map.get drop  # get ok value (map ok)
   if
     dup "status" map.get drop "Status: " show-int
     "body" map.get drop
@@ -47,7 +47,7 @@
     drop
   else
     dup "status" map.get drop "Status: " show-int
-    "error" map.has?
+    dup "error" map.has?
     if
       "error" map.get drop "Error: " show
     else

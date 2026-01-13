@@ -19,7 +19,7 @@ diagnostics = ["signal-hook"]  # Strand registry + SIGQUIT handler for productio
 
 [dependencies]
 # Core runtime primitives (shared foundation for stack-based languages)
-seq-core = { path = "../core", version = "=0.19.12" }
+seq-core = { path = "../core", version = "=0.20.0" }
 
 # May - Erlang-style green threads / coroutines for CSP concurrency
 may.workspace = true

@@ -1885,6 +1885,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "seq-core"
+version = "0.19.12"
+dependencies = [
+ "bumpalo",
+ "may",
+]
+
+[[package]]
 name = "seq-lsp"
 version = "0.19.12"
 dependencies = [
@@ -1926,6 +1934,7 @@ dependencies = [
  "libc",
  "may",
  "rand",
+ "seq-core",
  "serde",
  "sha2",
  "signal-hook",

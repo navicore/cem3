@@ -1045,7 +1045,6 @@ pub fn alloc_stack() -> Stack {
 
 /// Allocate a new test stack and set it as the stack base
 /// This is used in tests that need clone_stack to work
-#[cfg(test)]
 pub fn alloc_test_stack() -> Stack {
     let stack = alloc_stack();
     unsafe { patch_seq_set_stack_base(stack) };

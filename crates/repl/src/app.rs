@@ -1246,9 +1246,9 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Char('h')));
         assert_eq!(app.repl_state.cursor, 0);
 
-        // $ goes to end
+        // $ goes to end (ON last char, not past it - vim normal mode behavior)
         app.handle_key(KeyEvent::from(KeyCode::Char('$')));
-        assert_eq!(app.repl_state.cursor, 5);
+        assert_eq!(app.repl_state.cursor, 4); // 'o' is at index 4
         Ok(())
     }
 

@@ -11,6 +11,8 @@ pub enum Mode {
     Insert,
     OperatorPending(Operator),
     Visual,
+    /// Waiting for a character to replace the one under cursor (r command)
+    ReplaceChar,
 }
 
 /// Operators that wait for a motion.
@@ -106,12 +108,36 @@ impl VimLineEditor {
     }
 
     /// Move cursor to end of line ($).
-    fn move_line_end(&mut self, text: &str) {
+    /// In Normal mode, cursor should be ON the last character.
+    /// The `past_end` parameter allows Insert mode to go past the last char.
+    fn move_line_end_impl(&mut self, text: &str, past_end: bool) {
         // Find the end of the current line
-        self.cursor = text[self.cursor..]
+        let line_end = text[self.cursor..]
             .find('\n')
             .map(|i| self.cursor + i)
             .unwrap_or(text.len());
+
+        if past_end || line_end == 0 {
+            self.cursor = line_end;
+        } else {
+            // In Normal mode, cursor should be ON the last character
+            // Find the start of the last character (handle multi-byte)
+            let mut last_char_start = line_end.saturating_sub(1);
+            while last_char_start > 0 && !text.is_char_boundary(last_char_start) {
+                last_char_start -= 1;
+            }
+            self.cursor = last_char_start;
+        }
+    }
+
+    /// Move cursor to end of line (Normal mode - stays on last char)
+    fn move_line_end(&mut self, text: &str) {
+        self.move_line_end_impl(text, false);
+    }
+
+    /// Move cursor past end of line (Insert mode)
+    fn move_line_end_insert(&mut self, text: &str) {
+        self.move_line_end_impl(text, true);
     }
 
     /// Move cursor forward by word (w).
@@ -239,20 +265,23 @@ impl VimLineEditor {
             return EditResult::none();
         }
 
+        let start = self.cursor;
+
         // Find the end of the current character
         let mut end = self.cursor + 1;
         while end < text.len() && !text.is_char_boundary(end) {
             end += 1;
         }
 
-        let deleted = text[self.cursor..end].to_string();
-        EditResult::edit_and_yank(
-            TextEdit::Delete {
-                start: self.cursor,
-                end,
-            },
-            deleted,
-        )
+        let deleted = text[start..end].to_string();
+
+        // If we're deleting the last character, move cursor left
+        // (In Normal mode, cursor must always be ON a character)
+        if end >= text.len() && self.cursor > 0 {
+            self.move_left(text);
+        }
+
+        EditResult::edit_and_yank(TextEdit::Delete { start, end }, deleted)
     }
 
     /// Delete to end of line (D).
@@ -352,7 +381,7 @@ impl VimLineEditor {
             }
             KeyCode::Char('A') => {
                 self.mode = Mode::Insert;
-                self.move_line_end(text);
+                self.move_line_end_insert(text);
                 EditResult::none()
             }
             KeyCode::Char('I') => {
@@ -454,6 +483,12 @@ impl VimLineEditor {
                 self.delete_to_end(text)
             }
 
+            // Replace character (r)
+            KeyCode::Char('r') => {
+                self.mode = Mode::ReplaceChar;
+                EditResult::none()
+            }
+
             // Paste
             KeyCode::Char('p') => self.paste_after(text),
             KeyCode::Char('P') => self.paste_before(text),
@@ -547,7 +582,8 @@ impl VimLineEditor {
                 EditResult::cursor_only()
             }
             KeyCode::End => {
-                self.move_line_end(text);
+                // In Insert mode, cursor can go past the last character
+                self.move_line_end_insert(text);
                 EditResult::cursor_only()
             }
 
@@ -589,7 +625,19 @@ impl VimLineEditor {
         // Handle motion
         let start = self.cursor;
         match key.code {
-            KeyCode::Char('w') => self.move_word_forward(text),
+            KeyCode::Char('w') => {
+                // Special case: cw behaves like ce (change to end of word, not including space)
+                // This is a vim quirk for historical compatibility
+                if op == Operator::Change {
+                    self.move_word_end(text);
+                    // Include the character at cursor
+                    if self.cursor < text.len() {
+                        self.cursor += 1;
+                    }
+                } else {
+                    self.move_word_forward(text);
+                }
+            }
             KeyCode::Char('b') => self.move_word_backward(text),
             KeyCode::Char('e') => {
                 self.move_word_end(text);
@@ -748,6 +796,44 @@ impl VimLineEditor {
         }
     }
 
+    /// Handle key in ReplaceChar mode (waiting for character after 'r').
+    fn handle_replace_char(&mut self, key: Key, text: &str) -> EditResult {
+        self.mode = Mode::Normal;
+
+        match key.code {
+            KeyCode::Escape => EditResult::none(),
+            KeyCode::Char(c) if !key.ctrl && !key.alt => {
+                // Replace character at cursor
+                if self.cursor >= text.len() {
+                    return EditResult::none();
+                }
+
+                // Find the end of the current character
+                let mut end = self.cursor + 1;
+                while end < text.len() && !text.is_char_boundary(end) {
+                    end += 1;
+                }
+
+                // Delete current char and insert new one
+                // Note: edits are applied in reverse order, so Insert comes first in vec
+                EditResult {
+                    edits: vec![
+                        TextEdit::Insert {
+                            at: self.cursor,
+                            text: c.to_string(),
+                        },
+                        TextEdit::Delete {
+                            start: self.cursor,
+                            end,
+                        },
+                    ],
+                    ..Default::default()
+                }
+            }
+            _ => EditResult::none(),
+        }
+    }
+
     /// Get the selection range (ordered).
     fn selection_range(&self) -> (usize, usize) {
         let anchor = self.visual_anchor.unwrap_or(self.cursor);
@@ -768,6 +854,7 @@ impl LineEditor for VimLineEditor {
             Mode::Insert => self.handle_insert(key, text),
             Mode::OperatorPending(op) => self.handle_operator_pending(op, key, text),
             Mode::Visual => self.handle_visual(key, text),
+            Mode::ReplaceChar => self.handle_replace_char(key, text),
         };
 
         // Store yanked text
@@ -790,6 +877,7 @@ impl LineEditor for VimLineEditor {
             Mode::OperatorPending(Operator::Change) => "c...",
             Mode::OperatorPending(Operator::Yank) => "y...",
             Mode::Visual => "VISUAL",
+            Mode::ReplaceChar => "r...",
         }
     }
 
@@ -842,9 +930,9 @@ mod tests {
         editor.handle_key(Key::char('w'), text);
         assert_eq!(editor.cursor(), 6); // Start of "world"
 
-        // Move to end with '$'
+        // Move to end with '$' - cursor should be ON the last char, not past it
         editor.handle_key(Key::char('$'), text);
-        assert_eq!(editor.cursor(), 11);
+        assert_eq!(editor.cursor(), 10); // 'd' is at index 10
 
         // Move to start with '0'
         editor.handle_key(Key::char('0'), text);
@@ -1011,6 +1099,75 @@ mod tests {
     }
 
     #[test]
+    fn test_replace_char() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("hello");
+
+        // Press 'r' then 'x' to replace 'h' with 'x'
+        editor.handle_key(Key::char('r'), &text);
+        assert_eq!(editor.mode(), Mode::ReplaceChar);
+
+        let result = editor.handle_key(Key::char('x'), &text);
+        assert_eq!(editor.mode(), Mode::Normal);
+
+        // Apply edits
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, "xello");
+    }
+
+    #[test]
+    fn test_replace_char_escape() {
+        let mut editor = VimLineEditor::new();
+        let text = "hello";
+
+        // Press 'r' then Escape should cancel
+        editor.handle_key(Key::char('r'), text);
+        assert_eq!(editor.mode(), Mode::ReplaceChar);
+
+        editor.handle_key(Key::code(KeyCode::Escape), text);
+        assert_eq!(editor.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn test_cw_no_trailing_space() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("hello world");
+
+        // cw should delete "hello" (not "hello ") and enter insert mode
+        editor.handle_key(Key::char('c'), &text);
+        let result = editor.handle_key(Key::char('w'), &text);
+
+        assert_eq!(editor.mode(), Mode::Insert);
+
+        // Apply edits
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        // Should preserve the space before "world"
+        assert_eq!(text, " world");
+    }
+
+    #[test]
+    fn test_dw_includes_trailing_space() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("hello world");
+
+        // dw should delete "hello " (including trailing space)
+        editor.handle_key(Key::char('d'), &text);
+        let result = editor.handle_key(Key::char('w'), &text);
+
+        assert_eq!(editor.mode(), Mode::Normal);
+
+        // Apply edits
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+        assert_eq!(text, "world");
+    }
+
+    #[test]
     fn test_paste_at_empty_buffer() {
         let mut editor = VimLineEditor::new();
 
@@ -1028,5 +1185,61 @@ mod tests {
             edit.apply(&mut text);
         }
         assert_eq!(text, "test");
+    }
+
+    #[test]
+    fn test_dollar_cursor_on_last_char() {
+        let mut editor = VimLineEditor::new();
+        let text = "abc";
+
+        // $ should place cursor ON 'c' (index 2), not past it (index 3)
+        editor.handle_key(Key::char('$'), text);
+        assert_eq!(editor.cursor(), 2);
+
+        // Single character line
+        let text = "x";
+        editor.set_cursor(0, text);
+        editor.handle_key(Key::char('$'), text);
+        assert_eq!(editor.cursor(), 0); // Stay on the only char
+    }
+
+    #[test]
+    fn test_x_delete_last_char_moves_cursor_left() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("abc");
+
+        // Move to last char
+        editor.handle_key(Key::char('$'), &text);
+        assert_eq!(editor.cursor(), 2); // On 'c'
+
+        // Delete with x
+        let result = editor.handle_key(Key::char('x'), &text);
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+
+        assert_eq!(text, "ab");
+        // Cursor should move left to stay on valid char
+        assert_eq!(editor.cursor(), 1); // On 'b'
+    }
+
+    #[test]
+    fn test_x_delete_middle_char_cursor_stays() {
+        let mut editor = VimLineEditor::new();
+        let mut text = String::from("abc");
+
+        // Position on 'b' (index 1)
+        editor.handle_key(Key::char('l'), &text);
+        assert_eq!(editor.cursor(), 1);
+
+        // Delete with x
+        let result = editor.handle_key(Key::char('x'), &text);
+        for edit in result.edits.into_iter().rev() {
+            edit.apply(&mut text);
+        }
+
+        assert_eq!(text, "ac");
+        // Cursor stays at same position (now on 'c')
+        assert_eq!(editor.cursor(), 1);
     }
 }

@@ -1,10 +1,14 @@
 # vim-line
 
-A vim-style single-line editor library for Rust TUI applications. Provides modal editing with normal and insert modes, common vim motions, and customizable keybindings.
+A vim-style single-line editor library for Rust TUI applications. Provides modal
+editing with normal and insert modes, common vim motions, and customizable
+keybindings.
 
 ## Part of the Seq Workspace
 
-This crate is part of the [Seq programming language](https://github.com/navicore/patch-seq) project, but can be used independently in any Rust TUI application.
+This crate is part of the [Seq programming
+language](https://github.com/navicore/patch-seq) project, but can be used
+independently in any Rust TUI application.
 
 ### Related Crates
 

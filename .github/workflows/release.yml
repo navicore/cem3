@@ -86,12 +86,21 @@ jobs:
               { print }
             ' crates/repl/Cargo.toml > crates/repl/Cargo.toml.tmp && mv crates/repl/Cargo.toml.tmp crates/repl/Cargo.toml
 
+            # Update seq-core dependency version in crates/runtime/Cargo.toml
+            # This ensures the runtime pins to the exact core version
+            awk -v new_version="${{ steps.version.outputs.version }}" '
+              /^seq-core = \{ path = "\.\.\/core"/ {
+                sub(/version = "=[^"]*"/, "version = \"=" new_version "\"")
+              }
+              { print }
+            ' crates/runtime/Cargo.toml > crates/runtime/Cargo.toml.tmp && mv crates/runtime/Cargo.toml.tmp crates/runtime/Cargo.toml
+
             cargo generate-lockfile
 
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
 
-            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml crates/repl/Cargo.toml crates/vim-line/Cargo.toml Cargo.lock
+            git add Cargo.toml crates/compiler/Cargo.toml crates/lsp/Cargo.toml crates/repl/Cargo.toml crates/runtime/Cargo.toml crates/vim-line/Cargo.toml Cargo.lock
             git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
             git push origin HEAD:main
 
@@ -109,7 +118,7 @@ jobs:
           echo "Workspace version: $WORKSPACE_VERSION"
 
           # Check each crate uses workspace version
-          for crate in runtime compiler lsp repl vim-line; do
+          for crate in core runtime compiler lsp repl vim-line; do
             CRATE_VERSION=$(grep -A10 '^\[package\]' crates/$crate/Cargo.toml | grep '^version' | head -1)
             if ! echo "$CRATE_VERSION" | grep -q "version.workspace = true"; then
               echo "ERROR: crates/$crate/Cargo.toml does not use workspace version!"
@@ -117,6 +126,16 @@ jobs:
             fi
             echo "✓ $crate uses workspace version"
           done
+
+          # Verify runtime's dependency on core has exact version match
+          CORE_DEP=$(grep 'seq-core.*path.*core' crates/runtime/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
+          if [ "$CORE_DEP" != "=$WORKSPACE_VERSION" ]; then
+            echo "ERROR: runtime's seq-core dependency version doesn't match!"
+            echo "Expected: =$WORKSPACE_VERSION"
+            echo "Found: $CORE_DEP"
+            exit 1
+          fi
+          echo "✓ runtime seq-core dependency pinned to exact version: $CORE_DEP"
 
           # Verify compiler's build dependency on runtime has exact version match
           RUNTIME_DEP=$(grep 'seq-runtime.*path.*runtime' crates/compiler/Cargo.toml | grep -o 'version = "[^"]*"' | cut -d'"' -f2)
@@ -159,6 +178,14 @@ jobs:
           echo "✓ repl vim-line dependency pinned to exact version: $VIMLINE_DEP"
 
           echo "✓ All version checks passed!"
+
+      - name: Publish seq-core to crates.io
+        run: cargo publish -p seq-core --token ${{ secrets.CRATES_IO_TOKEN }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Wait for crates.io to index seq-core
+        run: sleep 30
 
       - name: Publish seq-runtime to crates.io
         run: cargo publish -p seq-runtime --token ${{ secrets.CRATES_IO_TOKEN }}

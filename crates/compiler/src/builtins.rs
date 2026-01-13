@@ -615,6 +615,15 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "crypto.uuid4", (a -- a String));
 
     // =========================================================================
+    // HTTP Client Operations
+    // =========================================================================
+
+    builtin!(sigs, "http.get", (a String -- a M));
+    builtin!(sigs, "http.post", (a String String String -- a M));
+    builtin!(sigs, "http.put", (a String String String -- a M));
+    builtin!(sigs, "http.delete", (a String -- a M));
+
+    // =========================================================================
     // Variant Operations
     // =========================================================================
 
@@ -1102,6 +1111,24 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
         "Generate N cryptographically secure random bytes as hex string.",
     );
     docs.insert("crypto.uuid4", "Generate a random UUID v4 string.");
+
+    // HTTP Client Operations
+    docs.insert(
+        "http.get",
+        "HTTP GET request. ( url -- response-map ) Map has status, body, ok, error.",
+    );
+    docs.insert(
+        "http.post",
+        "HTTP POST request. ( url body content-type -- response-map )",
+    );
+    docs.insert(
+        "http.put",
+        "HTTP PUT request. ( url body content-type -- response-map )",
+    );
+    docs.insert(
+        "http.delete",
+        "HTTP DELETE request. ( url -- response-map )",
+    );
 
     // Variant Operations
     docs.insert(

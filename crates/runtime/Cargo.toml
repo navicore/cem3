@@ -18,6 +18,9 @@ default = ["diagnostics"]
 diagnostics = ["signal-hook"]  # Strand registry + SIGQUIT handler for production debugging
 
 [dependencies]
+# Core runtime primitives (shared foundation for stack-based languages)
+seq-core = { path = "../core" }
+
 # May - Erlang-style green threads / coroutines for CSP concurrency
 may.workspace = true
 

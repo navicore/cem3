@@ -5,7 +5,17 @@
 //! - StackValue: 40-byte tagged stack entry (discriminant + 4 payload slots)
 //! - Stack: Contiguous array of StackValue entries for efficient operations
 
-pub mod arena;
+// Re-export core modules from seq-core (foundation for stack-based languages)
+pub use seq_core::arena;
+pub use seq_core::error;
+pub use seq_core::memory_stats;
+pub use seq_core::seqstring;
+pub use seq_core::son;
+pub use seq_core::stack;
+pub use seq_core::tagged_stack;
+pub use seq_core::value;
+
+// Seq-specific modules
 pub mod args;
 pub mod arithmetic;
 pub mod channel;
@@ -14,45 +24,44 @@ pub mod cond;
 pub mod crypto;
 pub mod diagnostics;
 pub mod encoding;
-pub mod error;
 pub mod file;
 pub mod float_ops;
 pub mod http_client;
 pub mod io;
 pub mod list_ops;
 pub mod map_ops;
-pub mod memory_stats;
 pub mod os;
 pub mod quotations;
 pub mod scheduler;
-pub mod seqstring;
 pub mod serialize;
-pub mod son;
-pub mod stack;
 pub mod string_ops;
-pub mod tagged_stack;
 pub mod tcp;
 pub mod tcp_test;
 pub mod test;
 pub mod time_ops;
-pub mod value;
 pub mod variant_ops;
 pub mod watchdog;
 pub mod weave;
 
-// Re-export key types and functions
-pub use stack::{
+// Re-export key types and functions from seq-core
+pub use seq_core::{ChannelData, MapKey, Value, VariantData, WeaveChannelData, WeaveMessage};
+pub use seq_core::{
     DISC_BOOL, DISC_CHANNEL, DISC_CLOSURE, DISC_FLOAT, DISC_INT, DISC_MAP, DISC_QUOTATION,
-    DISC_STRING, DISC_VARIANT, Stack, clone_stack, clone_stack_segment, clone_stack_value,
-    drop_stack_value, drop_top, is_empty, patch_seq_2dup as two_dup, patch_seq_3drop as three_drop,
-    patch_seq_clone_value as clone_value, patch_seq_drop_op as drop_op, patch_seq_dup as dup,
-    patch_seq_nip as nip, patch_seq_over as over, patch_seq_pick_op as pick_op,
-    patch_seq_push_value as push_value, patch_seq_rot as rot,
-    patch_seq_set_stack_base as set_stack_base, patch_seq_stack_dump as stack_dump,
-    patch_seq_swap as swap, patch_seq_tuck as tuck, peek, peek_sv, pop, pop_sv, push, push_sv,
-    stack_value_to_value, value_to_stack_value,
+    DISC_STRING, DISC_SYMBOL, DISC_VARIANT, DISC_WEAVECTX, Stack, alloc_stack, alloc_test_stack,
+    clone_stack, clone_stack_segment, clone_stack_value, clone_value, drop_op, drop_stack_value,
+    drop_top, dup, is_empty, nip, over, peek, peek_sv, pick_op, pop, pop_sv, push, push_sv,
+    push_value, roll, rot, set_stack_base, stack_dump, stack_value_to_value, swap, three_drop,
+    tuck, two_dup, value_to_stack_value,
 };
-pub use value::{ChannelData, MapKey, Value, VariantData};
+
+// SON serialization (from seq-core)
+pub use seq_core::{son_dump, son_dump_pretty};
+
+// Error handling (from seq-core)
+pub use seq_core::{
+    clear_error, clear_runtime_error, get_error, has_error, has_runtime_error, set_runtime_error,
+    take_error, take_runtime_error,
+};
 
 // Serialization types (for persistence/exchange with external systems)
 pub use serialize::{SerializeError, TypedMapKey, TypedValue, ValueSerialize};
@@ -215,16 +224,6 @@ pub use test::{
 pub use time_ops::{
     patch_seq_time_nanos as time_nanos, patch_seq_time_now as time_now,
     patch_seq_time_sleep_ms as time_sleep_ms,
-};
-
-// SON serialization (exported for LLVM linking)
-pub use son::{patch_seq_son_dump as son_dump, patch_seq_son_dump_pretty as son_dump_pretty};
-
-// Error handling (exported for LLVM linking)
-pub use error::{
-    clear_runtime_error, has_runtime_error, patch_seq_clear_error as clear_error,
-    patch_seq_get_error as get_error, patch_seq_has_error as has_error,
-    patch_seq_take_error as take_error, set_runtime_error, take_runtime_error,
 };
 
 // HTTP client operations (exported for LLVM linking)

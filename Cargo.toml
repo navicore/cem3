@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/runtime", "crates/compiler", "crates/lsp", "crates/repl", "crates/vim-line"]
+members = ["crates/core", "crates/runtime", "crates/compiler", "crates/lsp", "crates/repl", "crates/vim-line"]
 resolver = "2"
 
 [workspace.package]

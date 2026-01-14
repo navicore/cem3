@@ -45,7 +45,7 @@ This isn't theoretical - Seq already uses this pattern successfully:
 | Time | `std::time` |
 | String ops | `std::string` |
 | Base64/Hex encoding | `base64`, `hex` |
-| Crypto (SHA-256, HMAC, Random, UUID) | `sha2`, `hmac`, `rand`, `uuid` |
+| Crypto (SHA-256, HMAC, AES-GCM, PBKDF2, Random, UUID) | `sha2`, `hmac`, `aes-gcm`, `pbkdf2`, `rand`, `uuid` |
 | Regular expressions | `regex` |
 | Compression | `flate2`, `zstd` |
 | Arena allocator | Custom, but Rust memory safety |
@@ -171,7 +171,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Testing** | Assertions, test runner, pass/fail counts |
 | **Serialization** | SON format (Seq Object Notation) |
 | **Encoding** | Base64 (standard + URL-safe), Hex |
-| **Crypto** | SHA-256, HMAC-SHA256, secure random, UUID v4 |
+| **Crypto** | SHA-256, HMAC-SHA256, AES-256-GCM, PBKDF2, secure random, UUID v4 |
 | **HTTP Client** | GET, POST, PUT, DELETE with TLS support |
 | **Regex** | match, find, find-all, replace, captures, split, valid? |
 | **Compression** | gzip, gunzip, zstd, unzstd with compression levels |
@@ -249,6 +249,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **Result/Option** | Complete (268 lines) |
 | **Base64/Hex** | Complete (builtin) - standard, URL-safe, hex |
 | **Crypto Phase 1** | Complete (builtin) - SHA-256, HMAC, random, UUID |
+| **Crypto Phase 2** | Complete (builtin) - AES-256-GCM encryption, PBKDF2 key derivation |
 
 ---
 
@@ -565,21 +566,36 @@ received-sig computed-sig crypto.constant-time-eq
 crypto.uuid4    // ( -- String ) "550e8400-e29b-41d4-a716-446655440000"
 ```
 
-### Tier 2: Encryption
+### Tier 2: Encryption (Implemented)
 
-| API | Rust Crate | Use Cases |
-|-----|------------|-----------|
-| `crypto.aes-gcm-encrypt` | `aes-gcm` | Encrypting data at rest, secure storage |
-| `crypto.aes-gcm-decrypt` | `aes-gcm` | Decrypting data |
+| API | Rust Crate | Use Cases | Status |
+|-----|------------|-----------|--------|
+| `crypto.aes-gcm-encrypt` | `aes-gcm` | Encrypting data at rest, secure storage | **Done** |
+| `crypto.aes-gcm-decrypt` | `aes-gcm` | Decrypting data | **Done** |
+| `crypto.pbkdf2-sha256` | `pbkdf2` | Password-based key derivation | **Done** |
 
 ```seq
 // Symmetric encryption (AES-256-GCM)
-plaintext key crypto.aes-gcm-encrypt   // ( String String -- String ) base64 ciphertext
-ciphertext key crypto.aes-gcm-decrypt  // ( String String -- String Result )
+// Key must be 64 hex chars (32 bytes = 256 bits)
+plaintext hex-key crypto.aes-gcm-encrypt   // ( String String -- String Bool )
+ciphertext hex-key crypto.aes-gcm-decrypt  // ( String String -- String Bool )
 
 // Key derivation from password
 "user-password" "salt" 100000 crypto.pbkdf2-sha256
-// ( password salt iterations -- key )
+// ( password salt iterations -- hex-key Bool )
+
+// Full example: derive key and encrypt
+"user-password" "unique-salt" 100000 crypto.pbkdf2-sha256
+if
+  "secret data" swap crypto.aes-gcm-encrypt
+  if
+    "Encrypted: " swap string.concat io.write-line
+  else
+    drop "Encryption failed" io.write-line
+  then
+else
+  drop "Key derivation failed" io.write-line
+then
 ```
 
 ### Tier 3: Signatures & Key Exchange
@@ -625,10 +641,10 @@ encoded encoding.base64url-decode // ( String -- String Bool )
 |-------|------|--------|
 | **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4, constant-time-eq | **Complete** |
 | **Phase 2** | base64, hex | **Complete** |
-| **Phase 3** | aes-gcm, pbkdf2 | Not started |
+| **Phase 3** | aes-gcm-encrypt, aes-gcm-decrypt, pbkdf2-sha256 | **Complete** |
 | **Phase 4** | ed25519 | Not started |
 
-Phase 1+2 complete: JWT verification, webhook handling, secure tokens, API authentication now possible.
+Phase 1-3 complete: JWT verification, webhook handling, secure tokens, API authentication, encrypted storage, password-based key derivation all possible.
 
 ---
 
@@ -713,6 +729,7 @@ ui.screen [
 - [x] REPL with LSP integration and vim keybindings
 - [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
 - [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
+- [x] Crypto Phase 2 (builtin) - AES-256-GCM encryption/decryption, PBKDF2 key derivation
 - [x] HTTP client (builtin) - GET, POST, PUT, DELETE with TLS via ureq
 - [x] Regex (builtin) - match, find, replace, captures, split via regex crate
 - [x] Compression (builtin) - gzip, zstd with levels via flate2/zstd crates
@@ -730,7 +747,8 @@ ui.screen [
 
 ### Phase 3: Docs & Crypto Phase 2
 - [ ] `seq doc` documentation generator
-- [ ] AES-GCM encryption
+- [x] AES-GCM encryption
+- [x] PBKDF2 key derivation
 - [ ] Ed25519 signatures
 
 ### Phase 4: Advanced

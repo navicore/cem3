@@ -38,12 +38,14 @@ bincode.workspace = true
 base64.workspace = true
 hex.workspace = true
 
-# Crypto (SHA-256, HMAC, Random, UUID)
+# Crypto (SHA-256, HMAC, Random, UUID, AES-GCM, PBKDF2)
 sha2.workspace = true
 hmac.workspace = true
 rand.workspace = true
 uuid.workspace = true
 subtle.workspace = true
+aes-gcm.workspace = true
+pbkdf2.workspace = true
 
 # HTTP client
 ureq.workspace = true

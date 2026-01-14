@@ -70,6 +70,10 @@ url = "2.5"  # URL parsing for SSRF validation
 # Regular expressions
 regex = "1.11"
 
+# Compression
+flate2 = "1.0"
+zstd = "0.13"
+
 [profile.release]
 opt-level = 3
 lto = true

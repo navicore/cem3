@@ -65,93 +65,94 @@ This is Seq's unfair advantage: a concatenative language with the full power of 
 
 ---
 
-## Feature Flags & Binary Size
+## Feature Flags & Binary Size (Implemented)
 
-As the runtime grows with crypto, HTTP, regex, etc., binary size becomes a concern. Not every application needs every capability. Cargo feature flags let users opt-in to what they need.
+The runtime uses Cargo feature flags to allow opt-in compilation of optional modules. This keeps the core runtime smaller while allowing full batteries for apps that need them.
 
-### Proposed Feature Structure
+### Feature Structure
 
 ```toml
-# Cargo.toml for seq-runtime
+# crates/runtime/Cargo.toml
 [features]
-default = ["core"]
-core = []                           # Stack ops, I/O, channels - always on
-full = ["http", "crypto", "regex"]  # Everything
+default = ["full", "diagnostics"]
 
-# Opt-in capabilities
-http = ["dep:ureq", "dep:rustls"]   # HTTP client, adds ~1-2MB
-crypto = ["dep:sha2", "dep:aes-gcm", "dep:ed25519-dalek"]  # Crypto, adds ~500KB
-regex = ["dep:regex"]               # Regex, adds ~1MB
-compression = ["dep:flate2"]        # Gzip/deflate, adds ~200KB
-sqlite = ["dep:rusqlite"]           # SQLite, adds ~1MB
+# Full batteries - enable all optional modules
+full = ["crypto", "http", "regex", "compression"]
+
+# Optional modules - enable individually for smaller binaries
+crypto = ["dep:sha2", "dep:hmac", "dep:rand", "dep:uuid", "dep:subtle",
+          "dep:aes-gcm", "dep:pbkdf2", "dep:ed25519-dalek"]
+http = ["dep:ureq", "dep:url"]
+regex = ["dep:regex"]
+compression = ["dep:flate2", "dep:zstd"]
 ```
 
-### Binary Size Estimates
+### Static Library Sizes (Measured)
 
-| Configuration | Approx Size | Use Case |
-|---------------|-------------|----------|
-| `core` only | ~2-3MB | Embedded, CLI tools, scripts |
-| `core` + `http` | ~4-5MB | API clients, web scrapers |
-| `core` + `crypto` | ~3-4MB | Security tools, auth services |
-| `full` | ~6-8MB | Full web applications |
+| Configuration | Library Size | Use Case |
+|---------------|--------------|----------|
+| `core` only | ~20 MiB | Embedded, CLI tools, scripts |
+| `core` + `crypto` | ~22 MiB | Security tools, auth services |
+| `core` + `compression` | ~22 MiB | Data processing, archiving |
+| `core` + `regex` | ~27 MiB | Text processing, parsing |
+| `core` + `http` | ~33 MiB | API clients, web scrapers |
+| `full` (default) | ~43 MiB | Full web applications |
+
+*Note: These are static library sizes. Final executable sizes depend on linking and may be smaller.*
 
 ### Compile-Time Gating
 
+Each optional module is gated with `#[cfg(feature = "...")]`:
+
 ```rust
-// In runtime builtins
+// Real implementation when feature enabled
 #[cfg(feature = "crypto")]
-pub fn builtin_sha256(stack: *mut Stack) -> *mut Stack {
-    // ...
-}
+pub mod crypto;
 
+// Stub with helpful panic when feature disabled
 #[cfg(not(feature = "crypto"))]
-pub fn builtin_sha256(_: *mut Stack) -> *mut Stack {
-    panic!("sha256 requires --features crypto")
-}
+pub mod crypto_stub;
 ```
 
-### Compiler Integration
-
-The compiler could check for required features:
-
-```seq
-// Error at compile time if crypto feature not enabled
-"hello" crypto.sha256
-// Error: 'crypto.sha256' requires runtime feature 'crypto'
-// Hint: Compile with: cargo build --features crypto
+When a disabled feature is used at runtime:
+```
+thread 'main' panicked at 'crypto.sha256 requires crypto feature not enabled.
+Rebuild with: cargo build --features crypto'
 ```
 
-Or at link time:
-```
-error: undefined symbol: patch_seq_sha256
-note: Enable the 'crypto' feature in seq-runtime
-```
-
-### User Experience
+### Building with Features
 
 ```bash
-# Minimal build for a simple script
-seq build --features core myapp.seq
+# Full batteries (default)
+cargo build --release
 
-# Full batteries for a web service
-seq build --features full server.seq
+# Minimal build (core only - no crypto, http, regex, compression)
+cargo build --release --no-default-features
 
 # Specific capabilities
-seq build --features "core,http,crypto" api-client.seq
+cargo build --release --no-default-features --features "crypto,http"
+
+# Just crypto for a security tool
+cargo build --release --no-default-features --features crypto
 ```
 
-### Project Configuration
+### Available Features
 
-In `seq.toml`:
-```toml
-[package]
-name = "my-api"
+| Feature | Includes | Builtins |
+|---------|----------|----------|
+| `crypto` | SHA-256, HMAC, AES-GCM, PBKDF2, Ed25519, random, UUID | `crypto.*` |
+| `http` | HTTP client with TLS | `http.get/post/put/delete` |
+| `regex` | Regular expressions | `regex.*` |
+| `compression` | gzip, zstd | `compress.*` |
+| `diagnostics` | SIGQUIT strand dump | (debugging) |
+| `full` | All of the above | Everything |
 
-[features]
-runtime = ["http", "crypto"]  # Only pull in what you need
-```
+### Future: Compiler Integration
 
-This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB) for applications that need them.
+Eventually the compiler could:
+- Detect which features a program needs at compile time
+- Error with helpful message: "Enable --features crypto for crypto.sha256"
+- Auto-generate feature requirements in `seq.toml`
 
 ---
 

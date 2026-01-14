@@ -15,25 +15,21 @@ pub use seq_core::stack;
 pub use seq_core::tagged_stack;
 pub use seq_core::value;
 
-// Seq-specific modules
+// Seq-specific modules (always available - core runtime)
 pub mod args;
 pub mod arithmetic;
 pub mod channel;
 pub mod closures;
-pub mod compress;
 pub mod cond;
-pub mod crypto;
 pub mod diagnostics;
 pub mod encoding;
 pub mod file;
 pub mod float_ops;
-pub mod http_client;
 pub mod io;
 pub mod list_ops;
 pub mod map_ops;
 pub mod os;
 pub mod quotations;
-pub mod regex;
 pub mod scheduler;
 pub mod serialize;
 pub mod string_ops;
@@ -44,6 +40,27 @@ pub mod time_ops;
 pub mod variant_ops;
 pub mod watchdog;
 pub mod weave;
+
+// Optional modules - gated by feature flags
+#[cfg(feature = "crypto")]
+pub mod crypto;
+#[cfg(not(feature = "crypto"))]
+pub mod crypto_stub;
+
+#[cfg(feature = "http")]
+pub mod http_client;
+#[cfg(not(feature = "http"))]
+pub mod http_stub;
+
+#[cfg(feature = "regex")]
+pub mod regex;
+#[cfg(not(feature = "regex"))]
+pub mod regex_stub;
+
+#[cfg(feature = "compression")]
+pub mod compress;
+#[cfg(not(feature = "compression"))]
+pub mod compress_stub;
 
 // Re-export key types and functions from seq-core
 pub use seq_core::{ChannelData, MapKey, Value, VariantData, WeaveChannelData, WeaveMessage};
@@ -135,7 +152,19 @@ pub use encoding::{
 };
 
 // Crypto operations (exported for LLVM linking)
+#[cfg(feature = "crypto")]
 pub use crypto::{
+    patch_seq_constant_time_eq as constant_time_eq,
+    patch_seq_crypto_aes_gcm_decrypt as crypto_aes_gcm_decrypt,
+    patch_seq_crypto_aes_gcm_encrypt as crypto_aes_gcm_encrypt,
+    patch_seq_crypto_ed25519_keypair as crypto_ed25519_keypair,
+    patch_seq_crypto_ed25519_sign as crypto_ed25519_sign,
+    patch_seq_crypto_ed25519_verify as crypto_ed25519_verify,
+    patch_seq_crypto_pbkdf2_sha256 as crypto_pbkdf2_sha256, patch_seq_hmac_sha256 as hmac_sha256,
+    patch_seq_random_bytes as random_bytes, patch_seq_sha256 as sha256, patch_seq_uuid4 as uuid4,
+};
+#[cfg(not(feature = "crypto"))]
+pub use crypto_stub::{
     patch_seq_constant_time_eq as constant_time_eq,
     patch_seq_crypto_aes_gcm_decrypt as crypto_aes_gcm_decrypt,
     patch_seq_crypto_aes_gcm_encrypt as crypto_aes_gcm_encrypt,
@@ -147,7 +176,15 @@ pub use crypto::{
 };
 
 // Regex operations (exported for LLVM linking)
+#[cfg(feature = "regex")]
 pub use regex::{
+    patch_seq_regex_captures as regex_captures, patch_seq_regex_find as regex_find,
+    patch_seq_regex_find_all as regex_find_all, patch_seq_regex_match as regex_match,
+    patch_seq_regex_replace as regex_replace, patch_seq_regex_replace_all as regex_replace_all,
+    patch_seq_regex_split as regex_split, patch_seq_regex_valid as regex_valid,
+};
+#[cfg(not(feature = "regex"))]
+pub use regex_stub::{
     patch_seq_regex_captures as regex_captures, patch_seq_regex_find as regex_find,
     patch_seq_regex_find_all as regex_find_all, patch_seq_regex_match as regex_match,
     patch_seq_regex_replace as regex_replace, patch_seq_regex_replace_all as regex_replace_all,
@@ -155,7 +192,15 @@ pub use regex::{
 };
 
 // Compression operations (exported for LLVM linking)
+#[cfg(feature = "compression")]
 pub use compress::{
+    patch_seq_compress_gunzip as compress_gunzip, patch_seq_compress_gzip as compress_gzip,
+    patch_seq_compress_gzip_level as compress_gzip_level,
+    patch_seq_compress_unzstd as compress_unzstd, patch_seq_compress_zstd as compress_zstd,
+    patch_seq_compress_zstd_level as compress_zstd_level,
+};
+#[cfg(not(feature = "compression"))]
+pub use compress_stub::{
     patch_seq_compress_gunzip as compress_gunzip, patch_seq_compress_gzip as compress_gzip,
     patch_seq_compress_gzip_level as compress_gzip_level,
     patch_seq_compress_unzstd as compress_unzstd, patch_seq_compress_zstd as compress_zstd,
@@ -251,7 +296,13 @@ pub use time_ops::{
 };
 
 // HTTP client operations (exported for LLVM linking)
+#[cfg(feature = "http")]
 pub use http_client::{
+    patch_seq_http_delete as http_delete, patch_seq_http_get as http_get,
+    patch_seq_http_post as http_post, patch_seq_http_put as http_put,
+};
+#[cfg(not(feature = "http"))]
+pub use http_stub::{
     patch_seq_http_delete as http_delete, patch_seq_http_get as http_get,
     patch_seq_http_post as http_post, patch_seq_http_put as http_put,
 };

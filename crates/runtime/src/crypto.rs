@@ -37,6 +37,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit as AesKeyInit, OsRng, rand_core::RngCore as AeadRngCore},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -371,6 +372,146 @@ fn derive_key_pbkdf2(password: &str, salt: &str, iterations: u32) -> [u8; AES_KE
     let mut key = [0u8; AES_KEY_SIZE];
     pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), iterations, &mut key);
     key
+}
+
+// ============================================================================
+// Ed25519 Digital Signatures
+// ============================================================================
+
+/// Generate an Ed25519 keypair
+///
+/// Stack effect: ( -- public-key private-key )
+///
+/// Returns:
+/// - public-key: Hex-encoded 32-byte public key (64 hex characters)
+/// - private-key: Hex-encoded 32-byte private key (64 hex characters)
+///
+/// # Safety
+/// Stack must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_crypto_ed25519_keypair(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "crypto.ed25519-keypair: stack is null");
+
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let verifying_key = signing_key.verifying_key();
+
+    let private_hex = hex::encode(signing_key.to_bytes());
+    let public_hex = hex::encode(verifying_key.to_bytes());
+
+    let stack = unsafe { push(stack, Value::String(global_string(public_hex))) };
+    unsafe { push(stack, Value::String(global_string(private_hex))) }
+}
+
+/// Sign a message with an Ed25519 private key
+///
+/// Stack effect: ( message private-key -- signature success )
+///
+/// Parameters:
+/// - message: The message to sign (any string)
+/// - private-key: Hex-encoded 32-byte private key (64 hex characters)
+///
+/// Returns:
+/// - signature: Hex-encoded 64-byte signature (128 hex characters)
+/// - success: Bool indicating success
+///
+/// # Safety
+/// Stack must have String, String values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_crypto_ed25519_sign(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "crypto.ed25519-sign: stack is null");
+
+    let (stack, key_val) = unsafe { pop(stack) };
+    let (stack, msg_val) = unsafe { pop(stack) };
+
+    match (msg_val, key_val) {
+        (Value::String(message), Value::String(private_key_hex)) => {
+            match ed25519_sign(message.as_str(), private_key_hex.as_str()) {
+                Some(signature) => {
+                    let stack = unsafe { push(stack, Value::String(global_string(signature))) };
+                    unsafe { push(stack, Value::Bool(true)) }
+                }
+                None => {
+                    let stack = unsafe { push(stack, Value::String(global_string(String::new()))) };
+                    unsafe { push(stack, Value::Bool(false)) }
+                }
+            }
+        }
+        _ => panic!("crypto.ed25519-sign: expected String, String on stack"),
+    }
+}
+
+/// Verify an Ed25519 signature
+///
+/// Stack effect: ( message signature public-key -- valid )
+///
+/// Parameters:
+/// - message: The original message
+/// - signature: Hex-encoded 64-byte signature (128 hex characters)
+/// - public-key: Hex-encoded 32-byte public key (64 hex characters)
+///
+/// Returns:
+/// - valid: Bool indicating whether the signature is valid
+///
+/// # Safety
+/// Stack must have String, String, String values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_crypto_ed25519_verify(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "crypto.ed25519-verify: stack is null");
+
+    let (stack, pubkey_val) = unsafe { pop(stack) };
+    let (stack, sig_val) = unsafe { pop(stack) };
+    let (stack, msg_val) = unsafe { pop(stack) };
+
+    match (msg_val, sig_val, pubkey_val) {
+        (Value::String(message), Value::String(signature_hex), Value::String(public_key_hex)) => {
+            let valid = ed25519_verify(
+                message.as_str(),
+                signature_hex.as_str(),
+                public_key_hex.as_str(),
+            );
+            unsafe { push(stack, Value::Bool(valid)) }
+        }
+        _ => panic!("crypto.ed25519-verify: expected String, String, String on stack"),
+    }
+}
+
+// Helper functions for Ed25519
+
+fn ed25519_sign(message: &str, private_key_hex: &str) -> Option<String> {
+    let key_bytes = hex::decode(private_key_hex).ok()?;
+    if key_bytes.len() != 32 {
+        return None;
+    }
+
+    let key_array: [u8; 32] = key_bytes.try_into().ok()?;
+    let signing_key = SigningKey::from_bytes(&key_array);
+    let signature = signing_key.sign(message.as_bytes());
+
+    Some(hex::encode(signature.to_bytes()))
+}
+
+fn ed25519_verify(message: &str, signature_hex: &str, public_key_hex: &str) -> bool {
+    let verify_inner = || -> Option<bool> {
+        let sig_bytes = hex::decode(signature_hex).ok()?;
+        if sig_bytes.len() != 64 {
+            return Some(false);
+        }
+
+        let pubkey_bytes = hex::decode(public_key_hex).ok()?;
+        if pubkey_bytes.len() != 32 {
+            return Some(false);
+        }
+
+        let sig_array: [u8; 64] = sig_bytes.try_into().ok()?;
+        let pubkey_array: [u8; 32] = pubkey_bytes.try_into().ok()?;
+
+        let signature = Signature::from_bytes(&sig_array);
+        let verifying_key = VerifyingKey::from_bytes(&pubkey_array).ok()?;
+
+        Some(verifying_key.verify(message.as_bytes(), &signature).is_ok())
+    };
+
+    verify_inner().unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -794,5 +935,178 @@ mod tests {
         // Decrypt
         let decrypted = aes_gcm_decrypt(&ciphertext, &key_hex).unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    // Ed25519 tests
+
+    #[test]
+    fn test_ed25519_sign_verify() {
+        let message = "Hello, World!";
+
+        // Generate keypair
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let verifying_key = signing_key.verifying_key();
+
+        let private_hex = hex::encode(signing_key.to_bytes());
+        let public_hex = hex::encode(verifying_key.to_bytes());
+
+        // Sign
+        let signature = ed25519_sign(message, &private_hex).unwrap();
+        assert_eq!(signature.len(), 128); // 64 bytes = 128 hex chars
+
+        // Verify
+        assert!(ed25519_verify(message, &signature, &public_hex));
+    }
+
+    #[test]
+    fn test_ed25519_wrong_message() {
+        let message = "Original message";
+        let wrong_message = "Wrong message";
+
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let verifying_key = signing_key.verifying_key();
+
+        let private_hex = hex::encode(signing_key.to_bytes());
+        let public_hex = hex::encode(verifying_key.to_bytes());
+
+        let signature = ed25519_sign(message, &private_hex).unwrap();
+
+        // Verify with wrong message should fail
+        assert!(!ed25519_verify(wrong_message, &signature, &public_hex));
+    }
+
+    #[test]
+    fn test_ed25519_wrong_key() {
+        let message = "Test message";
+
+        let signing_key1 = SigningKey::generate(&mut OsRng);
+        let signing_key2 = SigningKey::generate(&mut OsRng);
+
+        let private_hex = hex::encode(signing_key1.to_bytes());
+        let wrong_public_hex = hex::encode(signing_key2.verifying_key().to_bytes());
+
+        let signature = ed25519_sign(message, &private_hex).unwrap();
+
+        // Verify with wrong public key should fail
+        assert!(!ed25519_verify(message, &signature, &wrong_public_hex));
+    }
+
+    #[test]
+    fn test_ed25519_invalid_key_length() {
+        let message = "Test message";
+        let invalid_key = "tooshort";
+
+        // Sign with invalid key should fail
+        assert!(ed25519_sign(message, invalid_key).is_none());
+    }
+
+    #[test]
+    fn test_ed25519_invalid_signature() {
+        let message = "Test message";
+
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let public_hex = hex::encode(signing_key.verifying_key().to_bytes());
+
+        let invalid_signature = "0".repeat(128); // Valid length but wrong signature
+
+        // Verify with invalid signature should fail
+        assert!(!ed25519_verify(message, &invalid_signature, &public_hex));
+    }
+
+    #[test]
+    fn test_ed25519_empty_message() {
+        let message = "";
+
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let verifying_key = signing_key.verifying_key();
+
+        let private_hex = hex::encode(signing_key.to_bytes());
+        let public_hex = hex::encode(verifying_key.to_bytes());
+
+        // Sign empty message
+        let signature = ed25519_sign(message, &private_hex).unwrap();
+
+        // Verify should succeed
+        assert!(ed25519_verify(message, &signature, &public_hex));
+    }
+
+    #[test]
+    fn test_ed25519_keypair_ffi() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+
+            let stack = patch_seq_crypto_ed25519_keypair(stack);
+
+            let (stack, private_key) = pop(stack);
+            let (_, public_key) = pop(stack);
+
+            // Both should be 64-char hex strings (32 bytes)
+            if let Value::String(pk) = public_key {
+                assert_eq!(pk.as_str().len(), 64);
+            } else {
+                panic!("Expected String for public key");
+            }
+
+            if let Value::String(sk) = private_key {
+                assert_eq!(sk.as_str().len(), 64);
+            } else {
+                panic!("Expected String for private key");
+            }
+        }
+    }
+
+    #[test]
+    fn test_ed25519_sign_ffi() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+
+            // Generate a valid key first
+            let signing_key = SigningKey::generate(&mut OsRng);
+            let private_hex = hex::encode(signing_key.to_bytes());
+
+            let stack = push(
+                stack,
+                Value::String(global_string("Test message".to_string())),
+            );
+            let stack = push(stack, Value::String(global_string(private_hex)));
+
+            let stack = patch_seq_crypto_ed25519_sign(stack);
+
+            let (stack, success) = pop(stack);
+            let (_, signature) = pop(stack);
+
+            assert_eq!(success, Value::Bool(true));
+            if let Value::String(sig) = signature {
+                assert_eq!(sig.as_str().len(), 128); // 64 bytes = 128 hex chars
+            } else {
+                panic!("Expected String for signature");
+            }
+        }
+    }
+
+    #[test]
+    fn test_ed25519_verify_ffi() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+
+            // Generate keypair and sign
+            let signing_key = SigningKey::generate(&mut OsRng);
+            let verifying_key = signing_key.verifying_key();
+
+            let private_hex = hex::encode(signing_key.to_bytes());
+            let public_hex = hex::encode(verifying_key.to_bytes());
+
+            let message = "Verify this message";
+            let signature = ed25519_sign(message, &private_hex).unwrap();
+
+            let stack = push(stack, Value::String(global_string(message.to_string())));
+            let stack = push(stack, Value::String(global_string(signature)));
+            let stack = push(stack, Value::String(global_string(public_hex)));
+
+            let stack = patch_seq_crypto_ed25519_verify(stack);
+
+            let (_, valid) = pop(stack);
+            assert_eq!(valid, Value::Bool(true));
+        }
     }
 }

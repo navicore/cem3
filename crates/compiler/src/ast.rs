@@ -365,6 +365,9 @@ impl Program {
             "crypto.aes-gcm-encrypt",
             "crypto.aes-gcm-decrypt",
             "crypto.pbkdf2-sha256",
+            "crypto.ed25519-keypair",
+            "crypto.ed25519-sign",
+            "crypto.ed25519-verify",
             // HTTP client operations
             "http.get",
             "http.post",

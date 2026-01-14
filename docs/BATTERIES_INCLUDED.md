@@ -45,7 +45,7 @@ This isn't theoretical - Seq already uses this pattern successfully:
 | Time | `std::time` |
 | String ops | `std::string` |
 | Base64/Hex encoding | `base64`, `hex` |
-| Crypto (SHA-256, HMAC, AES-GCM, PBKDF2, Random, UUID) | `sha2`, `hmac`, `aes-gcm`, `pbkdf2`, `rand`, `uuid` |
+| Crypto (SHA-256, HMAC, AES-GCM, PBKDF2, Ed25519, Random, UUID) | `sha2`, `hmac`, `aes-gcm`, `pbkdf2`, `ed25519-dalek`, `rand`, `uuid` |
 | Regular expressions | `regex` |
 | Compression | `flate2`, `zstd` |
 | Arena allocator | Custom, but Rust memory safety |
@@ -171,7 +171,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Testing** | Assertions, test runner, pass/fail counts |
 | **Serialization** | SON format (Seq Object Notation) |
 | **Encoding** | Base64 (standard + URL-safe), Hex |
-| **Crypto** | SHA-256, HMAC-SHA256, AES-256-GCM, PBKDF2, secure random, UUID v4 |
+| **Crypto** | SHA-256, HMAC-SHA256, AES-256-GCM, PBKDF2, Ed25519 signatures, secure random, UUID v4 |
 | **HTTP Client** | GET, POST, PUT, DELETE with TLS support |
 | **Regex** | match, find, find-all, replace, captures, split, valid? |
 | **Compression** | gzip, gunzip, zstd, unzstd with compression levels |
@@ -250,6 +250,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **Base64/Hex** | Complete (builtin) - standard, URL-safe, hex |
 | **Crypto Phase 1** | Complete (builtin) - SHA-256, HMAC, random, UUID |
 | **Crypto Phase 2** | Complete (builtin) - AES-256-GCM encryption, PBKDF2 key derivation |
+| **Crypto Phase 3** | Complete (builtin) - Ed25519 digital signatures |
 
 ---
 
@@ -598,23 +599,33 @@ else
 then
 ```
 
-### Tier 3: Signatures & Key Exchange
+### Tier 3: Signatures & Key Exchange (Implemented)
 
-| API | Rust Crate | Use Cases |
-|-----|------------|-----------|
-| `crypto.ed25519-sign` | `ed25519-dalek` | Digital signatures |
-| `crypto.ed25519-verify` | `ed25519-dalek` | Signature verification |
-| `crypto.ed25519-keypair` | `ed25519-dalek` | Generate signing keys |
+| API | Rust Crate | Use Cases | Status |
+|-----|------------|-----------|--------|
+| `crypto.ed25519-keypair` | `ed25519-dalek` | Generate signing keys | **Done** |
+| `crypto.ed25519-sign` | `ed25519-dalek` | Digital signatures | **Done** |
+| `crypto.ed25519-verify` | `ed25519-dalek` | Signature verification | **Done** |
 
 ```seq
 // Generate keypair
-crypto.ed25519-keypair    // ( -- public-key private-key )
+crypto.ed25519-keypair    // ( -- public-key private-key ) both as 64-char hex
 
 // Sign a message
-message private-key crypto.ed25519-sign    // ( String String -- String )
+message private-key crypto.ed25519-sign    // ( String String -- String Bool )
 
 // Verify signature
 message signature public-key crypto.ed25519-verify  // ( String String String -- Bool )
+
+// Full example
+crypto.ed25519-keypair
+"Important document" swap crypto.ed25519-sign
+if
+  swap "Important document" rot rot crypto.ed25519-verify
+  if "Signature valid!" else "Signature invalid!" then io.write-line
+else
+  drop drop "Signing failed" io.write-line
+then
 ```
 
 ### Encoding Helpers (Implemented)
@@ -642,9 +653,9 @@ encoded encoding.base64url-decode // ( String -- String Bool )
 | **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4, constant-time-eq | **Complete** |
 | **Phase 2** | base64, hex | **Complete** |
 | **Phase 3** | aes-gcm-encrypt, aes-gcm-decrypt, pbkdf2-sha256 | **Complete** |
-| **Phase 4** | ed25519 | Not started |
+| **Phase 4** | ed25519-keypair, ed25519-sign, ed25519-verify | **Complete** |
 
-Phase 1-3 complete: JWT verification, webhook handling, secure tokens, API authentication, encrypted storage, password-based key derivation all possible.
+All crypto phases complete: JWT verification, webhook handling, secure tokens, API authentication, encrypted storage, password-based key derivation, digital signatures all available.
 
 ---
 
@@ -730,6 +741,7 @@ ui.screen [
 - [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
 - [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
 - [x] Crypto Phase 2 (builtin) - AES-256-GCM encryption/decryption, PBKDF2 key derivation
+- [x] Crypto Phase 3 (builtin) - Ed25519 digital signatures
 - [x] HTTP client (builtin) - GET, POST, PUT, DELETE with TLS via ureq
 - [x] Regex (builtin) - match, find, replace, captures, split via regex crate
 - [x] Compression (builtin) - gzip, zstd with levels via flate2/zstd crates
@@ -749,7 +761,7 @@ ui.screen [
 - [ ] `seq doc` documentation generator
 - [x] AES-GCM encryption
 - [x] PBKDF2 key derivation
-- [ ] Ed25519 signatures
+- [x] Ed25519 signatures
 
 ### Phase 4: Advanced
 - [ ] Database connectivity

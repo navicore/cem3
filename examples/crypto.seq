@@ -182,6 +182,42 @@
   "" io.write-line
 ;
 
+# Ed25519 Digital Signatures
+: demo-signatures ( -- )
+  "=== Ed25519 Digital Signatures ===" io.write-line
+  "" io.write-line
+
+  # Generate a keypair
+  crypto.ed25519-keypair
+  # Stack: public-key private-key
+  dup "Private key: " show
+  over "Public key:  " show
+
+  # Sign a message
+  "This is an important message that needs authentication."
+  dup "  Message: " show
+  # Stack: public-key private-key message
+  swap crypto.ed25519-sign
+  # Stack: public-key signature success
+  if
+    dup "  Signature: " show
+    # Stack: public-key signature
+
+    # Verify the signature
+    swap "This is an important message that needs authentication." rot rot
+    crypto.ed25519-verify
+    if
+      "  Verification: VALID" io.write-line
+    else
+      "  Verification: INVALID" io.write-line
+    then
+  else
+    drop drop "  Signing failed" io.write-line
+  then
+
+  "" io.write-line
+;
+
 # Run all demos
 : main ( -- )
   demo-sha256
@@ -190,4 +226,5 @@
   demo-uuid
   demo-encryption
   demo-pbkdf2
+  demo-signatures
 ;

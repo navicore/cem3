@@ -637,6 +637,17 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "regex.valid?", (a String -- a Bool));
 
     // =========================================================================
+    // Compression Operations
+    // =========================================================================
+
+    builtin!(sigs, "compress.gzip", (a String -- a String));
+    builtin!(sigs, "compress.gzip-level", (a String Int -- a String));
+    builtin!(sigs, "compress.gunzip", (a String -- a String Bool));
+    builtin!(sigs, "compress.zstd", (a String -- a String));
+    builtin!(sigs, "compress.zstd-level", (a String Int -- a String));
+    builtin!(sigs, "compress.unzstd", (a String -- a String Bool));
+
+    // =========================================================================
     // Variant Operations
     // =========================================================================
 
@@ -1175,6 +1186,32 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert(
         "regex.valid?",
         "Check if pattern is valid regex. ( pattern -- bool )",
+    );
+
+    // Compression Operations
+    docs.insert(
+        "compress.gzip",
+        "Compress string with gzip. Returns base64-encoded data. ( data -- compressed )",
+    );
+    docs.insert(
+        "compress.gzip-level",
+        "Compress with gzip at level 1-9. ( data level -- compressed )",
+    );
+    docs.insert(
+        "compress.gunzip",
+        "Decompress gzip data. ( base64-data -- decompressed success )",
+    );
+    docs.insert(
+        "compress.zstd",
+        "Compress string with zstd. Returns base64-encoded data. ( data -- compressed )",
+    );
+    docs.insert(
+        "compress.zstd-level",
+        "Compress with zstd at level 1-22. ( data level -- compressed )",
+    );
+    docs.insert(
+        "compress.unzstd",
+        "Decompress zstd data. ( base64-data -- decompressed success )",
     );
 
     // Variant Operations

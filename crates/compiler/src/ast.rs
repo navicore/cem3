@@ -553,6 +553,13 @@ impl Program {
             "regex.captures",
             "regex.split",
             "regex.valid?",
+            // Compression operations
+            "compress.gzip",
+            "compress.gzip-level",
+            "compress.gunzip",
+            "compress.zstd",
+            "compress.zstd-level",
+            "compress.unzstd",
         ];
 
         for word in &self.words {

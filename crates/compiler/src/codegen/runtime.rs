@@ -916,6 +916,31 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_regex_valid(ptr)",
             category: None,
         },
+        // Compression operations
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_compress_gzip(ptr)",
+            category: Some("; Compression operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_compress_gzip_level(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_compress_gunzip(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_compress_zstd(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_compress_zstd_level(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_compress_unzstd(ptr)",
+            category: None,
+        },
         // Helpers for conditionals
         RuntimeDecl {
             decl: "declare i64 @patch_seq_peek_int_value(ptr)",
@@ -1116,6 +1141,13 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("regex.captures", "patch_seq_regex_captures"),
         ("regex.split", "patch_seq_regex_split"),
         ("regex.valid?", "patch_seq_regex_valid"),
+        // Compression operations
+        ("compress.gzip", "patch_seq_compress_gzip"),
+        ("compress.gzip-level", "patch_seq_compress_gzip_level"),
+        ("compress.gunzip", "patch_seq_compress_gunzip"),
+        ("compress.zstd", "patch_seq_compress_zstd"),
+        ("compress.zstd-level", "patch_seq_compress_zstd_level"),
+        ("compress.unzstd", "patch_seq_compress_unzstd"),
         // Symbol operations
         ("symbol.=", "patch_seq_symbol_equal"),
         // File operations

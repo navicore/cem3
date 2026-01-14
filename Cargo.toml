@@ -62,6 +62,8 @@ hmac = "0.12"
 rand = "0.8"
 uuid = { version = "1.11", features = ["v4"] }
 subtle = "2.6"  # Constant-time comparison
+aes-gcm = "0.10"  # AES-256-GCM authenticated encryption
+pbkdf2 = "0.12"   # Password-based key derivation
 
 # HTTP client
 ureq = { version = "2.12", features = ["tls"] }

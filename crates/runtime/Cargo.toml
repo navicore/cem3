@@ -49,6 +49,9 @@ subtle.workspace = true
 ureq.workspace = true
 url.workspace = true
 
+# Regular expressions
+regex.workspace = true
+
 # Signal handling for SIGQUIT diagnostics (Unix only, optional via diagnostics feature)
 [target.'cfg(unix)'.dependencies]
 signal-hook = { workspace = true, optional = true }

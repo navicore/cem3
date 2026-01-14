@@ -32,6 +32,7 @@ pub mod list_ops;
 pub mod map_ops;
 pub mod os;
 pub mod quotations;
+pub mod regex;
 pub mod scheduler;
 pub mod serialize;
 pub mod string_ops;
@@ -136,6 +137,14 @@ pub use encoding::{
 pub use crypto::{
     patch_seq_constant_time_eq as constant_time_eq, patch_seq_hmac_sha256 as hmac_sha256,
     patch_seq_random_bytes as random_bytes, patch_seq_sha256 as sha256, patch_seq_uuid4 as uuid4,
+};
+
+// Regex operations (exported for LLVM linking)
+pub use regex::{
+    patch_seq_regex_captures as regex_captures, patch_seq_regex_find as regex_find,
+    patch_seq_regex_find_all as regex_find_all, patch_seq_regex_match as regex_match,
+    patch_seq_regex_replace as regex_replace, patch_seq_regex_replace_all as regex_replace_all,
+    patch_seq_regex_split as regex_split, patch_seq_regex_valid as regex_valid,
 };
 
 // Quotation operations (exported for LLVM linking)

@@ -624,6 +624,19 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "http.delete", (a String -- a M));
 
     // =========================================================================
+    // Regular Expression Operations
+    // =========================================================================
+
+    builtin!(sigs, "regex.match?", (a String String -- a Bool));
+    builtin!(sigs, "regex.find", (a String String -- a String Bool));
+    builtin!(sigs, "regex.find-all", (a String String -- a V));
+    builtin!(sigs, "regex.replace", (a String String String -- a String));
+    builtin!(sigs, "regex.replace-all", (a String String String -- a String));
+    builtin!(sigs, "regex.captures", (a String String -- a V Bool));
+    builtin!(sigs, "regex.split", (a String String -- a V));
+    builtin!(sigs, "regex.valid?", (a String -- a Bool));
+
+    // =========================================================================
     // Variant Operations
     // =========================================================================
 
@@ -1128,6 +1141,40 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert(
         "http.delete",
         "HTTP DELETE request. ( url -- response-map )",
+    );
+
+    // Regular Expression Operations
+    docs.insert(
+        "regex.match?",
+        "Check if pattern matches anywhere in string. ( text pattern -- bool )",
+    );
+    docs.insert(
+        "regex.find",
+        "Find first match. ( text pattern -- matched success )",
+    );
+    docs.insert(
+        "regex.find-all",
+        "Find all matches. ( text pattern -- list )",
+    );
+    docs.insert(
+        "regex.replace",
+        "Replace first match. ( text pattern replacement -- result )",
+    );
+    docs.insert(
+        "regex.replace-all",
+        "Replace all matches. ( text pattern replacement -- result )",
+    );
+    docs.insert(
+        "regex.captures",
+        "Extract capture groups. ( text pattern -- groups success )",
+    );
+    docs.insert(
+        "regex.split",
+        "Split string by pattern. ( text pattern -- list )",
+    );
+    docs.insert(
+        "regex.valid?",
+        "Check if pattern is valid regex. ( pattern -- bool )",
     );
 
     // Variant Operations

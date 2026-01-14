@@ -1,4 +1,4 @@
-# Crypto Examples: Hashing, HMAC, Random, UUID
+# Crypto Examples: Hashing, HMAC, Random, UUID, Encryption
 #
 # This example demonstrates the crypto builtins for secure
 # hashing, message authentication, and random generation.
@@ -109,10 +109,85 @@
   "" io.write-line
 ;
 
+# AES-256-GCM Encryption
+: demo-encryption ( -- )
+  "=== AES-256-GCM Encryption ===" io.write-line
+  "" io.write-line
+
+  # Generate a random 32-byte key (64 hex chars)
+  32 crypto.random-bytes
+  dup "Generated key: " show
+
+  # Stack: [key]
+  # Encrypt a message
+  "Secret message: Hello, World!"
+  dup "  Original: " show
+  # Stack: [key, message]
+  over crypto.aes-gcm-encrypt
+  # Stack: [key, ciphertext, bool]
+  if
+    dup "  Encrypted: " show
+    # Stack: [key, ciphertext]
+    # Decrypt with same key - need (ciphertext, key)
+    swap crypto.aes-gcm-decrypt
+    # Stack: [plaintext, bool]
+    if
+      "  Decrypted: " show
+    else
+      drop "  Decryption failed" io.write-line
+    then
+  else
+    drop drop "  Encryption failed" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# PBKDF2 Key Derivation
+: demo-pbkdf2 ( -- )
+  "=== PBKDF2 Key Derivation ===" io.write-line
+  "" io.write-line
+
+  # Derive a key from a password
+  "user-password" "unique-salt-123" 100000 crypto.pbkdf2-sha256
+  # Stack: [key, bool]
+  if
+    dup "Derived key: " show
+    # Stack: [key]
+
+    # Use the derived key for encryption
+    "Sensitive data to protect"
+    # Stack: [key, message]
+    over crypto.aes-gcm-encrypt
+    # Stack: [key, ciphertext, bool]
+    if
+      dup "  Encrypted with derived key: " show
+      # Stack: [key, ciphertext]
+
+      # Decrypt - need (ciphertext, key)
+      swap crypto.aes-gcm-decrypt
+      # Stack: [plaintext, bool]
+      if
+        "  Decrypted: " show
+      else
+        drop "  Decryption failed" io.write-line
+      then
+    else
+      drop drop "  Encryption failed" io.write-line
+    then
+  else
+    drop "  Key derivation failed" io.write-line
+  then
+
+  "" io.write-line
+;
+
 # Run all demos
 : main ( -- )
   demo-sha256
   demo-hmac
   demo-random
   demo-uuid
+  demo-encryption
+  demo-pbkdf2
 ;

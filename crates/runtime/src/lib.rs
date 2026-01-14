@@ -20,6 +20,7 @@ pub mod args;
 pub mod arithmetic;
 pub mod channel;
 pub mod closures;
+pub mod compress;
 pub mod cond;
 pub mod crypto;
 pub mod diagnostics;
@@ -145,6 +146,14 @@ pub use regex::{
     patch_seq_regex_find_all as regex_find_all, patch_seq_regex_match as regex_match,
     patch_seq_regex_replace as regex_replace, patch_seq_regex_replace_all as regex_replace_all,
     patch_seq_regex_split as regex_split, patch_seq_regex_valid as regex_valid,
+};
+
+// Compression operations (exported for LLVM linking)
+pub use compress::{
+    patch_seq_compress_gunzip as compress_gunzip, patch_seq_compress_gzip as compress_gzip,
+    patch_seq_compress_gzip_level as compress_gzip_level,
+    patch_seq_compress_unzstd as compress_unzstd, patch_seq_compress_zstd as compress_zstd,
+    patch_seq_compress_zstd_level as compress_zstd_level,
 };
 
 // Quotation operations (exported for LLVM linking)

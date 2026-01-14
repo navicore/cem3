@@ -47,6 +47,7 @@ This isn't theoretical - Seq already uses this pattern successfully:
 | Base64/Hex encoding | `base64`, `hex` |
 | Crypto (SHA-256, HMAC, Random, UUID) | `sha2`, `hmac`, `rand`, `uuid` |
 | Regular expressions | `regex` |
+| Compression | `flate2`, `zstd` |
 | Arena allocator | Custom, but Rust memory safety |
 
 Each builtin is a thin FFI wrapper that exposes Rust functionality to Seq. Adding crypto, HTTP client, or regex follows the exact same pattern.
@@ -173,6 +174,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Crypto** | SHA-256, HMAC-SHA256, secure random, UUID v4 |
 | **HTTP Client** | GET, POST, PUT, DELETE with TLS support |
 | **Regex** | match, find, find-all, replace, captures, split, valid? |
+| **Compression** | gzip, gunzip, zstd, unzstd with compression levels |
 | **OS** | Args, env vars, path operations, exec, exit |
 
 ### Standard Library (Pure Seq)
@@ -227,7 +229,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **`seq fmt`** | Not started | Medium |
 | **`seq.toml`** | Not started | Medium |
 | **Logging** | Not started | Low |
-| **Compression** | Not started | Low |
+| **Compression** | **Complete** | Low |
 | **Database** | Not started | Future |
 | **HTML parsing** | Not started | Future |
 
@@ -240,6 +242,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **HTTP server** | Working (helpers + example) |
 | **HTTP client** | Complete (builtin) - GET, POST, PUT, DELETE with TLS |
 | **Regex** | Complete (builtin) - match, find, replace, captures, split |
+| **Compression** | Complete (builtin) - gzip, zstd with levels |
 | **LSP** | Complete (2200+ lines) - diagnostics, completions |
 | **REPL** | Complete - with LSP integration, vim keybindings |
 | **Testing** | Complete (builtin) |
@@ -712,6 +715,7 @@ ui.screen [
 - [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
 - [x] HTTP client (builtin) - GET, POST, PUT, DELETE with TLS via ureq
 - [x] Regex (builtin) - match, find, replace, captures, split via regex crate
+- [x] Compression (builtin) - gzip, zstd with levels via flate2/zstd crates
 
 ### Phase 1: Tooling
 - [ ] `seq fmt` basic formatter
@@ -732,7 +736,7 @@ ui.screen [
 ### Phase 4: Advanced
 - [ ] Database connectivity
 - [ ] HTML templating
-- [ ] Compression
+- [x] Compression
 - [ ] UI framework exploration
 
 ---

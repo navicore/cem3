@@ -2084,7 +2084,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-compiler"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "bumpalo",
  "may",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "clap",
  "crossterm 0.28.1",
@@ -2134,7 +2134,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2549,24 +2549,24 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.44"
+version = "0.3.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e7d9e3bb61134e77bde20dd4825b97c010155709965fedf0f49bb138e52a9d"
+checksum = "f9e442fc33d7fdb45aa9bfeb312c095964abdf596f7567261062b2a7107aaabd"
 dependencies = [
  "deranged",
  "libc",
  "num-conv",
  "num_threads",
  "powerfmt",
- "serde",
+ "serde_core",
  "time-core",
 ]
 
 [[package]]
 name = "time-core"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40868e7c1d2f0b8d73e4a8c7f0ff63af4f6d19be117e90bd73eb1d62cf831c6b"
+checksum = "8b36ee98fd31ec7426d599183e8fe26932a8dc1fb76ddb6214d05493377d34ca"
 
 [[package]]
 name = "tinystr"
@@ -2905,7 +2905,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "0.20.1"
+version = "0.21.0"
 
 [[package]]
 name = "vtparse"
@@ -3394,9 +3394,9 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.13"
+version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac93432f5b761b22864c774aac244fa5c0fd877678a4c37ebf6cf42208f9c9ec"
+checksum = "bd8f3f50b848df28f887acb68e41201b5aea6bc8a8dacc00fb40635ff9a72fea"
 
 [[package]]
 name = "zstd"

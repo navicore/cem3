@@ -14,8 +14,28 @@ categories = ["compilers", "development-tools"]
 crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testing
 
 [features]
-default = ["diagnostics"]
-diagnostics = ["signal-hook"]  # Strand registry + SIGQUIT handler for production debugging
+default = ["full", "diagnostics"]
+
+# Full batteries - enable all optional modules
+full = ["crypto", "http", "regex", "compression"]
+
+# Diagnostics - strand registry + SIGQUIT handler for production debugging
+diagnostics = ["signal-hook"]
+
+# Optional modules - enable individually for smaller binaries
+crypto = [
+    "dep:sha2",
+    "dep:hmac",
+    "dep:rand",
+    "dep:uuid",
+    "dep:subtle",
+    "dep:aes-gcm",
+    "dep:pbkdf2",
+    "dep:ed25519-dalek",
+]
+http = ["dep:ureq", "dep:url"]
+regex = ["dep:regex"]
+compression = ["dep:flate2", "dep:zstd"]
 
 [dependencies]
 # Core runtime primitives (shared foundation for stack-based languages)
@@ -34,30 +54,30 @@ libc.workspace = true
 serde.workspace = true
 bincode.workspace = true
 
-# Encoding (Base64, Hex)
+# Encoding (Base64, Hex) - always available as core utilities
 base64.workspace = true
 hex.workspace = true
 
-# Crypto (SHA-256, HMAC, Random, UUID, AES-GCM, PBKDF2)
-sha2.workspace = true
-hmac.workspace = true
-rand.workspace = true
-uuid.workspace = true
-subtle.workspace = true
-aes-gcm.workspace = true
-pbkdf2.workspace = true
-ed25519-dalek.workspace = true
+# Crypto (optional via "crypto" feature)
+sha2 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
+aes-gcm = { workspace = true, optional = true }
+pbkdf2 = { workspace = true, optional = true }
+ed25519-dalek = { workspace = true, optional = true }
 
-# HTTP client
-ureq.workspace = true
-url.workspace = true
+# HTTP client (optional via "http" feature)
+ureq = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 
-# Regular expressions
-regex.workspace = true
+# Regular expressions (optional via "regex" feature)
+regex = { workspace = true, optional = true }
 
-# Compression
-flate2.workspace = true
-zstd.workspace = true
+# Compression (optional via "compression" feature)
+flate2 = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true }
 
 # Signal handling for SIGQUIT diagnostics (Unix only, optional via diagnostics feature)
 [target.'cfg(unix)'.dependencies]

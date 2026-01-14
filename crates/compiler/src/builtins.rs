@@ -616,6 +616,9 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "crypto.aes-gcm-encrypt", (a String String -- a String Bool));
     builtin!(sigs, "crypto.aes-gcm-decrypt", (a String String -- a String Bool));
     builtin!(sigs, "crypto.pbkdf2-sha256", (a String String Int -- a String Bool));
+    builtin!(sigs, "crypto.ed25519-keypair", (a -- a String String));
+    builtin!(sigs, "crypto.ed25519-sign", (a String String -- a String Bool));
+    builtin!(sigs, "crypto.ed25519-verify", (a String String String -- a Bool));
 
     // =========================================================================
     // HTTP Client Operations
@@ -1149,6 +1152,18 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert(
         "crypto.pbkdf2-sha256",
         "Derive key from password. ( password salt iterations -- hex-key success ) Min 1000 iterations, 100000+ recommended.",
+    );
+    docs.insert(
+        "crypto.ed25519-keypair",
+        "Generate Ed25519 keypair. ( -- public-key private-key ) Both as 64-char hex strings.",
+    );
+    docs.insert(
+        "crypto.ed25519-sign",
+        "Sign message with Ed25519 private key. ( message private-key -- signature success ) Signature is 128-char hex.",
+    );
+    docs.insert(
+        "crypto.ed25519-verify",
+        "Verify Ed25519 signature. ( message signature public-key -- valid )",
     );
 
     // HTTP Client Operations

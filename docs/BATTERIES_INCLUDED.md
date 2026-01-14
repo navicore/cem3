@@ -46,6 +46,7 @@ This isn't theoretical - Seq already uses this pattern successfully:
 | String ops | `std::string` |
 | Base64/Hex encoding | `base64`, `hex` |
 | Crypto (SHA-256, HMAC, Random, UUID) | `sha2`, `hmac`, `rand`, `uuid` |
+| Regular expressions | `regex` |
 | Arena allocator | Custom, but Rust memory safety |
 
 Each builtin is a thin FFI wrapper that exposes Rust functionality to Seq. Adding crypto, HTTP client, or regex follows the exact same pattern.
@@ -171,6 +172,7 @@ This keeps the core runtime lean (~2-3MB) while allowing full batteries (~6-8MB)
 | **Encoding** | Base64 (standard + URL-safe), Hex |
 | **Crypto** | SHA-256, HMAC-SHA256, secure random, UUID v4 |
 | **HTTP Client** | GET, POST, PUT, DELETE with TLS support |
+| **Regex** | match, find, find-all, replace, captures, split, valid? |
 | **OS** | Args, env vars, path operations, exec, exit |
 
 ### Standard Library (Pure Seq)
@@ -219,7 +221,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | Category | Status | Priority |
 |----------|--------|----------|
 | **HTTP client** | **Complete** | High |
-| **Regex** | Not started | Medium |
+| **Regex** | **Complete** | Medium |
 | **TLS/HTTPS** | **Complete** (via ureq) | Medium |
 | **Templates** | Not started | Medium |
 | **`seq fmt`** | Not started | Medium |
@@ -237,6 +239,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **YAML** | Complete (750 lines) |
 | **HTTP server** | Working (helpers + example) |
 | **HTTP client** | Complete (builtin) - GET, POST, PUT, DELETE with TLS |
+| **Regex** | Complete (builtin) - match, find, replace, captures, split |
 | **LSP** | Complete (2200+ lines) - diagnostics, completions |
 | **REPL** | Complete - with LSP integration, vim keybindings |
 | **Testing** | Complete (builtin) |
@@ -469,26 +472,40 @@ Essential for IDE adoption:
 
 ## Priority 3: Regex & Templates
 
-### Regular Expressions
+### Regular Expressions (Complete)
+
+Regex support is now complete via the Rust `regex` crate (v1.11). Fast, safe, and no catastrophic backtracking.
 
 ```seq
-// Match
-"hello world" "wo.ld" regex.match?    // ( String String -- Bool )
+# Check if pattern matches anywhere in string
+"hello world" "wo.ld" regex.match?      # ( String String -- Bool )
 
-// Find all matches
-"a1 b2 c3" "[a-z][0-9]" regex.find-all  // ( String String -- List )
+# Find first match
+"a1 b2 c3" "[a-z][0-9]" regex.find      # ( String String -- String Bool )
 
-// Replace
-"hello world" "world" "Seq" regex.replace  // ( String String String -- String )
+# Find all matches
+"a1 b2 c3" "[a-z][0-9]" regex.find-all  # ( String String -- List )
 
-// Compiled regex for performance
-"[a-z]+" regex.compile                 // ( String -- Regex )
-"hello" compiled-regex regex.match?    // ( String Regex -- Bool )
+# Replace first occurrence
+"hello world" "world" "Seq" regex.replace  # ( String String String -- String )
 
-// Capture groups
-"2024-01-15" "(\d+)-(\d+)-(\d+)" regex.captures
-// ( String String -- List ) returns ["2024", "01", "15"]
+# Replace all occurrences
+"a1 b2 c3" "[0-9]" "X" regex.replace-all   # ( String String String -- String )
+
+# Extract capture groups
+"2024-01-15" "(\\d+)-(\\d+)-(\\d+)" regex.captures
+# ( String String -- List Bool ) returns ["2024", "01", "15"] true
+
+# Split by pattern
+"a1b2c3" "[0-9]" regex.split            # ( String String -- List )
+
+# Check if pattern is valid
+"[a-z]+" regex.valid?                   # ( String -- Bool )
 ```
+
+**Examples:**
+- `examples/text/regex-demo.seq` - Demonstrates all regex operations
+- `examples/text/log-parser.seq` - Practical log parsing with regex
 
 ### String Templates
 
@@ -694,6 +711,7 @@ ui.screen [
 - [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
 - [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
 - [x] HTTP client (builtin) - GET, POST, PUT, DELETE with TLS via ureq
+- [x] Regex (builtin) - match, find, replace, captures, split via regex crate
 
 ### Phase 1: Tooling
 - [ ] `seq fmt` basic formatter
@@ -701,7 +719,7 @@ ui.screen [
 - [ ] HTTP server improvements (path params, query strings)
 
 ### Phase 2: Text Processing
-- [ ] Regex (FFI to regex crate)
+- [x] Regex (FFI to regex crate)
 - [ ] String templates
 - [ ] URL parsing (pure Seq or FFI)
 - [ ] `seq get` package fetching

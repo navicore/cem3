@@ -544,6 +544,15 @@ impl Program {
             "son.dump-pretty",
             // Stack introspection (for REPL)
             "stack.dump",
+            // Regex operations
+            "regex.match?",
+            "regex.find",
+            "regex.find-all",
+            "regex.replace",
+            "regex.replace-all",
+            "regex.captures",
+            "regex.split",
+            "regex.valid?",
         ];
 
         for word in &self.words {

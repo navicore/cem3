@@ -883,6 +883,39 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_son_dump_pretty(ptr)",
             category: None,
         },
+        // Regex operations
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_match(ptr)",
+            category: Some("; Regex operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_find(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_find_all(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_replace(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_replace_all(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_captures(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_split(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_regex_valid(ptr)",
+            category: None,
+        },
         // Helpers for conditionals
         RuntimeDecl {
             decl: "declare i64 @patch_seq_peek_int_value(ptr)",
@@ -1074,6 +1107,15 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("http.post", "patch_seq_http_post"),
         ("http.put", "patch_seq_http_put"),
         ("http.delete", "patch_seq_http_delete"),
+        // Regex operations
+        ("regex.match?", "patch_seq_regex_match"),
+        ("regex.find", "patch_seq_regex_find"),
+        ("regex.find-all", "patch_seq_regex_find_all"),
+        ("regex.replace", "patch_seq_regex_replace"),
+        ("regex.replace-all", "patch_seq_regex_replace_all"),
+        ("regex.captures", "patch_seq_regex_captures"),
+        ("regex.split", "patch_seq_regex_split"),
+        ("regex.valid?", "patch_seq_regex_valid"),
         // Symbol operations
         ("symbol.=", "patch_seq_symbol_equal"),
         // File operations

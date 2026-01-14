@@ -64,6 +64,7 @@ uuid = { version = "1.11", features = ["v4"] }
 subtle = "2.6"  # Constant-time comparison
 aes-gcm = "0.10"  # AES-256-GCM authenticated encryption
 pbkdf2 = "0.12"   # Password-based key derivation
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }  # Ed25519 digital signatures
 
 # HTTP client
 ureq = { version = "2.12", features = ["tls"] }

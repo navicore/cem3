@@ -10,18 +10,18 @@
 //!
 //! ```seq
 //! # Gzip compression (base64-encoded output)
-//! "hello world" compress.gzip           # ( String -- String )
+//! "hello world" compress.gzip           # ( String -- String Bool )
 //! compressed compress.gunzip            # ( String -- String Bool )
 //!
 //! # Gzip with compression level (1-9, higher = smaller but slower)
-//! "hello world" 9 compress.gzip-level   # ( String Int -- String )
+//! "hello world" 9 compress.gzip-level   # ( String Int -- String Bool )
 //!
 //! # Zstd compression (faster, better ratios)
-//! "hello world" compress.zstd           # ( String -- String )
+//! "hello world" compress.zstd           # ( String -- String Bool )
 //! compressed compress.unzstd            # ( String -- String Bool )
 //!
 //! # Zstd with compression level (1-22, default is 3)
-//! "hello world" 19 compress.zstd-level  # ( String Int -- String )
+//! "hello world" 19 compress.zstd-level  # ( String Int -- String Bool )
 //! ```
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -34,9 +34,9 @@ use std::io::Read;
 
 /// Compress data using gzip with default compression level (6)
 ///
-/// Stack effect: ( String -- String )
+/// Stack effect: ( String -- String Bool )
 ///
-/// Returns base64-encoded compressed data.
+/// Returns base64-encoded compressed data and success flag.
 ///
 /// # Safety
 /// Stack must have a String value on top
@@ -48,9 +48,17 @@ pub unsafe extern "C" fn patch_seq_compress_gzip(stack: Stack) -> Stack {
 
     match data_val {
         Value::String(data) => {
-            let compressed = gzip_compress(data.as_str().as_bytes(), Compression::default());
-            let encoded = STANDARD.encode(&compressed);
-            unsafe { push(stack, Value::String(global_string(encoded))) }
+            match gzip_compress(data.as_str().as_bytes(), Compression::default()) {
+                Some(compressed) => {
+                    let encoded = STANDARD.encode(&compressed);
+                    let stack = unsafe { push(stack, Value::String(global_string(encoded))) };
+                    unsafe { push(stack, Value::Bool(true)) }
+                }
+                None => {
+                    let stack = unsafe { push(stack, Value::String(global_string(String::new()))) };
+                    unsafe { push(stack, Value::Bool(false)) }
+                }
+            }
         }
         _ => panic!("compress.gzip: expected String on stack"),
     }
@@ -58,10 +66,10 @@ pub unsafe extern "C" fn patch_seq_compress_gzip(stack: Stack) -> Stack {
 
 /// Compress data using gzip with specified compression level
 ///
-/// Stack effect: ( String Int -- String )
+/// Stack effect: ( String Int -- String Bool )
 ///
 /// Level should be 1-9 (1=fastest, 9=best compression).
-/// Returns base64-encoded compressed data.
+/// Returns base64-encoded compressed data and success flag.
 ///
 /// # Safety
 /// Stack must have Int and String values on top
@@ -75,9 +83,17 @@ pub unsafe extern "C" fn patch_seq_compress_gzip_level(stack: Stack) -> Stack {
     match (data_val, level_val) {
         (Value::String(data), Value::Int(level)) => {
             let level = level.clamp(1, 9) as u32;
-            let compressed = gzip_compress(data.as_str().as_bytes(), Compression::new(level));
-            let encoded = STANDARD.encode(&compressed);
-            unsafe { push(stack, Value::String(global_string(encoded))) }
+            match gzip_compress(data.as_str().as_bytes(), Compression::new(level)) {
+                Some(compressed) => {
+                    let encoded = STANDARD.encode(&compressed);
+                    let stack = unsafe { push(stack, Value::String(global_string(encoded))) };
+                    unsafe { push(stack, Value::Bool(true)) }
+                }
+                None => {
+                    let stack = unsafe { push(stack, Value::String(global_string(String::new()))) };
+                    unsafe { push(stack, Value::Bool(false)) }
+                }
+            }
         }
         _ => panic!("compress.gzip-level: expected String and Int on stack"),
     }
@@ -127,9 +143,9 @@ pub unsafe extern "C" fn patch_seq_compress_gunzip(stack: Stack) -> Stack {
 
 /// Compress data using zstd with default compression level (3)
 ///
-/// Stack effect: ( String -- String )
+/// Stack effect: ( String -- String Bool )
 ///
-/// Returns base64-encoded compressed data.
+/// Returns base64-encoded compressed data and success flag.
 ///
 /// # Safety
 /// Stack must have a String value on top
@@ -140,21 +156,27 @@ pub unsafe extern "C" fn patch_seq_compress_zstd(stack: Stack) -> Stack {
     let (stack, data_val) = unsafe { pop(stack) };
 
     match data_val {
-        Value::String(data) => {
-            let compressed = zstd::encode_all(data.as_str().as_bytes(), 3).unwrap_or_default();
-            let encoded = STANDARD.encode(&compressed);
-            unsafe { push(stack, Value::String(global_string(encoded))) }
-        }
+        Value::String(data) => match zstd::encode_all(data.as_str().as_bytes(), 3) {
+            Ok(compressed) => {
+                let encoded = STANDARD.encode(&compressed);
+                let stack = unsafe { push(stack, Value::String(global_string(encoded))) };
+                unsafe { push(stack, Value::Bool(true)) }
+            }
+            Err(_) => {
+                let stack = unsafe { push(stack, Value::String(global_string(String::new()))) };
+                unsafe { push(stack, Value::Bool(false)) }
+            }
+        },
         _ => panic!("compress.zstd: expected String on stack"),
     }
 }
 
 /// Compress data using zstd with specified compression level
 ///
-/// Stack effect: ( String Int -- String )
+/// Stack effect: ( String Int -- String Bool )
 ///
 /// Level should be 1-22 (higher = better compression but slower).
-/// Returns base64-encoded compressed data.
+/// Returns base64-encoded compressed data and success flag.
 ///
 /// # Safety
 /// Stack must have Int and String values on top
@@ -168,9 +190,17 @@ pub unsafe extern "C" fn patch_seq_compress_zstd_level(stack: Stack) -> Stack {
     match (data_val, level_val) {
         (Value::String(data), Value::Int(level)) => {
             let level = level.clamp(1, 22) as i32;
-            let compressed = zstd::encode_all(data.as_str().as_bytes(), level).unwrap_or_default();
-            let encoded = STANDARD.encode(&compressed);
-            unsafe { push(stack, Value::String(global_string(encoded))) }
+            match zstd::encode_all(data.as_str().as_bytes(), level) {
+                Ok(compressed) => {
+                    let encoded = STANDARD.encode(&compressed);
+                    let stack = unsafe { push(stack, Value::String(global_string(encoded))) };
+                    unsafe { push(stack, Value::Bool(true)) }
+                }
+                Err(_) => {
+                    let stack = unsafe { push(stack, Value::String(global_string(String::new()))) };
+                    unsafe { push(stack, Value::Bool(false)) }
+                }
+            }
         }
         _ => panic!("compress.zstd-level: expected String and Int on stack"),
     }
@@ -227,11 +257,13 @@ pub unsafe extern "C" fn patch_seq_compress_unzstd(stack: Stack) -> Stack {
 
 // Helper functions
 
-fn gzip_compress(data: &[u8], level: Compression) -> Vec<u8> {
+fn gzip_compress(data: &[u8], level: Compression) -> Option<Vec<u8>> {
     let mut encoder = GzEncoder::new(data, level);
     let mut compressed = Vec::new();
-    encoder.read_to_end(&mut compressed).unwrap_or(0);
-    compressed
+    match encoder.read_to_end(&mut compressed) {
+        Ok(_) => Some(compressed),
+        Err(_) => None,
+    }
 }
 
 fn gzip_decompress(data: &[u8]) -> Option<String> {
@@ -261,10 +293,14 @@ mod tests {
         // Compress
         let stack = unsafe { patch_seq_compress_gzip(stack) };
 
+        // Check compress success flag
+        let (stack, compress_success) = unsafe { pop(stack) };
+        assert_eq!(compress_success, Value::Bool(true));
+
         // Decompress
         let stack = unsafe { patch_seq_compress_gunzip(stack) };
 
-        // Check success flag
+        // Check decompress success flag
         let (stack, success) = unsafe { pop(stack) };
         assert_eq!(success, Value::Bool(true));
 
@@ -289,6 +325,10 @@ mod tests {
 
         // Compress with max level
         let stack = unsafe { patch_seq_compress_gzip_level(stack) };
+
+        // Check compress success flag
+        let (stack, compress_success) = unsafe { pop(stack) };
+        assert_eq!(compress_success, Value::Bool(true));
 
         // Decompress
         let stack = unsafe { patch_seq_compress_gunzip(stack) };
@@ -316,10 +356,14 @@ mod tests {
         // Compress
         let stack = unsafe { patch_seq_compress_zstd(stack) };
 
+        // Check compress success flag
+        let (stack, compress_success) = unsafe { pop(stack) };
+        assert_eq!(compress_success, Value::Bool(true));
+
         // Decompress
         let stack = unsafe { patch_seq_compress_unzstd(stack) };
 
-        // Check success flag
+        // Check decompress success flag
         let (stack, success) = unsafe { pop(stack) };
         assert_eq!(success, Value::Bool(true));
 
@@ -344,6 +388,10 @@ mod tests {
 
         // Compress with high level
         let stack = unsafe { patch_seq_compress_zstd_level(stack) };
+
+        // Check compress success flag
+        let (stack, compress_success) = unsafe { pop(stack) };
+        assert_eq!(compress_success, Value::Bool(true));
 
         // Decompress
         let stack = unsafe { patch_seq_compress_unzstd(stack) };
@@ -413,6 +461,10 @@ mod tests {
         // Compress empty string
         let stack = unsafe { patch_seq_compress_gzip(stack) };
 
+        // Check compress success flag
+        let (stack, compress_success) = unsafe { pop(stack) };
+        assert_eq!(compress_success, Value::Bool(true));
+
         // Decompress
         let stack = unsafe { patch_seq_compress_gunzip(stack) };
         let (stack, success) = unsafe { pop(stack) };
@@ -434,6 +486,10 @@ mod tests {
 
         // Compress
         let stack = unsafe { patch_seq_compress_zstd(stack) };
+
+        // Check compress success flag
+        let (stack, compress_success) = unsafe { pop(stack) };
+        assert_eq!(compress_success, Value::Bool(true));
 
         // Decompress
         let stack = unsafe { patch_seq_compress_unzstd(stack) };

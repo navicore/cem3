@@ -640,11 +640,11 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Compression Operations
     // =========================================================================
 
-    builtin!(sigs, "compress.gzip", (a String -- a String));
-    builtin!(sigs, "compress.gzip-level", (a String Int -- a String));
+    builtin!(sigs, "compress.gzip", (a String -- a String Bool));
+    builtin!(sigs, "compress.gzip-level", (a String Int -- a String Bool));
     builtin!(sigs, "compress.gunzip", (a String -- a String Bool));
-    builtin!(sigs, "compress.zstd", (a String -- a String));
-    builtin!(sigs, "compress.zstd-level", (a String Int -- a String));
+    builtin!(sigs, "compress.zstd", (a String -- a String Bool));
+    builtin!(sigs, "compress.zstd-level", (a String Int -- a String Bool));
     builtin!(sigs, "compress.unzstd", (a String -- a String Bool));
 
     // =========================================================================
@@ -1191,11 +1191,11 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     // Compression Operations
     docs.insert(
         "compress.gzip",
-        "Compress string with gzip. Returns base64-encoded data. ( data -- compressed )",
+        "Compress string with gzip. Returns base64-encoded data. ( data -- compressed success )",
     );
     docs.insert(
         "compress.gzip-level",
-        "Compress with gzip at level 1-9. ( data level -- compressed )",
+        "Compress with gzip at level 1-9. ( data level -- compressed success )",
     );
     docs.insert(
         "compress.gunzip",
@@ -1203,11 +1203,11 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     );
     docs.insert(
         "compress.zstd",
-        "Compress string with zstd. Returns base64-encoded data. ( data -- compressed )",
+        "Compress string with zstd. Returns base64-encoded data. ( data -- compressed success )",
     );
     docs.insert(
         "compress.zstd-level",
-        "Compress with zstd at level 1-22. ( data level -- compressed )",
+        "Compress with zstd at level 1-22. ( data level -- compressed success )",
     );
     docs.insert(
         "compress.unzstd",

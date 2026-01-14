@@ -19,15 +19,19 @@
 
   # Compress
   compress.gzip
-  dup string.length int->string "  Compressed (base64) length: " show
-
-  # Decompress
-  compress.gunzip
   if
-    "  Decompressed: " show
-    "  Status: Success" io.write-line
+    dup string.length int->string "  Compressed (base64) length: " show
+
+    # Decompress
+    compress.gunzip
+    if
+      "  Decompressed: " show
+      "  Status: Success" io.write-line
+    else
+      drop "  Decompress failed" io.write-line
+    then
   else
-    drop "  Status: Failed" io.write-line
+    drop "  Compress failed" io.write-line
   then
 
   "" io.write-line
@@ -43,14 +47,26 @@
 
   dup "  Original length: " swap string.length int->string string.concat io.write-line
 
-  dup 1 compress.gzip-level string.length int->string
-  "  Level 1 (fastest): " show
+  dup 1 compress.gzip-level
+  if
+    string.length int->string "  Level 1 (fastest): " show
+  else
+    drop "  Level 1 failed" io.write-line
+  then
 
-  dup 6 compress.gzip-level string.length int->string
-  "  Level 6 (default): " show
+  dup 6 compress.gzip-level
+  if
+    string.length int->string "  Level 6 (default): " show
+  else
+    drop "  Level 6 failed" io.write-line
+  then
 
-  9 compress.gzip-level string.length int->string
-  "  Level 9 (best): " show
+  9 compress.gzip-level
+  if
+    string.length int->string "  Level 9 (best): " show
+  else
+    drop "  Level 9 failed" io.write-line
+  then
 
   "" io.write-line
 ;
@@ -66,15 +82,19 @@
 
   # Compress
   compress.zstd
-  dup string.length int->string "  Compressed (base64) length: " show
-
-  # Decompress
-  compress.unzstd
   if
-    "  Decompressed: " show
-    "  Status: Success" io.write-line
+    dup string.length int->string "  Compressed (base64) length: " show
+
+    # Decompress
+    compress.unzstd
+    if
+      "  Decompressed: " show
+      "  Status: Success" io.write-line
+    else
+      drop "  Decompress failed" io.write-line
+    then
   else
-    drop "  Status: Failed" io.write-line
+    drop "  Compress failed" io.write-line
   then
 
   "" io.write-line
@@ -90,17 +110,33 @@
 
   dup "  Original length: " swap string.length int->string string.concat io.write-line
 
-  dup 1 compress.zstd-level string.length int->string
-  "  Level 1 (fastest): " show
+  dup 1 compress.zstd-level
+  if
+    string.length int->string "  Level 1 (fastest): " show
+  else
+    drop "  Level 1 failed" io.write-line
+  then
 
-  dup 3 compress.zstd-level string.length int->string
-  "  Level 3 (default): " show
+  dup 3 compress.zstd-level
+  if
+    string.length int->string "  Level 3 (default): " show
+  else
+    drop "  Level 3 failed" io.write-line
+  then
 
-  dup 10 compress.zstd-level string.length int->string
-  "  Level 10: " show
+  dup 10 compress.zstd-level
+  if
+    string.length int->string "  Level 10: " show
+  else
+    drop "  Level 10 failed" io.write-line
+  then
 
-  22 compress.zstd-level string.length int->string
-  "  Level 22 (best): " show
+  22 compress.zstd-level
+  if
+    string.length int->string "  Level 22 (best): " show
+  else
+    drop "  Level 22 failed" io.write-line
+  then
 
   "" io.write-line
 ;
@@ -116,11 +152,19 @@
 
   dup "  Original length: " swap string.length int->string string.concat io.write-line
 
-  dup compress.gzip string.length int->string
-  "  Gzip compressed: " show
+  dup compress.gzip
+  if
+    string.length int->string "  Gzip compressed: " show
+  else
+    drop "  Gzip failed" io.write-line
+  then
 
-  compress.zstd string.length int->string
-  "  Zstd compressed: " show
+  compress.zstd
+  if
+    string.length int->string "  Zstd compressed: " show
+  else
+    drop "  Zstd failed" io.write-line
+  then
 
   "" io.write-line
 ;
@@ -163,5 +207,5 @@
   demo-errors
 
   "Compression operations use base64 encoding for string output." io.write-line
-  "Gzip is widely compatible, Zstd is faster with better ratios." io.write-line
+  "All operations return success flags for proper error handling." io.write-line
 ;

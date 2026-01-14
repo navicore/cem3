@@ -679,6 +679,18 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_uuid4(ptr)",
             category: None,
         },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_crypto_aes_gcm_encrypt(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_crypto_aes_gcm_decrypt(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_crypto_pbkdf2_sha256(ptr)",
+            category: None,
+        },
         // HTTP client operations
         RuntimeDecl {
             decl: "declare ptr @patch_seq_http_get(ptr)",
@@ -1127,6 +1139,9 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("crypto.constant-time-eq", "patch_seq_constant_time_eq"),
         ("crypto.random-bytes", "patch_seq_random_bytes"),
         ("crypto.uuid4", "patch_seq_uuid4"),
+        ("crypto.aes-gcm-encrypt", "patch_seq_crypto_aes_gcm_encrypt"),
+        ("crypto.aes-gcm-decrypt", "patch_seq_crypto_aes_gcm_decrypt"),
+        ("crypto.pbkdf2-sha256", "patch_seq_crypto_pbkdf2_sha256"),
         // HTTP client operations
         ("http.get", "patch_seq_http_get"),
         ("http.post", "patch_seq_http_post"),

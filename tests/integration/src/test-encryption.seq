@@ -1,0 +1,80 @@
+# Test AES-GCM encryption and PBKDF2 key derivation
+
+# crypto.aes-gcm-encrypt / crypto.aes-gcm-decrypt - Basic roundtrip
+: test-aes-gcm-roundtrip ( -- )
+  "hello world"
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-encrypt
+  test.assert   # encrypt success flag
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-decrypt
+  test.assert   # decrypt success flag
+  "hello world" test.assert-eq-str
+;
+
+# crypto.pbkdf2-sha256 - Key derivation
+: test-pbkdf2-sha256 ( -- )
+  "my-password" "random-salt" 10000 crypto.pbkdf2-sha256
+  test.assert   # success flag
+  drop  # drop the key, just testing it works
+;
+
+# Test decryption with wrong key fails
+: test-aes-gcm-wrong-key ( -- )
+  "secret message"
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-encrypt
+  test.assert   # encrypt success
+  # Try to decrypt with different key
+  "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+  crypto.aes-gcm-decrypt
+  test.assert-not   # should fail
+  drop  # drop empty string
+;
+
+# Test invalid key length fails
+: test-aes-gcm-invalid-key-length ( -- )
+  "test data" "tooshort" crypto.aes-gcm-encrypt
+  test.assert-not   # should fail
+  drop  # drop empty string
+;
+
+# Test invalid ciphertext fails
+: test-aes-gcm-invalid-ciphertext ( -- )
+  "not-valid-base64!!!"
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-decrypt
+  test.assert-not   # should fail
+  drop  # drop empty string
+;
+
+# Test PBKDF2 with invalid iterations fails (minimum is 1000)
+: test-pbkdf2-invalid-iterations ( -- )
+  "password" "salt" 0 crypto.pbkdf2-sha256
+  test.assert-not   # below minimum iterations should fail
+  drop  # drop empty string
+;
+
+# Test encryption with empty string
+: test-aes-gcm-empty-string ( -- )
+  ""
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-encrypt
+  test.assert   # encrypt success flag
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-decrypt
+  test.assert   # decrypt success flag
+  "" test.assert-eq-str
+;
+
+# Test special characters in plaintext
+: test-aes-gcm-special-chars ( -- )
+  "Hello\nWorld\tTab\"Quote\\Backslash"
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-encrypt
+  test.assert   # encrypt success
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  crypto.aes-gcm-decrypt
+  test.assert   # decrypt success
+  "Hello\nWorld\tTab\"Quote\\Backslash" test.assert-eq-str
+;

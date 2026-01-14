@@ -362,6 +362,9 @@ impl Program {
             "crypto.constant-time-eq",
             "crypto.random-bytes",
             "crypto.uuid4",
+            "crypto.aes-gcm-encrypt",
+            "crypto.aes-gcm-decrypt",
+            "crypto.pbkdf2-sha256",
             // HTTP client operations
             "http.get",
             "http.post",

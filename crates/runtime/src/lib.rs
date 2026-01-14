@@ -136,7 +136,10 @@ pub use encoding::{
 
 // Crypto operations (exported for LLVM linking)
 pub use crypto::{
-    patch_seq_constant_time_eq as constant_time_eq, patch_seq_hmac_sha256 as hmac_sha256,
+    patch_seq_constant_time_eq as constant_time_eq,
+    patch_seq_crypto_aes_gcm_decrypt as crypto_aes_gcm_decrypt,
+    patch_seq_crypto_aes_gcm_encrypt as crypto_aes_gcm_encrypt,
+    patch_seq_crypto_pbkdf2_sha256 as crypto_pbkdf2_sha256, patch_seq_hmac_sha256 as hmac_sha256,
     patch_seq_random_bytes as random_bytes, patch_seq_sha256 as sha256, patch_seq_uuid4 as uuid4,
 };
 

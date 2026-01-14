@@ -613,6 +613,9 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "crypto.constant-time-eq", (a String String -- a Bool));
     builtin!(sigs, "crypto.random-bytes", (a Int -- a String));
     builtin!(sigs, "crypto.uuid4", (a -- a String));
+    builtin!(sigs, "crypto.aes-gcm-encrypt", (a String String -- a String Bool));
+    builtin!(sigs, "crypto.aes-gcm-decrypt", (a String String -- a String Bool));
+    builtin!(sigs, "crypto.pbkdf2-sha256", (a String String Int -- a String Bool));
 
     // =========================================================================
     // HTTP Client Operations
@@ -1135,6 +1138,18 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
         "Generate N cryptographically secure random bytes as hex string.",
     );
     docs.insert("crypto.uuid4", "Generate a random UUID v4 string.");
+    docs.insert(
+        "crypto.aes-gcm-encrypt",
+        "Encrypt with AES-256-GCM. ( plaintext hex-key -- ciphertext success )",
+    );
+    docs.insert(
+        "crypto.aes-gcm-decrypt",
+        "Decrypt AES-256-GCM ciphertext. ( ciphertext hex-key -- plaintext success )",
+    );
+    docs.insert(
+        "crypto.pbkdf2-sha256",
+        "Derive key from password. ( password salt iterations -- hex-key success ) Min 1000 iterations, 100000+ recommended.",
+    );
 
     // HTTP Client Operations
     docs.insert(

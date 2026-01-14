@@ -1,0 +1,129 @@
+# Test regular expression operations
+
+# regex.match? - Check if pattern matches anywhere in string
+: test-match-success ( -- )
+  "hello world" "wo.ld" regex.match? test.assert
+;
+
+: test-match-failure ( -- )
+  "hello world" "xyz" regex.match? test.assert-not
+;
+
+: test-match-empty-string ( -- )
+  "" ".*" regex.match? test.assert  # empty string matches .*
+;
+
+: test-match-special-chars ( -- )
+  "hello[world]" "\\[world\\]" regex.match? test.assert
+;
+
+# regex.find - Find first match
+: test-find-success ( -- )
+  "a1 b2 c3" "[a-z][0-9]" regex.find
+  test.assert   # success flag
+  "a1" test.assert-eq-str  # first match
+;
+
+: test-find-no-match ( -- )
+  "hello" "[0-9]+" regex.find
+  test.assert-not  # failure flag
+  drop  # empty string
+;
+
+# regex.find-all - Find all matches
+: test-find-all ( -- )
+  "a1 b2 c3" "[a-z][0-9]" regex.find-all
+  dup list.length 3 test.assert-eq  # 3 matches
+  0 list.get drop "a1" test.assert-eq-str
+;
+
+: test-find-all-no-matches ( -- )
+  "hello" "[0-9]" regex.find-all
+  list.length 0 test.assert-eq
+;
+
+# regex.replace - Replace first match
+: test-replace-first ( -- )
+  "hello world" "world" "Seq" regex.replace
+  "hello Seq" test.assert-eq-str
+;
+
+: test-replace-no-match ( -- )
+  "hello" "xyz" "abc" regex.replace
+  "hello" test.assert-eq-str  # unchanged
+;
+
+# regex.replace-all - Replace all matches
+: test-replace-all ( -- )
+  "a1 b2 c3" "[0-9]" "X" regex.replace-all
+  "aX bX cX" test.assert-eq-str
+;
+
+: test-replace-all-pattern ( -- )
+  "hello   world" "\\s+" " " regex.replace-all
+  "hello world" test.assert-eq-str
+;
+
+# regex.captures - Extract capture groups
+: test-captures-date ( -- )
+  "2024-01-15" "(\\d+)-(\\d+)-(\\d+)" regex.captures
+  test.assert   # success
+  dup list.length 3 test.assert-eq  # 3 groups
+  dup 0 list.get drop "2024" test.assert-eq-str
+  dup 1 list.get drop "01" test.assert-eq-str
+  2 list.get drop "15" test.assert-eq-str
+;
+
+: test-captures-no-match ( -- )
+  "hello" "(\\d+)" regex.captures
+  test.assert-not  # failure
+  drop  # empty list
+;
+
+# regex.split - Split string by pattern
+: test-split-digits ( -- )
+  "a1b2c3" "[0-9]" regex.split
+  dup list.length 4 test.assert-eq  # "a", "b", "c", ""
+  0 list.get drop "a" test.assert-eq-str
+;
+
+: test-split-whitespace ( -- )
+  "hello world foo" "\\s+" regex.split
+  list.length 3 test.assert-eq
+;
+
+# regex.valid? - Check if pattern is valid
+: test-valid-pattern ( -- )
+  "[a-z]+" regex.valid? test.assert
+;
+
+: test-invalid-pattern ( -- )
+  "[invalid" regex.valid? test.assert-not
+;
+
+# Invalid regex graceful handling
+: test-invalid-regex-match ( -- )
+  "test" "[invalid" regex.match?
+  test.assert-not  # returns false, not panic
+;
+
+: test-invalid-regex-find ( -- )
+  "test" "[invalid" regex.find
+  test.assert-not  # success = false
+  drop  # empty string
+;
+
+# Advanced patterns
+: test-email-pattern ( -- )
+  "contact@example.com" "^[^@]+@[^@]+\\.[^@]+$" regex.match?
+  test.assert
+;
+
+: test-word-boundary ( -- )
+  "hello world" "\\bworld\\b" regex.match?
+  test.assert
+;
+
+: test-unicode ( -- )
+  "cafe" "caf." regex.match? test.assert
+;

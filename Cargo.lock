@@ -1934,6 +1934,7 @@ dependencies = [
  "libc",
  "may",
  "rand",
+ "regex",
  "seq-core",
  "serde",
  "sha2",

@@ -1,0 +1,139 @@
+# Regex Demo - Regular Expression Operations in Seq
+#
+# Build: seqc build examples/text/regex-demo.seq
+# Run:   ./regex-demo
+
+# Helper to print bool result
+: bool->str ( Bool -- String )
+  if "true" else "false" then
+;
+
+# Helper to print label + value
+: show ( String String -- )
+  swap string.concat io.write-line
+;
+
+# Basic matching
+: demo-match ( -- )
+  "# Pattern Matching" io.write-line
+
+  # Check if pattern matches
+  "hello world" "wo.ld" regex.match? bool->str
+  "  'hello world' matches 'wo.ld': " show
+
+  # Case-sensitive matching
+  "Hello World" "hello" regex.match? bool->str
+  "  'Hello World' matches 'hello' (case-sensitive): " show
+
+  # Email validation pattern
+  "user@example.com" "^[^@]+@[^@]+\\.[^@]+$" regex.match? bool->str
+  "  'user@example.com' is valid email: " show
+
+  "" io.write-line
+;
+
+# Finding matches
+: demo-find ( -- )
+  "# Finding Matches" io.write-line
+
+  # Find first number in text
+  "Order #42 shipped" "[0-9]+" regex.find
+  if
+    "  First number in 'Order #42 shipped': " show
+  else
+    drop "  No number found" io.write-line
+  then
+
+  # Find all numbers
+  "Items: 10, 20, 30" "[0-9]+" regex.find-all
+  "  All numbers in 'Items: 10, 20, 30': [" io.write
+  [ io.write " " io.write ] list.each
+  "]" io.write-line
+
+  "" io.write-line
+;
+
+# Replace operations
+: demo-replace ( -- )
+  "# Replace Operations" io.write-line
+
+  # Replace first occurrence
+  "hello world world" "world" "Seq" regex.replace
+  "  Replace first 'world': " show
+
+  # Replace all occurrences
+  "foo bar foo baz foo" "foo" "XXX" regex.replace-all
+  "  Replace all 'foo': " show
+
+  # Normalize whitespace
+  "hello    world   test" "\\s+" " " regex.replace-all
+  "  Normalize whitespace: " show
+
+  "" io.write-line
+;
+
+# Capture groups
+: demo-captures ( -- )
+  "# Capture Groups" io.write-line
+
+  # Parse a date
+  "2024-01-15" "(\\d{4})-(\\d{2})-(\\d{2})" regex.captures
+  if
+    dup 0 list.get drop
+    "  Year: " show
+
+    dup 1 list.get drop
+    "  Month: " show
+
+    2 list.get drop
+    "  Day: " show
+  else
+    drop "  No match" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Split operations
+: demo-split ( -- )
+  "# Split Operations" io.write-line
+
+  # Split on comma and optional whitespace
+  "apple, banana,  cherry,orange" ",\\s*" regex.split
+  "  Split CSV: [" io.write
+  [ io.write " | " io.write ] list.each
+  "]" io.write-line
+
+  # Split on multiple delimiters
+  "one;two:three-four" "[;:-]" regex.split
+  "  Split multi-delimiter: [" io.write
+  [ io.write " | " io.write ] list.each
+  "]" io.write-line
+
+  "" io.write-line
+;
+
+# Validation
+: demo-validate ( -- )
+  "# Pattern Validation" io.write-line
+
+  "[a-z]+" regex.valid? bool->str
+  "  '[a-z]+' is valid: " show
+
+  "[invalid" regex.valid? bool->str
+  "  '[invalid' is valid: " show
+;
+
+# Main entry point
+: main ( -- )
+  "Seq Regex Demo" io.write-line
+  "==============" io.write-line
+  "" io.write-line
+
+  demo-match
+  demo-find
+  demo-replace
+  demo-captures
+  demo-split
+  demo-validate
+;

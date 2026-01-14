@@ -1148,7 +1148,7 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     );
     docs.insert(
         "crypto.pbkdf2-sha256",
-        "Derive key from password. ( password salt iterations -- hex-key success )",
+        "Derive key from password. ( password salt iterations -- hex-key success ) Min 1000 iterations, 100000+ recommended.",
     );
 
     // HTTP Client Operations

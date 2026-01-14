@@ -44,6 +44,8 @@ use uuid::Uuid;
 
 const AES_NONCE_SIZE: usize = 12;
 const AES_KEY_SIZE: usize = 32;
+const AES_GCM_TAG_SIZE: usize = 16;
+const MIN_PBKDF2_ITERATIONS: i64 = 1_000;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -297,7 +299,8 @@ pub unsafe extern "C" fn patch_seq_crypto_pbkdf2_sha256(stack: Stack) -> Stack {
 
     match (password_val, salt_val, iterations_val) {
         (Value::String(password), Value::String(salt), Value::Int(iterations)) => {
-            if iterations <= 0 {
+            // Require minimum iterations for security (100,000+ recommended for production)
+            if iterations < MIN_PBKDF2_ITERATIONS {
                 let stack = unsafe { push(stack, Value::String(global_string(String::new()))) };
                 return unsafe { push(stack, Value::Bool(false)) };
             }
@@ -342,7 +345,7 @@ fn aes_gcm_encrypt(plaintext: &str, key_hex: &str) -> Option<String> {
 fn aes_gcm_decrypt(ciphertext_b64: &str, key_hex: &str) -> Option<String> {
     // Decode base64
     let combined = STANDARD.decode(ciphertext_b64).ok()?;
-    if combined.len() < AES_NONCE_SIZE + 16 {
+    if combined.len() < AES_NONCE_SIZE + AES_GCM_TAG_SIZE {
         // At minimum: nonce + tag
         return None;
     }
@@ -764,7 +767,7 @@ mod tests {
 
             let stack = push(stack, Value::String(global_string("password".to_string())));
             let stack = push(stack, Value::String(global_string("salt".to_string())));
-            let stack = push(stack, Value::Int(0)); // Invalid: 0 iterations
+            let stack = push(stack, Value::Int(0)); // Invalid: below minimum (1000)
 
             let stack = patch_seq_crypto_pbkdf2_sha256(stack);
 

@@ -48,10 +48,10 @@
   drop  # drop empty string
 ;
 
-# Test PBKDF2 with invalid iterations fails
+# Test PBKDF2 with invalid iterations fails (minimum is 1000)
 : test-pbkdf2-invalid-iterations ( -- )
   "password" "salt" 0 crypto.pbkdf2-sha256
-  test.assert-not   # 0 iterations should fail
+  test.assert-not   # below minimum iterations should fail
   drop  # drop empty string
 ;
 

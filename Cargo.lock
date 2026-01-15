@@ -2139,7 +2139,6 @@ dependencies = [
  "aes-gcm",
  "base64",
  "bincode",
- "bumpalo",
  "ed25519-dalek",
  "flate2",
  "hex",

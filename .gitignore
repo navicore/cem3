@@ -42,3 +42,6 @@ libseq_runtime.a
 
 # But keep integration test expected outputs
 !tests/integration/expected/*.txt
+
+# Static analysis reports
+/analysis/

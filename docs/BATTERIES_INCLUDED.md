@@ -660,6 +660,85 @@ All crypto phases complete: JWT verification, webhook handling, secure tokens, A
 
 ---
 
+## Priority 5: Compression (Complete)
+
+Data compression via gzip and Zstandard (zstd). All operations use base64 encoding for string-safe output.
+
+### API
+
+```seq
+# Gzip compression (default level 6)
+"hello world" compress.gzip              # ( String -- String Bool )
+
+# Gzip with custom level (1-9, where 1=fastest, 9=best)
+"hello world" 9 compress.gzip-level      # ( String Int -- String Bool )
+
+# Gzip decompression
+compressed compress.gunzip               # ( String -- String Bool )
+
+# Zstandard compression (default level 3)
+"hello world" compress.zstd              # ( String -- String Bool )
+
+# Zstandard with custom level (1-22, where 1=fastest, 22=best)
+"hello world" 19 compress.zstd-level     # ( String Int -- String Bool )
+
+# Zstandard decompression
+compressed compress.unzstd               # ( String -- String Bool )
+```
+
+### Return Values
+
+All compression operations return `( String Bool )`:
+- On success: `compressed-data true` (data is base64-encoded)
+- On failure: `error-message false`
+
+Decompression accepts base64-encoded input and returns the original string.
+
+### Example Usage
+
+```seq
+# Compress and decompress with gzip
+"Hello, World!" compress.gzip
+if
+  dup "Compressed: " swap string.concat io.write-line
+  compress.gunzip
+  if
+    "Decompressed: " swap string.concat io.write-line
+  else
+    drop "Decompression failed" io.write-line
+  then
+else
+  drop "Compression failed" io.write-line
+then
+
+# Compare compression algorithms
+"Large text data..." dup
+compress.gzip if string.length else drop 0 then
+swap compress.zstd if string.length else drop 0 then
+# Compare sizes
+```
+
+### When to Use Each
+
+| Algorithm | Best For | Level Range |
+|-----------|----------|-------------|
+| **gzip** | Web content, HTTP compression, broad compatibility | 1-9 |
+| **zstd** | Large data, better ratio, modern systems | 1-22 |
+
+- **gzip**: Universal compatibility, good for HTTP `Content-Encoding`
+- **zstd**: Better compression ratio and speed, ideal for data storage
+
+### Implementation Details
+
+- **Crates**: `flate2` (gzip), `zstd` (Zstandard)
+- **Output encoding**: Base64 for string-safe transport
+- **Input/Output**: String → compressed base64 String
+
+**Examples:**
+- `examples/io/compress-demo.seq` - Demonstrates all compression operations
+
+---
+
 ## Future: UI Framework
 
 ### Philosophy

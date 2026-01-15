@@ -236,7 +236,7 @@ analyze-security:
 analyze-unsafe:
     @mkdir -p target/analysis
     @echo "=== Unsafe Code Audit ==="
-    NO_COLOR=1 cargo geiger --all-features 2>&1 | tee target/analysis/unsafe.txt
+    NO_COLOR=1 cargo geiger -p seq-compiler -p seq-runtime -p seq-core -p seq-repl -p seq-lsp 2>&1 | tee target/analysis/unsafe.txt
 
 # Find unused dependencies
 analyze-unused:

@@ -176,6 +176,74 @@ test-verbose:
 outdated:
     cargo outdated --workspace
 
+# ============================================================================
+# Static Analysis Tools (beyond clippy)
+# Install with: just install-analysis-tools
+# ============================================================================
+
+# Install all static analysis tools
+install-analysis-tools:
+    @echo "Installing static analysis tools..."
+    cargo install cargo-deny
+    cargo install cargo-audit
+    cargo install cargo-geiger
+    cargo install cargo-machete
+    @echo "Installing scc (complexity analyzer)..."
+    @if command -v brew >/dev/null 2>&1; then \
+        brew install scc; \
+    elif command -v go >/dev/null 2>&1; then \
+        go install github.com/boyter/scc/v3@latest; \
+    else \
+        echo "Please install scc manually: https://github.com/boyter/scc#install"; \
+    fi
+    npm install -g jscpd
+    @echo "✅ All analysis tools installed"
+
+# Run all static analysis tools
+analyze: analyze-complexity analyze-duplicates analyze-deps analyze-security analyze-unsafe analyze-unused
+    @echo ""
+    @echo "✅ All static analysis complete! Reports saved to target/analysis/"
+
+# Analyze code complexity (files sorted by cyclomatic complexity)
+analyze-complexity:
+    @mkdir -p target/analysis
+    @echo "=== Code Complexity ==="
+    NO_COLOR=1 scc crates/ --by-file --no-cocomo -s complexity | tee target/analysis/complexity.txt
+
+# Detect duplicate/copy-pasted code
+analyze-duplicates:
+    @mkdir -p target/analysis
+    @echo "=== Duplicate Code Detection ==="
+    NO_COLOR=1 jscpd ./crates --ignore "**/target/**" --min-tokens 50 --min-lines 5 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee target/analysis/duplicates.txt
+
+# Analyze dependencies (licenses, duplicates, advisories)
+analyze-deps:
+    @mkdir -p target/analysis
+    @echo "=== Dependency Analysis ==="
+    cargo deny --color never check 2>&1 | tee target/analysis/deps.txt || true
+
+# Initialize cargo-deny configuration (run once)
+init-deny:
+    cargo deny init
+
+# Check for security vulnerabilities in dependencies
+analyze-security:
+    @mkdir -p target/analysis
+    @echo "=== Security Vulnerabilities ==="
+    cargo audit --color never 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee target/analysis/security.txt
+
+# Audit unsafe code usage
+analyze-unsafe:
+    @mkdir -p target/analysis
+    @echo "=== Unsafe Code Audit ==="
+    NO_COLOR=1 cargo geiger -p seq-compiler -p seq-runtime -p seq-core -p seq-repl -p seq-lsp 2>&1 | tee target/analysis/unsafe.txt
+
+# Find unused dependencies
+analyze-unused:
+    @mkdir -p target/analysis
+    @echo "=== Unused Dependencies ==="
+    NO_COLOR=1 cargo machete 2>&1 | tee target/analysis/unused.txt
+
 # Generate documentation
 doc:
     cargo doc --workspace --no-deps --open

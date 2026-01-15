@@ -185,7 +185,7 @@ impl App {
 
     /// Get the history file path (shared with original REPL)
     fn history_file_path() -> Option<PathBuf> {
-        dirs::data_local_dir().map(|d| d.join("seqr_history"))
+        home::home_dir().map(|d| d.join(".local/share/seqr_history"))
     }
 
     /// Load history from file

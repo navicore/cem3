@@ -29,7 +29,7 @@ toml = "0.8"
 clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
 rustyline = "15"
-dirs = "6"
+home = "0.5"
 
 # File watching
 notify = "8"
@@ -40,7 +40,7 @@ lsp-types = "0.97"
 
 # TUI
 ratatui = "0.30"
-crossterm = "0.28"
+crossterm = "0.29"
 
 # Logging/tracing
 tracing = "0.1"

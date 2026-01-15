@@ -134,11 +134,12 @@ stack: 3 25
 ```
 
 **Commands:**
-- `:pop` - Remove last expression (undo)
-- `:clear` - Reset session
-- `:show` - Show current file
-- `:edit` - Open in $EDITOR
-- `:quit` - Exit
+- `:clear`  - Reset session
+- `:edit`   - Open in $EDITOR
+- `:pop`    - Remove last expression (undo)
+- `:quit`   - Exit
+- `:show`   - Show current file
+- `:stack`  - Show current stack
 
 **Editing:**
 - Vi-mode editing (Esc for normal mode, i for insert)

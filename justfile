@@ -188,78 +188,61 @@ install-analysis-tools:
     cargo install cargo-audit
     cargo install cargo-geiger
     cargo install cargo-machete
-    cargo install rust-code-analysis-cli
+    @echo "Installing scc (complexity analyzer)..."
+    @if command -v brew >/dev/null 2>&1; then \
+        brew install scc; \
+    elif command -v go >/dev/null 2>&1; then \
+        go install github.com/boyter/scc/v3@latest; \
+    else \
+        echo "Please install scc manually: https://github.com/boyter/scc#install"; \
+    fi
     npm install -g jscpd
     @echo "✅ All analysis tools installed"
 
 # Run all static analysis tools
 analyze: analyze-complexity analyze-duplicates analyze-deps analyze-security analyze-unsafe analyze-unused
     @echo ""
-    @echo "✅ All static analysis complete!"
+    @echo "✅ All static analysis complete! Reports saved to target/analysis/"
 
-# Analyze code complexity (cyclomatic, cognitive, LOC per function)
+# Analyze code complexity (files sorted by cyclomatic complexity)
 analyze-complexity:
-    @echo "Analyzing code complexity..."
-    @echo ""
-    @echo "=== High-complexity files (compiler) ==="
-    rust-code-analysis-cli -m -O json -p crates/compiler/src/ 2>/dev/null | jq -r '.spaces[] | select(.kind == "function") | select(.metrics.cyclomatic.sum > 10) | "\(.name): cyclomatic=\(.metrics.cyclomatic.sum) cognitive=\(.metrics.cognitive.sum)"' | sort -t= -k2 -nr | head -20 || true
-    @echo ""
-    @echo "=== High-complexity files (runtime) ==="
-    rust-code-analysis-cli -m -O json -p crates/runtime/src/ 2>/dev/null | jq -r '.spaces[] | select(.kind == "function") | select(.metrics.cyclomatic.sum > 10) | "\(.name): cyclomatic=\(.metrics.cyclomatic.sum) cognitive=\(.metrics.cognitive.sum)"' | sort -t= -k2 -nr | head -20 || true
-    @echo ""
-    @echo "✅ Complexity analysis complete"
-
-# Generate full complexity report (saves to analysis/complexity.json)
-analyze-complexity-full:
-    @echo "Generating full complexity report..."
-    mkdir -p analysis
-    rust-code-analysis-cli -m -O json -p crates/ > analysis/complexity.json 2>/dev/null || true
-    @echo "✅ Full report saved to analysis/complexity.json"
+    @mkdir -p target/analysis
+    @echo "=== Code Complexity ==="
+    NO_COLOR=1 scc crates/ --by-file --no-cocomo -s complexity | tee target/analysis/complexity.txt
 
 # Detect duplicate/copy-pasted code
 analyze-duplicates:
-    @echo "Detecting duplicate code..."
-    jscpd ./crates --reporters console --ignore "**/target/**" --min-tokens 50 --min-lines 5
-    @echo "✅ Duplicate detection complete"
-
-# Generate duplicate code report (saves to analysis/duplicates/)
-analyze-duplicates-full:
-    @echo "Generating duplicate code report..."
-    mkdir -p analysis/duplicates
-    jscpd ./crates --reporters json,html --output analysis/duplicates --ignore "**/target/**" --min-tokens 50 --min-lines 5
-    @echo "✅ Report saved to analysis/duplicates/"
+    @mkdir -p target/analysis
+    @echo "=== Duplicate Code Detection ==="
+    NO_COLOR=1 jscpd ./crates --ignore "**/target/**" --min-tokens 50 --min-lines 5 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee target/analysis/duplicates.txt
 
 # Analyze dependencies (licenses, duplicates, advisories)
 analyze-deps:
-    @echo "Analyzing dependencies with cargo-deny..."
-    cargo deny check 2>&1 || true
-    @echo "✅ Dependency analysis complete"
+    @mkdir -p target/analysis
+    @echo "=== Dependency Analysis ==="
+    cargo deny --color never check 2>&1 | tee target/analysis/deps.txt || true
 
 # Initialize cargo-deny configuration (run once)
 init-deny:
-    @echo "Initializing cargo-deny configuration..."
     cargo deny init
-    @echo "✅ Created deny.toml - customize as needed"
 
 # Check for security vulnerabilities in dependencies
 analyze-security:
-    @echo "Checking for security vulnerabilities..."
-    cargo audit
-    @echo "✅ Security audit complete"
+    @mkdir -p target/analysis
+    @echo "=== Security Vulnerabilities ==="
+    cargo audit --color never 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee target/analysis/security.txt
 
 # Audit unsafe code usage
 analyze-unsafe:
-    @echo "Auditing unsafe code usage..."
-    cargo geiger --all-features 2>&1 | head -100
-    @echo ""
-    @echo "(showing first 100 lines - run 'cargo geiger' for full output)"
-    @echo "✅ Unsafe audit complete"
+    @mkdir -p target/analysis
+    @echo "=== Unsafe Code Audit ==="
+    NO_COLOR=1 cargo geiger --all-features 2>&1 | tee target/analysis/unsafe.txt
 
 # Find unused dependencies
 analyze-unused:
-    @echo "Finding unused dependencies..."
-    cargo machete
-    @echo "✅ Unused dependency check complete"
+    @mkdir -p target/analysis
+    @echo "=== Unused Dependencies ==="
+    NO_COLOR=1 cargo machete 2>&1 | tee target/analysis/unused.txt
 
 # Generate documentation
 doc:

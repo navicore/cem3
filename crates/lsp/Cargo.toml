@@ -21,7 +21,7 @@ tokio.workspace = true
 
 # Seq compiler (package is seq-compiler, lib is seqc)
 # Version must EXACTLY match workspace version - enforced by CI
-seq-compiler = { path = "../compiler", version = "=1.0.1" }
+seq-compiler = { path = "../compiler", version = "=1.0.2" }
 
 # Serialization
 serde.workspace = true

@@ -2001,7 +2001,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-compiler"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "bumpalo",
  "may",
@@ -2021,7 +2021,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2034,7 +2034,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "clap",
  "crossterm",
@@ -2051,7 +2051,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2821,7 +2821,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "1.0.1"
+version = "1.0.2"
 
 [[package]]
 name = "vtparse"

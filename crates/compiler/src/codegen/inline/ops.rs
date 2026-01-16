@@ -697,6 +697,10 @@ impl CodeGen {
         cond_body: &[Statement],
         loop_body: &[Statement],
     ) -> Result<String, CodeGenError> {
+        // Issue #264: Spill virtual stack before loop to ensure values are in memory.
+        let spilled_stack = self.spill_virtual_stack(stack_var)?;
+
+        let preloop_block = self.fresh_block("while_preloop");
         let cond_block = self.fresh_block("while_cond");
         let body_block = self.fresh_block("while_body");
         let end_block = self.fresh_block("while_end");
@@ -705,17 +709,19 @@ impl CodeGen {
         let loop_stack_phi = format!("{}_stack", cond_block);
         let loop_stack_next = format!("{}_stack_next", cond_block);
 
-        // Jump to condition check
+        // Jump to preloop block (needed for phi node predecessor)
+        writeln!(&mut self.output, "  br label %{}", preloop_block)?;
+        writeln!(&mut self.output, "{}:", preloop_block)?;
         writeln!(&mut self.output, "  br label %{}", cond_block)?;
 
         // Condition block
         writeln!(&mut self.output, "{}:", cond_block)?;
 
-        // Phi for stack pointer at loop entry
+        // Phi for stack pointer at loop entry - use preloop_block as predecessor
         writeln!(
             &mut self.output,
-            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
-            loop_stack_phi, stack_var, loop_stack_next, body_block
+            "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{}_end ]",
+            loop_stack_phi, spilled_stack, preloop_block, loop_stack_next, body_block
         )?;
 
         // Execute condition body and get result
@@ -768,6 +774,10 @@ impl CodeGen {
         cond_body: &[Statement],
         loop_body: &[Statement],
     ) -> Result<String, CodeGenError> {
+        // Issue #264: Spill virtual stack before loop to ensure values are in memory.
+        let spilled_stack = self.spill_virtual_stack(stack_var)?;
+
+        let preloop_block = self.fresh_block("until_preloop");
         let body_block = self.fresh_block("until_body");
         let cond_block = self.fresh_block("until_cond");
         let end_block = self.fresh_block("until_end");
@@ -776,15 +786,17 @@ impl CodeGen {
         let loop_stack_phi = format!("{}_stack", body_block);
         let loop_stack_next = format!("{}_stack_next", body_block);
 
-        // Jump to body (do-while style)
+        // Jump to preloop block (needed for phi node predecessor)
+        writeln!(&mut self.output, "  br label %{}", preloop_block)?;
+        writeln!(&mut self.output, "{}:", preloop_block)?;
         writeln!(&mut self.output, "  br label %{}", body_block)?;
 
-        // Body block with phi
+        // Body block with phi - use preloop_block as predecessor
         writeln!(&mut self.output, "{}:", body_block)?;
         writeln!(
             &mut self.output,
-            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
-            loop_stack_phi, stack_var, loop_stack_next, cond_block
+            "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{}_end ]",
+            loop_stack_phi, spilled_stack, preloop_block, loop_stack_next, cond_block
         )?;
 
         // Execute loop body
@@ -1003,6 +1015,12 @@ impl CodeGen {
             return Ok(stack_var.to_string());
         }
 
+        // Issue #264: Spill virtual stack before loop to ensure values are in memory.
+        // Without this, virtual register values get re-materialized each iteration
+        // instead of using the accumulated result from the previous iteration.
+        let spilled_stack = self.spill_virtual_stack(stack_var)?;
+
+        let preloop_block = self.fresh_block("times_preloop");
         let cond_block = self.fresh_block("times_cond");
         let body_block = self.fresh_block("times_body");
         let end_block = self.fresh_block("times_end");
@@ -1013,22 +1031,24 @@ impl CodeGen {
         let loop_stack_phi = format!("{}_stack", cond_block);
         let loop_stack_next = format!("{}_stack_next", cond_block);
 
-        // Jump to condition
+        // Jump to preloop block (needed for phi node predecessor)
+        writeln!(&mut self.output, "  br label %{}", preloop_block)?;
+        writeln!(&mut self.output, "{}:", preloop_block)?;
         writeln!(&mut self.output, "  br label %{}", cond_block)?;
 
         // Condition block
         writeln!(&mut self.output, "{}:", cond_block)?;
 
-        // Phi for counter and stack
+        // Phi for counter and stack - use preloop_block as predecessor (not %entry)
         writeln!(
             &mut self.output,
-            "  %{} = phi i64 [ {}, %entry ], [ %{}, %{}_end ]",
-            counter_phi, count, counter_next, body_block
+            "  %{} = phi i64 [ {}, %{} ], [ %{}, %{}_end ]",
+            counter_phi, count, preloop_block, counter_next, body_block
         )?;
         writeln!(
             &mut self.output,
-            "  %{} = phi ptr [ %{}, %entry ], [ %{}, %{}_end ]",
-            loop_stack_phi, stack_var, loop_stack_next, body_block
+            "  %{} = phi ptr [ %{}, %{} ], [ %{}, %{}_end ]",
+            loop_stack_phi, spilled_stack, preloop_block, loop_stack_next, body_block
         )?;
 
         // Check if counter > 0

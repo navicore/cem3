@@ -144,7 +144,7 @@
 # The quotation should transform: ( value -- new-value )
 # Result is reconstructed using variant.make-1 with :Ok tag
 # Stack: ( Result Quotation -- Result )
-: result-map ( Variant Quotation -- Variant )
+: result-map ( Variant [ -- ] -- Variant )
   swap                       # ( Quotation Result )
   dup variant.tag :Ok symbol.= if     # ( Quotation Result ) - is Ok?
     0 variant.field-at       # ( Quotation value )
@@ -158,7 +158,7 @@
 # Transform the Ok value with custom constructor
 # Usage: my-result [ double ] [ Make-Ok ] result-map-with
 # Stack: ( Result Quotation OkConstructor -- Result )
-: result-map-with ( Variant Quotation Quotation -- Variant )
+: result-map-with ( Variant [ -- ] [ -- ] -- Variant )
   rot                        # ( Quotation OkCtor Result )
   dup variant.tag :Ok symbol.= if     # is Ok?
     0 variant.field-at       # ( Quotation OkCtor value )
@@ -172,7 +172,7 @@
 # Chain fallible operations
 # The quotation should return a Result: ( value -- Result )
 # Stack: ( Result Quotation -- Result )
-: result-bind ( Variant Quotation -- Variant )
+: result-bind ( Variant [ -- ] -- Variant )
   swap                       # ( Quotation Result )
   dup variant.tag :Ok symbol.= if     # ( Quotation Result ) - is Ok?
     0 variant.field-at       # ( Quotation value )
@@ -229,7 +229,7 @@
 # The quotation should transform: ( value -- new-value )
 # Result is reconstructed using variant.make-1 with :Some tag
 # Stack: ( Option Quotation -- Option )
-: option-map ( Variant Quotation -- Variant )
+: option-map ( Variant [ -- ] -- Variant )
   swap                       # ( Quotation Option )
   dup variant.tag :Some symbol.= if     # ( Quotation Option ) - is Some?
     0 variant.field-at       # ( Quotation value )
@@ -243,7 +243,7 @@
 # Transform the Some value with custom constructor
 # Usage: my-option [ double ] [ Make-Some ] option-map-with
 # Stack: ( Option Quotation SomeConstructor -- Option )
-: option-map-with ( Variant Quotation Quotation -- Variant )
+: option-map-with ( Variant [ -- ] [ -- ] -- Variant )
   rot                        # ( Quotation SomeCtor Option )
   dup variant.tag :Some symbol.= if     # is Some?
     0 variant.field-at       # ( Quotation SomeCtor value )
@@ -257,7 +257,7 @@
 # Chain optional operations
 # The quotation should return an Option: ( value -- Option )
 # Stack: ( Option Quotation -- Option )
-: option-bind ( Variant Quotation -- Variant )
+: option-bind ( Variant [ -- ] -- Variant )
   swap                       # ( Quotation Option )
   dup variant.tag :Some symbol.= if     # ( Quotation Option ) - is Some?
     0 variant.field-at       # ( Quotation value )

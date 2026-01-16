@@ -830,6 +830,13 @@ impl Parser {
             "Float" => Ok(Type::Float),
             "Bool" => Ok(Type::Bool),
             "String" => Ok(Type::String),
+            // Reject 'Quotation' - it looks like a type but would be silently treated as a type variable.
+            // Users must use explicit effect syntax like [Int -- Int] instead.
+            "Quotation" => Err(format!(
+                "'Quotation' is not a valid type at line {}, column {}. Use explicit quotation syntax like [Int -- Int] or [ -- ] instead.",
+                token.line + 1,
+                token.column + 1
+            )),
             _ => {
                 // Check if it's a type variable (starts with uppercase)
                 if let Some(first_char) = token.text.chars().next() {
@@ -1994,6 +2001,30 @@ mod tests {
         assert!(
             err_msg.contains("require") && err_msg.contains("--"),
             "Expected error about missing '--' separator, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_bare_quotation_type_rejected() {
+        // Test: ( Int Quotation -- Int ) should be REJECTED
+        //
+        // 'Quotation' looks like a type name but would be silently treated as a
+        // type variable without this check. Users must use explicit effect syntax.
+        let source = ": apply-twice ( Int Quotation -- Int ) ;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("Quotation") && err_msg.contains("not a valid type"),
+            "Expected error about 'Quotation' not being valid, got: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("[Int -- Int]") || err_msg.contains("[ -- ]"),
+            "Expected error to suggest explicit syntax, got: {}",
             err_msg
         );
     }

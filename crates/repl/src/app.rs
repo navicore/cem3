@@ -548,10 +548,10 @@ impl App {
                         let stdout = String::from_utf8_lossy(&result.stdout);
                         let stderr = String::from_utf8_lossy(&result.stderr);
 
-                        // Update IR from the session file
-                        self.update_ir_from_session(expr);
-
                         if result.status.success() {
+                            // Update IR from the session file - only on success
+                            self.update_ir_from_session(expr);
+
                             let output_text = stdout.trim();
                             if output_text.is_empty() {
                                 self.repl_state
@@ -561,6 +561,13 @@ impl App {
                                     .add_entry(HistoryEntry::new(expr).with_output(output_text));
                             }
                         } else {
+                            // Rollback on runtime error - don't keep failed expression in session
+                            if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                                self.status_message = Some(format!(
+                                    "Warning: Could not rollback session file: {}",
+                                    rollback_err
+                                ));
+                            }
                             let err = if stderr.is_empty() {
                                 format!("exit: {:?}", result.status.code())
                             } else {
@@ -571,6 +578,13 @@ impl App {
                         }
                     }
                     Err(e) => {
+                        // Rollback on run error - don't keep failed expression in session
+                        if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                            self.status_message = Some(format!(
+                                "Warning: Could not rollback session file: {}",
+                                rollback_err
+                            ));
+                        }
                         self.add_error_entry(expr, &format!("Run error: {}", e));
                     }
                 }

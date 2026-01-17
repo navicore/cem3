@@ -561,6 +561,13 @@ impl App {
                                     .add_entry(HistoryEntry::new(expr).with_output(output_text));
                             }
                         } else {
+                            // Rollback on runtime error - don't keep failed expression in session
+                            if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                                self.status_message = Some(format!(
+                                    "Warning: Could not rollback session file: {}",
+                                    rollback_err
+                                ));
+                            }
                             let err = if stderr.is_empty() {
                                 format!("exit: {:?}", result.status.code())
                             } else {

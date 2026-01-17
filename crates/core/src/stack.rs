@@ -1071,10 +1071,10 @@ pub unsafe extern "C" fn patch_seq_stack_dump(sp: Stack) -> Stack {
     let depth = (sp as usize - base as usize) / std::mem::size_of::<StackValue>();
 
     if depth == 0 {
-        println!("stack:");
+        println!("»");
     } else {
         use std::io::Write;
-        print!("stack: ");
+        print!("» ");
         for i in 0..depth {
             if i > 0 {
                 print!(" ");

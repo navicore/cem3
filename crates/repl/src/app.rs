@@ -578,6 +578,13 @@ impl App {
                         }
                     }
                     Err(e) => {
+                        // Rollback on run error - don't keep failed expression in session
+                        if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                            self.status_message = Some(format!(
+                                "Warning: Could not rollback session file: {}",
+                                rollback_err
+                            ));
+                        }
                         self.add_error_entry(expr, &format!("Run error: {}", e));
                     }
                 }

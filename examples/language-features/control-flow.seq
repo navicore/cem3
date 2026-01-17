@@ -1,0 +1,86 @@
+# Control Flow - conditionals and loops
+
+# Basic if-then-else
+: sign ( Int -- String )
+  dup 0 i.>
+  if
+    drop "positive"
+  else
+    0 i.<
+    if
+      "negative"
+    else
+      "zero"
+    then
+  then
+;
+
+# While loop - condition quotation runs first
+: countdown ( Int -- )
+  [ dup 0 i.> ]
+  [
+    dup int->string io.write-line
+    1 i.-
+  ]
+  while
+  drop
+;
+
+# Times loop - repeat N times
+: say-hello ( Int -- )
+  [ "Hello!" io.write-line ]
+  swap
+  times
+;
+
+# Nested conditionals using cond
+: grade ( Int -- String )
+  [ dup 90 i.>= ]  [ drop "A" ]
+  [ dup 80 i.>= ]  [ drop "B" ]
+  [ dup 70 i.>= ]  [ drop "C" ]
+  [ dup 60 i.>= ]  [ drop "D" ]
+  [ true ]         [ drop "F" ]
+  5 cond
+;
+
+# Loop with accumulator
+: sum-range ( Int Int -- Int )
+  0
+  rot rot
+  [ 2dup i.<= ]
+  [
+    over
+    rot i.add
+    rot rot
+    swap 1 i.add swap
+  ]
+  while
+  drop drop
+;
+
+# Main
+: main ( -- )
+  "=== Control Flow ===" io.write-line
+  "" io.write-line
+
+  "Sign tests:" io.write-line
+  0 5 i.- sign io.write-line
+  0 sign io.write-line
+  42 sign io.write-line
+
+  "" io.write-line
+  "Countdown from 3:" io.write-line
+  3 countdown
+
+  "" io.write-line
+  "Say hello 2 times:" io.write-line
+  2 say-hello
+
+  "" io.write-line
+  "Grade 85:" io.write-line
+  85 grade io.write-line
+
+  "" io.write-line
+  "Sum 1 to 5:" io.write-line
+  1 5 sum-range int->string io.write-line
+;

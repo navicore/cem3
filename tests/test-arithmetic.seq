@@ -1,0 +1,33 @@
+# Test file for the Seq test framework
+# Tests basic arithmetic operations
+
+: test-addition ( -- )
+  2 3 i.add 5 test.assert-eq
+  1 1 i.add 2 test.assert-eq
+  0 0 i.add 0 test.assert-eq
+;
+
+: test-subtraction ( -- )
+  5 3 i.subtract 2 test.assert-eq
+  10 7 i.subtract 3 test.assert-eq
+  0 0 i.subtract 0 test.assert-eq
+;
+
+: test-multiplication ( -- )
+  3 4 i.multiply 12 test.assert-eq
+  5 0 i.multiply 0 test.assert-eq
+  2 2 i.multiply 4 test.assert-eq
+;
+
+: test-comparison ( -- )
+  5 3 > test.assert
+  3 5 < test.assert
+  5 5 = test.assert
+  5 3 = test.assert-not
+;
+
+: test-boolean-logic ( -- )
+  1 1 = 2 2 = and test.assert
+  1 2 = 1 1 = or test.assert
+  1 2 = not test.assert
+;

@@ -1,0 +1,77 @@
+# YAML Parser Test
+#
+# Tests the basic YAML parsing functionality.
+
+include std:yaml
+
+: main ( -- Int )
+  "=== YAML Parser Tests ===" io.write-line
+
+  # Test 1: Simple key-value
+  "name: John" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: simple key-value" io.write-line
+  then
+
+  # Test 2: Number value
+  "age: 42" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: number value" io.write-line
+  then
+
+  # Test 3: Boolean value
+  "active: true" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: boolean value" io.write-line
+  then
+
+  # Test 4: Null value
+  "data: null" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: null value" io.write-line
+  then
+
+  # Test 5: Boolean false
+  "enabled: false" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: boolean false" io.write-line
+  then
+
+  # Test 6: Floating point number
+  "price: 19.99" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: float value" io.write-line
+  then
+
+  # Test 7: Tilde null
+  "empty: ~" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: tilde null" io.write-line
+  then
+
+  # Test 8: String with spaces
+  "message: Hello World" yaml-parse
+  if
+    "PASS: " swap yaml-serialize string.concat io.write-line
+  else
+    drop "FAIL: string with spaces" io.write-line
+  then
+
+  "" io.write-line
+  "All tests completed!" io.write-line
+  0
+;

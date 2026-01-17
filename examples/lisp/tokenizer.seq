@@ -1,0 +1,210 @@
+# Tokenizer for SeqLisp - Using ADTs
+#
+# Uses explicit state variant to avoid complex stack manipulation
+
+# ============================================
+# Type Definitions
+# ============================================
+
+union TokenList {
+  TNil
+  TCons { token: String, rest: TokenList }
+}
+
+union TokState {
+  TState { input: String, pos: Int, current_token: String, tokens: TokenList }
+}
+
+# ============================================
+# Token List Constructors and Accessors
+# ============================================
+
+: tnil ( -- TokenList )
+  Make-TNil ;
+
+: tcons ( String TokenList -- TokenList )
+  Make-TCons ;
+
+: tnil? ( TokenList -- Bool )
+  variant.tag :TNil symbol.= ;
+
+: tcar ( TokenList -- String )
+  0 variant.field-at ;
+
+: tcdr ( TokenList -- TokenList )
+  1 variant.field-at ;
+
+: trev ( TokenList -- TokenList )
+  tnil trev-loop ;
+
+: trev-loop ( TokenList TokenList -- TokenList )
+  swap dup tnil? if drop else
+    dup tcar rot tcons swap tcdr swap trev-loop
+  then
+;
+
+# ============================================
+# Tokenizer State Constructors and Accessors
+# ============================================
+
+: make-state ( String Int String TokenList -- TokState )
+  Make-TState ;
+
+: state-input ( TokState -- String )
+  0 variant.field-at ;
+
+: state-pos ( TokState -- Int )
+  1 variant.field-at ;
+
+: state-tok ( TokState -- String )
+  2 variant.field-at ;
+
+: state-list ( TokState -- TokenList )
+  3 variant.field-at ;
+
+# ============================================
+# Simple tokenizer
+# ============================================
+
+: tokenize ( String -- TokenList )
+  0 "" tnil make-state
+  tokenize-loop
+  state-list trev
+;
+
+: tokenize-loop ( TokState -- TokState )
+  dup state-input string.length
+  over state-pos i.<= if
+    # Done - flush any remaining token
+    dup state-tok string.empty? if
+      # Nothing to flush - keep state as is (do nothing)
+    else
+      # Flush final token using consistent pattern
+      dup state-input
+      over state-pos
+      2 pick state-list
+      3 pick state-tok
+      swap tcons
+      "" swap
+      make-state nip
+    then
+  else
+    # Get current char code at position
+    dup state-input over state-pos string.char-at
+    # Stack: State CharCode
+
+    dup 32 i.= over 10 i.= or over 9 i.= or over 13 i.= or if
+      # Whitespace
+      drop handle-space tokenize-loop
+    else
+      dup 40 i.= if
+        # Left paren
+        drop handle-lparen tokenize-loop
+      else
+        41 i.= if
+          # Right paren
+          handle-rparen tokenize-loop
+        else
+          # Regular char
+          handle-char tokenize-loop
+        then
+      then
+    then
+  then
+;
+
+# Flush current token (if any) and reset
+: handle-space ( TokState -- TokState )
+  dup state-tok string.empty? if
+    advance-pos
+  else
+    # Flush token and advance
+    dup state-input
+    over state-pos 1 i.add
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
+# Flush token, add "(", advance
+: handle-lparen ( TokState -- TokState )
+  dup state-tok string.empty? if
+    # Just add "(" to list and advance
+    dup state-input
+    over state-pos 1 i.add
+    2 pick state-list
+    "(" swap tcons
+    "" swap
+    make-state nip
+  else
+    # Flush token, then add "("
+    dup state-input
+    over state-pos 1 i.add
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "(" swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
+# Flush token, add ")", advance
+: handle-rparen ( TokState -- TokState )
+  dup state-tok string.empty? if
+    # Just add ")" to list and advance
+    dup state-input
+    over state-pos 1 i.add
+    2 pick state-list
+    ")" swap tcons
+    "" swap
+    make-state nip
+  else
+    # Flush token, then add ")"
+    dup state-input
+    over state-pos 1 i.add
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    ")" swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
+# Add char to current token, advance
+: handle-char ( TokState -- TokState )
+  # Build (Input, Pos+1, Tok++Char, List)
+  dup state-input
+  over state-pos 1 i.add
+  2 pick state-list
+  3 pick state-tok
+  4 pick state-input
+  5 pick state-pos
+  1 string.substring
+  string.concat
+  swap
+  make-state nip
+;
+
+# Just advance position
+: advance-pos ( TokState -- TokState )
+  dup state-input
+  over state-pos 1 i.add
+  2 pick state-tok
+  3 pick state-list
+  make-state nip
+;
+
+# ============================================
+# Debug
+# ============================================
+
+: print-tokens ( TokenList -- )
+  dup tnil? if drop else
+    dup tcar io.write-line tcdr print-tokens
+  then
+;

@@ -1,0 +1,110 @@
+# Test map operations
+
+# Test map.make and map.set
+: test-make-set ( -- )
+  map.make
+  "name" "Alice" map.set
+  "age" 30 map.set
+  map.size 2 test.assert-eq
+;
+
+# Test map.get (now returns value and success flag)
+: test-map.get ( -- )
+  map.make
+  "key" "value" map.set
+  "key" map.get         # ( value Bool )
+  test.assert           # success flag should be true
+  "value" string.equal? test.assert
+;
+
+# Test map.get found
+: test-map.get-found ( -- )
+  map.make "x" 42 map.set
+  "x" map.get
+  test.assert  # success flag
+  42 test.assert-eq
+;
+
+# Test map.get not found
+: test-map.get-not-found ( -- )
+  map.make
+  "missing" map.get
+  test.assert-not  # returns false when not found
+  drop  # drop placeholder value
+;
+
+# Test map.has?
+: test-map-has ( -- )
+  map.make "a" 1 map.set
+  dup "a" map.has? test.assert
+  "b" map.has? test.assert-not
+;
+
+# Test map.remove
+: test-map.remove ( -- )
+  map.make "x" 1 map.set "y" 2 map.set
+  "x" map.remove
+  dup "x" map.has? test.assert-not
+  "y" map.has? test.assert
+;
+
+# Test map.keys and map.values
+: test-keys-values ( -- )
+  map.make "a" 1 map.set "b" 2 map.set
+  dup map.keys list.length 2 test.assert-eq
+  map.values list.length 2 test.assert-eq
+;
+
+# Test map.size
+: test-map.size ( -- )
+  map.make map.size 0 test.assert-eq
+  map.make "a" 1 map.set "b" 2 map.set "c" 3 map.set
+  map.size 3 test.assert-eq
+;
+
+# Test map.empty?
+: test-map-empty ( -- )
+  map.make map.empty? test.assert
+  map.make "k" "v" map.set map.empty? test.assert-not
+;
+
+# Test with integer keys
+: test-int-keys ( -- )
+  map.make
+  1 "one" map.set
+  2 "two" map.set
+  3 "three" map.set
+  2 map.get
+  test.assert  # check success flag
+  "two" string.equal? test.assert
+;
+
+# Test with boolean keys
+: test-bool-keys ( -- )
+  map.make
+  true "yes" map.set
+  false "no" map.set
+  true map.get
+  test.assert  # check success flag
+  "yes" string.equal? test.assert
+;
+
+# Test key overwrite behavior
+: test-key-overwrite ( -- )
+  map.make
+  "key" 100 map.set
+  "key" 200 map.set
+  dup map.size 1 test.assert-eq
+  "key" map.get
+  test.assert  # check success flag
+  200 test.assert-eq
+;
+
+# Test mixed key types in same map
+: test-mixed-keys ( -- )
+  map.make
+  "str" 1 map.set
+  42 2 map.set
+  true 3 map.set
+  map.size 3 test.assert-eq
+;

@@ -1,0 +1,86 @@
+# Ping-Pong Benchmark
+#
+# Two strands exchange messages N times.
+# Tests: channel round-trip latency, context switch overhead.
+#
+# NOTE: Success flags from channel operations are intentionally not checked
+# in benchmarks to measure raw throughput. Production code should always
+# check the Bool return from chan.send/chan.receive.
+#
+# Default: 1,000,000 round trips
+
+# Number of round trips
+: iterations ( -- Int ) 1000000 ;
+
+# Pong: receive from ping-chan, send to pong-chan, repeat N times
+# ( ping-chan pong-chan count -- )
+: pong ( Channel Channel Int -- )
+  dup 0 i.> if
+    # ( ping-chan pong-chan count )
+    2 pick chan.receive  # receive value from ping (returns value, success)
+    drop                 # drop success flag
+    2 pick chan.send     # send value to pong (returns success)
+    drop                 # drop success flag
+    1 i.subtract         # decrement count
+    pong                 # tail recurse
+  else
+    drop drop drop       # cleanup
+  then
+;
+
+# Ping: send to ping-chan, receive from pong-chan, repeat N times
+# ( ping-chan pong-chan count -- )
+: ping ( Channel Channel Int -- )
+  dup 0 i.> if
+    # ( ping-chan pong-chan count )
+    dup                  # value to send (the count itself)
+    3 pick chan.send     # send to ping-chan (returns success)
+    drop                 # drop success flag
+    1 pick chan.receive  # receive from pong-chan (returns value, success)
+    drop drop            # drop success flag and received value
+    1 i.subtract         # decrement count
+    ping                 # tail recurse
+  else
+    drop drop drop       # cleanup
+  then
+;
+
+: main ( -- Int )
+  time.nanos              # ( start )
+
+  # Create two channels
+  chan.make               # ( start ping )
+  chan.make               # ( start ping pong )
+
+  # Spawn pong strand: needs ( ping pong count ) on child stack
+  2dup                    # ( start ping pong ping pong )
+  iterations              # ( start ping pong ping pong count )
+  [ pong ] strand.spawn   # ( start ping pong ping pong count strand-id )
+  drop drop drop drop     # ( start ping pong ) - clean up copies
+
+  # Run ping in main strand
+  iterations              # ( start ping pong count )
+  ping                    # ( start ) - ping consumes top 3
+
+  time.nanos              # ( start end )
+
+  # Calculate elapsed time
+  swap i.subtract           # ( elapsed-nanos )
+  1000000 i.divide          # ( ms )
+
+  # Print results
+  dup                     # ( ms ms )
+  iterations int->string " round trips in " string.concat
+  swap int->string string.concat " ms" string.concat
+  io.write-line           # ( ms )
+
+  # Calculate throughput: (iterations * 2) * 1000 / ms = msg/sec
+  iterations 2 i.multiply 1000 i.multiply
+  swap i.divide
+
+  # Print throughput
+  "Throughput: " swap int->string string.concat " msg/sec" string.concat
+  io.write-line
+
+  0
+;

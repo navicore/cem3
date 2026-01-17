@@ -1,0 +1,5 @@
+# Hello World in cem3
+# The classic first program
+
+: main ( -- )
+  "Hello, World!" io.write-line ;

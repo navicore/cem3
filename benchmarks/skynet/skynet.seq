@@ -1,0 +1,149 @@
+# Skynet Benchmark (simplified for testing)
+#
+# Spawns strands in a tree structure.
+# Tests: strand.spawn overhead, message passing.
+#
+# NOTE: Success flags from channel operations are intentionally not checked
+# in benchmarks to measure raw throughput. Production code should always
+# check the Bool return from chan.send/chan.receive.
+#
+# Reduced size for testing: 100000 = 10^5
+
+# Skynet worker: if size=1, send my num. Otherwise strand.spawn 10 children.
+# ( result-chan num size -- )
+: skynet ( Channel Int Int -- )
+  dup 1 i.= if
+    # Leaf: send num to result channel
+    drop       # drop size ( result-chan num )
+    swap       # ( num result-chan )
+    chan.send  # send num to channel
+    drop       # drop success flag
+  else
+    # Branch: spawn 10 children, collect results
+    # Stack: ( result-chan num size )
+
+    # Create channel to collect child results
+    chan.make  # ( result-chan num size child-chan )
+
+    # Calculate child size: size / 10
+    over 10 i.divide  # ( result-chan num size child-chan child-size )
+
+    # We need to spawn 10 children with:
+    #   child's result-chan = our child-chan
+    #   child's num = our num * 10 + i (for i = 0..9)
+    #   child's size = child-size
+
+    # Spawn child 0
+    3 pick 10 i.multiply 0 i.add  # compute num*10+0 ( ... child-num0 )
+    2 pick                     # get child-chan ( ... child-num0 child-chan )
+    swap                       # ( ... child-chan child-num0 )
+    2 pick                     # get child-size ( ... child-chan child-num0 child-size )
+    [ skynet ] strand.spawn drop      # spawn and drop strand-id
+    drop drop drop             # cleanup the 3 spawn args we i.added
+
+    # Spawn child 1
+    3 pick 10 i.multiply 1 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 2
+    3 pick 10 i.multiply 2 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 3
+    3 pick 10 i.multiply 3 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 4
+    3 pick 10 i.multiply 4 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 5
+    3 pick 10 i.multiply 5 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 6
+    3 pick 10 i.multiply 6 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 7
+    3 pick 10 i.multiply 7 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 8
+    3 pick 10 i.multiply 8 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Spawn child 9
+    3 pick 10 i.multiply 9 i.add
+    2 pick swap 2 pick
+    [ skynet ] strand.spawn drop
+    drop drop drop
+
+    # Now receive 10 results from child-chan and sum them
+    # Stack: ( result-chan num size child-chan child-size )
+    drop       # drop child-size ( result-chan num size child-chan )
+    swap drop  # swap and drop size ( result-chan num child-chan )
+    swap drop  # swap and drop num ( result-chan child-chan )
+
+    # Receive and sum 10 results
+    dup chan.receive drop  # ( result-chan child-chan sum )
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+    over chan.receive drop i.add
+
+    # Stack: ( result-chan child-chan sum )
+    # Send sum to parent's result-chan
+    swap drop  # ( result-chan sum )
+    swap chan.send drop  # sends sum to result-chan, drop success flag
+  then
+;
+
+: main ( -- Int )
+  time.nanos    # start time
+
+  # Create result channel
+  chan.make     # ( start result-chan )
+
+  # Spawn root: result-chan, num=0, size=100000
+  dup 0 100000 [ skynet ] strand.spawn drop drop drop drop
+
+  # Wait for result
+  chan.receive  # ( start result success )
+  drop          # drop success flag ( start result )
+
+  time.nanos    # end time
+
+  # ( start result end )
+  rot           # ( result end start )
+  i.subtract    # ( result end-start = elapsed )
+  1000000 i.divide  # ( result ms )
+
+  # Print results
+  swap          # ( ms result )
+  "Result: " swap int->string string.concat io.write-line
+  "Time: " swap int->string string.concat " ms" string.concat io.write-line
+
+  0
+;

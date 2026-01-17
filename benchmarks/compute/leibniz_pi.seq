@@ -1,0 +1,71 @@
+# Leibniz formula for π benchmark
+# π/4 = 1 - 1/3 + 1/5 - 1/7 + 1/9 - ...
+#
+# Tests floating-point arithmetic and loop performance
+#
+# Uses sign-flipping (sign = -sign) instead of modulo (k % 2)
+# for better performance, matching Rust/Go implementations.
+
+include std:fmath
+
+: leibniz-step ( Float Float Int Int -- Float Float Int Int )
+  # Stack: sum sign k n
+  # Compute one term and add to sum, flip sign, increment k
+  # term = sign / (2k+1)
+
+  # Compute denominator from k: (2k + 1)
+  over                          # sum sign k n k
+  2 i.* 1 i.+ int->float        # sum sign k n denom
+
+  # Get sign and compute term = sign / denom
+  3 pick                        # sum sign k n denom sign
+  swap                          # sum sign k n sign denom
+  f./                           # sum sign k n term
+
+  # Add term to sum
+  # Stack: sum sign k n term
+  4 roll                        # sign k n term sum
+  f.+                           # sign k n sum'
+
+  # Reorder: need sum' sign k n from sign k n sum'
+  # Stack: sign k n sum'
+  # Use 3 roll three times to rotate all 4 elements
+  # (rot rot rot just cycles top 3 back to start)
+  3 roll 3 roll 3 roll          # sum' sign k n
+
+  # Flip sign: sum' sign k n -> sum' sign' k n
+  rot                           # sum' k n sign
+  -1.0 f.*                      # sum' k n sign'
+  rot rot                       # sum' sign' k n
+
+  # Increment k: sum' sign' k n -> sum' sign' k' n
+  swap 1 i.+ swap               # sum' sign' k' n
+;
+
+: leibniz-loop ( Float Float Int Int -- Float )
+  # Stack: sum sign k n
+  # Loop while k < n
+  over over i.< if
+    leibniz-step
+    leibniz-loop
+  else
+    drop drop drop   # return sum (drop sign, k, n)
+  then
+;
+
+: leibniz ( Int -- Float )
+  # n iterations -> approximation of pi
+  0.0 1.0 0 3 roll    # sum=0.0 sign=1.0 k=0 n
+  leibniz-loop
+  4.0 f.*             # multiply by 4 to get pi
+;
+
+: main ( -- Int )
+  100000000 leibniz   # 100 million iterations
+  dup float->string io.write-line
+
+  # Verify approximately correct (Leibniz converges slowly)
+  # With 100M iterations, error should be < 1e-7
+  3.141592653589793 f.- f.abs
+  0.0000001 f.< if 0 else 1 then
+;

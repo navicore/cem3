@@ -1,0 +1,32 @@
+# Test nested conditionals
+
+: test-nested ( -- )
+  0  # result accumulator
+  5 3 i.>
+  if
+    1 i.add  # outer true
+    10 10 i.=
+    if
+      1 i.add  # inner true
+    else
+      10 i.add  # inner false (shouldn't happen)
+    then
+  else
+    100 i.add  # outer false (shouldn't happen)
+  then
+  2 test.assert-eq  # should be 1+1=2
+;
+
+: test-multiple-comparisons ( -- )
+  # 7 < 5 is false
+  7 5 i.< test.assert-not
+
+  # 7 >= 5 is true
+  7 5 i.>= test.assert
+
+  # 3 <= 8 is true
+  3 8 i.<= test.assert
+
+  # 4 <> 4 is false (they are equal)
+  4 4 i.<> test.assert-not
+;

@@ -1,0 +1,46 @@
+[package]
+name = "seq-compiler"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Compiler for the Seq programming language"
+repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
+keywords = ["compiler", "language", "seq"]
+categories = ["compilers", "development-tools"]
+include = ["src/**/*", "stdlib/**/*", "ffi/**/*", "build.rs", "Cargo.toml", "README.md"]
+
+[[bin]]
+name = "seqc"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+clap_complete.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[build-dependencies]
+# Version must EXACTLY match workspace version - enforced by build.rs and CI
+seq-runtime = { path = "../runtime", version = "=1.0.2", optional = true }
+toml.workspace = true
+
+[lib]
+name = "seqc"
+path = "src/lib.rs"
+
+[features]
+# Feature enabled when building on docs.rs to skip runtime embedding
+docsrs = []
+# Default: include seq-runtime for embedding in compiled binaries
+default = ["seq-runtime"]
+
+[package.metadata.docs.rs]
+# Enable the docsrs feature when building on docs.rs
+features = ["docsrs"]
+# Set cfg flag for conditional compilation
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dev-dependencies]
+tempfile.workspace = true

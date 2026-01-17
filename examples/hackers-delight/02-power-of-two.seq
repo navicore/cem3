@@ -1,0 +1,90 @@
+# Hacker's Delight: Power of Two Operations
+#
+# Detecting and manipulating powers of two using bit tricks.
+
+# Check if x is a power of 2 (and x > 0)
+# Formula: x & (x - 1) == 0  (and x != 0)
+# Powers of 2 have exactly one bit set
+: power-of-2? ( Int -- Bool )
+  dup 0 i.>                    # x > 0?
+  swap dup 1 i.subtract band   # x & (x-1)
+  0 i.=                        # == 0?
+  and                        # both conditions
+;
+
+# Round up to the next power of 2
+# Uses bit smearing followed by increment
+: next-power-of-2 ( Int -- Int )
+  1 i.subtract          # handle exact powers of 2
+  dup  1 shr bor      # smear bits right
+  dup  2 shr bor
+  dup  4 shr bor
+  dup  8 shr bor
+  dup 16 shr bor
+  dup 32 shr bor      # now all bits right of MSB are 1
+  1 i.add               # add 1 to get power of 2
+;
+
+# Find floor(log2(x)) for x > 0
+# This is the position of the most significant bit
+: log2-floor ( Int -- Int )
+  int-bits swap clz i.subtract 1 i.subtract
+;
+
+# Check if x is a power of 2 (alternative using popcount)
+: power-of-2-alt? ( Int -- Bool )
+  dup 0 i.>              # x > 0?
+  swap popcount 1 i.=    # exactly one bit set?
+  and
+;
+
+# Test helpers
+: bool->string ( Bool -- )
+  if "true" io.write-line
+  else "false" io.write-line
+  then
+;
+
+: test-power-check ( -- )
+  "Is power of 2?" io.write-line
+  "  1:  " io.write-line 1 power-of-2? bool->string
+  "  2:  " io.write-line 2 power-of-2? bool->string
+  "  3:  " io.write-line 3 power-of-2? bool->string
+  "  4:  " io.write-line 4 power-of-2? bool->string
+  "  5:  " io.write-line 5 power-of-2? bool->string
+  "  8:  " io.write-line 8 power-of-2? bool->string
+  "  16: " io.write-line 16 power-of-2? bool->string
+  "  0:  " io.write-line 0 power-of-2? bool->string
+  "" io.write-line
+;
+
+: test-next-power ( -- )
+  "Next power of 2:" io.write-line
+  "  1  -> " io.write-line 1 next-power-of-2 int->string io.write-line
+  "  3  -> " io.write-line 3 next-power-of-2 int->string io.write-line
+  "  5  -> " io.write-line 5 next-power-of-2 int->string io.write-line
+  "  7  -> " io.write-line 7 next-power-of-2 int->string io.write-line
+  "  9  -> " io.write-line 9 next-power-of-2 int->string io.write-line
+  "  17 -> " io.write-line 17 next-power-of-2 int->string io.write-line
+  "" io.write-line
+;
+
+: test-log2 ( -- )
+  "Floor of log2:" io.write-line
+  "  1   -> " io.write-line 1 log2-floor int->string io.write-line
+  "  2   -> " io.write-line 2 log2-floor int->string io.write-line
+  "  3   -> " io.write-line 3 log2-floor int->string io.write-line
+  "  4   -> " io.write-line 4 log2-floor int->string io.write-line
+  "  7   -> " io.write-line 7 log2-floor int->string io.write-line
+  "  8   -> " io.write-line 8 log2-floor int->string io.write-line
+  "  100 -> " io.write-line 100 log2-floor int->string io.write-line
+  "" io.write-line
+;
+
+: main ( -- )
+  "=== Hacker's Delight: Power of Two Operations ===" io.write-line
+  "" io.write-line
+  test-power-check
+  test-next-power
+  test-log2
+;

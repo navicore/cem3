@@ -1,0 +1,109 @@
+# Float Math Standard Library for Seq
+#
+# Common mathematical operations for floating-point arithmetic.
+#
+# ## Usage
+#
+#   include std:fmath
+#
+#   : main ( -- Int )
+#     -5.0 f.abs float->string io.write-line
+#     0
+#   ;
+#
+# ## Available Functions
+#
+# - f.abs: ( Float -- Float ) - Absolute value
+# - f.max: ( Float Float -- Float ) - Maximum of two values
+# - f.min: ( Float Float -- Float ) - Minimum of two values
+# - f.sign: ( Float -- Float ) - Sign function: returns -1.0, 0.0, or 1.0
+# - f.square: ( Float -- Float ) - Square a number
+# - f.clamp: ( Float Float Float -- Float ) - Clamp value between min and max
+# - f.neg: ( Float -- Float ) - Negate a float
+#
+# ## Notes
+#
+# - All operations use IEEE 754 double precision (f64)
+# - NaN and Infinity follow IEEE 754 semantics
+#
+# ## Examples
+#
+#   -3.14 f.abs        # Returns 3.14
+#   2.5 3.7 f.max      # Returns 3.7
+#   1.5 f.square       # Returns 2.25
+#   15.0 0.0 10.0 f.clamp  # Returns 10.0 (clamped to max)
+#
+
+# Absolute value for floats
+: f.abs ( Float -- Float )
+  dup dup 0.0 f.< if
+    nip 0.0 swap f.subtract
+  else
+    drop
+  then
+;
+
+# Maximum of two float values
+: f.max ( Float Float -- Float )
+  2dup f.> if
+    drop
+  else
+    nip
+  then
+;
+
+# Minimum of two float values
+: f.min ( Float Float -- Float )
+  2dup f.< if
+    drop
+  else
+    nip
+  then
+;
+
+# Sign function: returns -1.0, 0.0, or 1.0
+: f.sign ( Float -- Float )
+  dup 0.0 f.= if
+    drop 0.0
+  else
+    dup 0.0 f.< if
+      drop -1.0
+    else
+      drop 1.0
+    then
+  then
+;
+
+# Square a float
+: f.square ( Float -- Float )
+  dup f.multiply
+;
+
+# Negate a float
+: f.neg ( Float -- Float )
+  0.0 swap f.subtract
+;
+
+# Clamp value between min and max
+# Stack: ( value min max -- clamped )
+# Returns: min if value < min, max if value > max, else value
+: f.clamp ( Float Float Float -- Float )
+  # Stack: value min max
+  rot rot
+  # Stack: max value min
+  2dup f.< if
+    # value < min, return min
+    nip nip
+  else
+    # value >= min
+    drop
+    # Stack: max value
+    2dup f.> if
+      # value > max, return max
+      nip
+    else
+      # min <= value <= max, return value
+      drop
+    then
+  then
+;

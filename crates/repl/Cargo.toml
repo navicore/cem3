@@ -1,0 +1,47 @@
+[package]
+name = "seq-repl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "TUI REPL for the Seq programming language with IR visualization"
+repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
+keywords = ["repl", "language", "seq", "tui"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "seqr"
+path = "src/main.rs"
+
+[dependencies]
+# Seq compiler - version must EXACTLY match workspace version (enforced by CI)
+seq-compiler = { path = "../compiler", version = "=1.0.2" }
+
+# Vim-style line editing - version must EXACTLY match workspace version (enforced by CI)
+vim-line = { path = "../vim-line", version = "=1.0.2" }
+
+# CLI
+clap.workspace = true
+
+# TUI framework
+ratatui.workspace = true
+crossterm.workspace = true
+
+# Session file management
+tempfile.workspace = true
+
+# History persistence
+home.workspace = true
+
+# LSP client for completions
+lsp-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Safe shell command parsing for $EDITOR
+shlex = "1.3"
+
+[package.metadata.docs.rs]
+# Ensure seq-compiler builds correctly on docs.rs
+all-features = true

@@ -1,0 +1,151 @@
+# Default Seq Lint Rules
+#
+# These patterns detect common inefficiencies and suggest improvements.
+# Phase 1: Syntactic patterns (word sequence matching)
+
+# =============================================================================
+# Redundant Operations (no-ops)
+# =============================================================================
+
+[[lint]]
+id = "redundant-dup-drop"
+pattern = "dup drop"
+replacement = ""
+message = "`dup drop` has no effect - remove both words"
+severity = "warning"
+
+[[lint]]
+id = "redundant-swap-swap"
+pattern = "swap swap"
+replacement = ""
+message = "consecutive `swap swap` cancel out - remove both"
+severity = "warning"
+
+[[lint]]
+id = "redundant-over-drop"
+pattern = "over drop"
+replacement = ""
+message = "`over drop` has no effect - remove both words"
+severity = "warning"
+
+[[lint]]
+id = "redundant-dup-nip"
+pattern = "dup nip"
+replacement = ""
+message = "`dup nip` has no effect - remove both words"
+severity = "warning"
+
+[[lint]]
+id = "redundant-rot-rot-rot"
+pattern = "rot rot rot"
+replacement = ""
+message = "three `rot` calls cancel out - remove all three"
+severity = "warning"
+
+# =============================================================================
+# Prefer Idiomatic Words
+# =============================================================================
+
+[[lint]]
+id = "prefer-nip"
+pattern = "swap drop"
+replacement = "nip"
+message = "prefer `nip` over `swap drop`"
+severity = "hint"
+
+[[lint]]
+id = "prefer-tuck"
+pattern = "swap over"
+replacement = "tuck"
+message = "prefer `tuck` over `swap over`"
+severity = "hint"
+
+[[lint]]
+id = "prefer-2dup"
+pattern = "over over"
+replacement = "2dup"
+message = "prefer `2dup` over `over over`"
+severity = "hint"
+
+# =============================================================================
+# Potentially Suspicious Patterns
+# =============================================================================
+
+[[lint]]
+id = "drop-drop-drop"
+pattern = "drop drop drop"
+replacement = ""
+message = "dropping three values in a row - consider using `3drop` or refactoring to avoid excess stack values"
+severity = "hint"
+
+# NOTE: "immediate-drop" pattern ([ drop) removed - it incorrectly matches
+# across statement boundaries. Will be re-added when quotation-specific
+# linting is implemented in Phase 2.
+
+# =============================================================================
+# Unchecked Error Returns
+# =============================================================================
+# Operations that return success flags should have their flags checked.
+# Dropping the flag without checking can hide errors.
+
+[[lint]]
+id = "unchecked-chan-send"
+pattern = "chan.send drop"
+replacement = ""
+message = "`chan.send` returns a success flag - dropping it hides send failures"
+severity = "warning"
+
+[[lint]]
+id = "unchecked-chan-receive"
+pattern = "chan.receive drop"
+replacement = ""
+message = "`chan.receive` returns (value Bool) - check the Bool before using the value"
+severity = "warning"
+
+[[lint]]
+id = "unchecked-map-get"
+pattern = "map.get drop"
+replacement = ""
+message = "`map.get` returns (value Bool) - check the Bool before using the value"
+severity = "hint"
+
+[[lint]]
+id = "unchecked-file-slurp"
+pattern = "file.slurp drop"
+replacement = ""
+message = "`file.slurp` returns (content Bool) - check the Bool before using the content"
+severity = "hint"
+
+[[lint]]
+id = "unchecked-read-line"
+pattern = "io.read-line drop"
+replacement = ""
+message = "`io.read-line` returns (String Bool) - check the Bool before using the String"
+severity = "hint"
+
+# =============================================================================
+# Weave/Generator Resource Leaks
+# =============================================================================
+# Weaves must be either resumed to completion OR explicitly cancelled.
+# Dropping a WeaveHandle without doing either causes the coroutine to hang.
+
+[[lint]]
+id = "weave-immediate-drop"
+pattern = "strand.weave drop"
+replacement = ""
+message = "`strand.weave` handle dropped immediately - weave will hang forever. Use `strand.weave-cancel` or resume to completion."
+severity = "error"
+
+[[lint]]
+id = "unchecked-resume"
+pattern = "strand.resume drop drop drop"
+replacement = ""
+message = "`strand.resume` returns (handle value Bool) - check the Bool to detect weave completion and avoid resource leaks"
+severity = "warning"
+
+[[lint]]
+id = "unchecked-resume-result"
+pattern = "strand.resume drop drop"
+replacement = ""
+message = "`strand.resume` returns (handle value Bool) - the Bool indicates if the weave has more values"
+severity = "hint"

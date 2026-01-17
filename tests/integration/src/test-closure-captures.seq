@@ -1,0 +1,32 @@
+# Closure Capture Type Tests
+# Tests capture of Bool, Float, and Quotation types
+
+# Test Int capture (already supported, baseline)
+: test-int-capture ( -- )
+  42 [ 42 i.= ] call test.assert
+;
+
+# Test String capture (already supported, baseline)
+: test-string-capture ( -- )
+  "hello" [ "hello" string.equal? ] call test.assert
+;
+
+# Test Bool capture
+: test-bool-capture ( -- )
+  # Capture true and verify it's true
+  true [ test.assert ] call
+  # Capture false and verify it's false
+  false [ not test.assert ] call
+;
+
+# Test Float capture
+: test-float-capture ( -- )
+  # Capture 1.234 and verify it's > 1.0
+  1.234 [ 1.0 f.> test.assert ] call
+;
+
+# Test Quotation capture
+: test-quotation-capture ( -- )
+  # Capture [2 multiply] and apply it to 5, expect 10
+  [ 2 i.multiply ] [ 5 swap call 10 i.= test.assert ] call
+;

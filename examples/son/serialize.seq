@@ -1,0 +1,63 @@
+# Example: Serializing values to SON format
+#
+# This demonstrates using son.dump and son.dump-pretty to
+# convert Seq values to their SON string representation.
+
+include std:son
+
+: print-section ( String -- )
+  io.write-line
+  "---" io.write-line
+;
+
+: show-son ( String T -- )
+  # ( label value -- )
+  son.dump
+  ": " string.concat
+  swap string.concat
+  io.write-line
+;
+
+: main ( -- )
+  "=== SON Serialization Examples ===" io.write-line
+
+  "Primitives" print-section
+  "Integer" 42 show-son
+  "Negative" -123 show-son
+  "Float" 3.14 show-son
+  "Bool true" true show-son
+  "Bool false" false show-son
+  "String" "hello world" show-son
+  "Symbol" :my-symbol show-son
+
+  "Lists" print-section
+  "Empty list" list-of show-son
+  "Number list" list-of 1 lv 2 lv 3 lv show-son
+  "Mixed list" list-of "a" lv true lv 42 lv show-son
+
+  "Maps" print-section
+  "Empty map" map-of show-son
+  "Simple map" map-of "name" "Alice" kv "age" 30 kv show-son
+
+  "Variants" print-section
+  "No fields" :None wrap-0 show-son
+  "One field" 42 :Some wrap-1 show-son
+  "Two fields" 10 20 :Point wrap-2 show-son
+
+  "Nested structures" print-section
+  "List in map"
+    map-of
+      "items" list-of 1 lv 2 lv 3 lv kv
+      "count" 3 kv
+    show-son
+
+  "" io.write-line
+  "=== Pretty Print Example ===" io.write-line
+  map-of
+    "users" list-of
+      map-of "name" "Alice" kv "age" 30 kv lv
+      map-of "name" "Bob" kv "age" 25 kv lv
+    kv
+    "active" true kv
+  son.dump-pretty io.write-line
+;

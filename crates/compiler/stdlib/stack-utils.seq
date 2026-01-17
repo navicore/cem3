@@ -1,0 +1,46 @@
+# Stack Manipulation Utilities for Seq
+#
+# Common stack operations built from primitives.
+#
+# ## Usage
+#
+#   include std:stack-utils
+#
+#   : main ( -- Int )
+#     1 2 2dup  # Stack: 1 2 1 2
+#     0
+#   ;
+#
+# ## Available Builtins
+#
+# Seq provides these primitive stack operations as builtins:
+# - dup, drop, swap, over, rot, nip, tuck, pick, 2dup, 3drop
+#
+# ## Available Functions
+#
+# - 2drop: ( A B -- ) - Drop top two values
+#
+# ## Advanced Operations (Require pick)
+#
+# With the pick operation, you can build more complex utilities:
+# - third: ( A B C -- A B C A ) via `2 pick`
+# - fourth: ( A B C D -- A B C D A ) via `3 pick`
+# - 3dup: ( A B C -- A B C A B C ) via `2 pick 2 pick 2 pick`
+#
+# ## Notes
+#
+# - These are building blocks for more complex stack manipulation
+# - Operations are type-polymorphic (work with any value types)
+# - Stack effects must balance within word definitions
+#
+# ## Examples
+#
+#   1 2 2dup         # Stack: 1 2 1 2
+#   1 2 3 2drop      # Stack: 1
+#   10 20 30 2 pick  # Stack: 10 20 30 10
+#
+
+# Drop top two values
+: 2drop ( A B -- )
+  drop drop
+;

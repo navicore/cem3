@@ -1,0 +1,110 @@
+# JSON Tree Viewer
+#
+# A practical example: Parse JSON and display structure.
+#
+# Usage:
+#   # With a JSON file:
+#   ./json_tree config.json
+#
+#   # With command-line JSON string:
+#   ./json_tree '42'
+#   ./json_tree 'true'
+#   ./json_tree '[42]'
+#   ./json_tree '"hello"'
+#
+#   # Interactive (reads from stdin):
+#   ./json_tree
+#   echo '42' | ./json_tree
+#
+# ROADMAP - What we still need:
+#   - write (without newline) for proper formatting
+#   - String escape sequences
+#
+# Currently works with:
+#   - Primitives: null, true, false, numbers, strings
+#   - Arrays: any length, nested
+#   - Objects: any number of key-value pairs, nested
+#   - Complex structures: [{"name": "John", "age": 30}, ...]
+
+include std:json
+
+# Format a JSON value as an indented string
+: json-format
+  json-serialize
+  "  " swap string.concat
+;
+
+# Check if argument looks like a file (ends with .json)
+# Non-destructive: keeps the string on stack
+: is-json-file? ( String -- String Bool )
+  dup ".json" string.contains
+;
+
+# Read file or return empty string if not found/unreadable
+: read-json-file ( String -- String )
+  dup file.exists? if
+    file.slurp if
+      # success - content is on stack
+    else
+      drop ""  # failed to read - return empty string
+    then
+  else
+    drop ""
+  then
+;
+
+# Process argument: if it's a .json file, read it; otherwise return as-is
+: process-arg ( String -- String )
+  is-json-file? if
+    read-json-file
+  else
+    # Not a file - return as JSON string directly
+  then
+;
+
+# Get JSON input - from file, command line, or stdin
+: get-json-input ( -- String )
+  args.count 1 i.> if
+    # Have an argument
+    1 args.at process-arg
+  else
+    # No argument - read from stdin
+    "Paste JSON and press Enter:" io.write-line
+    io.read-line  # ( String Bool )
+    if
+      string.chomp
+    else
+      drop ""  # I/O error or EOF - return empty string
+    then
+  then
+;
+
+: main ( -- Int )
+  "=== JSON Tree Viewer ===" io.write-line
+  "" io.write-line
+
+  get-json-input
+
+  dup string.length 0 i.= if
+    drop
+    "No input." io.write-line
+    1
+  else
+    "Input: " over string.concat io.write-line
+    "" io.write-line
+
+    json-parse
+    not if
+      drop
+      "Parse error!" io.write-line
+      1
+    else
+      # variant.tag now returns Symbol (e.g., :JsonNull, :JsonBool, etc.)
+      # The tag is now symbolic rather than numeric
+
+      "Value:" io.write-line
+      json-format io.write-line
+      0
+    then
+  then
+;

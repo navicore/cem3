@@ -1,0 +1,36 @@
+# Test variant field access operations
+# Demonstrates parsing a simple HTTP-style path
+
+: extract-echo-message ( String -- String )
+  # Input: "GET /echo/hello HTTP/1.1"
+  " " string.split         # Split by space
+
+  # Get the path (index 1)
+  1 variant.field-at       # Get "/echo/hello"
+
+  # Split path by /
+  "/" string.split         # Split by /
+
+  # Path segments: ["", "echo", "hello"]
+  # Get the message (index 2)
+  2 variant.field-at       # Get "hello"
+;
+
+: test-extract-hello ( -- )
+  "GET /echo/hello HTTP/1.1" extract-echo-message
+  "hello" string.equal? test.assert
+;
+
+: test-extract-world ( -- )
+  "GET /echo/world HTTP/1.1" extract-echo-message
+  "world" string.equal? test.assert
+;
+
+: test-extract-user-id ( -- )
+  "GET /api/users/123 HTTP/1.1"
+  " " string.split
+  1 variant.field-at      # Get "/api/users/123"
+  "/" string.split
+  3 variant.field-at      # Get "123"
+  "123" string.equal? test.assert
+;

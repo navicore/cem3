@@ -1,0 +1,59 @@
+# Test type-safe make-variant-N builtins
+#
+# These builtins properly account for field consumption in the type system,
+# providing compile-time type safety for variant creation.
+# Note: variant.make-N takes a Symbol tag, variant.tag returns Symbol
+
+# 0 fields: empty variant
+: make-empty ( -- Variant )
+  :Empty variant.make-0 ;
+
+# 1 field: wrap a value
+: make-box ( Int -- Variant )
+  :Box variant.make-1 ;
+
+# 2 fields: a pair
+: make-pair ( Int String -- Variant )
+  :Pair variant.make-2 ;
+
+# 3 fields: a triple
+: make-triple ( Int Int Int -- Variant )
+  :Triple variant.make-3 ;
+
+# 4 fields: a quad
+: make-quad ( Int Int Int Int -- Variant )
+  :Quad variant.make-4 ;
+
+: test-empty ( -- )
+  make-empty variant.tag :Empty symbol.= test.assert
+;
+
+: test-box ( -- )
+  42 make-box
+  dup variant.tag :Box symbol.= test.assert
+  0 variant.field-at 42 test.assert-eq
+;
+
+: test-pair ( -- )
+  100 "hello" make-pair
+  dup variant.tag :Pair symbol.= test.assert
+  dup 0 variant.field-at 100 test.assert-eq
+  1 variant.field-at "hello" string.equal? test.assert
+;
+
+: test-triple ( -- )
+  1 2 3 make-triple
+  dup variant.tag :Triple symbol.= test.assert
+  dup 0 variant.field-at 1 test.assert-eq
+  dup 1 variant.field-at 2 test.assert-eq
+  2 variant.field-at 3 test.assert-eq
+;
+
+: test-quad ( -- )
+  10 20 30 40 make-quad
+  dup variant.tag :Quad symbol.= test.assert
+  dup 0 variant.field-at 10 test.assert-eq
+  dup 1 variant.field-at 20 test.assert-eq
+  dup 2 variant.field-at 30 test.assert-eq
+  3 variant.field-at 40 test.assert-eq
+;

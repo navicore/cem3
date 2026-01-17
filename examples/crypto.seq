@@ -1,0 +1,230 @@
+# Crypto Examples: Hashing, HMAC, Random, UUID, Encryption
+#
+# This example demonstrates the crypto builtins for secure
+# hashing, message authentication, and random generation.
+
+# Helper to show a result
+: show ( String String -- )
+  swap string.concat io.write-line
+;
+
+# SHA-256 hashing
+: demo-sha256 ( -- )
+  "=== SHA-256 Hashing ===" io.write-line
+  "" io.write-line
+
+  "hello" crypto.sha256
+  "Hash of 'hello': " show
+
+  "Hello" crypto.sha256
+  "Hash of 'Hello': " show
+
+  # Different inputs = different hashes
+  "" io.write-line
+;
+
+# HMAC-SHA256 for authentication
+: demo-hmac ( -- )
+  "=== HMAC-SHA256 ===" io.write-line
+  "" io.write-line
+
+  # Sign a message with a secret key
+  "Important message" "my-secret-key" crypto.hmac-sha256
+  "Signature: " show
+
+  # Same message + same key = same signature
+  "Important message" "my-secret-key" crypto.hmac-sha256
+  "Same again: " show
+
+  # Different key = different signature
+  "Important message" "different-key" crypto.hmac-sha256
+  "Wrong key:  " show
+
+  "" io.write-line
+;
+
+# Webhook verification pattern
+: demo-webhook ( -- )
+  "=== Webhook Verification ===" io.write-line
+  "" io.write-line
+
+  # Simulate: webhook sends payload + signature
+  "webhook-secret"  # The shared secret
+  "order-id=12345&status=paid"  # The payload
+
+  # Compute expected signature
+  over crypto.hmac-sha256
+
+  # In reality, you'd receive this from the webhook header
+  # Here we'll compute a "received" signature for comparison
+  "webhook-secret"
+  "order-id=12345&status=paid"
+  rot drop  # Clean up, use the secret we have
+  crypto.hmac-sha256
+
+  # Compare using constant-time comparison (prevents timing attacks)
+  crypto.constant-time-eq
+
+  if
+    "Webhook signature VALID" io.write-line
+  else
+    "Webhook signature INVALID!" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Secure random generation
+: demo-random ( -- )
+  "=== Secure Random ===" io.write-line
+  "" io.write-line
+
+  16 crypto.random-bytes
+  "16 random bytes: " show
+
+  32 crypto.random-bytes
+  "32 random bytes: " show
+
+  # Generate a session token
+  24 crypto.random-bytes
+  "Session token:   " show
+
+  "" io.write-line
+;
+
+# UUID generation
+: demo-uuid ( -- )
+  "=== UUID v4 ===" io.write-line
+  "" io.write-line
+
+  crypto.uuid4
+  "UUID 1: " show
+
+  crypto.uuid4
+  "UUID 2: " show
+
+  crypto.uuid4
+  "UUID 3: " show
+
+  "" io.write-line
+;
+
+# AES-256-GCM Encryption
+: demo-encryption ( -- )
+  "=== AES-256-GCM Encryption ===" io.write-line
+  "" io.write-line
+
+  # Generate a random 32-byte key (64 hex chars)
+  32 crypto.random-bytes
+  dup "Generated key: " show
+
+  # Stack: [key]
+  # Encrypt a message
+  "Secret message: Hello, World!"
+  dup "  Original: " show
+  # Stack: [key, message]
+  over crypto.aes-gcm-encrypt
+  # Stack: [key, ciphertext, bool]
+  if
+    dup "  Encrypted: " show
+    # Stack: [key, ciphertext]
+    # Decrypt with same key - need (ciphertext, key)
+    swap crypto.aes-gcm-decrypt
+    # Stack: [plaintext, bool]
+    if
+      "  Decrypted: " show
+    else
+      drop "  Decryption failed" io.write-line
+    then
+  else
+    drop drop "  Encryption failed" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# PBKDF2 Key Derivation
+: demo-pbkdf2 ( -- )
+  "=== PBKDF2 Key Derivation ===" io.write-line
+  "" io.write-line
+
+  # Derive a key from a password
+  "user-password" "unique-salt-123" 100000 crypto.pbkdf2-sha256
+  # Stack: [key, bool]
+  if
+    dup "Derived key: " show
+    # Stack: [key]
+
+    # Use the derived key for encryption
+    "Sensitive data to protect"
+    # Stack: [key, message]
+    over crypto.aes-gcm-encrypt
+    # Stack: [key, ciphertext, bool]
+    if
+      dup "  Encrypted with derived key: " show
+      # Stack: [key, ciphertext]
+
+      # Decrypt - need (ciphertext, key)
+      swap crypto.aes-gcm-decrypt
+      # Stack: [plaintext, bool]
+      if
+        "  Decrypted: " show
+      else
+        drop "  Decryption failed" io.write-line
+      then
+    else
+      drop drop "  Encryption failed" io.write-line
+    then
+  else
+    drop "  Key derivation failed" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Ed25519 Digital Signatures
+: demo-signatures ( -- )
+  "=== Ed25519 Digital Signatures ===" io.write-line
+  "" io.write-line
+
+  # Generate a keypair
+  crypto.ed25519-keypair
+  # Stack: public-key private-key
+  dup "Private key: " show
+  over "Public key:  " show
+
+  # Sign a message
+  "This is an important message that needs authentication."
+  dup "  Message: " show
+  # Stack: public-key private-key message
+  swap crypto.ed25519-sign
+  # Stack: public-key signature success
+  if
+    dup "  Signature: " show
+    # Stack: public-key signature
+
+    # Verify the signature
+    swap "This is an important message that needs authentication." rot rot
+    crypto.ed25519-verify
+    if
+      "  Verification: VALID" io.write-line
+    else
+      "  Verification: INVALID" io.write-line
+    then
+  else
+    drop drop "  Signing failed" io.write-line
+  then
+
+  "" io.write-line
+;
+
+# Run all demos
+: main ( -- )
+  demo-sha256
+  demo-hmac
+  demo-random
+  demo-uuid
+  demo-encryption
+  demo-pbkdf2
+  demo-signatures
+;

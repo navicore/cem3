@@ -1,0 +1,10 @@
+# Simple test
+
+: myhello
+  "myhello works!" io.write-line
+;
+
+: main ( -- Int )
+  myhello
+  0
+;

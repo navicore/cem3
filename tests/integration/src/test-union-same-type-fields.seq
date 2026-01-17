@@ -1,0 +1,31 @@
+# Test case for Issue #65: Union type unification with same-type fields
+#
+# This tests if a variant with two fields of the same union type
+# causes unification errors. NO INCLUDES used - single file test.
+
+# Define a simple union type
+union Sexpr {
+  Nil
+  Number { value: Int }
+}
+
+# Variant with TWO fields of the SAME union type (Sexpr)
+union Lambda {
+  MakeLambda { params: Sexpr, body: Sexpr }
+}
+
+# Constructor: Make-MakeLambda ( Sexpr Sexpr -- Lambda )
+# This should work - two Sexpr values go in, one Lambda comes out
+
+: test-make-lambda ( -- )
+  # Create two Sexpr values
+  42 Make-Number     # First Sexpr (params)
+  99 Make-Number     # Second Sexpr (body)
+
+  # Create the Lambda with both Sexpr values
+  Make-MakeLambda
+
+  # If we get here, unification worked - verify structure
+  dup variant.tag :MakeLambda symbol.= test.assert  # MakeLambda variant
+  drop
+;

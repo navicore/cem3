@@ -1,0 +1,85 @@
+# Hacker's Delight: Rightmost Bit Manipulation
+#
+# Classic bit manipulation tricks from Chapter 2 of Hacker's Delight.
+# These operations are fundamental building blocks for many algorithms.
+
+# Turn off the rightmost 1-bit
+# Formula: x & (x - 1)
+# Example: 0b1010 -> 0b1000 (turns off the rightmost 1)
+: rightmost-1-off ( Int -- Int )
+  dup 1 i.subtract band
+;
+
+# Isolate the rightmost 1-bit
+# Formula: x & (-x)  or equivalently  x & (~x + 1)
+# Example: 0b1010 -> 0b0010 (isolates the rightmost 1)
+: rightmost-1-isolate ( Int -- Int )
+  dup 0 swap i.subtract band  # x & (-x)
+;
+
+# Turn on the rightmost 0-bit
+# Formula: x | (x + 1)
+# Example: 0b1010 -> 0b1011 (turns on the rightmost 0)
+: rightmost-0-on ( Int -- Int )
+  dup 1 i.add bor
+;
+
+# Isolate the rightmost 0-bit
+# Formula: ~x & (x + 1)
+# Example: 0b1010 -> 0b0001 (isolates the rightmost 0)
+: rightmost-0-isolate ( Int -- Int )
+  dup bnot swap 1 i.add band
+;
+
+# Right-propagate the rightmost 1-bit
+# Formula: x | (x - 1)
+# Example: 0b1010 -> 0b1011 (propagates rightmost 1 to fill trailing 0s)
+: rightmost-1-propagate ( Int -- Int )
+  dup 1 i.subtract bor
+;
+
+# Test and display
+: show-binary ( Int -- )
+  int->string io.write-line
+;
+
+: test-rightmost-1-off ( -- )
+  "Turn off rightmost 1-bit: x & (x - 1)" io.write-line
+  "  0b1010 (10) -> " io.write-line
+  0b1010 rightmost-1-off
+  "  Result: " io.write-line show-binary
+  ""  io.write-line
+;
+
+: test-rightmost-1-isolate ( -- )
+  "Isolate rightmost 1-bit: x & (-x)" io.write-line
+  "  0b1010 (10) -> " io.write-line
+  0b1010 rightmost-1-isolate
+  "  Result: " io.write-line show-binary
+  "" io.write-line
+;
+
+: test-rightmost-0-on ( -- )
+  "Turn on rightmost 0-bit: x | (x + 1)" io.write-line
+  "  0b1010 (10) -> " io.write-line
+  0b1010 rightmost-0-on
+  "  Result: " io.write-line show-binary
+  "" io.write-line
+;
+
+: test-rightmost-0-isolate ( -- )
+  "Isolate rightmost 0-bit: ~x & (x + 1)" io.write-line
+  "  0b1010 (10) -> " io.write-line
+  0b1010 rightmost-0-isolate
+  "  Result: " io.write-line show-binary
+  "" io.write-line
+;
+
+: main ( -- )
+  "=== Hacker's Delight: Rightmost Bit Manipulation ===" io.write-line
+  "" io.write-line
+  test-rightmost-1-off
+  test-rightmost-1-isolate
+  test-rightmost-0-on
+  test-rightmost-0-isolate
+;

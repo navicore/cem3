@@ -1,0 +1,25 @@
+# Compiled Seq binaries (same name as .seq file without extension)
+skynet/skynet
+pingpong/pingpong
+fanout/fanout
+
+# Compiled Go binaries
+*_go
+
+# Compiled Rust binaries
+*_rust
+
+# Compiled compute benchmarks (Seq)
+compute/*_seq
+
+# Rust profiling binaries
+*_profile
+spawn_profile
+stack_clone_profile
+stack_ops_profile
+
+# Cargo target directories
+**/target/
+
+# Object files
+*.o

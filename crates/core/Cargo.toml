@@ -1,0 +1,21 @@
+[package]
+name = "seq-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core runtime library for stack-based languages (Value, Stack, Channels)"
+repository = "https://github.com/navicore/patch-seq"
+readme = "README.md"
+keywords = ["runtime", "language", "stack", "core"]
+categories = ["compilers", "development-tools"]
+
+[lib]
+crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for dependencies
+
+[dependencies]
+# May - Erlang-style green threads / coroutines for CSP concurrency
+may.workspace = true
+
+# Bumpalo - Fast bump allocation for strand-local arenas
+bumpalo.workspace = true

@@ -1,0 +1,100 @@
+# Hacker's Delight: Branchless Operations
+#
+# Performing conditional operations without branches.
+#
+# Note: Classic Hacker's Delight uses arithmetic right shift (sign-extending).
+# Seq has logical right shift, so we use alternative formulations based on
+# comparison operators. Bool results are converted to 0/1 integers for arithmetic.
+
+# Convert Bool to Int (0 or 1)
+: bool->int ( Bool -- Int )
+  if 1 else 0 then
+;
+
+# Create a mask: -1 if x < 0, else 0
+: negative-mask ( Int -- Int )
+  0 i.< bool->int        # 1 if negative, 0 if not
+  0 swap i.subtract      # -1 or 0
+;
+
+# Absolute value without branching
+# mask = -1 if x < 0, else 0
+# result = (x ^ mask) - mask
+: abs-branchless ( Int -- Int )
+  dup negative-mask    # x mask
+  dup rot              # mask mask x
+  bxor                 # mask (x ^ mask)
+  swap i.subtract        # (x ^ mask) - mask
+;
+
+# Sign of x: returns -1, 0, or 1
+: sign ( Int -- Int )
+  dup 0 i.> bool->int    # x pos?
+  swap 0 i.< bool->int   # pos? neg?
+  0 swap i.subtract      # pos? -neg?
+  i.add                  # pos - neg = 1, -1, or 0
+;
+
+# Branchless min using the formula:
+# min(a, b) = b + ((a - b) & mask)  where mask = -1 if a < b, else 0
+: min-branchless ( Int Int -- Int )
+  2dup i.subtract   # a b (a-b)
+  dup 0 i.< bool->int    # a b diff (diff<0)?
+  0 swap i.subtract      # a b diff mask
+  band                 # a b (diff & mask)
+  i.add                  # a (b + masked_diff)
+  nip                  # result
+;
+
+# Branchless max using the formula:
+# max(a, b) = a - ((a - b) & mask)  where mask = -1 if a < b, else 0
+: max-branchless ( Int Int -- Int )
+  2dup i.subtract   # a b (a-b)
+  dup 0 i.< bool->int    # a b diff (diff<0)?
+  0 swap i.subtract      # a b diff mask
+  band                 # a b (diff & mask)
+  rot swap             # b a masked_diff
+  i.subtract             # b (a - masked_diff)
+  nip                  # result
+;
+
+# Test helpers
+: show ( Int String -- )
+  io.write-line int->string io.write-line
+;
+
+: test-abs ( -- )
+  "Absolute value (branchless):" io.write-line
+  5 abs-branchless "  abs(5) = " show
+  -5 abs-branchless "  abs(-5) = " show
+  0 abs-branchless "  abs(0) = " show
+  -100 abs-branchless "  abs(-100) = " show
+  "" io.write-line
+;
+
+: test-sign ( -- )
+  "Sign function (-1, 0, or 1):" io.write-line
+  42 sign "  sign(42) = " show
+  -17 sign "  sign(-17) = " show
+  0 sign "  sign(0) = " show
+  "" io.write-line
+;
+
+: test-minmax ( -- )
+  "Min/Max (branchless):" io.write-line
+  3 7 min-branchless "  min(3, 7) = " show
+  7 3 min-branchless "  min(7, 3) = " show
+  3 7 max-branchless "  max(3, 7) = " show
+  7 3 max-branchless "  max(7, 3) = " show
+  -5 5 min-branchless "  min(-5, 5) = " show
+  -5 5 max-branchless "  max(-5, 5) = " show
+  "" io.write-line
+;
+
+: main ( -- )
+  "=== Hacker's Delight: Branchless Operations ===" io.write-line
+  "" io.write-line
+  test-abs
+  test-sign
+  test-minmax
+;

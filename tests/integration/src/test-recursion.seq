@@ -1,0 +1,49 @@
+# Recursion and TCO tests
+
+# Factorial using recursion
+: factorial ( Int -- Int )
+  dup 1 i.<= if
+    drop 1
+  else
+    dup 1 i.subtract factorial i.multiply
+  then
+;
+
+: test-factorial ( -- )
+  5 factorial 120 test.assert-eq
+  0 factorial 1 test.assert-eq
+  1 factorial 1 test.assert-eq
+;
+
+# Fibonacci using recursion
+: fib ( Int -- Int )
+  dup 2 i.< if
+    drop 1
+  else
+    dup 1 i.subtract fib
+    swap 2 i.subtract fib
+    i.add
+  then
+;
+
+: test-fibonacci ( -- )
+  0 fib 1 test.assert-eq
+  5 fib 8 test.assert-eq
+  10 fib 89 test.assert-eq
+;
+
+# Tail-recursive countdown for TCO stress test
+: countdown ( Int -- Int )
+  dup 0 i.<= if
+    drop 0
+  else
+    1 i.subtract countdown
+  then
+;
+
+: test-tco-stress ( -- )
+  # Test with 100,000 recursive calls
+  # Without TCO, this would cause stack overflow
+  100000 countdown 0 test.assert-eq
+  10 countdown 0 test.assert-eq
+;

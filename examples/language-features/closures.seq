@@ -1,0 +1,72 @@
+# Closures - quotations that capture values from their environment
+#
+# In Seq, closures are quotations whose declared type differs from their
+# natural type - the missing inputs are captured from the stack.
+#
+# Example: [ i.add ] naturally needs 2 Ints, but if the return type is
+# Closure[Int -- Int], it captures one Int from the current stack.
+
+# Basic closure - captures a value for addition
+: make-adder ( Int -- Closure[Int -- Int] )
+  [ i.add ]
+;
+
+# Closure capturing a multiplier
+: make-multiplier ( Int -- Closure[Int -- Int] )
+  [ i.* ]
+;
+
+# Using closures
+: demo-adder ( -- )
+  5 make-adder
+  3 swap call
+  int->string io.write-line
+;
+
+: demo-multiplier ( -- )
+  5 make-multiplier
+  3 swap call
+  int->string io.write-line
+;
+
+# Closure vs quotation comparison
+: demo-difference ( -- )
+  # Quotation with literal - always adds 5
+  "Quotation [5 i.add]: 10 + 5 = " io.write-line
+  10 [ 5 i.add ] call int->string io.write-line
+
+  # Closure - captures 7 from stack
+  "Closure 7 make-adder: 10 + 7 = " io.write-line
+  7 make-adder 10 swap call int->string io.write-line
+;
+
+# Composing closures
+: demo-compose ( -- )
+  "Compose: (10 * 2) + 3 = " io.write-line
+  2 make-multiplier
+  3 make-adder
+  10
+  rot call
+  swap call
+  int->string io.write-line
+;
+
+# Main
+: main ( -- )
+  "=== Closures Demo ===" io.write-line
+  "" io.write-line
+
+  "Adder (5 + 3):" io.write-line
+  demo-adder
+
+  "" io.write-line
+  "Multiplier (5 * 3):" io.write-line
+  demo-multiplier
+
+  "" io.write-line
+  "Quotation vs Closure:" io.write-line
+  demo-difference
+
+  "" io.write-line
+  demo-compose
+;

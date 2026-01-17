@@ -1,0 +1,212 @@
+# FFI Manifest for SQLite3
+#
+# Provides basic SQLite database access from Seq programs.
+#
+# Installation:
+#   macOS: Already installed (or brew install sqlite3)
+#   Ubuntu/Debian: apt install libsqlite3-dev
+#   Fedora: dnf install sqlite-devel
+#
+# Usage in Seq (with --ffi-manifest):
+#   seqc --ffi-manifest sqlite.toml myapp.seq -o myapp
+#
+#   "test.db" db-open    # ( path -- db-handle result-code )
+#   0 = if
+#     # success - db-handle is now on stack
+#     dup "CREATE TABLE users (id INT, name TEXT)" db-exec
+#     # ... use database ...
+#     db-close drop
+#   else
+#     drop "Failed to open" write_line
+#   then
+
+[[library]]
+name = "sqlite3"
+link = "sqlite3"
+
+# sqlite3_open(const char *filename, sqlite3 **ppDb) -> int
+# Opens a database file. The db handle is returned via out parameter.
+[[library.function]]
+c_name = "sqlite3_open"
+seq_name = "db-open"
+stack_effect = "( String -- Int Int )"
+args = [
+  { type = "string", pass = "c_string" },
+  { type = "ptr", pass = "by_ref" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_close(sqlite3 *db) -> int
+# Closes a database connection.
+[[library.function]]
+c_name = "sqlite3_close"
+seq_name = "db-close"
+stack_effect = "( Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_exec(sqlite3 *db, const char *sql, callback, arg, errmsg) -> int
+# Executes SQL statement. Callback and errmsg are NULL for simple usage.
+[[library.function]]
+c_name = "sqlite3_exec"
+seq_name = "db-exec"
+stack_effect = "( Int String -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "string", pass = "c_string" },
+  { type = "ptr", value = "null" },
+  { type = "ptr", value = "null" },
+  { type = "ptr", value = "null" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_errmsg(sqlite3 *db) -> const char*
+# Returns the error message for the most recent error.
+[[library.function]]
+c_name = "sqlite3_errmsg"
+seq_name = "db-errmsg"
+stack_effect = "( Int -- Int String )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "string"
+ownership = "static"
+
+# =============================================================================
+# Prepared Statement API
+# =============================================================================
+#
+# For queries that return results, use the prepared statement API:
+#   1. db-prepare   - compile SQL to statement
+#   2. db-bind-*    - bind parameters (if using ?)
+#   3. db-step      - execute/fetch rows (returns SQLITE_ROW=100 or SQLITE_DONE=101)
+#   4. db-column-*  - read column values
+#   5. db-finalize  - clean up statement
+
+# sqlite3_prepare_v2(db, sql, nByte, &stmt, NULL) -> int
+# Compiles SQL into a prepared statement. Returns statement handle via out param.
+[[library.function]]
+c_name = "sqlite3_prepare_v2"
+seq_name = "db-prepare"
+stack_effect = "( Int String -- Int Int )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "string", pass = "c_string" },
+  { type = "int", value = "-1" },
+  { type = "ptr", pass = "by_ref" },
+  { type = "ptr", value = "null" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_step(stmt) -> int
+# Executes statement. Returns SQLITE_ROW (100) if row available, SQLITE_DONE (101) when finished.
+[[library.function]]
+c_name = "sqlite3_step"
+seq_name = "db-step"
+stack_effect = "( Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_finalize(stmt) -> int
+# Destroys a prepared statement. Always call when done.
+[[library.function]]
+c_name = "sqlite3_finalize"
+seq_name = "db-finalize"
+stack_effect = "( Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_reset(stmt) -> int
+# Resets a prepared statement for re-execution (with new bindings).
+[[library.function]]
+c_name = "sqlite3_reset"
+seq_name = "db-reset"
+stack_effect = "( Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_column_int(stmt, iCol) -> int
+# Returns integer value from column iCol of current row.
+[[library.function]]
+c_name = "sqlite3_column_int"
+seq_name = "db-column-int"
+stack_effect = "( Int Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "int", pass = "int" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_column_text(stmt, iCol) -> const char*
+# Returns text value from column iCol of current row.
+[[library.function]]
+c_name = "sqlite3_column_text"
+seq_name = "db-column-text"
+stack_effect = "( Int Int -- String )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "int", pass = "int" }
+]
+[library.function.return]
+type = "string"
+ownership = "static"
+
+# sqlite3_column_count(stmt) -> int
+# Returns number of columns in result set.
+[[library.function]]
+c_name = "sqlite3_column_count"
+seq_name = "db-column-count"
+stack_effect = "( Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_bind_int(stmt, idx, value) -> int
+# Binds integer value to parameter at 1-based index.
+[[library.function]]
+c_name = "sqlite3_bind_int"
+seq_name = "db-bind-int"
+stack_effect = "( Int Int Int -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "int", pass = "int" },
+  { type = "int", pass = "int" }
+]
+[library.function.return]
+type = "int"
+
+# sqlite3_bind_text(stmt, idx, text, nByte, destructor) -> int
+# Binds text value to parameter at 1-based index.
+# Using SQLITE_TRANSIENT (-1) to have SQLite copy the string.
+[[library.function]]
+c_name = "sqlite3_bind_text"
+seq_name = "db-bind-text"
+stack_effect = "( Int Int String -- Int )"
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "int", pass = "int" },
+  { type = "string", pass = "c_string" },
+  { type = "int", value = "-1" },
+  { type = "int", value = "-1" }
+]
+[library.function.return]
+type = "int"

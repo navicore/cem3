@@ -1,0 +1,30 @@
+# Map utilities for Seq
+#
+# Provides convenient words for building and working with maps.
+#
+# ## Available Words
+#
+# Builder pattern (type-safe, recommended):
+# - map-of: ( -- Map ) - Create empty map, alias for map.make
+# - kv: ( Map k v -- Map ) - Add key-value pair, alias for map.set
+#
+# Examples:
+#   # Build a map with 2 entries using builder pattern
+#   map-of "name" "Alice" kv "age" 30 kv
+#
+#   # Chained operations
+#   map-of
+#     "host" "localhost" kv
+#     "port" 8080 kv
+#     "debug" true kv
+
+# Create an empty map (alias for map.make)
+: map-of ( -- Map )
+  map.make
+;
+
+# Add a key-value pair to a map (alias for map.set)
+# Returns the updated map for chaining
+: kv ( Map K V -- Map )
+  map.set
+;

@@ -1,0 +1,62 @@
+name: CI - Linux
+
+on:
+  pull_request:
+    branches: [ main ]
+
+# CI Strategy:
+# - Linux: Runs on every PR for fast feedback
+# - macOS: Runs only on merge to main (see ci-macos.yml)
+# This saves cost while ensuring cross-platform compatibility.
+#
+# IMPORTANT: This workflow ONLY calls `just` commands.
+# The justfile is the source of truth for all build/test/lint logic.
+# This prevents drift between local development and CI.
+
+jobs:
+  ci-linux:
+    name: CI - Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain (edition 2024)
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: 1.89.0  # Pin exact version to match local development
+        components: rustfmt, clippy
+
+    - name: Verify Rust version
+      run: rustc --version && cargo --version && cargo clippy --version
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libedit-dev
+
+    - name: Install Just
+      uses: extractions/setup-just@v2
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: linux-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: linux-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+    # NOTE: We intentionally do NOT cache target/ because compiled tests
+    # contain language semantics. When builtins change (e.g., add -> i.add),
+    # stale cached test binaries cause false failures.
+
+    - name: Run CI checks (just ci)
+      run: just ci
+
+    - name: Verify critical design tests
+      run: just test-critical

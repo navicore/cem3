@@ -1,0 +1,83 @@
+# FFI libedit Demo
+#
+# Demonstrates using the ffi:libedit module to create an interactive REPL
+# with line editing and persistent history support.
+#
+# Features:
+#   - Line editing (arrow keys, backspace, etc.)
+#   - Session history (up/down arrows)
+#   - Persistent history saved to ~/.seq-demo-history
+#
+# libedit is a BSD-licensed alternative to GNU readline, providing the
+# same API without GPL licensing requirements.
+#
+# Build and run:
+#   seqc examples/ffi/libedit-demo.seq -o libedit-demo
+#   ./libedit-demo
+#
+# Installation:
+#   macOS: Already installed (Apple ships libedit)
+#   Ubuntu: apt install libedit-dev
+#   Fedora: dnf install libedit-devel
+
+include ffi:libedit
+
+# History file path - uses os.home-dir to get user's home directory
+: history-file ( -- String )
+  os.home-dir if
+    "/.seq-demo-history" string.concat
+  else
+    drop "/tmp/.seq-demo-history"  # Fallback if os.home-dir fails
+  then
+;
+
+# Simple command handler
+: process-command ( String -- )
+  dup "quit" string.equal? if
+    drop "Goodbye!" io.write-line
+  else
+    dup "help" string.equal? if
+      drop
+      "Commands:" io.write-line
+      "  help  - Show this message" io.write-line
+      "  quit  - Exit the program" io.write-line
+      "  <any> - Echo your input" io.write-line
+    else
+      "You said: " swap string.concat io.write-line
+    then
+  then
+;
+
+# Main REPL loop
+: repl ( -- )
+  "seq> " readline
+  dup string.empty? if
+    # Empty string means EOF (Ctrl+D) - exit
+    drop
+    "" io.write-line
+    "Goodbye!" io.write-line
+  else
+    # Add non-empty input to history
+    dup add-history
+    # Process the command
+    dup process-command
+    # Continue unless quit
+    "quit" string.equal? not if
+      repl
+    then
+  then
+;
+
+: main ( -- )
+  # Load history from previous sessions (ignore error if file doesn't exist)
+  history-file read-history drop
+
+  "Welcome to the Seq REPL with libedit!" io.write-line
+  "Type 'help' for commands, 'quit' to exit." io.write-line
+  "History is saved to " history-file string.concat io.write-line
+  "" io.write-line
+  repl
+
+  # Save history for next session
+  history-file write-history drop
+;

@@ -39,6 +39,7 @@ use aes_gcm::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
+use rand::thread_rng;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -175,7 +176,7 @@ pub unsafe extern "C" fn patch_seq_random_bytes(stack: Stack) -> Stack {
             }
 
             let mut bytes = vec![0u8; n as usize];
-            rand::thread_rng().fill_bytes(&mut bytes);
+            thread_rng().fill_bytes(&mut bytes);
             let hex_str = hex::encode(&bytes);
             unsafe { push(stack, Value::String(global_string(hex_str))) }
         }
@@ -255,7 +256,7 @@ fn random_int_range(min: i64, max: i64) -> i64 {
     loop {
         // Generate random u64 using fill_bytes (same CSPRNG as random_bytes)
         let mut bytes = [0u8; 8];
-        rand::thread_rng().fill_bytes(&mut bytes);
+        thread_rng().fill_bytes(&mut bytes);
         let val = u64::from_le_bytes(bytes);
 
         if val < threshold {
@@ -1255,7 +1256,6 @@ mod tests {
             let (_, value) = pop(stack);
 
             match value {
-                //Value::Int(n) => assert!((-10..10).contains(&n), "Expected -10 <= {} < 10", n),
                 Value::Int(n) => assert!((-10..10).contains(&n), "Expected -10 <= {} < 10", n),
                 _ => panic!("Expected Int"),
             }
@@ -1292,6 +1292,44 @@ mod tests {
                 Value::Int(_) => {} // Any valid i64 is acceptable
                 _ => panic!("Expected Int"),
             }
+        }
+    }
+
+    #[test]
+    fn test_random_int_uniformity() {
+        // Basic uniformity test: generate many samples and check distribution
+        // For range [0, 10), each bucket should get roughly 10% of samples
+        let mut buckets = [0u32; 10];
+        let samples = 10000;
+
+        unsafe {
+            for _ in 0..samples {
+                let stack = crate::stack::alloc_test_stack();
+                let stack = push(stack, Value::Int(0));
+                let stack = push(stack, Value::Int(10));
+                let stack = patch_seq_random_int(stack);
+                let (_, value) = pop(stack);
+
+                if let Value::Int(n) = value {
+                    buckets[n as usize] += 1;
+                }
+            }
+        }
+
+        // Each bucket should have roughly 1000 samples (10%)
+        // Allow 30% deviation (700-1300) to avoid flaky tests
+        let expected = samples as u32 / 10;
+        let tolerance = expected * 30 / 100;
+
+        for (i, &count) in buckets.iter().enumerate() {
+            assert!(
+                count >= expected - tolerance && count <= expected + tolerance,
+                "Bucket {} has {} samples, expected {} ± {} (uniformity test)",
+                i,
+                count,
+                expected,
+                tolerance
+            );
         }
     }
 }

@@ -4818,7 +4818,10 @@ mod tests {
             words: vec![WordDef {
                 name: "test".to_string(),
                 effect: Some(Effect::new(
-                    StackType::Empty.push(Type::Int).push(Type::Int).push(Type::Int),
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Int)
+                        .push(Type::Int),
                     StackType::Empty.push(Type::Int).push(Type::Int), // Wrong! Should be 1 Int
                 )),
                 body: vec![

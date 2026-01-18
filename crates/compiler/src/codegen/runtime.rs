@@ -560,6 +560,31 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_os_arch(ptr)",
             category: None,
         },
+        // Terminal operations
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_terminal_raw_mode(ptr)",
+            category: Some("; Terminal operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_terminal_read_char(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_terminal_read_char_nonblock(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_terminal_width(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_terminal_height(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_terminal_flush(ptr)",
+            category: None,
+        },
         // String operations
         RuntimeDecl {
             decl: "declare ptr @patch_seq_string_concat(ptr)",
@@ -1119,6 +1144,13 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("os.exit", "patch_seq_exit"),
         ("os.name", "patch_seq_os_name"),
         ("os.arch", "patch_seq_os_arch"),
+        // Terminal operations
+        ("terminal.raw-mode", "patch_seq_terminal_raw_mode"),
+        ("terminal.read-char", "patch_seq_terminal_read_char"),
+        ("terminal.read-char?", "patch_seq_terminal_read_char_nonblock"),
+        ("terminal.width", "patch_seq_terminal_width"),
+        ("terminal.height", "patch_seq_terminal_height"),
+        ("terminal.flush", "patch_seq_terminal_flush"),
         // String operations
         ("string.concat", "patch_seq_string_concat"),
         ("string.length", "patch_seq_string_length"),

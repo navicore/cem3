@@ -501,6 +501,13 @@ impl Program {
             "os.exit",
             "os.name",
             "os.arch",
+            // Terminal operations
+            "terminal.raw-mode",
+            "terminal.read-char",
+            "terminal.read-char?",
+            "terminal.width",
+            "terminal.height",
+            "terminal.flush",
             // Float arithmetic operations (verbose form)
             "f.add",
             "f.subtract",

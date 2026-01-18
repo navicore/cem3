@@ -565,6 +565,17 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "os.arch", (a -- a String));
 
     // =========================================================================
+    // Terminal Operations (raw mode, character I/O, dimensions)
+    // =========================================================================
+
+    builtin!(sigs, "terminal.raw-mode", (a Bool -- a));
+    builtin!(sigs, "terminal.read-char", (a -- a Int));
+    builtin!(sigs, "terminal.read-char?", (a -- a Int));
+    builtin!(sigs, "terminal.width", (a -- a Int));
+    builtin!(sigs, "terminal.height", (a -- a Int));
+    builtin!(sigs, "terminal.flush", (a -- a));
+
+    // =========================================================================
     // String Operations
     // =========================================================================
 
@@ -1064,6 +1075,32 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert(
         "os.arch",
         "Get the CPU architecture (e.g., \"aarch64\", \"x86_64\").",
+    );
+
+    // Terminal Operations
+    docs.insert(
+        "terminal.raw-mode",
+        "Enable/disable raw terminal mode. In raw mode: no line buffering, no echo, Ctrl+C read as byte 3.",
+    );
+    docs.insert(
+        "terminal.read-char",
+        "Read a single byte from stdin (blocking). Returns 0-255 on success, -1 on EOF/error.",
+    );
+    docs.insert(
+        "terminal.read-char?",
+        "Read a single byte from stdin (non-blocking). Returns 0-255 if available, -1 otherwise.",
+    );
+    docs.insert(
+        "terminal.width",
+        "Get terminal width in columns. Returns 80 if unknown.",
+    );
+    docs.insert(
+        "terminal.height",
+        "Get terminal height in rows. Returns 24 if unknown.",
+    );
+    docs.insert(
+        "terminal.flush",
+        "Flush stdout. Use after writing escape sequences or partial lines.",
     );
 
     // String Operations

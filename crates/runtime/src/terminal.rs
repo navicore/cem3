@@ -3,6 +3,12 @@
 //! These functions provide low-level terminal control for building
 //! interactive applications (vim-style editors, menus, etc.).
 //!
+//! # Signal Safety
+//!
+//! When raw mode is enabled, signal handlers are installed for SIGINT and
+//! SIGTERM that restore terminal state before the process exits. This ensures
+//! the terminal isn't left in a broken state if the program is killed.
+//!
 //! # Safety Contract
 //!
 //! These functions are designed to be called ONLY by compiler-generated code.
@@ -17,6 +23,10 @@ static RAW_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Saved terminal settings (for restoration when exiting raw mode)
 static mut SAVED_TERMIOS: Option<libc::termios> = None;
+
+/// Saved signal handlers (for restoration when exiting raw mode)
+static mut SAVED_SIGINT_ACTION: Option<libc::sigaction> = None;
+static mut SAVED_SIGTERM_ACTION: Option<libc::sigaction> = None;
 
 /// Enable or disable raw terminal mode
 ///
@@ -44,10 +54,7 @@ pub unsafe extern "C" fn patch_seq_terminal_raw_mode(stack: Stack) -> Stack {
             }
             rest
         }
-        _ => panic!(
-            "terminal_raw_mode: expected Bool on stack, got {:?}",
-            value
-        ),
+        _ => panic!("terminal_raw_mode: expected Bool on stack, got {:?}", value),
     }
 }
 
@@ -160,6 +167,63 @@ pub unsafe extern "C" fn patch_seq_terminal_flush(stack: Stack) -> Stack {
 // Internal helper functions
 // ============================================================================
 
+/// Signal handler that restores terminal state and re-raises the signal
+///
+/// This is called when SIGINT or SIGTERM is received while in raw mode.
+/// It restores the terminal to its original state, then re-raises the signal
+/// with the default handler so the process exits with the correct status.
+extern "C" fn signal_handler(sig: libc::c_int) {
+    // Restore terminal state (safe to call even if already restored)
+    unsafe {
+        if let Some(ref saved) = SAVED_TERMIOS {
+            libc::tcsetattr(0, libc::TCSANOW, saved);
+        }
+    }
+
+    // Restore default signal handler and re-raise
+    unsafe {
+        libc::signal(sig, libc::SIG_DFL);
+        libc::raise(sig);
+    }
+}
+
+/// Install signal handlers for SIGINT and SIGTERM
+fn install_signal_handlers() {
+    unsafe {
+        let mut new_action: libc::sigaction = std::mem::zeroed();
+        new_action.sa_sigaction = signal_handler as usize;
+        libc::sigemptyset(&mut new_action.sa_mask);
+        new_action.sa_flags = 0;
+
+        // Save and replace SIGINT handler
+        let mut old_sigint: libc::sigaction = std::mem::zeroed();
+        if libc::sigaction(libc::SIGINT, &new_action, &mut old_sigint) == 0 {
+            SAVED_SIGINT_ACTION = Some(old_sigint);
+        }
+
+        // Save and replace SIGTERM handler
+        let mut old_sigterm: libc::sigaction = std::mem::zeroed();
+        if libc::sigaction(libc::SIGTERM, &new_action, &mut old_sigterm) == 0 {
+            SAVED_SIGTERM_ACTION = Some(old_sigterm);
+        }
+    }
+}
+
+/// Restore original signal handlers
+fn restore_signal_handlers() {
+    unsafe {
+        if let Some(ref action) = SAVED_SIGINT_ACTION {
+            libc::sigaction(libc::SIGINT, action, std::ptr::null_mut());
+        }
+        SAVED_SIGINT_ACTION = None;
+
+        if let Some(ref action) = SAVED_SIGTERM_ACTION {
+            libc::sigaction(libc::SIGTERM, action, std::ptr::null_mut());
+        }
+        SAVED_SIGTERM_ACTION = None;
+    }
+}
+
 fn enable_raw_mode() {
     if RAW_MODE_ENABLED.load(Ordering::SeqCst) {
         return; // Already in raw mode
@@ -199,6 +263,8 @@ fn enable_raw_mode() {
         // Apply settings
         if libc::tcsetattr(0, libc::TCSANOW, &termios) == 0 {
             RAW_MODE_ENABLED.store(true, Ordering::SeqCst);
+            // Install signal handlers AFTER successfully entering raw mode
+            install_signal_handlers();
         }
     }
 }
@@ -207,6 +273,9 @@ fn disable_raw_mode() {
     if !RAW_MODE_ENABLED.load(Ordering::SeqCst) {
         return; // Not in raw mode
     }
+
+    // Restore signal handlers BEFORE restoring terminal
+    restore_signal_handlers();
 
     unsafe {
         if let Some(ref saved) = SAVED_TERMIOS {

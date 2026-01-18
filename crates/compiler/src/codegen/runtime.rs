@@ -1147,7 +1147,10 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         // Terminal operations
         ("terminal.raw-mode", "patch_seq_terminal_raw_mode"),
         ("terminal.read-char", "patch_seq_terminal_read_char"),
-        ("terminal.read-char?", "patch_seq_terminal_read_char_nonblock"),
+        (
+            "terminal.read-char?",
+            "patch_seq_terminal_read_char_nonblock",
+        ),
         ("terminal.width", "patch_seq_terminal_width"),
         ("terminal.height", "patch_seq_terminal_height"),
         ("terminal.flush", "patch_seq_terminal_flush"),

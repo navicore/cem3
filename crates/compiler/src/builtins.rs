@@ -573,7 +573,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "terminal.read-char?", (a -- a Int));
     builtin!(sigs, "terminal.width", (a -- a Int));
     builtin!(sigs, "terminal.height", (a -- a Int));
-    builtin!(sigs, "terminal.flush", (a -- a));
+    builtin!(sigs, "terminal.flush", (a - -a));
 
     // =========================================================================
     // String Operations

@@ -9,16 +9,23 @@
   terminal.width int->string io.write
   " x " io.write
   terminal.height int->string io.write-line
-  "Press keys to see codes. Press 'q' to quit." io.write-line
+  "Press keys to see codes. Press 'q' or Ctrl+C to quit." io.write-line
+;
+
+: is-quit-key ( Int -- Bool )
+  dup 113 i.=      # 'q'
+  swap 3 i.=       # Ctrl+C
+  or
 ;
 
 : handle-key ( Int -- Bool )
-  dup 113 i.=
+  dup is-quit-key
   if
     drop false
   else
     "Key code: " io.write
-    int->string io.write-line
+    int->string io.write
+    "\r\n" io.write
     terminal.flush
     true
   then

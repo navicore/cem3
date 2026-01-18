@@ -33,6 +33,11 @@ pub unsafe extern "C" fn patch_seq_uuid4(_stack: Stack) -> Stack {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_random_int(_stack: Stack) -> Stack {
+    panic!("crypto.random-int requires {}", FEATURE_MSG);
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_crypto_aes_gcm_encrypt(_stack: Stack) -> Stack {
     panic!("crypto.aes-gcm-encrypt requires {}", FEATURE_MSG);
 }

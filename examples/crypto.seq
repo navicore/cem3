@@ -109,6 +109,29 @@
   "" io.write-line
 ;
 
+# Secure random integer generation
+: demo-random-int ( -- )
+  "=== Random Integers ===" io.write-line
+  "" io.write-line
+
+  # Generate random integers in a range [min, max)
+  "Rolling dice (1-6):" io.write-line
+  1 7 crypto.random-int int->string "  Roll 1: " swap string.concat io.write-line
+  1 7 crypto.random-int int->string "  Roll 2: " swap string.concat io.write-line
+  1 7 crypto.random-int int->string "  Roll 3: " swap string.concat io.write-line
+
+  "" io.write-line
+  "Random percentages (0-99):" io.write-line
+  0 100 crypto.random-int int->string "  " swap string.concat "%" string.concat io.write-line
+  0 100 crypto.random-int int->string "  " swap string.concat "%" string.concat io.write-line
+
+  "" io.write-line
+  "Random in negative range (-50 to 50):" io.write-line
+  -50 50 crypto.random-int int->string "  " swap string.concat io.write-line
+
+  "" io.write-line
+;
+
 # AES-256-GCM Encryption
 : demo-encryption ( -- )
   "=== AES-256-GCM Encryption ===" io.write-line
@@ -224,6 +247,7 @@
   demo-hmac
   demo-random
   demo-uuid
+  demo-random-int
   demo-encryption
   demo-pbkdf2
   demo-signatures

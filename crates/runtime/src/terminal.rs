@@ -3,6 +3,18 @@
 //! These functions provide low-level terminal control for building
 //! interactive applications (vim-style editors, menus, etc.).
 //!
+//! # Platform Support
+//!
+//! These functions are Unix-only (they use POSIX termios). On non-TTY
+//! file descriptors, operations gracefully degrade (raw mode is a no-op,
+//! size returns defaults).
+//!
+//! # Thread Safety
+//!
+//! Terminal operations are **not thread-safe** and should only be called
+//! from the main thread. This is standard for TUI applications - terminal
+//! state is global to the process.
+//!
 //! # Signal Safety
 //!
 //! When raw mode is enabled, signal handlers are installed for SIGINT and
@@ -74,7 +86,8 @@ pub unsafe extern "C" fn patch_seq_terminal_raw_mode(stack: Stack) -> Stack {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_terminal_read_char(stack: Stack) -> Stack {
     let mut buf = [0u8; 1];
-    let result = unsafe { libc::read(0, buf.as_mut_ptr() as *mut libc::c_void, 1) };
+    let result =
+        unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, 1) };
 
     let char_value = if result == 1 {
         buf[0] as i64
@@ -99,17 +112,21 @@ pub unsafe extern "C" fn patch_seq_terminal_read_char(stack: Stack) -> Stack {
 /// Always safe to call
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_terminal_read_char_nonblock(stack: Stack) -> Stack {
-    // Save current flags
-    let flags = unsafe { libc::fcntl(0, libc::F_GETFL) };
+    // Save current flags - if this fails, return -1
+    let flags = unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_GETFL) };
+    if flags < 0 {
+        return unsafe { push(stack, Value::Int(-1)) };
+    }
 
     // Set non-blocking
-    unsafe { libc::fcntl(0, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK) };
 
     let mut buf = [0u8; 1];
-    let result = unsafe { libc::read(0, buf.as_mut_ptr() as *mut libc::c_void, 1) };
+    let result =
+        unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, 1) };
 
-    // Restore original flags
-    unsafe { libc::fcntl(0, libc::F_SETFL, flags) };
+    // Always restore original flags
+    unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_SETFL, flags) };
 
     let char_value = if result == 1 {
         buf[0] as i64
@@ -159,7 +176,8 @@ pub unsafe extern "C" fn patch_seq_terminal_height(stack: Stack) -> Stack {
 /// Always safe to call
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_terminal_flush(stack: Stack) -> Stack {
-    unsafe { libc::fsync(1) };
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
     stack
 }
 
@@ -172,11 +190,15 @@ pub unsafe extern "C" fn patch_seq_terminal_flush(stack: Stack) -> Stack {
 /// This is called when SIGINT or SIGTERM is received while in raw mode.
 /// It restores the terminal to its original state, then re-raises the signal
 /// with the default handler so the process exits with the correct status.
+///
+/// Note: This handler uses minimal operations that are async-signal-safe.
+/// tcsetattr and signal/raise are all POSIX async-signal-safe functions.
 extern "C" fn signal_handler(sig: libc::c_int) {
     // Restore terminal state (safe to call even if already restored)
+    // Note: tcsetattr is async-signal-safe per POSIX
     unsafe {
         if let Some(ref saved) = SAVED_TERMIOS {
-            libc::tcsetattr(0, libc::TCSANOW, saved);
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, saved);
         }
     }
 
@@ -230,10 +252,15 @@ fn enable_raw_mode() {
     }
 
     unsafe {
+        // Check if stdin is a TTY - if not, raw mode is meaningless
+        if libc::isatty(libc::STDIN_FILENO) != 1 {
+            return; // Not a terminal, silently ignore
+        }
+
         let mut termios: libc::termios = std::mem::zeroed();
 
         // Get current terminal settings
-        if libc::tcgetattr(0, &mut termios) != 0 {
+        if libc::tcgetattr(libc::STDIN_FILENO, &mut termios) != 0 {
             return; // Failed to get settings
         }
 
@@ -261,7 +288,7 @@ fn enable_raw_mode() {
         termios.c_cc[libc::VTIME] = 0;
 
         // Apply settings
-        if libc::tcsetattr(0, libc::TCSANOW, &termios) == 0 {
+        if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &termios) == 0 {
             RAW_MODE_ENABLED.store(true, Ordering::SeqCst);
             // Install signal handlers AFTER successfully entering raw mode
             install_signal_handlers();
@@ -279,7 +306,7 @@ fn disable_raw_mode() {
 
     unsafe {
         if let Some(ref saved) = SAVED_TERMIOS {
-            libc::tcsetattr(0, libc::TCSANOW, saved);
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, saved);
         }
         SAVED_TERMIOS = None;
         RAW_MODE_ENABLED.store(false, Ordering::SeqCst);
@@ -288,8 +315,13 @@ fn disable_raw_mode() {
 
 fn get_terminal_size() -> (i64, i64) {
     unsafe {
+        // Check if stdout is a TTY
+        if libc::isatty(libc::STDOUT_FILENO) != 1 {
+            return (80, 24); // Not a terminal, return defaults
+        }
+
         let mut winsize: libc::winsize = std::mem::zeroed();
-        if libc::ioctl(1, libc::TIOCGWINSZ, &mut winsize) == 0 {
+        if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut winsize) == 0 {
             let cols = if winsize.ws_col > 0 {
                 winsize.ws_col as i64
             } else {

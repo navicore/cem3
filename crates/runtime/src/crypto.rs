@@ -39,6 +39,7 @@ use aes_gcm::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
+use rand::thread_rng;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -175,7 +176,7 @@ pub unsafe extern "C" fn patch_seq_random_bytes(stack: Stack) -> Stack {
             }
 
             let mut bytes = vec![0u8; n as usize];
-            rand::thread_rng().fill_bytes(&mut bytes);
+            thread_rng().fill_bytes(&mut bytes);
             let hex_str = hex::encode(&bytes);
             unsafe { push(stack, Value::String(global_string(hex_str))) }
         }
@@ -197,6 +198,75 @@ pub unsafe extern "C" fn patch_seq_uuid4(stack: Stack) -> Stack {
 
     let uuid = Uuid::new_v4();
     unsafe { push(stack, Value::String(global_string(uuid.to_string()))) }
+}
+
+/// Generate a cryptographically secure random integer in a range
+///
+/// Stack effect: ( min max -- Int )
+///
+/// Returns a uniform random integer in the range [min, max).
+/// Uses rejection sampling to avoid modulo bias.
+///
+/// # Edge Cases
+/// - If min >= max, returns min
+/// - Uses the same CSPRNG as crypto.random-bytes
+///
+/// # Safety
+/// Stack must have two Int values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_random_int(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "random-int: stack is empty");
+
+    let (stack, max_val) = unsafe { pop(stack) };
+    let (stack, min_val) = unsafe { pop(stack) };
+
+    match (min_val, max_val) {
+        (Value::Int(min), Value::Int(max)) => {
+            let result = if min >= max {
+                min // Edge case: return min if range is empty or invalid
+            } else {
+                random_int_range(min, max)
+            };
+            unsafe { push(stack, Value::Int(result)) }
+        }
+        (min, max) => panic!(
+            "random-int: expected (Int, Int) on stack, got ({:?}, {:?})",
+            min, max
+        ),
+    }
+}
+
+/// Generate a uniform random integer in [min, max) using rejection sampling
+///
+/// This avoids modulo bias by rejecting values that would cause uneven distribution.
+fn random_int_range(min: i64, max: i64) -> i64 {
+    // Use wrapping subtraction in unsigned space to handle full i64 range
+    // without overflow (e.g., min=i64::MIN, max=i64::MAX would overflow in signed)
+    let range = (max as u64).wrapping_sub(min as u64);
+    if range == 0 {
+        return min;
+    }
+
+    // Use rejection sampling to get unbiased result
+    // For ranges that are powers of 2, no rejection needed
+    // For other ranges, we reject values >= (u64::MAX - (u64::MAX % range))
+    // to ensure uniform distribution
+    let threshold = u64::MAX - (u64::MAX % range);
+
+    loop {
+        // Generate random u64 using fill_bytes (same CSPRNG as random_bytes)
+        let mut bytes = [0u8; 8];
+        thread_rng().fill_bytes(&mut bytes);
+        let val = u64::from_le_bytes(bytes);
+
+        if val < threshold {
+            // Add offset to min using unsigned arithmetic to avoid overflow
+            // when min is negative and offset is large
+            let result = (min as u64).wrapping_add(val % range);
+            return result as i64;
+        }
+        // Rejection: try again (very rare, < 1 in 2^63 for most ranges)
+    }
 }
 
 /// Encrypt plaintext using AES-256-GCM
@@ -1107,6 +1177,159 @@ mod tests {
 
             let (_, valid) = pop(stack);
             assert_eq!(valid, Value::Bool(true));
+        }
+    }
+
+    #[test]
+    fn test_random_int_basic() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(1));
+            let stack = push(stack, Value::Int(100));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => {
+                    assert!((1..100).contains(&n), "Expected 1 <= {} < 100", n);
+                }
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_same_min_max() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(5));
+            let stack = push(stack, Value::Int(5));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert_eq!(n, 5),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_inverted_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(10));
+            let stack = push(stack, Value::Int(5));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert_eq!(n, 10), // Returns min when min >= max
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_small_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(0));
+            let stack = push(stack, Value::Int(2));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert!((0..2).contains(&n), "Expected 0 <= {} < 2", n),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_negative_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(-10));
+            let stack = push(stack, Value::Int(10));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert!((-10..10).contains(&n), "Expected -10 <= {} < 10", n),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_large_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(0));
+            let stack = push(stack, Value::Int(i64::MAX));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert!(n >= 0, "Expected {} >= 0", n),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_extreme_range() {
+        // Test the overflow fix: min=i64::MIN, max=i64::MAX
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(i64::MIN));
+            let stack = push(stack, Value::Int(i64::MAX));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(_) => {} // Any valid i64 is acceptable
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_uniformity() {
+        // Basic uniformity test: generate many samples and check distribution
+        // For range [0, 10), each bucket should get roughly 10% of samples
+        let mut buckets = [0u32; 10];
+        let samples = 10000;
+
+        unsafe {
+            for _ in 0..samples {
+                let stack = crate::stack::alloc_test_stack();
+                let stack = push(stack, Value::Int(0));
+                let stack = push(stack, Value::Int(10));
+                let stack = patch_seq_random_int(stack);
+                let (_, value) = pop(stack);
+
+                if let Value::Int(n) = value {
+                    buckets[n as usize] += 1;
+                }
+            }
+        }
+
+        // Each bucket should have roughly 1000 samples (10%)
+        // Allow 30% deviation (700-1300) to avoid flaky tests
+        let expected = samples as u32 / 10;
+        let tolerance = expected * 30 / 100;
+
+        for (i, &count) in buckets.iter().enumerate() {
+            assert!(
+                count >= expected - tolerance && count <= expected + tolerance,
+                "Bucket {} has {} samples, expected {} ± {} (uniformity test)",
+                i,
+                count,
+                expected,
+                tolerance
+            );
         }
     }
 }

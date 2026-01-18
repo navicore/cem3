@@ -245,7 +245,7 @@ Complete reference for all 152 built-in operations.
 | `crypto.hmac-sha256` | `( String String -- String )` | HMAC-SHA256. (message, key) |
 | `crypto.constant-time-eq` | `( String String -- Bool )` | Timing-safe comparison |
 | `crypto.random-bytes` | `( Int -- String )` | Generate N random bytes as hex |
-| `crypto.random-int` | `( Int Int -- Int )` | Uniform random in [min, max). Rejection sampling |
+| `crypto.random-int` | `( Int Int -- Int )` | Generate random integer in range [min, max) |
 | `crypto.uuid4` | `( -- String )` | Generate random UUID v4 |
 | `crypto.aes-gcm-encrypt` | `( String String -- String Bool )` | AES-256-GCM encrypt. (plaintext, hex-key) |
 | `crypto.aes-gcm-decrypt` | `( String String -- String Bool )` | AES-256-GCM decrypt. (ciphertext, hex-key) |

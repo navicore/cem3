@@ -239,7 +239,9 @@ pub unsafe extern "C" fn patch_seq_random_int(stack: Stack) -> Stack {
 ///
 /// This avoids modulo bias by rejecting values that would cause uneven distribution.
 fn random_int_range(min: i64, max: i64) -> i64 {
-    let range = (max - min) as u64;
+    // Use wrapping subtraction in unsigned space to handle full i64 range
+    // without overflow (e.g., min=i64::MIN, max=i64::MAX would overflow in signed)
+    let range = (max as u64).wrapping_sub(min as u64);
     if range == 0 {
         return min;
     }
@@ -257,7 +259,10 @@ fn random_int_range(min: i64, max: i64) -> i64 {
         let val = u64::from_le_bytes(bytes);
 
         if val < threshold {
-            return min + (val % range) as i64;
+            // Add offset to min using unsigned arithmetic to avoid overflow
+            // when min is negative and offset is large
+            let result = (min as u64).wrapping_add(val % range);
+            return result as i64;
         }
         // Rejection: try again (very rare, < 1 in 2^63 for most ranges)
     }
@@ -1171,6 +1176,122 @@ mod tests {
 
             let (_, valid) = pop(stack);
             assert_eq!(valid, Value::Bool(true));
+        }
+    }
+
+    #[test]
+    fn test_random_int_basic() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(1));
+            let stack = push(stack, Value::Int(100));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => {
+                    assert!((1..100).contains(&n), "Expected 1 <= {} < 100", n);
+                }
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_same_min_max() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(5));
+            let stack = push(stack, Value::Int(5));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert_eq!(n, 5),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_inverted_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(10));
+            let stack = push(stack, Value::Int(5));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert_eq!(n, 10), // Returns min when min >= max
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_small_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(0));
+            let stack = push(stack, Value::Int(2));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert!((0..2).contains(&n), "Expected 0 <= {} < 2", n),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_negative_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(-10));
+            let stack = push(stack, Value::Int(10));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                //Value::Int(n) => assert!((-10..10).contains(&n), "Expected -10 <= {} < 10", n),
+                Value::Int(n) => assert!((-10..10).contains(&n), "Expected -10 <= {} < 10", n),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_large_range() {
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(0));
+            let stack = push(stack, Value::Int(i64::MAX));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(n) => assert!(n >= 0, "Expected {} >= 0", n),
+                _ => panic!("Expected Int"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_int_extreme_range() {
+        // Test the overflow fix: min=i64::MIN, max=i64::MAX
+        unsafe {
+            let stack = crate::stack::alloc_test_stack();
+            let stack = push(stack, Value::Int(i64::MIN));
+            let stack = push(stack, Value::Int(i64::MAX));
+            let stack = patch_seq_random_int(stack);
+            let (_, value) = pop(stack);
+
+            match value {
+                Value::Int(_) => {} // Any valid i64 is acceptable
+                _ => panic!("Expected Int"),
+            }
         }
     }
 }

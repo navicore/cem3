@@ -35,6 +35,7 @@ pub mod serialize;
 pub mod string_ops;
 pub mod tcp;
 pub mod tcp_test;
+pub mod terminal;
 pub mod test;
 pub mod time_ops;
 pub mod variant_ops;
@@ -293,6 +294,15 @@ pub use test::{
 pub use time_ops::{
     patch_seq_time_nanos as time_nanos, patch_seq_time_now as time_now,
     patch_seq_time_sleep_ms as time_sleep_ms,
+};
+
+// Terminal operations (exported for LLVM linking)
+pub use terminal::{
+    patch_seq_terminal_flush as terminal_flush, patch_seq_terminal_height as terminal_height,
+    patch_seq_terminal_raw_mode as terminal_raw_mode,
+    patch_seq_terminal_read_char as terminal_read_char,
+    patch_seq_terminal_read_char_nonblock as terminal_read_char_nonblock,
+    patch_seq_terminal_width as terminal_width,
 };
 
 // HTTP client operations (exported for LLVM linking)

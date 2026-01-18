@@ -1,0 +1,55 @@
+# Terminal Demo
+#
+# Demonstrates raw terminal mode for interactive applications.
+# Press 'q' to quit, any other key shows its code.
+
+: show-info ( -- )
+  "Terminal Demo" io.write-line
+  "Terminal size: " io.write
+  terminal.width int->string io.write
+  " x " io.write
+  terminal.height int->string io.write-line
+  "Press keys to see codes. Press 'q' or Ctrl+C to quit." io.write-line
+;
+
+: is-quit-key ( Int -- Bool )
+  dup 113 i.=      # 'q'
+  swap 3 i.=       # Ctrl+C
+  or
+;
+
+: handle-key ( Int -- Bool )
+  dup is-quit-key
+  if
+    drop false
+  else
+    "Key code: " io.write
+    int->string io.write
+    "\r\n" io.write
+    terminal.flush
+    true
+  then
+;
+
+: read-loop ( -- )
+  terminal.read-char
+  dup 0 i.<
+  if
+    drop
+  else
+    handle-key
+    if
+      read-loop
+    else
+    then
+  then
+;
+
+: main ( -- )
+  show-info
+  true terminal.raw-mode
+  read-loop
+  false terminal.raw-mode
+  "" io.write-line
+  "Goodbye!" io.write-line
+;

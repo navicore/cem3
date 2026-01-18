@@ -199,6 +199,70 @@ pub unsafe extern "C" fn patch_seq_uuid4(stack: Stack) -> Stack {
     unsafe { push(stack, Value::String(global_string(uuid.to_string()))) }
 }
 
+/// Generate a cryptographically secure random integer in a range
+///
+/// Stack effect: ( min max -- Int )
+///
+/// Returns a uniform random integer in the range [min, max).
+/// Uses rejection sampling to avoid modulo bias.
+///
+/// # Edge Cases
+/// - If min >= max, returns min
+/// - Uses the same CSPRNG as crypto.random-bytes
+///
+/// # Safety
+/// Stack must have two Int values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_random_int(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "random-int: stack is empty");
+
+    let (stack, max_val) = unsafe { pop(stack) };
+    let (stack, min_val) = unsafe { pop(stack) };
+
+    match (min_val, max_val) {
+        (Value::Int(min), Value::Int(max)) => {
+            let result = if min >= max {
+                min // Edge case: return min if range is empty or invalid
+            } else {
+                random_int_range(min, max)
+            };
+            unsafe { push(stack, Value::Int(result)) }
+        }
+        (min, max) => panic!(
+            "random-int: expected (Int, Int) on stack, got ({:?}, {:?})",
+            min, max
+        ),
+    }
+}
+
+/// Generate a uniform random integer in [min, max) using rejection sampling
+///
+/// This avoids modulo bias by rejecting values that would cause uneven distribution.
+fn random_int_range(min: i64, max: i64) -> i64 {
+    let range = (max - min) as u64;
+    if range == 0 {
+        return min;
+    }
+
+    // Use rejection sampling to get unbiased result
+    // For ranges that are powers of 2, no rejection needed
+    // For other ranges, we reject values >= (u64::MAX - (u64::MAX % range))
+    // to ensure uniform distribution
+    let threshold = u64::MAX - (u64::MAX % range);
+
+    loop {
+        // Generate random u64 using fill_bytes (same CSPRNG as random_bytes)
+        let mut bytes = [0u8; 8];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        let val = u64::from_le_bytes(bytes);
+
+        if val < threshold {
+            return min + (val % range) as i64;
+        }
+        // Rejection: try again (very rare, < 1 in 2^63 for most ranges)
+    }
+}
+
 /// Encrypt plaintext using AES-256-GCM
 ///
 /// Stack effect: ( String String -- String Bool )

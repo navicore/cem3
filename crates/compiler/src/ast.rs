@@ -361,6 +361,7 @@ impl Program {
             "crypto.hmac-sha256",
             "crypto.constant-time-eq",
             "crypto.random-bytes",
+            "crypto.random-int",
             "crypto.uuid4",
             "crypto.aes-gcm-encrypt",
             "crypto.aes-gcm-decrypt",

@@ -6,6 +6,8 @@
 
 - [Glossary](GLOSSARY.md)
 - [Language Guide](language-guide.md)
+- [Examples](EXAMPLES.md)
+- [Testing Guide](TESTING_GUIDE.md)
 
 # Reference
 
@@ -16,6 +18,7 @@
 
 # Advanced Topics
 
+- [Weaves (Generators)](WEAVES_GUIDE.md)
 - [Tail Call Optimization](TCO_GUIDE.md)
 - [FFI Guide](FFI_GUIDE.md)
 - [Architecture](ARCHITECTURE.md)

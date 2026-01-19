@@ -44,7 +44,6 @@ Complete reference for all 152 built-in operations.
 | `io.write` | `( String -- )` | Write string to stdout without newline |
 | `io.write-line` | `( String -- )` | Write string to stdout with newline |
 | `io.read-line` | `( -- String Bool )` | Read line from stdin. Returns (line, success) |
-| `io.read-line+` | `( -- String Int )` | Read line from stdin. Returns (line, status_code) |
 | `io.read-n` | `( Int -- String Int )` | Read N bytes from stdin. Returns (bytes, status) |
 
 ## Command-line Arguments

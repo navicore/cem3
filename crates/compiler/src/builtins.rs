@@ -281,7 +281,7 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "io.write", (a String -- a)); // Write without newline
     builtin!(sigs, "io.write-line", (a String -- a));
     builtin!(sigs, "io.read-line", (a -- a String Bool)); // Returns line + success flag
-    builtin!(sigs, "io.read-line+", (a -- a String Int)); // Returns line + status (legacy)
+    builtin!(sigs, "io.read-line+", (a -- a String Int)); // DEPRECATED: use io.read-line instead
     builtin!(sigs, "io.read-n", (a Int -- a String Int)); // Read N bytes, returns bytes + status
 
     // =========================================================================
@@ -810,7 +810,7 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     );
     docs.insert(
         "io.read-line+",
-        "Read a line from stdin. Returns (line, status_code).",
+        "DEPRECATED: Use io.read-line instead. Read a line from stdin. Returns (line, status_code).",
     );
     docs.insert(
         "io.read-n",

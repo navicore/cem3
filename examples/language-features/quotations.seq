@@ -48,13 +48,19 @@
   then
 ;
 
-# Quotation as loop body
+# Recursion as loop (using TCO)
+: sum-to-loop ( Int Int -- Int )
+  # acc n
+  dup 0 i.>
+  if
+    swap over i.add swap 1 i.- sum-to-loop
+  else
+    drop
+  then
+;
+
 : sum-to ( Int -- Int )
-  0 swap
-  [ dup 0 i.> ]
-  [ swap over i.add swap 1 i.- ]
-  while
-  drop
+  0 swap sum-to-loop
 ;
 
 # Main

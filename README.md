@@ -16,6 +16,10 @@
 
 A concatenative, stack-based programming language that compiles to native executables. Seq combines the elegance of stack-based programming with a sophisticated type system, guaranteed tail call optimization, and CSP-style concurrency.
 
+## Project Status
+
+**Stable as of 1.1.0.** The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
+
 ```seq
 : factorial ( Int -- Int )
   dup 1 i.<= if
@@ -178,11 +182,11 @@ union Option { None, Some { value: Int } }
 
 ### Quotations & Higher-Order Programming
 
-Quotations are first-class functions. Use them with `call`, `times`, `while`, and `until`:
+Quotations are first-class anonymous functions:
 
 ```seq
 [ dup i.* ] 5 swap call    # Square 5 → 25
-[ "hi" io.write-line ] 3 times   # Print "hi" three times
+my-list [ 2 i.* ] list.map # Double each element
 ```
 
 ### Concurrency

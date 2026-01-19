@@ -1,4 +1,4 @@
-# Control Flow - conditionals and loops
+# Control Flow - conditionals and recursion
 
 # Basic if-then-else
 : sign ( Int -- String )
@@ -15,22 +15,26 @@
   then
 ;
 
-# While loop - condition quotation runs first
+# Countdown using recursion (TCO optimized)
 : countdown ( Int -- )
-  [ dup 0 i.> ]
-  [
+  dup 0 i.>
+  if
     dup int->string io.write-line
-    1 i.-
-  ]
-  while
-  drop
+    1 i.- countdown
+  else
+    drop
+  then
 ;
 
-# Times loop - repeat N times
+# Say hello N times using recursion
 : say-hello ( Int -- )
-  [ "Hello!" io.write-line ]
-  swap
-  times
+  dup 0 i.>
+  if
+    "Hello!" io.write-line
+    1 i.- say-hello
+  else
+    drop
+  then
 ;
 
 # Nested conditionals using cond
@@ -43,19 +47,26 @@
   5 cond
 ;
 
-# Loop with accumulator
+# Loop with accumulator using recursion
+# sum-range-loop ( start end acc -- Int )
+: sum-range-loop ( Int Int Int -- Int )
+  rot rot          # acc start end
+  2dup i.<=        # acc start end (start <= end)
+  if
+    over           # acc start end start
+    3 roll         # start end start acc
+    i.add          # start end acc'
+    rot rot        # acc' start end
+    swap 1 i.add   # acc' end start+1
+    swap           # acc' start+1 end
+    sum-range-loop
+  else
+    drop drop      # acc
+  then
+;
+
 : sum-range ( Int Int -- Int )
-  0
-  rot rot
-  [ 2dup i.<= ]
-  [
-    over
-    rot i.add
-    rot rot
-    swap 1 i.add swap
-  ]
-  while
-  drop drop
+  0 sum-range-loop
 ;
 
 # Main

@@ -42,3 +42,4 @@ libseq_runtime.a
 
 # But keep integration test expected outputs
 !tests/integration/expected/*.txt
+book/

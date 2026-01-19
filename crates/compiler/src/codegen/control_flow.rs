@@ -23,6 +23,7 @@ impl CodeGen {
         let stack_var = stack_var.as_str();
 
         // Peek and pop condition: read bool value from top of stack and decrement SP
+        // (Inlined here as this is the only place this pattern is used after removing while/until)
         let top_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,

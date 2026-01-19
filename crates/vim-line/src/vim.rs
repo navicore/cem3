@@ -259,6 +259,82 @@ impl VimLineEditor {
         self.cursor = next_line_start + col.min(next_line_len);
     }
 
+    /// Move cursor to matching bracket (%).
+    /// Supports (), [], {}, and <>.
+    fn move_to_matching_bracket(&mut self, text: &str) {
+        if self.cursor >= text.len() {
+            return;
+        }
+
+        // Get the character at the cursor
+        let char_at_cursor = text[self.cursor..].chars().next();
+        let c = match char_at_cursor {
+            Some(c) => c,
+            None => return,
+        };
+
+        // Define bracket pairs: (opening, closing)
+        let pairs = [('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
+
+        // Check if current char is an opening bracket
+        for (open, close) in pairs.iter() {
+            if c == *open {
+                // Search forward for matching close
+                if let Some(pos) = self.find_matching_forward(text, *open, *close) {
+                    self.cursor = pos;
+                }
+                return;
+            }
+            if c == *close {
+                // Search backward for matching open
+                if let Some(pos) = self.find_matching_backward(text, *open, *close) {
+                    self.cursor = pos;
+                }
+                return;
+            }
+        }
+    }
+
+    /// Find matching closing bracket, searching forward from cursor.
+    fn find_matching_forward(&self, text: &str, open: char, close: char) -> Option<usize> {
+        let mut depth = 1;
+        let mut pos = self.cursor;
+
+        // Move past the opening bracket
+        pos += open.len_utf8();
+
+        for (i, c) in text[pos..].char_indices() {
+            if c == open {
+                depth += 1;
+            } else if c == close {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(pos + i);
+                }
+            }
+        }
+        None
+    }
+
+    /// Find matching opening bracket, searching backward from cursor.
+    fn find_matching_backward(&self, text: &str, open: char, close: char) -> Option<usize> {
+        let mut depth = 1;
+
+        // Search backward from just before cursor
+        let search_text = &text[..self.cursor];
+        for (i, c) in search_text.char_indices().rev() {
+            if c == close {
+                depth += 1;
+            } else if c == open {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+        }
+        None
+    }
+
     /// Delete character at cursor (x).
     fn delete_char(&mut self, text: &str) -> EditResult {
         if self.cursor >= text.len() {
@@ -455,6 +531,10 @@ impl VimLineEditor {
             }
             KeyCode::Char('e') => {
                 self.move_word_end(text);
+                EditResult::cursor_only()
+            }
+            KeyCode::Char('%') => {
+                self.move_to_matching_bracket(text);
                 EditResult::cursor_only()
             }
 
@@ -1241,5 +1321,59 @@ mod tests {
         assert_eq!(text, "ac");
         // Cursor stays at same position (now on 'c')
         assert_eq!(editor.cursor(), 1);
+    }
+
+    #[test]
+    fn test_percent_bracket_matching() {
+        let mut editor = VimLineEditor::new();
+        let text = "(hello world)";
+
+        // Cursor starts at position 0, on '('
+        assert_eq!(editor.cursor(), 0);
+
+        // Press '%' to jump to matching ')'
+        editor.handle_key(Key::char('%'), text);
+        assert_eq!(editor.cursor(), 12); // Position of ')'
+
+        // Press '%' again to jump back to '('
+        editor.handle_key(Key::char('%'), text);
+        assert_eq!(editor.cursor(), 0);
+    }
+
+    #[test]
+    fn test_percent_nested_brackets() {
+        let mut editor = VimLineEditor::new();
+        let text = "([{<>}])";
+
+        // Start on '('
+        editor.handle_key(Key::char('%'), text);
+        assert_eq!(editor.cursor(), 7); // Matching ')'
+
+        // Move to '[' at position 1
+        editor.set_cursor(1, text);
+        editor.handle_key(Key::char('%'), text);
+        assert_eq!(editor.cursor(), 6); // Matching ']'
+
+        // Move to '{' at position 2
+        editor.set_cursor(2, text);
+        editor.handle_key(Key::char('%'), text);
+        assert_eq!(editor.cursor(), 5); // Matching '}'
+
+        // Move to '<' at position 3
+        editor.set_cursor(3, text);
+        editor.handle_key(Key::char('%'), text);
+        assert_eq!(editor.cursor(), 4); // Matching '>'
+    }
+
+    #[test]
+    fn test_percent_on_non_bracket() {
+        let mut editor = VimLineEditor::new();
+        let text = "hello";
+
+        // Start at position 0 on 'h'
+        let orig_cursor = editor.cursor();
+        editor.handle_key(Key::char('%'), text);
+        // Cursor should not move when not on a bracket
+        assert_eq!(editor.cursor(), orig_cursor);
     }
 }

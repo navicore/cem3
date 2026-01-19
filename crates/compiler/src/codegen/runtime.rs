@@ -264,18 +264,6 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             category: None,
         },
         RuntimeDecl {
-            decl: "declare ptr @patch_seq_times(ptr)",
-            category: None,
-        },
-        RuntimeDecl {
-            decl: "declare ptr @patch_seq_while_loop(ptr)",
-            category: None,
-        },
-        RuntimeDecl {
-            decl: "declare ptr @patch_seq_until_loop(ptr)",
-            category: None,
-        },
-        RuntimeDecl {
             decl: "declare ptr @patch_seq_spawn(ptr)",
             category: None,
         },
@@ -1120,9 +1108,6 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("chan.yield", "patch_seq_yield_strand"),
         // Quotation operations
         ("call", "patch_seq_call"),
-        ("times", "patch_seq_times"),
-        ("while", "patch_seq_while_loop"),
-        ("until", "patch_seq_until_loop"),
         ("strand.spawn", "patch_seq_spawn"),
         ("strand.weave", "patch_seq_weave"),
         ("strand.resume", "patch_seq_resume"),

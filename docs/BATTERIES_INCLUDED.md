@@ -458,11 +458,15 @@ seq mod tidy       # Clean up dependencies
 ```seq
 // Before
 : process-data (Int String--String)
-[dup i.> 0][swap string.concat]while ;
+dup 0 i.> if swap string.concat process-data else nip then ;
 
 // After
 : process-data ( Int String -- String )
-  [ dup 0 i.> ] [ swap string.concat ] while ;
+  dup 0 i.> if
+    swap string.concat process-data
+  else
+    nip
+  then ;
 ```
 
 ### Language Server Protocol (LSP)

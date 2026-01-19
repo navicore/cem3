@@ -317,17 +317,6 @@ fn get_builtin_completions() -> Vec<CompletionItem> {
 
     // Add control flow builtins with descriptions
     let control_flow = [
-        (
-            "while",
-            "( condition-quot body-quot -- )",
-            "Loop while condition is true",
-        ),
-        (
-            "until",
-            "( body-quot condition-quot -- )",
-            "Loop until condition is true",
-        ),
-        ("times", "( quot n -- )", "Execute quotation n times"),
         ("call", "( quot -- ... )", "Execute a quotation"),
         (
             "spawn",

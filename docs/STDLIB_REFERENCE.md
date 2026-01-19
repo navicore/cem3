@@ -142,9 +142,6 @@ Complete reference for all 152 built-in operations.
 |------|--------------|-------------|
 | `call` | `( Quotation -- ... )` | Call a quotation or closure |
 | `cond` | `( ... Int -- ... )` | Multi-way conditional |
-| `times` | `( [--] Int -- )` | Execute quotation N times |
-| `while` | `( [-- Bool] [--] -- )` | Loop while condition is true |
-| `until` | `( [--] [-- Bool] -- )` | Loop until condition is true |
 
 ## Concurrency
 

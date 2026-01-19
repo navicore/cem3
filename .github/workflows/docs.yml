@@ -6,6 +6,8 @@ on:
     paths:
       - 'docs/**'
       - 'book.toml'
+      - 'README.md'
+      - 'CHANGELOG.md'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 

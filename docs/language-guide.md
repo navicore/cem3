@@ -614,13 +614,7 @@ For hot loops that need guaranteed TCO, use a named word rather than a quotation
         drop
     then
 ;
-
-# TCO does NOT work here (quotation)
-[ dup 0 i.> ] [ 1 i.- ] while
 ```
-
-The `while`, `until`, and `times` combinators handle their own iteration
-internally, so this distinction rarely matters in practice.
 
 ## Command Line Programs
 
@@ -761,7 +755,7 @@ Fundamental operations remain unnamespaced for conciseness:
 - **Stack:** `dup`, `swap`, `over`, `rot`, `nip`, `tuck`, `drop`, `pick`, `roll`
 - **Boolean:** `and`, `or`, `not`
 - **Bitwise:** `band`, `bor`, `bxor`, `bnot`, `shl`, `shr`, `popcount`, `clz`, `ctz`
-- **Control:** `call`, `times`, `while`, `until`, `spawn`, `cond`
+- **Control:** `call`, `spawn`, `cond`
 
 ### Type-Prefixed Arithmetic and Comparison
 
@@ -902,12 +896,6 @@ my-list [ 0 i.> ] list.filter
 
 # Fold (reduce)
 my-list 0 [ i.+ ] list.fold
-
-# Execute N times
-10 [ "hello" io.write-line ] times
-
-# Loop while condition true
-[ condition ] [ body ] while
 ```
 
 ## Concurrency
@@ -952,25 +940,26 @@ Safe variants return status instead of panicking:
 ### Producer-Consumer Example
 
 ```seq
-: producer ( Int -- )
-    10 [
-        dup             # channel on stack
-        "message" swap  # ( "message" channel )
-        chan.send
-    ] times
-    chan.close
+: send-messages ( channel count -- )
+    dup 0 i.> if
+        over "message" swap chan.send
+        1 i.- send-messages
+    else
+        drop chan.close
+    then
 ;
 
-: consumer ( Int -- )
-    [
-        dup chan.receive-safe if
-            io.write-line
-            1               # continue
-        else
-            drop 0          # channel closed, stop
-        then
-    ] [ ] while
-    drop                    # drop channel
+: producer ( channel -- )
+    10 send-messages
+;
+
+: consumer ( channel -- )
+    dup chan.receive-safe if
+        io.write-line
+        consumer        # loop via recursion
+    else
+        drop drop       # channel closed, drop message and channel
+    then
 ;
 
 : main ( -- )

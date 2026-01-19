@@ -233,53 +233,6 @@ impl CodeGen {
                 TailPosition::NonTail
             };
 
-            // Pattern: [cond] [body] while  or  [body] [cond] until
-            // Stack order: first quotation pushed is below second
-            // For while: condition is pushed first, body second → [cond] [body] while
-            // For until: body is pushed first, condition second → [body] [cond] until
-            if i + 2 < len
-                && let (
-                    Statement::Quotation {
-                        body: first_quot, ..
-                    },
-                    Statement::Quotation {
-                        body: second_quot, ..
-                    },
-                    Statement::WordCall { name, .. },
-                ) = (&statements[i], &statements[i + 1], &statements[i + 2])
-            {
-                if name == "while" {
-                    // while: [cond] [body] - first is cond, second is body
-                    stack_var = self.codegen_inline_while(&stack_var, first_quot, second_quot)?;
-                    i += 3;
-                    continue;
-                }
-                if name == "until" {
-                    // until: [body] [cond] - first is body, second is cond
-                    stack_var = self.codegen_inline_until(&stack_var, second_quot, first_quot)?;
-                    i += 3;
-                    continue;
-                }
-            }
-
-            // Pattern: [body] count times
-            // Stack order: quotation pushed first, then count, then times called
-            // Statement pattern: Quotation, IntLiteral, WordCall("times")
-            if i + 2 < len
-                && let (
-                    Statement::Quotation {
-                        body: loop_body, ..
-                    },
-                    Statement::IntLiteral(count),
-                    Statement::WordCall { name, .. },
-                ) = (&statements[i], &statements[i + 1], &statements[i + 2])
-                && name == "times"
-            {
-                stack_var = self.codegen_inline_times_literal(&stack_var, loop_body, *count)?;
-                i += 3;
-                continue;
-            }
-
             // Regular statement processing
             stack_var = self.codegen_statement(&stack_var, &statements[i], position)?;
             i += 1;

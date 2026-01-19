@@ -20,15 +20,20 @@
 
 # Count bits by repeatedly clearing rightmost 1
 # Good when few bits are set (Kernighan's algorithm)
-: count-bits-sparse ( Int -- Int )
-  0 swap  # accumulator and value
-  [ dup 0 i.<> ]
-  [
+: count-bits-sparse-loop ( Int Int -- Int )
+  # acc value
+  dup 0 i.<>
+  if
     swap 1 i.add swap           # increment count
     dup 1 i.subtract band       # clear rightmost 1
-  ]
-  while
-  drop  # drop the zero value, keep count
+    count-bits-sparse-loop
+  else
+    drop  # drop the zero value, keep count
+  then
+;
+
+: count-bits-sparse ( Int -- Int )
+  0 swap count-bits-sparse-loop
 ;
 
 # Parity (1 if odd number of bits, 0 if even)
@@ -43,34 +48,44 @@
 ;
 
 # Count leading zeros manually (compare with clz builtin)
+: count-leading-zeros-loop ( Int Int -- Int )
+  # count value
+  dup 0 i.< not   # while high bit not set
+  if
+    1 shl              # shift left
+    swap 1 i.add swap  # increment count
+    count-leading-zeros-loop
+  else
+    drop  # drop the value, keep count
+  then
+;
+
 : count-leading-zeros ( Int -- Int )
   dup 0 i.=
   if drop 64
   else
-    0 swap  # count, value
-    [ dup 0 i.< not ]   # while high bit not set
-    [
-      1 shl           # shift left
-      swap 1 i.add swap # increment count
-    ]
-    while
-    drop  # drop the value
+    0 swap count-leading-zeros-loop
   then
 ;
 
 # Count trailing zeros manually (compare with ctz builtin)
+: count-trailing-zeros-loop ( Int Int -- Int )
+  # count value
+  dup 1 band 0 i.=  # while low bit not set
+  if
+    1 shr              # shift right
+    swap 1 i.add swap  # increment count
+    count-trailing-zeros-loop
+  else
+    drop  # drop the value, keep count
+  then
+;
+
 : count-trailing-zeros ( Int -- Int )
   dup 0 i.=
   if drop 64
   else
-    0 swap  # count, value
-    [ dup 1 band 0 i.= ]  # while low bit not set
-    [
-      1 shr             # shift right
-      swap 1 i.add swap   # increment count
-    ]
-    while
-    drop
+    0 swap count-trailing-zeros-loop
   then
 ;
 

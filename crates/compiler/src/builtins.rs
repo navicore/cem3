@@ -418,56 +418,6 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
         ),
     );
 
-    // times: ( a Quotation Int -- a ) where Quotation has effect ( a -- a )
-    sigs.insert(
-        "times".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()),
-                ))))
-                .push(Type::Int),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // while: ( a CondQuot BodyQuot -- a )
-    // CondQuot: ( a -- a Bool ), BodyQuot: ( a -- a )
-    sigs.insert(
-        "while".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()).push(Type::Bool),
-                ))))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()),
-                )))),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
-    // until: ( a BodyQuot CondQuot -- a )
-    // BodyQuot: ( a -- a ), CondQuot: ( a -- a Bool )
-    sigs.insert(
-        "until".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()),
-                ))))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("a".to_string()),
-                    StackType::RowVar("a".to_string()).push(Type::Bool),
-                )))),
-            StackType::RowVar("a".to_string()),
-        ),
-    );
-
     // strand.spawn: ( a Quotation -- a Int ) - spawn a concurrent strand
     // The quotation can have any stack effect - it runs independently
     sigs.insert(
@@ -1004,9 +954,6 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
         "cond",
         "Multi-way conditional: test clauses until one succeeds.",
     );
-    docs.insert("times", "Execute a quotation N times.");
-    docs.insert("while", "Loop while condition is true: [cond] [body] while");
-    docs.insert("until", "Loop until condition is true: [body] [cond] until");
 
     // Concurrency
     docs.insert(

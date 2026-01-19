@@ -275,22 +275,30 @@ impl Linter {
     /// Calculate if/else nesting depth for a single statement
     fn if_nesting_depth(stmt: &Statement, current_depth: usize) -> usize {
         match stmt {
-            Statement::If { then_branch, else_branch } => {
+            Statement::If {
+                then_branch,
+                else_branch,
+            } => {
                 // This if adds one level of nesting
                 let new_depth = current_depth + 1;
 
                 // Check then branch for further nesting
-                let then_max = then_branch.iter()
+                let then_max = then_branch
+                    .iter()
                     .map(|s| Self::if_nesting_depth(s, new_depth))
                     .max()
                     .unwrap_or(new_depth);
 
                 // Check else branch - nested ifs in else are the classic "else if" chain
-                let else_max = else_branch.as_ref()
-                    .map(|stmts| stmts.iter()
-                        .map(|s| Self::if_nesting_depth(s, new_depth))
-                        .max()
-                        .unwrap_or(new_depth))
+                let else_max = else_branch
+                    .as_ref()
+                    .map(|stmts| {
+                        stmts
+                            .iter()
+                            .map(|s| Self::if_nesting_depth(s, new_depth))
+                            .max()
+                            .unwrap_or(new_depth)
+                    })
                     .unwrap_or(new_depth);
 
                 then_max.max(else_max)

@@ -1,0 +1,25 @@
+[book]
+title = "Seq Programming Language"
+authors = ["navicore"]
+description = "Documentation for Seq, a concatenative stack-based programming language"
+src = "docs"
+language = "en"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/navicore/patch-seq"
+edit-url-template = "https://github.com/navicore/patch-seq/edit/main/docs/{path}"
+site-url = "/patch-seq/"
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-hierarchical-headings = true

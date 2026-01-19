@@ -1155,13 +1155,26 @@ fn is_float_literal(token: &str) -> bool {
 /// - `\n` -> newline
 /// - `\r` -> carriage return
 /// - `\t` -> tab
-/// - `\xNN` -> byte with hex value NN (00-FF)
+/// - `\xNN` -> Unicode code point U+00NN (hex value 00-FF)
+///
+/// # Note on `\xNN` encoding
+///
+/// The `\xNN` escape creates a Unicode code point U+00NN, not a raw byte.
+/// For values 0x00-0x7F (ASCII), this maps directly to the byte value.
+/// For values 0x80-0xFF (Latin-1 Supplement), the character is stored as
+/// a multi-byte UTF-8 sequence. For example:
+/// - `\x41` -> 'A' (1 byte in UTF-8)
+/// - `\x1b` -> ESC (1 byte in UTF-8, used for ANSI terminal codes)
+/// - `\xFF` -> 'ÿ' (U+00FF, 2 bytes in UTF-8: 0xC3 0xBF)
+///
+/// This matches Python 3 and Rust string behavior. For terminal ANSI codes,
+/// which are the primary use case, all values are in the ASCII range.
 ///
 /// # Errors
 /// Returns error if an unknown escape sequence is encountered
 fn unescape_string(s: &str) -> Result<String, String> {
     let mut result = String::new();
-    let mut chars = s.chars().peekable();
+    let mut chars = s.chars();
 
     while let Some(ch) = chars.next() {
         if ch == '\\' {
@@ -1565,6 +1578,18 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid hex escape"));
+    }
+
+    #[test]
+    fn test_hex_escape_at_end_of_string() {
+        // \x at end of string with no digits
+        let source = r#": main ( -- ) "test\x" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Incomplete hex escape"));
     }
 
     #[test]

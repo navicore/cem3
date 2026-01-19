@@ -1155,12 +1155,13 @@ fn is_float_literal(token: &str) -> bool {
 /// - `\n` -> newline
 /// - `\r` -> carriage return
 /// - `\t` -> tab
+/// - `\xNN` -> byte with hex value NN (00-FF)
 ///
 /// # Errors
 /// Returns error if an unknown escape sequence is encountered
 fn unescape_string(s: &str) -> Result<String, String> {
     let mut result = String::new();
-    let mut chars = s.chars();
+    let mut chars = s.chars().peekable();
 
     while let Some(ch) = chars.next() {
         if ch == '\\' {
@@ -1170,10 +1171,32 @@ fn unescape_string(s: &str) -> Result<String, String> {
                 Some('n') => result.push('\n'),
                 Some('r') => result.push('\r'),
                 Some('t') => result.push('\t'),
+                Some('x') => {
+                    // Hex escape: \xNN
+                    let hex1 = chars.next().ok_or_else(|| {
+                        "Incomplete hex escape sequence '\\x' - expected 2 hex digits".to_string()
+                    })?;
+                    let hex2 = chars.next().ok_or_else(|| {
+                        format!(
+                            "Incomplete hex escape sequence '\\x{}' - expected 2 hex digits",
+                            hex1
+                        )
+                    })?;
+
+                    let hex_str: String = [hex1, hex2].iter().collect();
+                    let byte_val = u8::from_str_radix(&hex_str, 16).map_err(|_| {
+                        format!(
+                            "Invalid hex escape sequence '\\x{}' - expected 2 hex digits (00-FF)",
+                            hex_str
+                        )
+                    })?;
+
+                    result.push(byte_val as char);
+                }
                 Some(c) => {
                     return Err(format!(
                         "Unknown escape sequence '\\{}' in string literal. \
-                         Supported: \\\" \\\\ \\n \\r \\t",
+                         Supported: \\\" \\\\ \\n \\r \\t \\xNN",
                         c
                     ));
                 }
@@ -1442,13 +1465,106 @@ mod tests {
 
     #[test]
     fn test_unknown_escape_sequence() {
-        let source = r#": main ( -- ) "Bad \x sequence" write_line ;"#;
+        let source = r#": main ( -- ) "Bad \q sequence" write_line ;"#;
 
         let mut parser = Parser::new(source);
         let result = parser.parse();
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown escape sequence"));
+    }
+
+    #[test]
+    fn test_hex_escape_sequence() {
+        // \x1b is ESC (27), \x41 is 'A' (65)
+        let source = r#": main ( -- ) "\x1b[2K\x41" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => {
+                assert_eq!(s.len(), 5); // ESC [ 2 K A
+                assert_eq!(s.as_bytes()[0], 0x1b); // ESC
+                assert_eq!(s.as_bytes()[4], 0x41); // 'A'
+            }
+            _ => panic!("Expected StringLiteral"),
+        }
+    }
+
+    #[test]
+    fn test_hex_escape_null_byte() {
+        let source = r#": main ( -- ) "before\x00after" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => {
+                assert_eq!(s.len(), 12); // "before" + NUL + "after"
+                assert_eq!(s.as_bytes()[6], 0x00);
+            }
+            _ => panic!("Expected StringLiteral"),
+        }
+    }
+
+    #[test]
+    fn test_hex_escape_uppercase() {
+        // Both uppercase and lowercase hex digits should work
+        // Note: Values > 0x7F become Unicode code points (U+00NN), multi-byte in UTF-8
+        let source = r#": main ( -- ) "\x41\x42\x4F" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => {
+                assert_eq!(s, "ABO"); // 0x41='A', 0x42='B', 0x4F='O'
+            }
+            _ => panic!("Expected StringLiteral"),
+        }
+    }
+
+    #[test]
+    fn test_hex_escape_high_bytes() {
+        // Values > 0x7F become Unicode code points (Latin-1), which are multi-byte in UTF-8
+        let source = r#": main ( -- ) "\xFF" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let program = parser.parse().unwrap();
+
+        match &program.words[0].body[0] {
+            Statement::StringLiteral(s) => {
+                // \xFF becomes U+00FF (ÿ), which is 2 bytes in UTF-8: C3 BF
+                assert_eq!(s, "\u{00FF}");
+                assert_eq!(s.chars().next().unwrap(), 'ÿ');
+            }
+            _ => panic!("Expected StringLiteral"),
+        }
+    }
+
+    #[test]
+    fn test_hex_escape_incomplete() {
+        // \x with only one hex digit
+        let source = r#": main ( -- ) "\x1" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Incomplete hex escape"));
+    }
+
+    #[test]
+    fn test_hex_escape_invalid_digits() {
+        // \xGG is not valid hex
+        let source = r#": main ( -- ) "\xGG" io.write-line ;"#;
+
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid hex escape"));
     }
 
     #[test]

@@ -113,7 +113,7 @@ cargo test --all
 
 ## Learn Seq
 
-**New to concatenative programming?** Start with the [Glossary](docs/GLOSSARY.md) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms for working programmers.
+**New to concatenative programming?** Start with the [Glossary](https://navicore.github.io/patch-seq/GLOSSARY.html) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms for working programmers.
 
 **Learn by doing:** Work through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
 

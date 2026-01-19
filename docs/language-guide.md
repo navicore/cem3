@@ -228,30 +228,29 @@ Basic console I/O:
 | Word | Effect | Description |
 |------|--------|-------------|
 | `io.write-line` | `( String -- )` | Print string to stdout with newline |
-| `io.read-line` | `( -- String )` | Read line from stdin (includes newline) |
-| `io.read-line+` | `( -- String Int )` | Read line with EOF detection |
+| `io.read-line` | `( -- String Bool )` | Read line from stdin with success flag |
 
 ### Line Ending Normalization
 
-All line-reading operations (`io.read-line`, `io.read-line+`, `file.for-each-line+`)
+All line-reading operations (`io.read-line`, `file.for-each-line+`)
 normalize line endings to `\n`. Windows-style `\r\n` is converted to `\n`.
 This ensures Seq programs behave consistently across operating systems.
 
-### Handling EOF with io.read-line+
+### Handling EOF with io.read-line
 
-The `io.read-line` word panics at EOF, which is fine for simple scripts. For robust input handling, use `io.read-line+` which returns a status flag:
+The `io.read-line` word returns a success flag, making EOF handling explicit:
 
 ```seq
-io.read-line+    # ( -- String Int )
-                 # Success: ( "line\n" 1 )
-                 # EOF:     ( "" 0 )
+io.read-line    # ( -- String Bool )
+                # Success: ( "line\n" true )
+                # EOF:     ( "" false )
 ```
 
 Example - reading all lines until EOF:
 
 ```seq
 : process-input ( -- )
-    io.read-line+ if
+    io.read-line if
         string.chomp    # Remove trailing newline
         process-line    # Your processing word
         process-input   # Recurse for next line
@@ -261,11 +260,17 @@ Example - reading all lines until EOF:
 ;
 ```
 
-The `+` suffix convention indicates words that return a result pattern (value + status) instead of panicking on failure.
-
 ## Algebraic Data Types (ADTs)
 
 Seq provides compile-time safe algebraic data types with `union` definitions and `match` expressions.
+
+Seq's `union` is similar to Rust's `enum` - each variant can carry multiple named fields. This differs from C++'s `std::variant`, where each alternative holds only a single type.
+
+| Feature | C++ `std::variant` | Rust `enum` | Seq `union` |
+|---------|-------------------|-------------|-------------|
+| Multiple fields per variant | No (single type) | Yes | Yes (max 4) |
+| Named fields | No | Yes | Yes |
+| Exhaustive matching | `std::visit` | `match` | `match` |
 
 ### Union Definitions
 
@@ -415,6 +420,112 @@ The standard pattern for lists using low-level variants:
 # Build a list: (1 2 3)
 1  2  3 nil cons cons cons
 ```
+
+## Safety Philosophy
+
+Seq aspires to Rust's core principle: **if it compiles, it tends to run correctly**. The compiler statically eliminates entire categories of bugs that cause runtime failures in other languages.
+
+### What the Compiler Guarantees
+
+| Guarantee | What It Prevents |
+|-----------|------------------|
+| **No null** | NullPointerException, segfaults from nil access |
+| **Exhaustive pattern matching** | Forgetting to handle error cases or union variants |
+| **Stack effect verification** | Stack underflow, type mismatches, arity errors |
+| **Explicit numeric types** | Silent precision loss, integer overflow surprises |
+| **No shared mutable state** | Data races between strands |
+
+### No Null
+
+Seq has no null. There's no implicit "absence of value" that can appear in any type.
+
+When you need to represent optional or fallible values, use union types:
+
+```seq
+union Option { None, Some { value: Int } }
+union Result { Ok { value: Int }, Err { message: String } }
+```
+
+If a function returns a union type, the compiler requires callers to handle all variants via exhaustive `match`. You cannot forget the error case:
+
+```seq
+: maybe-parse ( String -- Option )  ... ;
+
+: use-it ( String -- Int )
+  maybe-parse match
+    None -> 0                    # must handle this
+    Some { >value } -> value
+  end
+;
+```
+
+This is opt-in. Seq doesn't enforce a pervasive `Result` convention across the standard library - union types are used case by case where they make sense. The compiler's role is to ensure that *if* you use a union type, callers must handle all variants.
+
+### What the Compiler Does Not Catch
+
+Seq is not Rust. Some things remain the programmer's responsibility:
+
+| Not Checked | Why |
+|-------------|-----|
+| Array bounds | Lists are dynamically sized; bounds checked at runtime |
+| Integer overflow | Wraps silently (like C, unlike Rust debug builds) |
+| Resource exhaustion | Stack overflow from non-tail recursion, OOM |
+| Logic errors | The compiler verifies types, not intent |
+
+The philosophy: eliminate the bugs that are both common and mechanically detectable. Stack effects catch most "wrong number of arguments" bugs. Exhaustive matching catches "forgot the error case." No null catches "didn't check for absence." Explicit numerics catch "mixed up int and float."
+
+What remains are bugs that require understanding intent - and those are for tests and code review.
+
+## Value Semantics
+
+Seq has straightforward value semantics with no ownership tracking or move semantics.
+
+### No Borrowing, No Moves
+
+Unlike Rust, Seq has no borrow checker or ownership system. Unlike C++11+, there are no move constructors or rvalue references. Values are simply copied when needed:
+
+```seq
+5 dup    # Copies the integer - both stack positions hold 5
+```
+
+This simplicity comes from two design choices:
+1. **Values are immutable** - you don't mutate values, you create new ones
+2. **Sharing via reference counting** - complex types use Arc internally for O(1) copying
+
+### Copying Behavior by Type
+
+| Type | On `dup` | Notes |
+|------|----------|-------|
+| Int, Float, Bool | Bitwise copy | True value types |
+| String | Deep copy | New allocation, independent string |
+| Variant | Shallow copy | Arc refcount increment, data shared |
+| Map | Deep copy | New HashMap with cloned entries |
+| Channel | Shallow copy | Arc increment, shares sender/receiver |
+| Quotation | Bitwise copy | Function pointers, no heap data |
+| Closure | Shallow copy | Arc increment on captured environment |
+
+### Why This Works
+
+The lack of mutation eliminates the problems that borrowing solves. In Rust, you need the borrow checker because:
+- Mutable references could alias
+- Data could be freed while references exist
+- Race conditions on shared mutable state
+
+Seq sidesteps all of this:
+- No mutation of values on the stack
+- Reference counting handles lifetimes automatically
+- Strands communicate via channels, not shared memory
+
+### Comparison to Other Languages
+
+| Language | Model | Seq Equivalent |
+|----------|-------|----------------|
+| Java | Primitives by value, objects by reference (shared mutable) | Primitives copy, collections share via Arc (immutable) |
+| Rust | Ownership + borrowing, explicit moves | Everything copies, Arc handles sharing |
+| C++ | Value types with copy/move constructors | Everything copies, no move optimization |
+| Clojure | Persistent immutable data structures | Similar - variants share, maps clone |
+
+Seq's model is closest to functional languages with persistent data structures. The simplicity cost is that large maps are expensive to "modify" (you clone the whole thing). The benefit is that you never think about lifetimes, borrows, or use-after-free.
 
 ## Error Handling with Result/Option
 
@@ -580,7 +691,7 @@ you can write natural recursive code without restructuring for optimization:
 
 ```seq
 : process-input ( -- )
-    io.read-line+ if
+    io.read-line if
         string.chomp
         process-line
         process-input   # Tail call - even inside a branch
@@ -644,7 +755,7 @@ For hot loops that need guaranteed TCO, use a named word rather than a quotation
 
 ### Line-by-Line File Processing
 
-For processing files line by line (similar to `io.read-line+` for stdin), use `file.for-each-line+`:
+For processing files line by line, use `file.for-each-line+`:
 
 ```seq
 : process-line ( String -- )
@@ -745,7 +856,7 @@ Operations are grouped by functionality:
 | Suffix | Meaning | Example |
 |--------|---------|---------|
 | `?` | Predicate (returns boolean) | `nil?`, `string.empty?`, `file.exists?` |
-| `+` | Returns result + status | `io.read-line+`, `file.for-each-line+` |
+| `+` | Returns result + status | `file.for-each-line+` |
 | `-safe` | Safe variant (no panic) | `chan.send-safe`, `map.get-safe` |
 
 ### Core Primitives (No Prefix)
@@ -759,14 +870,27 @@ Fundamental operations remain unnamespaced for conciseness:
 
 ### Type-Prefixed Arithmetic and Comparison
 
-Integer and float operations use explicit type prefixes for clarity:
+Integer and float operations use explicit type prefixes:
 
 - **Integer arithmetic:** `i.add`, `i.subtract`, `i.multiply`, `i.divide` (or terse: `i.+`, `i.-`, `i.*`, `i./`, `i.%`)
 - **Integer comparison:** `i.=`, `i.<`, `i.>`, `i.<=`, `i.>=`, `i.<>` (or verbose: `i.eq`, `i.lt`, `i.gt`, `i.lte`, `i.gte`, `i.neq`)
 - **Float arithmetic:** `f.add`, `f.subtract`, `f.multiply`, `f.divide` (or terse: `f.+`, `f.-`, `f.*`, `f./`)
 - **Float comparison:** `f.=`, `f.<`, `f.>`, `f.<=`, `f.>=`
 
-This removes ambiguity about which type an operation applies to and makes code self-documenting.
+This is a deliberate design choice, not a limitation. **Implicit type conversions are harmful.**
+
+Many languages silently convert between numeric types, leading to subtle bugs:
+- JavaScript's `"5" + 3` yields `"53"` but `"5" - 3` yields `2`
+- C silently promotes integers and truncates floats, losing precision without warning
+- Python 2's `/` behaved differently for int vs float operands
+
+Seq rejects this entirely. When you write `i.+`, you know both operands are integers and the result is an integer. When you need to mix types, you convert explicitly:
+
+```seq
+42 int->float 3.14 f.+    # Explicit: convert int to float, then add
+```
+
+The code states exactly what happens. No implicit coercion, no surprises, no "wat" moments. The few extra characters buy certainty about program behavior.
 
 ### Rationale
 

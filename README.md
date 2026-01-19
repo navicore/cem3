@@ -49,6 +49,8 @@ A concatenative, stack-based programming language that compiles to native execut
 
 **CSP-style concurrency.** Lightweight strands (green threads) communicate through channels. No shared memory, no locks - just message passing.
 
+**No implicit numeric conversions.** Operations like `i.+` and `f.+` make types explicit. No silent coercion, no precision loss, no "wat" moments - when you need to mix types, you convert explicitly with `int->float` or `float->int`.
+
 ## Installation
 
 ### Prerequisites

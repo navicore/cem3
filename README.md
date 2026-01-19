@@ -270,16 +270,6 @@ SEQ_YIELD_INTERVAL=10000 ./my-program    # Yield every 10K tail calls
 SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
 ```
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| **[Glossary](docs/GLOSSARY.md)** | Key concepts for working programmers new to concatenative languages |
-| [Language Guide](docs/language-guide.md) | Complete syntax and semantics reference |
-| [Type System Guide](docs/TYPE_SYSTEM_GUIDE.md) | Stack effects, row polymorphism, and effect tracking |
-| [TCO Guide](docs/TCO_GUIDE.md) | How tail call optimization works under the hood |
-| [Architecture](docs/ARCHITECTURE.md) | System design and implementation decisions |
-
 ## License
 
 MIT License

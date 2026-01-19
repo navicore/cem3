@@ -583,9 +583,9 @@ fn make_inlay_hint_for_word(
 ) -> Option<InlayHint> {
     // Skip common control flow and simple words that would be noisy
     let skip_words = [
-        "if", "else", "then", "do", "loop", "begin", "until", "while", "dup", "drop", "swap",
-        "over", "rot", "nip", "tuck", "pick", "+", "-", "*", "/", "=", "<", ">", "<=", ">=", "<>",
-        "and", "or", "not", "true", "false",
+        "if", "else", "then", "do", "loop", "begin", "dup", "drop", "swap", "over", "rot", "nip",
+        "tuck", "pick", "+", "-", "*", "/", "=", "<", ">", "<=", ">=", "<>", "and", "or", "not",
+        "true", "false",
     ];
     if skip_words.contains(&word) {
         return None;

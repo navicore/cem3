@@ -474,9 +474,6 @@ impl Program {
             "chan.yield",
             // Quotation operations
             "call",
-            "times",
-            "while",
-            "until",
             "strand.spawn",
             "strand.weave",
             "strand.resume",

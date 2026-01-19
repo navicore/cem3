@@ -22,8 +22,31 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Peek and pop condition (Issue #215: reuse helper)
-        let (popped_stack, cond_val) = self.codegen_peek_pop_bool(stack_var)?;
+        // Peek and pop condition: read bool value from top of stack and decrement SP
+        let top_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            top_ptr, stack_var
+        )?;
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, top_ptr
+        )?;
+        let cond_val = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = load i64, ptr %{}",
+            cond_val, slot1_ptr
+        )?;
+        let popped_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+            popped_stack, stack_var
+        )?;
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();

@@ -422,7 +422,7 @@ json-empty-object "name" json-string "John" json-string obj-with
 
 ## Current Limitations
 
-1. **No loop keywords** - Use recursion (with TCO) or combinators (`times`, `while`, `until`)
+1. **No loop keywords** - Use recursion with TCO (tail call optimization is guaranteed)
 2. **Serialization size limits** - Arrays > 3 elements, objects > 2 pairs show as `[...]`/`{...}`
 3. **No string escapes** - `\"` not supported in strings
 4. **roll type checking** - `3 roll` works at runtime but type checker can't fully verify

@@ -8,16 +8,24 @@
   dup i.*
 ;
 
-: sum-squares ( Int -- Int )
-  # sum-squares(n) = sum of i^2 for i in 1..n
-  0 swap  # acc n
-  [ dup 0 i.> ] [
+# sum-squares-loop ( acc n -- Int )
+: sum-squares-loop ( Int Int -- Int )
+  dup 0 i.>
+  if
     # acc n -> acc' n'
     dup square      # acc n n^2
     rot i.+ swap    # acc+n^2 n
     1 i.-           # acc' n-1
-  ] while
-  drop  # return acc
+    sum-squares-loop
+  else
+    drop  # return acc
+  then
+;
+
+: sum-squares ( Int -- Int )
+  # sum-squares(n) = sum of i^2 for i in 1..n
+  0 swap  # acc n
+  sum-squares-loop
 ;
 
 : main ( -- Int )

@@ -26,8 +26,8 @@ Calling `1000 factorial` would create 1000 stack frames, risking stack overflow.
 
 ### Why TCO Matters for Seq
 
-1. **Concatenative languages favor recursion** - Without loop constructs beyond
-   `while`/`times`, recursion is natural for many algorithms
+1. **Concatenative languages favor recursion** - Without built-in loop constructs,
+   recursion is the natural way to express iteration in Seq
 
 2. **SeqLisp and embedded languages** - Languages implemented in Seq (like
    SeqLisp) have recursive interpreters. Without TCO, both the interpreter

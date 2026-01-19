@@ -24,6 +24,10 @@ use std::path::{Path, PathBuf};
 /// Embedded default lint rules
 pub static DEFAULT_LINTS: &str = include_str!("lints.toml");
 
+/// Maximum if/else nesting depth before warning (structural lint)
+/// 4 levels deep is the threshold - beyond this, consider `cond` or helper words
+pub const MAX_NESTING_DEPTH: usize = 4;
+
 /// Severity level for lint diagnostics
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -230,8 +234,84 @@ impl Linter {
             self.find_matches(&word_infos, pattern, word, file, fallback_line, diagnostics);
         }
 
+        // Check for deeply nested if/else chains
+        let max_depth = Self::max_if_nesting_depth(&word.body);
+        if max_depth >= MAX_NESTING_DEPTH {
+            diagnostics.push(LintDiagnostic {
+                id: "deep-nesting".to_string(),
+                message: format!(
+                    "deeply nested if/else ({} levels) - consider using `cond` or extracting to helper words",
+                    max_depth
+                ),
+                severity: Severity::Hint,
+                replacement: String::new(),
+                file: file.to_path_buf(),
+                line: fallback_line,
+                end_line: None,
+                start_column: None,
+                end_column: None,
+                word_name: word.name.clone(),
+                start_index: 0,
+                end_index: 0,
+            });
+        }
+
         // Recursively lint nested structures (quotations, if branches)
         self.lint_nested(&word.body, word, file, diagnostics);
+    }
+
+    /// Calculate the maximum if/else nesting depth in a statement list
+    fn max_if_nesting_depth(statements: &[Statement]) -> usize {
+        let mut max_depth = 0;
+        for stmt in statements {
+            let depth = Self::if_nesting_depth(stmt, 0);
+            if depth > max_depth {
+                max_depth = depth;
+            }
+        }
+        max_depth
+    }
+
+    /// Calculate if/else nesting depth for a single statement
+    fn if_nesting_depth(stmt: &Statement, current_depth: usize) -> usize {
+        match stmt {
+            Statement::If { then_branch, else_branch } => {
+                // This if adds one level of nesting
+                let new_depth = current_depth + 1;
+
+                // Check then branch for further nesting
+                let then_max = then_branch.iter()
+                    .map(|s| Self::if_nesting_depth(s, new_depth))
+                    .max()
+                    .unwrap_or(new_depth);
+
+                // Check else branch - nested ifs in else are the classic "else if" chain
+                let else_max = else_branch.as_ref()
+                    .map(|stmts| stmts.iter()
+                        .map(|s| Self::if_nesting_depth(s, new_depth))
+                        .max()
+                        .unwrap_or(new_depth))
+                    .unwrap_or(new_depth);
+
+                then_max.max(else_max)
+            }
+            Statement::Quotation { body, .. } => {
+                // Quotations start fresh nesting count (they're separate code blocks)
+                body.iter()
+                    .map(|s| Self::if_nesting_depth(s, 0))
+                    .max()
+                    .unwrap_or(0)
+            }
+            Statement::Match { arms } => {
+                // Match arms don't count as if nesting, but check for ifs inside
+                arms.iter()
+                    .flat_map(|arm| arm.body.iter())
+                    .map(|s| Self::if_nesting_depth(s, current_depth))
+                    .max()
+                    .unwrap_or(current_depth)
+            }
+            _ => current_depth,
+        }
     }
 
     /// Extract a flat sequence of word names with spans from statements.

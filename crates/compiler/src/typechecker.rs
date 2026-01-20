@@ -325,19 +325,16 @@ impl TypeChecker {
         self.validate_union_field_types(program)?;
 
         // Second pass: collect all word signatures
-        // For words without explicit effects, use a maximally polymorphic placeholder
-        // This allows calls to work, and actual type safety comes from checking the body
+        // All words must have explicit stack effect declarations (v2.0 requirement)
         for word in &program.words {
             if let Some(effect) = &word.effect {
                 self.env.insert(word.name.clone(), effect.clone());
             } else {
-                // Use placeholder effect: ( ..input -- ..output )
-                // This is maximally polymorphic and allows any usage
-                let placeholder = Effect::new(
-                    StackType::RowVar("input".to_string()),
-                    StackType::RowVar("output".to_string()),
-                );
-                self.env.insert(word.name.clone(), placeholder);
+                return Err(format!(
+                    "Word '{}' is missing a stack effect declaration.\n\
+                     All words must declare their stack effect, e.g.: : {} ( -- ) ... ;",
+                    word.name, word.name
+                ));
             }
         }
 
@@ -354,85 +351,61 @@ impl TypeChecker {
         // Track current word for detecting recursive tail calls (divergent branches)
         *self.current_word.borrow_mut() = Some(word.name.clone());
 
-        // If word has declared effect, verify body matches it
-        let result = if let Some(declared_effect) = &word.effect {
-            // Check if the word's output type is a quotation or closure
-            // If so, store it as the expected type for capture inference
-            if let Some((_rest, top_type)) = declared_effect.outputs.clone().pop()
-                && matches!(top_type, Type::Quotation(_) | Type::Closure { .. })
-            {
-                *self.expected_quotation_type.borrow_mut() = Some(top_type);
-            }
+        // All words must have declared effects (enforced in check_program)
+        let declared_effect = word.effect.as_ref().expect("word must have effect");
 
-            // Infer the result stack and effects starting from declared input
-            let (result_stack, _subst, inferred_effects) =
-                self.infer_statements_from(&word.body, &declared_effect.inputs, true)?;
+        // Check if the word's output type is a quotation or closure
+        // If so, store it as the expected type for capture inference
+        if let Some((_rest, top_type)) = declared_effect.outputs.clone().pop()
+            && matches!(top_type, Type::Quotation(_) | Type::Closure { .. })
+        {
+            *self.expected_quotation_type.borrow_mut() = Some(top_type);
+        }
 
-            // Clear expected type after checking
-            *self.expected_quotation_type.borrow_mut() = None;
+        // Infer the result stack and effects starting from declared input
+        let (result_stack, _subst, inferred_effects) =
+            self.infer_statements_from(&word.body, &declared_effect.inputs, true)?;
 
-            // Verify result matches declared output
-            unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
-                format!(
-                    "Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
-                    word.name, declared_effect.outputs, result_stack, e
-                )
-            })?;
+        // Clear expected type after checking
+        *self.expected_quotation_type.borrow_mut() = None;
 
-            // Verify computational effects match (bidirectional)
-            // 1. Check that each inferred effect has a matching declared effect (by kind)
-            // Type variables in effects are matched by kind (Yield matches Yield)
-            for inferred in &inferred_effects {
-                if !self.effect_matches_any(inferred, &declared_effect.effects) {
-                    return Err(format!(
-                        "Word '{}': body produces effect '{}' but no matching effect is declared.\n\
-                         Hint: Add '| Yield <type>' to the word's stack effect declaration.",
-                        word.name, inferred
-                    ));
-                }
-            }
+        // Verify result matches declared output
+        unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
+            format!(
+                "Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
+                word.name, declared_effect.outputs, result_stack, e
+            )
+        })?;
 
-            // 2. Check that each declared effect is actually produced (effect soundness)
-            // This prevents declaring effects that don't occur
-            for declared in &declared_effect.effects {
-                if !self.effect_matches_any(declared, &inferred_effects) {
-                    return Err(format!(
-                        "Word '{}': declares effect '{}' but body doesn't produce it.\n\
-                         Hint: Remove the effect declaration or ensure the body uses yield.",
-                        word.name, declared
-                    ));
-                }
-            }
-
-            Ok(())
-        } else {
-            // No declared effect - just verify body is well-typed
-            // Start from polymorphic input
-            let (_, _, inferred_effects) = self.infer_statements_from(
-                &word.body,
-                &StackType::RowVar("input".to_string()),
-                true,
-            )?;
-
-            // If there are effects but no declaration, warn
-            if !inferred_effects.is_empty() {
-                let effects_str: Vec<_> =
-                    inferred_effects.iter().map(|e| format!("{}", e)).collect();
+        // Verify computational effects match (bidirectional)
+        // 1. Check that each inferred effect has a matching declared effect (by kind)
+        // Type variables in effects are matched by kind (Yield matches Yield)
+        for inferred in &inferred_effects {
+            if !self.effect_matches_any(inferred, &declared_effect.effects) {
                 return Err(format!(
-                    "Word '{}': body produces effects [{}] but word has no declared effect.\n\
-                     Hint: Add a stack effect annotation with '| {}'.",
-                    word.name,
-                    effects_str.join(", "),
-                    effects_str.join(" ")
+                    "Word '{}': body produces effect '{}' but no matching effect is declared.\n\
+                     Hint: Add '| Yield <type>' to the word's stack effect declaration.",
+                    word.name, inferred
                 ));
             }
-            Ok(())
-        };
+        }
+
+        // 2. Check that each declared effect is actually produced (effect soundness)
+        // This prevents declaring effects that don't occur
+        for declared in &declared_effect.effects {
+            if !self.effect_matches_any(declared, &inferred_effects) {
+                return Err(format!(
+                    "Word '{}': declares effect '{}' but body doesn't produce it.\n\
+                     Hint: Remove the effect declaration or ensure the body uses yield.",
+                    word.name, declared
+                ));
+            }
+        }
 
         // Clear current word
         *self.current_word.borrow_mut() = None;
 
-        result
+        Ok(())
     }
 
     /// Infer the resulting stack type from a sequence of statements
@@ -1524,14 +1497,14 @@ mod tests {
 
     #[test]
     fn test_mismatched_branches() {
-        // : test ( Int -- ? )
-        //   if 42 else "string" then ;  // ERROR: incompatible types
+        // : test ( -- Int )
+        //   true if 42 else "string" then ;  // ERROR: incompatible types
         let program = Program {
             includes: vec![],
             unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
-                effect: None,
+                effect: Some(Effect::new(StackType::Empty, StackType::singleton(Type::Int))),
                 body: vec![
                     Statement::BoolLiteral(true),
                     Statement::If {
@@ -1834,7 +1807,7 @@ mod tests {
 
     #[test]
     fn test_word_without_effect_declaration() {
-        // : helper 42 ;  // No effect declaration
+        // : helper 42 ;  // No effect declaration - should error
         let program = Program {
             includes: vec![],
             unions: vec![],
@@ -1847,7 +1820,9 @@ mod tests {
         };
 
         let mut checker = TypeChecker::new();
-        assert!(checker.check_program(&program).is_ok());
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("missing a stack effect declaration"));
     }
 
     #[test]
@@ -2141,8 +2116,8 @@ mod tests {
 
     #[test]
     fn test_type_error_in_nested_conditional() {
-        // : test ( Int Int -- ? )
-        //   > if
+        // : test ( -- )
+        //   10 20 i.> if
         //     42 io.write-line   # ERROR: io.write-line expects String, got Int
         //   else
         //     "ok" io.write-line
@@ -2152,7 +2127,7 @@ mod tests {
             unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
-                effect: None,
+                effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
                 body: vec![
                     Statement::IntLiteral(10),
                     Statement::IntLiteral(20),
@@ -2779,14 +2754,25 @@ mod tests {
     #[test]
     fn test_roll_with_row_polymorphic_input() {
         // roll reaching into row variable should work (needed for stdlib)
-        // : test ( ..a Int Int Int -- ..a Int Int Int ??? )
-        //   3 roll ;   # Reaches into ..a, generates fresh type
+        // : test ( T U V W -- U V W T )
+        //   3 roll ;   # Rotates: brings position 3 to top
         let program = Program {
             includes: vec![],
             unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
-                effect: None, // No declared effect - polymorphic inference
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Var("T".to_string()))
+                        .push(Type::Var("U".to_string()))
+                        .push(Type::Var("V".to_string()))
+                        .push(Type::Var("W".to_string())),
+                    StackType::Empty
+                        .push(Type::Var("U".to_string()))
+                        .push(Type::Var("V".to_string()))
+                        .push(Type::Var("W".to_string()))
+                        .push(Type::Var("T".to_string())),
+                )),
                 body: vec![
                     Statement::IntLiteral(3),
                     Statement::WordCall {
@@ -2799,21 +2785,31 @@ mod tests {
         };
 
         let mut checker = TypeChecker::new();
-        // This should succeed - roll into row variable is allowed for polymorphic words
-        assert!(checker.check_program(&program).is_ok());
+        let result = checker.check_program(&program);
+        assert!(result.is_ok(), "roll test failed: {:?}", result.err());
     }
 
     #[test]
     fn test_pick_with_row_polymorphic_input() {
         // pick reaching into row variable should work (needed for stdlib)
-        // : test ( ..a Int Int -- ..a Int Int ??? )
-        //   2 pick ;   # Reaches into ..a, generates fresh type
+        // : test ( T U V -- T U V T )
+        //   2 pick ;   # Copies element at index 2 (0-indexed from top)
         let program = Program {
             includes: vec![],
             unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
-                effect: None, // No declared effect - polymorphic inference
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Var("T".to_string()))
+                        .push(Type::Var("U".to_string()))
+                        .push(Type::Var("V".to_string())),
+                    StackType::Empty
+                        .push(Type::Var("T".to_string()))
+                        .push(Type::Var("U".to_string()))
+                        .push(Type::Var("V".to_string()))
+                        .push(Type::Var("T".to_string())),
+                )),
                 body: vec![
                     Statement::IntLiteral(2),
                     Statement::WordCall {
@@ -2826,7 +2822,6 @@ mod tests {
         };
 
         let mut checker = TypeChecker::new();
-        // This should succeed - pick into row variable is allowed for polymorphic words
         assert!(checker.check_program(&program).is_ok());
     }
 
@@ -3154,13 +3149,18 @@ mod tests {
     #[test]
     fn test_strand_weave_yield_quotation_ok() {
         // Phase 2c: Using strand.weave on a Yield quotation is correct.
-        // : good ( Ctx -- Handle ) [ yield ] strand.weave ;
+        // : good ( -- Int Handle ) 42 [ yield ] strand.weave ;
         let program = Program {
             includes: vec![],
             unions: vec![],
             words: vec![WordDef {
                 name: "good".to_string(),
-                effect: None, // Let it be inferred
+                effect: Some(Effect::new(
+                    StackType::Empty,
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Var("Handle".to_string())),
+                )),
                 body: vec![
                     Statement::IntLiteral(42),
                     Statement::Quotation {
@@ -3553,15 +3553,14 @@ mod tests {
     }
 
     #[test]
-    fn test_no_effect_annotation_pollution() {
-        // : test 42 ;
-        // No effect annotation - should infer ( -- Int )
-        // This is valid, not pollution
+    fn test_missing_effect_provides_helpful_error() {
+        // : myword 42 ;
+        // No effect annotation - should error with helpful message including word name
         let program = Program {
             includes: vec![],
             unions: vec![],
             words: vec![WordDef {
-                name: "test".to_string(),
+                name: "myword".to_string(),
                 effect: None, // No annotation
                 body: vec![Statement::IntLiteral(42)],
                 source: None,
@@ -3570,9 +3569,12 @@ mod tests {
 
         let mut checker = TypeChecker::new();
         let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("myword"), "Error should mention word name");
         assert!(
-            result.is_ok(),
-            "Should accept: no effect annotation means effect is inferred"
+            err.contains("stack effect"),
+            "Error should mention stack effect"
         );
     }
 

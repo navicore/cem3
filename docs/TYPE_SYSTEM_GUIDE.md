@@ -539,19 +539,22 @@ type Option T = Some T | None ;
 
 Use `union` declarations or runtime `make-variant-N` constructors instead. See [Language Guide](language-guide.md#unions) for details.
 
-### No Type Inference
+### Stack Effects Are Required
 
-All word effects must be **explicitly declared**. The checker verifies but doesn't infer:
+All words must have explicit stack effect declarations. The compiler verifies the body matches the declaration:
 
 ```seq
-# Must declare effect:
+# Correct - effect declared:
 : double ( Int -- Int )
   2 i.* ;
 
-# Can't omit effect (discouraged):
+# Error - missing stack effect declaration:
 : double
   2 i.* ;
+# Compiler error: Word 'double' is missing a stack effect declaration.
 ```
+
+This requirement ensures full type safety - every word's interface is explicit and verified.
 
 ---
 

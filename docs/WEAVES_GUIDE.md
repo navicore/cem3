@@ -53,13 +53,13 @@ A counter that yields its current value and accepts an increment:
   [ counter-body ] strand.weave   # ( handle )
 
   # Resume with initial value 10
-  10 strand.resume                # ( handle 10 true )
-  drop                            # ( handle 10 )
+  10 strand.resume                # ( handle yielded has_more )
+  drop                            # ( handle yielded )
   "First: " swap int->string string.concat io.write-line
                                   # ( handle )
 
   # Resume with increment 5
-  5 strand.resume                 # ( handle 15 true )
+  5 strand.resume                 # ( handle yielded has_more )
   drop
   "After +5: " swap int->string string.concat io.write-line
 

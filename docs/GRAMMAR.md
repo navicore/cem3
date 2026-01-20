@@ -215,7 +215,7 @@ union Result {
 : swap ( ..a T U -- ..a U T ) ... ;
 
 # Quotation type
-: apply-twice ( Int [Int -- Int] -- Int ) dup dip call ;
+: apply-twice ( Int [Int -- Int] -- Int ) dup rot swap call swap call ;
 
 # Closure type
 : make-adder ( Int -- Closure[Int -- Int] ) [ i.+ ] ;

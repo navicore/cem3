@@ -21,7 +21,7 @@ Words declare their **stack effect** - how they transform the stack:
 
 ```seq
 : square ( Int -- Int )
-  dup multiply ;
+  dup i.* ;
 ```
 
 Stack effect format: `( inputs -- outputs )`
@@ -54,11 +54,11 @@ When this word is called:
 
 # Takes two Ints, produces one Int
 : add-numbers ( Int Int -- Int )
-  add ;
+  i.+ ;
 
 # Takes String, produces nothing (prints it)
 : print ( String -- )
-  write_line ;
+  io.write-line ;
 
 # Takes Int and String, produces String (e.g., "Value: 42")
 : format ( Int String -- String )
@@ -186,6 +186,63 @@ Row polymorphism enables **stack operation composition**:
 #    With ..a = Int, we get: ( Int Int Int -- Int Int )
 # Result: ( Int Int Int -- Int Int ) ✓
 ```
+
+### Row Polymorphism vs Traditional Generics
+
+If you're familiar with generics from languages like Java, Rust, or TypeScript, row polymorphism may seem similar—but it solves a different problem.
+
+**Traditional Generics** parameterize over individual types:
+
+```typescript
+// TypeScript: generic over one type T
+function identity<T>(x: T): T {
+  return x;
+}
+
+// Rust: generic over type T
+fn identity<T>(x: T) -> T { x }
+```
+
+This lets `identity` work with any single type. But what if you need to abstract over *multiple* types at once—without knowing how many?
+
+**Row Polymorphism** parameterizes over *sequences* of types:
+
+```seq
+# Seq: polymorphic over the entire stack prefix
+: dup ( ..a T -- ..a T T )
+```
+
+The `..a` isn't a single type—it's zero or more types. This is essential for stack-based languages where operations must work regardless of what's "below" them on the stack.
+
+**Comparison table:**
+
+| Feature | Traditional Generics | Row Polymorphism |
+|---------|---------------------|------------------|
+| Abstraction unit | Single type (`T`) | Sequence of types (`..a`) |
+| Fixed arity | Function has fixed param count | Stack depth is variable |
+| Composition | Explicit argument passing | Implicit stack threading |
+| Use case | Collections, containers | Stack operations, concatenative code |
+
+**Why generics alone aren't enough:**
+
+Consider typing `swap` with only traditional generics:
+
+```typescript
+// TypeScript - can type swap for exactly 2 args:
+function swap<T, U>(a: T, b: U): [U, T] {
+  return [b, a];
+}
+```
+
+But this doesn't let `swap` ignore extra values. In Seq:
+
+```seq
+: swap ( ..a T U -- ..a U T )
+```
+
+The `..a` means "whatever else is on the stack stays unchanged." You can't express this with traditional generics—you'd need a separate `swap2`, `swap3`, etc. for each stack depth.
+
+**Row polymorphism is generics for the stack.** Just as `List<T>` abstracts over what's *in* the list, `..a` abstracts over what's *below* on the stack.
 
 ---
 
@@ -415,38 +472,37 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ```seq
 : square ( Int -- Int )
-  dup multiply ;
+  dup i.* ;
 
 : pythagorean ( Int Int -- Int )
   # a^2 + b^2
-  swap square    # ( Int Int -- Int )
-  swap square    # ( Int Int -- Int )
-  add ;          # ( Int Int -- Int )
+  swap square    # ( a b -- b a^2 )
+  swap square    # ( b a^2 -- a^2 b^2 )
+  i.+ ;          # ( a^2 b^2 -- sum )
 ```
 
 ### String Operations
 
 ```seq
 : greet ( String -- )
-  "Hello, " swap   # Would need concat - not yet implemented
-  write_line ;
+  "Hello, " swap string.concat io.write-line ;
 
 : print-number ( Int -- )
-  int->string write_line ;
+  int->string io.write-line ;
 ```
 
 ### Conditionals
 
 ```seq
 : max ( Int Int -- Int )
-  2dup > if
+  2dup i.> if
     drop    # Keep first
   else
     nip     # Keep second
   then ;
 
 : describe ( Int -- String )
-  0 > if
+  0 i.> if
     "positive"
   else
     "non-positive"
@@ -458,7 +514,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 ```seq
 : rot-sum ( Int Int Int -- Int )
   # Sum three numbers after rotation
-  rot add add ;
+  rot i.+ i.+ ;
 
 : under ( Int Int Int -- Int Int )
   # Like over but deeper

@@ -17,7 +17,7 @@ include ffi:libedit
 
 : main ( -- Int )
   "prompt> " readline
-  "You entered: " swap string-concat write_line
+  "You entered: " swap string.concat io.write-line
   0
 ;
 ```
@@ -216,7 +216,7 @@ include ffi:libedit
 ;
 
 : main ( -- Int )
-  "Welcome to Seq REPL" write_line
+  "Welcome to Seq REPL" io.write-line
   repl
   0
 ;
@@ -242,7 +242,7 @@ include ffi:libedit
   # Load history at startup (ignore error if file doesn't exist)
   "/tmp/.myapp_history" read-history drop
 
-  "Welcome to Seq REPL" write_line
+  "Welcome to Seq REPL" io.write-line
   repl
 
   # Save history on exit

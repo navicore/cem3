@@ -526,38 +526,6 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ---
 
-## Current Limitations
-
-### No Compile-Time ADT Syntax
-
-Seq has runtime variants (tagged unions) but not compile-time algebraic data type declarations:
-
-```seq
-# Not yet supported:
-type Option T = Some T | None ;
-```
-
-Use `union` declarations or runtime `make-variant-N` constructors instead. See [Language Guide](language-guide.md#unions) for details.
-
-### Stack Effects Are Required
-
-All words must have explicit stack effect declarations. The compiler verifies the body matches the declaration:
-
-```seq
-# Correct - effect declared:
-: double ( Int -- Int )
-  2 i.* ;
-
-# Error - missing stack effect declaration:
-: double
-  2 i.* ;
-# Compiler error: Word 'double' is missing a stack effect declaration.
-```
-
-This requirement ensures full type safety - every word's interface is explicit and verified.
-
----
-
 ## Summary
 
 Seq's type system provides:

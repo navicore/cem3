@@ -160,11 +160,14 @@ This means:
 **Why this matters:** You can call `double` from any stack state:
 
 ```seq
-42 double           # Works: ( -- Int Int )
-10 20 30 double     # Works: ( Int Int -- Int Int Int )
+# With one value on stack:
+42 double           # 42 → 84
+
+# With extra values below:
+10 20 30 double     # 10 20 30 → 10 20 60
 ```
 
-Without implicit row polymorphism, `double` would only work with exactly one Int on the stack - you couldn't compose operations freely.
+The values 10 and 20 are untouched—`double` only operates on the top. Without implicit row polymorphism, `double` would only work with exactly one Int on the stack—you couldn't compose operations freely.
 
 **When to use explicit row variables:**
 - Use explicit `..a`, `..rest` when you need to **name** the row variable

@@ -53,28 +53,28 @@
 # ============================================================================
 
 # Create a YAML null value
-: yaml-null
+: yaml-null ( -- Variant )
   :JsonNull variant.make-0
 ;
 
 # Create a YAML boolean (0 or 1)
-: yaml-bool
+: yaml-bool ( Int -- Variant )
   0 i.<> if 1 else 0 then
   :JsonBool variant.make-1
 ;
 
 # Create a YAML number from a Float
-: yaml-number
+: yaml-number ( Float -- Variant )
   :JsonNumber variant.make-1
 ;
 
 # Create a YAML string
-: yaml-string
+: yaml-string ( String -- Variant )
   :JsonString variant.make-1
 ;
 
 # Create an empty YAML object
-: yaml-empty-object
+: yaml-empty-object ( -- Variant )
   :JsonObject variant.make-0
 ;
 
@@ -83,8 +83,7 @@
 # ============================================================================
 
 # Add a key-value pair to a YAML object, returning a new object
-# Stack: ( YamlObject YamlString YamlValue -- YamlObject' )
-: yaml-obj-with
+: yaml-obj-with ( Variant Variant Variant -- Variant )
   rot rot variant.append swap variant.append
 ;
 
@@ -92,23 +91,23 @@
 # Type Predicates
 # ============================================================================
 
-: yaml-null?
+: yaml-null? ( Variant -- Variant Bool )
   dup variant.tag :JsonNull symbol.=
 ;
 
-: yaml-bool?
+: yaml-bool? ( Variant -- Variant Bool )
   dup variant.tag :JsonBool symbol.=
 ;
 
-: yaml-number?
+: yaml-number? ( Variant -- Variant Bool )
   dup variant.tag :JsonNumber symbol.=
 ;
 
-: yaml-string?
+: yaml-string? ( Variant -- Variant Bool )
   dup variant.tag :JsonString symbol.=
 ;
 
-: yaml-object?
+: yaml-object? ( Variant -- Variant Bool )
   dup variant.tag :JsonObject symbol.=
 ;
 
@@ -116,15 +115,15 @@
 # Value Extractors
 # ============================================================================
 
-: yaml-unwrap-bool
+: yaml-unwrap-bool ( Variant -- Int )
   0 variant.field-at
 ;
 
-: yaml-unwrap-number
+: yaml-unwrap-number ( Variant -- Float )
   0 variant.field-at
 ;
 
-: yaml-unwrap-string
+: yaml-unwrap-string ( Variant -- String )
   0 variant.field-at
 ;
 
@@ -133,7 +132,7 @@
 # ============================================================================
 
 # Parse a scalar value string into a YAML value
-: yaml-parse-scalar
+: yaml-parse-scalar ( String -- Variant )
   # Check for null
   dup "null" string.equal? if
     drop yaml-null
@@ -510,7 +509,7 @@
 ;
 
 # No-op helper for clarity
-: nop
+: nop ( -- )
 ;
 
 # Parse a nested line (handles both key-only and key:value)
@@ -668,12 +667,12 @@
 # ============================================================================
 
 # Get a double-quote character
-: yaml-quote-char
+: yaml-quote-char ( -- String )
   34 char->string
 ;
 
 # Serialize a YAML value to a JSON-like string
-: yaml-serialize
+: yaml-serialize ( Variant -- String )
   dup variant.tag
 
   dup :JsonNull symbol.= if
@@ -697,9 +696,8 @@
   then then then then then
 ;
 
-# Serialize an object
-# Supports up to 3 pairs (same limit as JSON serializer)
-: yaml-serialize-object
+# Serialize an object (supports up to 3 pairs)
+: yaml-serialize-object ( Variant -- String )
   dup variant.field-count
   dup 0 i.= if
     drop drop "{}"

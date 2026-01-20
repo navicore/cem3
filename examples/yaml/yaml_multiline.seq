@@ -5,7 +5,7 @@
 include std:yaml
 
 # Helper to create a newline string
-: newline-str
+: newline-str ( -- String )
   10 char->string
 ;
 

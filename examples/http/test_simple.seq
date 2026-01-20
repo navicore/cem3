@@ -1,6 +1,6 @@
 # Simple test
 
-: myhello
+: myhello ( -- )
   "myhello works!" io.write-line
 ;
 

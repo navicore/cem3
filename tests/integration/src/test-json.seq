@@ -1,0 +1,95 @@
+# Tests for json.seq - JSON stdlib module
+
+include std:json
+
+# Test json-null constructor
+: test-json-null ( -- )
+  json-null
+  json-null? test.assert
+  drop
+;
+
+# Test json-true and json-false
+: test-json-booleans ( -- )
+  json-true
+  json-bool? test.assert
+  json-unwrap-bool 1 test.assert-eq
+
+  json-false
+  json-bool? test.assert
+  json-unwrap-bool 0 test.assert-eq
+;
+
+# Test json-number
+: test-json-number ( -- )
+  3.14 json-number
+  json-number? test.assert
+  json-unwrap-number 3.14 f.= test.assert
+;
+
+# Test json-string
+: test-json-string ( -- )
+  "hello" json-string
+  json-string? test.assert
+  json-unwrap-string "hello" string.equal? test.assert
+;
+
+# Test json-serialize for primitives
+: test-json-serialize-primitives ( -- )
+  json-null json-serialize "null" string.equal? test.assert
+  json-true json-serialize "true" string.equal? test.assert
+  json-false json-serialize "false" string.equal? test.assert
+  "test" json-string json-serialize "\"test\"" string.equal? test.assert
+;
+
+# Test json-parse for primitives
+: test-json-parse-primitives ( -- )
+  "null" json-parse test.assert json-null? test.assert drop
+  "true" json-parse test.assert json-bool? test.assert json-unwrap-bool 1 test.assert-eq
+  "false" json-parse test.assert json-bool? test.assert json-unwrap-bool 0 test.assert-eq
+  "42" json-parse test.assert json-number? test.assert drop
+  "\"hello\"" json-parse test.assert json-string? test.assert json-unwrap-string "hello" string.equal? test.assert
+;
+
+# Test empty array
+: test-json-empty-array ( -- )
+  json-empty-array
+  json-array? test.assert
+  variant.field-count 0 test.assert-eq
+;
+
+# Test empty object
+: test-json-empty-object ( -- )
+  json-empty-object
+  json-object? test.assert
+  variant.field-count 0 test.assert-eq
+;
+
+# Test array-with builder
+: test-json-array-builder ( -- )
+  json-empty-array
+  1 json-number array-with
+  2 json-number array-with
+  variant.field-count 2 test.assert-eq
+;
+
+# Test obj-with builder
+: test-json-object-builder ( -- )
+  json-empty-object
+  "key" json-string "value" json-string obj-with
+  variant.field-count 2 test.assert-eq
+;
+
+# Test parse array
+: test-json-parse-array ( -- )
+  "[1,2,3]" json-parse test.assert
+  json-array? test.assert
+  variant.field-count 3 test.assert-eq
+;
+
+# Test parse object
+: test-json-parse-object ( -- )
+  "{\"name\":\"test\"}" json-parse test.assert
+  json-object? test.assert
+  variant.field-count 2 test.assert-eq
+;

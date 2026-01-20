@@ -102,38 +102,33 @@
 # ============================================================================
 
 # Create a JSON null value
-# Stack: ( -- JsonNull )
-: json-null
+: json-null ( -- Variant )
   :JsonNull variant.make-0
 ;
 
-# Create a JSON boolean from an Int
-# Stack: ( Int -- JsonBool )
-# Input: 0 for false, non-zero for true
-: json-bool
+# Create a JSON boolean from an Int (0 for false, non-zero for true)
+: json-bool ( Int -- Variant )
   0 i.<> if 1 else 0 then
   :JsonBool variant.make-1
 ;
 
 # Convenience: create JSON true
-: json-true
+: json-true ( -- Variant )
   1 :JsonBool variant.make-1
 ;
 
 # Convenience: create JSON false
-: json-false
+: json-false ( -- Variant )
   0 :JsonBool variant.make-1
 ;
 
 # Create a JSON number from a Float
-# Stack: ( Float -- JsonNumber )
-: json-number
+: json-number ( Float -- Variant )
   :JsonNumber variant.make-1
 ;
 
 # Create a JSON string
-# Stack: ( String -- JsonString )
-: json-string
+: json-string ( String -- Variant )
   :JsonString variant.make-1
 ;
 
@@ -169,38 +164,32 @@
 # ============================================================================
 
 # Check if value is null
-# Stack: ( JsonValue -- JsonValue Bool )
-: json-null?
+: json-null? ( Variant -- Variant Bool )
   dup variant.tag :JsonNull symbol.=
 ;
 
 # Check if value is bool
-# Stack: ( JsonValue -- JsonValue Bool )
-: json-bool?
+: json-bool? ( Variant -- Variant Bool )
   dup variant.tag :JsonBool symbol.=
 ;
 
 # Check if value is number
-# Stack: ( JsonValue -- JsonValue Bool )
-: json-number?
+: json-number? ( Variant -- Variant Bool )
   dup variant.tag :JsonNumber symbol.=
 ;
 
 # Check if value is string
-# Stack: ( JsonValue -- JsonValue Bool )
-: json-string?
+: json-string? ( Variant -- Variant Bool )
   dup variant.tag :JsonString symbol.=
 ;
 
 # Check if value is array
-# Stack: ( JsonValue -- JsonValue Bool )
-: json-array?
+: json-array? ( Variant -- Variant Bool )
   dup variant.tag :JsonArray symbol.=
 ;
 
 # Check if value is object
-# Stack: ( JsonValue -- JsonValue Bool )
-: json-object?
+: json-object? ( Variant -- Variant Bool )
   dup variant.tag :JsonObject symbol.=
 ;
 
@@ -209,20 +198,17 @@
 # ============================================================================
 
 # Unwrap a JSON bool to an Int (0 or 1)
-# Stack: ( JsonBool -- Int )
-: json-unwrap-bool
+: json-unwrap-bool ( Variant -- Int )
   0 variant.field-at
 ;
 
 # Unwrap a JSON number to a Float
-# Stack: ( JsonNumber -- Float )
-: json-unwrap-number
+: json-unwrap-number ( Variant -- Float )
   0 variant.field-at
 ;
 
 # Unwrap a JSON string to a String
-# Stack: ( JsonString -- String )
-: json-unwrap-string
+: json-unwrap-string ( Variant -- String )
   0 variant.field-at
 ;
 
@@ -231,8 +217,7 @@
 # ============================================================================
 
 # Serialize a JSON value to a string
-# Stack: ( JsonValue -- String )
-: json-serialize
+: json-serialize ( Variant -- String )
   dup variant.tag
   # Stack: value tag
 
@@ -282,16 +267,13 @@
 ;
 
 # Escape special characters in a string for JSON output
-# Stack: ( String -- String )
 # Handles: quotes, backslashes, newlines, tabs, carriage-returns, backspace, form-feed, and control chars
-: string.json-escape-string
+: string.json-escape-string ( String -- String )
   string.json-escape
 ;
 
-# Serialize a JSON array to string
-# Stack: ( JsonArray -- String )
-# Supports arrays with 0, 1, or 2 elements
-: json-serialize-array
+# Serialize a JSON array to string (supports 0-3 elements)
+: json-serialize-array ( Variant -- String )
   # Stack: JsonArray
   dup variant.field-count    # JsonArray count
   dup 0 i.= if
@@ -346,11 +328,8 @@
   then
 ;
 
-# Serialize a JSON object to string
-# Stack: ( JsonObject -- String )
-# Objects have 2N fields: key1 val1 key2 val2 ...
-# Currently supports 0 or 1 key-value pairs (0 or 2 fields)
-: json-serialize-object
+# Serialize a JSON object to string (supports 0-2 key-value pairs)
+: json-serialize-object ( Variant -- String )
   # Stack: JsonObject
   dup variant.field-count      # JsonObject count
   dup 0 i.= if
@@ -419,15 +398,12 @@
 #   - field 1: current position (character index)
 
 # Create a parser state from string and position
-# Stack: ( String Int -- PState )
-# Note: PState is a variant with :PState tag and 2 fields [str, pos]
-: make-pstate
+: make-pstate ( String Int -- Variant )
   :PState variant.make-2
 ;
 
 # Get the string from parser state (non-destructive)
-# Stack: ( PState -- PState String )
-: pstate-str
+: pstate-str ( Variant -- Variant String )
   dup 0 variant.field-at
 ;
 
@@ -438,8 +414,7 @@
 ;
 
 # Advance parser state by n characters
-# Stack: ( PState Int -- PState )
-: pstate-advance
+: pstate-advance ( Variant Int -- Variant )
   # Stack: PState n
   swap                      # n PState
   dup 0 variant.field-at    # n PState str
@@ -536,10 +511,8 @@
 # JSON Value Parsers
 # ============================================================================
 
-# Parse "null" keyword
-# Stack: ( str pos -- str pos JsonValue Bool )
-# Returns JsonValue and true if successful, false if not
-: json-parse-null
+# Parse "null" keyword (returns JsonValue and success flag)
+: json-parse-null ( ..rest String Int -- ..rest String Int Variant Bool )
   json-char-at 110 i.= if
     1 json-advance
     json-char-at 117 i.= if
@@ -564,8 +537,7 @@
 ;
 
 # Parse "true" keyword
-# Stack: ( str pos -- str pos JsonValue Bool )
-: json-parse-true
+: json-parse-true ( ..rest String Int -- ..rest String Int Variant Bool )
   json-char-at 116 i.= if
     1 json-advance
     json-char-at 114 i.= if
@@ -590,8 +562,7 @@
 ;
 
 # Parse "false" keyword
-# Stack: ( str pos -- str pos JsonValue Bool )
-: json-parse-false
+: json-parse-false ( ..rest String Int -- ..rest String Int Variant Bool )
   json-char-at 102 i.= if
     1 json-advance
     json-char-at 97 i.= if
@@ -982,9 +953,8 @@
 ;
 
 # Parse array contents (non-empty case)
-# Stack: ( str pos -- str pos JsonArray Bool )
 # Position should be at first element (after [ and whitespace)
-: json-parse-array-contents
+: json-parse-array-contents ( ..rest String Int -- ..rest String Int Variant Bool )
   # Convert to PState for easier manipulation
   make-pstate                    # PState
   pstate-parse-array-contents    # PState' arr success
@@ -1224,9 +1194,8 @@
 ;
 
 # Simple JSON parse interface
-# Stack: ( String -- JsonValue Bool )
 # Returns the parsed value and true on success, json-null and false on failure
-: json-parse
+: json-parse ( String -- Variant Bool )
   0
   json-parse-value
   rot drop

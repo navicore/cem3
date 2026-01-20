@@ -40,7 +40,7 @@ field           = IDENT ":" type_name ;
 ### Word Definitions
 
 ```ebnf
-word_def        = ":" IDENT [ stack_effect ] { statement } ";" ;
+word_def        = ":" IDENT stack_effect { statement } ";" ;
 
 stack_effect    = "(" type_list "--" type_list ")" ;
 type_list       = [ row_var ] { type } ;

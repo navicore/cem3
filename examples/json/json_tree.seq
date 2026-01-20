@@ -29,7 +29,7 @@
 include std:json
 
 # Format a JSON value as an indented string
-: json-format
+: json-format ( Variant -- String )
   json-serialize
   "  " swap string.concat
 ;

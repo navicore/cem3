@@ -245,7 +245,7 @@ But this doesn't let `swap` ignore extra values. In Seq:
 
 The `..a` means "whatever else is on the stack stays unchanged." You can't express this with traditional generics—you'd need a separate `swap2`, `swap3`, etc. for each stack depth.
 
-**Row polymorphism is generics for the stack.** Just as `List<T>` abstracts over what's *in* the list, `..a` abstracts over what's *below* on the stack.
+**Row polymorphism is generics extended to type sequences.** Where `T` abstracts over a single type, `..a` abstracts over zero or more types in a specific order—each potentially different. The compiler tracks that `..a` bound to `Int, String, Float` stays exactly `Int, String, Float`.
 
 ---
 

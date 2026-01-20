@@ -33,9 +33,13 @@
 //!
 //! ## Resource Management
 //!
-//! **Important:** Weaves must either be resumed until completion OR explicitly
-//! cancelled with `strand.weave-cancel`. Dropping a WeaveHandle without doing
-//! either will cause the spawned coroutine to hang forever waiting on resume_chan.
+//! **Best practice:** Weaves should either be resumed until completion OR explicitly
+//! cancelled with `strand.weave-cancel` to cleanly release resources.
+//!
+//! However, dropping a WeaveHandle without doing either is safe - the program will
+//! still exit normally. The un-resumed weave is "dormant" (not counted as an active
+//! strand) until its first resume, so it won't block program shutdown. The dormant
+//! coroutine will be cleaned up when the program exits.
 //!
 //! Proper cleanup options:
 //!
@@ -163,7 +167,10 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
             let stack_addr = child_stack as usize;
             let base_addr = child_base as usize;
 
-            ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
+            // NOTE: We do NOT increment ACTIVE_STRANDS here!
+            // The weave is "dormant" until first resume. This allows the scheduler
+            // to exit cleanly if a weave is created but never resumed (fixes #287).
+            // ACTIVE_STRANDS is incremented only after receiving the first resume.
 
             unsafe {
                 coroutine::spawn(move || {
@@ -175,10 +182,12 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     }
 
                     // Wait for first resume value before executing
+                    // The weave is dormant at this point - not counted in ACTIVE_STRANDS
                     let first_msg = match weave_ctx_resume.receiver.recv() {
                         Ok(msg) => msg,
                         Err(_) => {
-                            cleanup_strand();
+                            // Channel closed before we were resumed - just exit
+                            // Don't call cleanup_strand since we never activated
                             return;
                         }
                     };
@@ -187,17 +196,21 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     let first_value = match first_msg {
                         WeaveMessage::Cancel => {
                             // Weave was cancelled before it started - clean exit
+                            // Don't call cleanup_strand since we never activated
                             crate::arena::arena_reset();
-                            cleanup_strand();
                             return;
                         }
                         WeaveMessage::Value(v) => v,
                         WeaveMessage::Done => {
                             // Shouldn't happen - Done is sent on yield_chan
-                            cleanup_strand();
+                            // Don't call cleanup_strand since we never activated
                             return;
                         }
                     };
+
+                    // NOW we're activated - increment ACTIVE_STRANDS
+                    // From this point on, we must call cleanup_strand on exit
+                    ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
 
                     // Push WeaveCtx onto stack (yield_chan, resume_chan as a pair)
                     let weave_ctx = Value::WeaveCtx {
@@ -240,7 +253,10 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
             let child_base = crate::stack::alloc_stack();
             let base_addr = child_base as usize;
 
-            ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
+            // NOTE: We do NOT increment ACTIVE_STRANDS here!
+            // The weave is "dormant" until first resume. This allows the scheduler
+            // to exit cleanly if a weave is created but never resumed (fixes #287).
+            // ACTIVE_STRANDS is incremented only after receiving the first resume.
 
             unsafe {
                 coroutine::spawn(move || {
@@ -248,10 +264,12 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     crate::stack::patch_seq_set_stack_base(child_base);
 
                     // Wait for first resume value
+                    // The weave is dormant at this point - not counted in ACTIVE_STRANDS
                     let first_msg = match weave_ctx_resume.receiver.recv() {
                         Ok(msg) => msg,
                         Err(_) => {
-                            cleanup_strand();
+                            // Channel closed before we were resumed - just exit
+                            // Don't call cleanup_strand since we never activated
                             return;
                         }
                     };
@@ -260,17 +278,21 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
                     let first_value = match first_msg {
                         WeaveMessage::Cancel => {
                             // Weave was cancelled before it started - clean exit
+                            // Don't call cleanup_strand since we never activated
                             crate::arena::arena_reset();
-                            cleanup_strand();
                             return;
                         }
                         WeaveMessage::Value(v) => v,
                         WeaveMessage::Done => {
                             // Shouldn't happen - Done is sent on yield_chan
-                            cleanup_strand();
+                            // Don't call cleanup_strand since we never activated
                             return;
                         }
                     };
+
+                    // NOW we're activated - increment ACTIVE_STRANDS
+                    // From this point on, we must call cleanup_strand on exit
+                    ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
 
                     // Push WeaveCtx onto stack
                     let weave_ctx = Value::WeaveCtx {
@@ -489,19 +511,26 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
     if yield_chan.sender.send(msg_to_send).is_err() {
         // Channel unexpectedly closed - caller dropped the handle
         // Clean up and block forever (can't panic in extern "C")
+        // We're still active here, so call cleanup_strand
         crate::arena::arena_reset();
         cleanup_strand();
         block_forever();
     }
 
-    // Wait for resume value
+    // IMPORTANT: Become "dormant" before waiting for resume (fixes #287)
+    // This allows the scheduler to exit if the program ends while we're waiting.
+    // We'll re-activate after receiving the resume value.
+    use crate::scheduler::ACTIVE_STRANDS;
+    use std::sync::atomic::Ordering;
+    ACTIVE_STRANDS.fetch_sub(1, Ordering::AcqRel);
+
+    // Wait for resume value (we're dormant now - not counted as active)
     let resume_msg = match resume_chan.receiver.recv() {
         Ok(msg) => msg,
         Err(_) => {
             // Resume channel closed - caller dropped the handle
-            // Clean up and block forever (can't panic in extern "C")
+            // We're already dormant (decremented above), don't call cleanup_strand
             crate::arena::arena_reset();
-            cleanup_strand();
             block_forever();
         }
     };
@@ -510,21 +539,23 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
     match resume_msg {
         WeaveMessage::Cancel => {
             // Weave was cancelled - signal completion and exit cleanly
+            // We're already dormant (decremented above), don't call cleanup_strand
             let _ = yield_chan.sender.send(WeaveMessage::Done);
             crate::arena::arena_reset();
-            cleanup_strand();
             block_forever();
         }
         WeaveMessage::Value(resume_value) => {
+            // Re-activate: we're about to run user code again
+            ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
+
             // Push WeaveCtx back, then resume value
             let stack = unsafe { push(stack, ctx) };
             unsafe { push(stack, resume_value) }
         }
         WeaveMessage::Done => {
             // Protocol error - Done should only be sent on yield_chan
-            // Can't panic, so clean up and block
+            // We're already dormant (decremented above), don't call cleanup_strand
             crate::arena::arena_reset();
-            cleanup_strand();
             block_forever();
         }
     }

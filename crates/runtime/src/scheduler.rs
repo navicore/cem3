@@ -305,6 +305,29 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
             .set_stack_size(stack_size)
             .set_pool_capacity(pool_capacity);
 
+        // Install SIGINT handler for Ctrl-C (unconditional - basic expected behavior)
+        // Without this, tight loops won't respond to Ctrl-C because signals
+        // are only delivered at syscall boundaries, and TCO loops may never syscall.
+        #[cfg(unix)]
+        {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
+
+            extern "C" fn sigint_handler(_: libc::c_int) {
+                // If we receive SIGINT twice, force exit (user is insistent)
+                if SIGINT_RECEIVED.swap(true, Ordering::SeqCst) {
+                    // Second SIGINT - exit immediately
+                    unsafe { libc::_exit(130) }; // 128 + 2 (SIGINT)
+                }
+                // First SIGINT - exit cleanly
+                std::process::exit(130);
+            }
+
+            unsafe {
+                libc::signal(libc::SIGINT, sigint_handler as libc::sighandler_t);
+            }
+        }
+
         // Install SIGQUIT handler for runtime diagnostics (kill -3)
         #[cfg(feature = "diagnostics")]
         crate::diagnostics::install_signal_handler();

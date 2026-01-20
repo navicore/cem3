@@ -73,22 +73,12 @@ impl TypeChecker {
         None
     }
 
-    /// Register external word effects (e.g., from included modules).
+    /// Register external word effects (e.g., from included modules or FFI).
     ///
-    /// Words with `Some(effect)` get their actual signature.
-    /// Words with `None` get a maximally polymorphic placeholder `( ..a -- ..b )`.
-    pub fn register_external_words(&mut self, words: &[(&str, Option<&Effect>)]) {
+    /// All external words must have explicit stack effects for type safety.
+    pub fn register_external_words(&mut self, words: &[(&str, &Effect)]) {
         for (name, effect) in words {
-            if let Some(eff) = effect {
-                self.env.insert(name.to_string(), (*eff).clone());
-            } else {
-                // Maximally polymorphic placeholder
-                let placeholder = Effect::new(
-                    StackType::RowVar("ext_in".to_string()),
-                    StackType::RowVar("ext_out".to_string()),
-                );
-                self.env.insert(name.to_string(), placeholder);
-            }
+            self.env.insert(name.to_string(), (*effect).clone());
         }
     }
 
@@ -1504,7 +1494,10 @@ mod tests {
             unions: vec![],
             words: vec![WordDef {
                 name: "test".to_string(),
-                effect: Some(Effect::new(StackType::Empty, StackType::singleton(Type::Int))),
+                effect: Some(Effect::new(
+                    StackType::Empty,
+                    StackType::singleton(Type::Int),
+                )),
                 body: vec![
                     Statement::BoolLiteral(true),
                     Statement::If {
@@ -1822,7 +1815,11 @@ mod tests {
         let mut checker = TypeChecker::new();
         let result = checker.check_program(&program);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("missing a stack effect declaration"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("missing a stack effect declaration")
+        );
     }
 
     #[test]

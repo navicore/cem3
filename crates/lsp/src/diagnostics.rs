@@ -114,10 +114,11 @@ pub fn check_document_with_quotations(
     let mut typechecker = TypeChecker::new();
     let external_unions: Vec<&str> = includes.union_names.iter().map(|s| s.as_str()).collect();
     typechecker.register_external_unions(&external_unions);
-    let external_words: Vec<(&str, Option<&seqc::Effect>)> = includes
+    // Filter to words with effects (v2.0 requirement)
+    let external_words: Vec<(&str, &seqc::Effect)> = includes
         .words
         .iter()
-        .map(|w| (w.name.as_str(), w.effect.as_ref()))
+        .filter_map(|w| w.effect.as_ref().map(|e| (w.name.as_str(), e)))
         .collect();
     typechecker.register_external_words(&external_words);
 

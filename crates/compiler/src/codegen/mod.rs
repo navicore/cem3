@@ -262,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing codegen in isolation, not full pipeline
     fn test_external_builtins_declared() {
         use crate::config::{CompilerConfig, ExternalBuiltin};
 
@@ -272,7 +273,7 @@ mod tests {
             unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
-                effect: None,
+                effect: None, // Codegen doesn't check effects
                 body: vec![
                     Statement::IntLiteral(42),
                     Statement::WordCall {
@@ -305,6 +306,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing codegen in isolation, not full pipeline
     fn test_multiple_external_builtins() {
         use crate::config::{CompilerConfig, ExternalBuiltin};
 
@@ -315,7 +317,7 @@ mod tests {
             unions: vec![],
             words: vec![WordDef {
                 name: "main".to_string(),
-                effect: None,
+                effect: None, // Codegen doesn't check effects
                 body: vec![
                     Statement::WordCall {
                         name: "actor-self".to_string(),
@@ -351,6 +353,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // Testing config builder, not full pipeline
     fn test_external_builtins_with_library_paths() {
         use crate::config::{CompilerConfig, ExternalBuiltin};
 
@@ -370,6 +373,7 @@ mod tests {
         // including parser, AST validation, type checker, and codegen
         use crate::compile_to_ir_with_config;
         use crate::config::{CompilerConfig, ExternalBuiltin};
+        use crate::types::{Effect, StackType, Type};
 
         let source = r#"
             : main ( -- Int )
@@ -378,9 +382,12 @@ mod tests {
             ;
         "#;
 
-        let config = CompilerConfig::new().with_builtin(ExternalBuiltin::new(
+        // External builtins must have explicit effects (v2.0 requirement)
+        let effect = Effect::new(StackType::singleton(Type::Int), StackType::Empty);
+        let config = CompilerConfig::new().with_builtin(ExternalBuiltin::with_effect(
             "my-transform",
             "ext_runtime_transform",
+            effect,
         ));
 
         // This should succeed - the external builtin is registered

@@ -528,50 +528,16 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ## Current Limitations
 
-### Quotations and Closures
+### No Compile-Time ADT Syntax
 
-First-class functions (quotations and closures) are supported:
-
-```seq
-# Quotation - deferred code block
-[ 1 i.+ ] call  # Adds 1 to top of stack
-
-# Used with spawn for concurrency
-[ handle-connection ] spawn
-```
-
-Higher-order combinators are available for lists:
-
-```seq
-my-list [ 2 i.* ] list.map      # Apply function to each element
-my-list [ 0 i.> ] list.filter   # Keep elements matching predicate
-my-list 0 [ i.+ ] list.fold     # Reduce list to single value
-```
-
-### Variants (Runtime Algebraic Types)
-
-Seq supports variants (tagged unions) at runtime via typed constructors:
-
-```seq
-# Create a variant with tag 1 and 2 fields
-42 "hello" 1 make-variant-2  # Tag 1, 2 fields
-
-# Empty variant (0 fields)
-5 make-variant-0             # Tag 5, no fields
-
-# Access variant data
-variant-tag         # Get the tag (Int)
-0 variant-field-at  # Get field at index 0
-```
-
-Available constructors: `make-variant-0` through `make-variant-4` for 0-4 fields.
-
-Variants are dynamically typed at runtime. Full compile-time algebraic data type syntax is planned for a future phase:
+Seq has runtime variants (tagged unions) but not compile-time algebraic data type declarations:
 
 ```seq
 # Not yet supported:
 type Option T = Some T | None ;
 ```
+
+Use `union` declarations or runtime `make-variant-N` constructors instead. See [Language Guide](language-guide.md#unions) for details.
 
 ### No Type Inference
 
@@ -580,11 +546,11 @@ All word effects must be **explicitly declared**. The checker verifies but doesn
 ```seq
 # Must declare effect:
 : double ( Int -- Int )
-  2 multiply ;
+  2 i.* ;
 
 # Can't omit effect (discouraged):
 : double
-  2 multiply ;
+  2 i.* ;
 ```
 
 ---

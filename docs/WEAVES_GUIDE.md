@@ -35,22 +35,18 @@ Seq's weaves are unique in that they're built on the same strand/channel infrast
 A counter that yields its current value and accepts an increment:
 
 ```seq
-# Counter loop - yields current count, receives increment
-: counter-loop ( Ctx Int -- | Yield Int )
+# Counter - yields current count, receives increment
+: counter ( Ctx Int -- | Yield Int )
   tuck           # ( count Ctx count )
   yield          # yield count, receive increment -> ( count Ctx increment )
   rot            # ( Ctx increment count )
   i.add          # ( Ctx new_count )
-  counter-loop   # tail recurse
-;
-
-: counter-body ( Ctx Int -- | Yield Int )
-  counter-loop
+  counter        # tail recurse
 ;
 
 : main ( -- )
   # Create weave
-  [ counter-body ] strand.weave   # ( handle )
+  [ counter ] strand.weave        # ( handle )
 
   # Resume with initial value 10
   10 strand.resume                # ( handle yielded has_more )

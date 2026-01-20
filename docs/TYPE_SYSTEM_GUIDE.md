@@ -60,9 +60,9 @@ When this word is called:
 : print ( String -- )
   write_line ;
 
-# Takes Int and String, produces String
+# Takes Int and String, produces String (e.g., "Value: 42")
 : format ( Int String -- String )
-  swap int->string swap ;
+  swap int->string swap string.concat ;
 ```
 
 ---

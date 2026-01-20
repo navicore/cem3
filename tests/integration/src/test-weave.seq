@@ -104,3 +104,57 @@
   test.assert-not                          # weave should complete
   drop drop
 ;
+
+# ============================================================================
+# Issue #287 tests: Dormant weave handling
+# These tests verify that weaves can be created and abandoned without hanging
+# ============================================================================
+
+# Simple counter for dormant weave tests
+: dormant-counter ( Ctx Int -- | Yield Int )
+  tuck yield rot i.add dormant-counter
+;
+
+# Test: Create weave without resuming, then drop it
+# This would hang forever before issue #287 fix
+: test-weave-create-no-resume ( -- )
+  [ dormant-counter ] strand.weave  # Create weave, don't resume
+  drop                               # Drop the handle
+  # If we get here without hanging, the test passes
+  true test.assert
+;
+
+# Test: Create weave, resume once, then drop without completing
+# The weave yields and waits for another resume that never comes
+: test-weave-partial-resume ( -- )
+  [ dormant-counter ] strand.weave  # Create weave
+  10 strand.resume                   # Resume once, get yielded value
+  test.assert                        # Should have more (infinite generator)
+  10 test.assert-eq                  # Yielded value should be 10
+  drop                               # Drop handle without completing
+  # If we get here without hanging, the test passes
+  true test.assert
+;
+
+# Test: Create multiple weaves, drop all without resuming
+: test-weave-multiple-dormant ( -- )
+  [ dormant-counter ] strand.weave
+  [ dormant-counter ] strand.weave
+  [ dormant-counter ] strand.weave
+  drop drop drop                     # Drop all handles
+  # If we get here without hanging, the test passes
+  true test.assert
+;
+
+# Test: Mix of resumed and dormant weaves
+: test-weave-mixed-states ( -- )
+  [ dormant-counter ] strand.weave   # Will be dormant
+  [ dormant-counter ] strand.weave   # Will be partially resumed
+  5 strand.resume                    # Resume second weave
+  test.assert
+  5 test.assert-eq
+  drop                               # Drop partially resumed weave
+  drop                               # Drop dormant weave
+  # If we get here without hanging, the test passes
+  true test.assert
+;

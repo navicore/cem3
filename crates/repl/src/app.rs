@@ -44,7 +44,7 @@ enum RunResult {
         status: ExitStatus,
     },
     /// Command timed out and was killed
-    Timeout,
+    Timeout { timeout_secs: u64 },
     /// Command failed to start
     Error(String),
 }
@@ -115,7 +115,7 @@ fn run_with_timeout(path: &Path) -> RunResult {
                     // Timeout - kill the process
                     let _ = child.kill();
                     let _ = child.wait(); // Reap the zombie
-                    return RunResult::Timeout;
+                    return RunResult::Timeout { timeout_secs };
                 }
                 // Brief sleep before next poll
                 std::thread::sleep(poll_interval);
@@ -676,7 +676,7 @@ impl App {
                         self.repl_state
                             .add_entry(HistoryEntry::new(expr).with_error(&err));
                     }
-                    RunResult::Timeout => {
+                    RunResult::Timeout { timeout_secs } => {
                         // Rollback on timeout - the expression caused blocking
                         if let Err(rollback_err) = fs::write(&self.session_path, &original) {
                             self.status_message = Some(format!(
@@ -685,9 +685,10 @@ impl App {
                             ));
                         }
                         self.repl_state
-                            .add_entry(HistoryEntry::new(expr).with_error(
-                                "Timeout: execution exceeded limit (infinite loop? blocking I/O?)",
-                            ));
+                            .add_entry(HistoryEntry::new(expr).with_error(&format!(
+                                "Timeout after {}s (SEQ_REPL_TIMEOUT to adjust)",
+                                timeout_secs
+                            )));
                     }
                     RunResult::Error(e) => {
                         // Rollback on run error - don't keep failed expression in session
@@ -1051,8 +1052,11 @@ impl App {
                                 .add_entry(HistoryEntry::new(label).with_output("(empty)"));
                         }
                     }
-                    RunResult::Timeout => {
-                        self.status_message = Some("Timeout while showing stack".to_string());
+                    RunResult::Timeout { timeout_secs } => {
+                        self.status_message = Some(format!(
+                            "Timeout after {}s while showing stack",
+                            timeout_secs
+                        ));
                     }
                     _ => {
                         // Failed or Error - just ignore for stack display

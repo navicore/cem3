@@ -534,13 +534,19 @@ First-class functions (quotations and closures) are supported:
 
 ```seq
 # Quotation - deferred code block
-[ 1 add ] call  # Adds 1 to top of stack
+[ 1 i.+ ] call  # Adds 1 to top of stack
 
 # Used with spawn for concurrency
 [ handle-connection ] spawn
 ```
 
-Higher-order combinators like `map` are not yet in the standard library.
+Higher-order combinators are available for lists:
+
+```seq
+my-list [ 2 i.* ] list.map      # Apply function to each element
+my-list [ 0 i.> ] list.filter   # Keep elements matching predicate
+my-list 0 [ i.+ ] list.fold     # Reduce list to single value
+```
 
 ### Variants (Runtime Algebraic Types)
 

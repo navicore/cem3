@@ -1,0 +1,71 @@
+# Tests for yaml.seq - YAML stdlib module
+
+include std:yaml
+
+# Test yaml-null constructor
+: test-yaml-null ( -- )
+  yaml-null
+  yaml-null? test.assert
+  drop
+;
+
+# Test yaml-bool
+: test-yaml-booleans ( -- )
+  1 yaml-bool
+  yaml-bool? test.assert
+  yaml-unwrap-bool 1 test.assert-eq
+
+  0 yaml-bool
+  yaml-bool? test.assert
+  yaml-unwrap-bool 0 test.assert-eq
+;
+
+# Test yaml-number
+: test-yaml-number ( -- )
+  3.14 yaml-number
+  yaml-number? test.assert
+  yaml-unwrap-number 3.14 f.= test.assert
+;
+
+# Test yaml-string
+: test-yaml-string ( -- )
+  "hello" yaml-string
+  yaml-string? test.assert
+  yaml-unwrap-string "hello" string.equal? test.assert
+;
+
+# Test yaml-serialize for primitives
+: test-yaml-serialize-primitives ( -- )
+  yaml-null yaml-serialize "null" string.equal? test.assert
+  1 yaml-bool yaml-serialize "true" string.equal? test.assert
+  0 yaml-bool yaml-serialize "false" string.equal? test.assert
+  "test" yaml-string yaml-serialize "\"test\"" string.equal? test.assert
+;
+
+# Test yaml-parse simple key-value
+: test-yaml-parse-simple ( -- )
+  "name: Alice" yaml-parse test.assert
+  yaml-object? test.assert
+  variant.field-count 2 test.assert-eq
+;
+
+# Test yaml-empty-object
+: test-yaml-empty-object ( -- )
+  yaml-empty-object
+  yaml-object? test.assert
+  variant.field-count 0 test.assert-eq
+;
+
+# Test yaml-obj-with builder
+: test-yaml-object-builder ( -- )
+  yaml-empty-object
+  "key" yaml-string "value" yaml-string yaml-obj-with
+  variant.field-count 2 test.assert-eq
+;
+
+# Test yaml-parse with multiple key-value pairs
+: test-yaml-parse-multiline ( -- )
+  "name: Bob\nage: 25" yaml-parse test.assert
+  yaml-object? test.assert
+  variant.field-count 4 test.assert-eq
+;

@@ -41,6 +41,11 @@
 //! strand) until its first resume, so it won't block program shutdown. The dormant
 //! coroutine will be cleaned up when the program exits.
 //!
+//! **Resource implications of dormant weaves:** Each dormant weave consumes memory
+//! for its coroutine stack (default 128KB, configurable via SEQ_STACK_SIZE) until
+//! program exit. For short-lived programs or REPL sessions this is fine, but
+//! long-running servers should properly cancel weaves to avoid accumulating memory.
+//!
 //! Proper cleanup options:
 //!
 //! **Option 1: Resume until completion**
@@ -546,7 +551,8 @@ pub unsafe extern "C" fn patch_seq_yield(stack: Stack) -> Stack {
         }
         WeaveMessage::Value(resume_value) => {
             // Re-activate: we're about to run user code again
-            ACTIVE_STRANDS.fetch_add(1, Ordering::Release);
+            // Use AcqRel for consistency with the decrement above
+            ACTIVE_STRANDS.fetch_add(1, Ordering::AcqRel);
 
             // Push WeaveCtx back, then resume value
             let stack = unsafe { push(stack, ctx) };

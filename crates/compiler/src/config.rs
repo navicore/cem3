@@ -32,20 +32,12 @@ use std::path::PathBuf;
 /// External builtins are functions provided by a runtime extension
 /// (like an actor system) that should be callable from Seq code.
 ///
-/// # Type Safety
+/// # Type Safety (v2.0)
 ///
-/// External builtins can optionally specify their stack effect for type checking.
-/// This affects how the type checker validates code using the builtin:
+/// All external builtins **must** specify their stack effect for type checking.
+/// The compiler will error if an external builtin is registered without an effect.
 ///
-/// - **With effect**: The type checker enforces the declared signature.
-///   Use this when you know the exact stack effect (recommended).
-///
-/// - **Without effect (`None`)**: The type checker assigns a maximally polymorphic
-///   signature `( ..a -- ..b )`, meaning "accepts any stack, produces any stack".
-///   This **disables type checking** for calls to this builtin - type errors
-///   involving this builtin will only be caught at runtime.
-///
-/// For best type safety, always provide an explicit effect when possible.
+/// Use [`ExternalBuiltin::with_effect`] to create builtins with explicit effects.
 #[derive(Debug, Clone)]
 pub struct ExternalBuiltin {
     /// The name used in Seq code (e.g., "journal-append")
@@ -57,14 +49,10 @@ pub struct ExternalBuiltin {
     /// This is validated at construction time to prevent LLVM IR injection.
     pub symbol: String,
 
-    /// Optional stack effect for type checking.
+    /// Stack effect for type checking (required as of v2.0).
     ///
-    /// - `Some(effect)`: Type checker enforces this signature
-    /// - `None`: Type checker uses maximally polymorphic `( ..a -- ..b )`,
-    ///   effectively disabling type checking for this builtin
-    ///
-    /// **Warning**: Using `None` can hide type errors until runtime.
-    /// Prefer providing an explicit effect when the signature is known.
+    /// The type checker enforces this signature at all call sites.
+    /// The compiler will error if this is `None`.
     pub effect: Option<Effect>,
 }
 
@@ -89,12 +77,22 @@ impl ExternalBuiltin {
         Ok(())
     }
 
-    /// Create a new external builtin with just name and symbol
+    /// Create a new external builtin with just name and symbol (deprecated)
+    ///
+    /// # Deprecated
+    ///
+    /// As of v2.0, all external builtins must have explicit stack effects.
+    /// Use [`ExternalBuiltin::with_effect`] instead. Builtins created with
+    /// this method will cause a compiler error.
     ///
     /// # Panics
     ///
     /// Panics if the symbol contains invalid characters for LLVM IR.
     /// Valid symbols contain only alphanumeric characters, underscores, and periods.
+    #[deprecated(
+        since = "2.0.0",
+        note = "Use with_effect instead - effects are now required"
+    )]
     pub fn new(seq_name: impl Into<String>, symbol: impl Into<String>) -> Self {
         let symbol = symbol.into();
         Self::validate_symbol(&symbol).expect("Invalid symbol name");
@@ -208,6 +206,7 @@ impl CompilerConfig {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // Tests for the deprecated ExternalBuiltin::new method
 mod tests {
     use super::*;
 

@@ -8,10 +8,17 @@
 //! [`CompilerConfig`]:
 //!
 //! ```rust,ignore
-//! use seqc::{CompilerConfig, ExternalBuiltin, compile_file_with_config};
+//! use seqc::{CompilerConfig, ExternalBuiltin, Effect, StackType, Type};
+//! use seqc::compile_file_with_config;
+//!
+//! // Define stack effect: ( Int -- Int )
+//! let effect = Effect::new(
+//!     StackType::singleton(Type::Int),
+//!     StackType::singleton(Type::Int),
+//! );
 //!
 //! let config = CompilerConfig::new()
-//!     .with_builtin(ExternalBuiltin::new("my-op", "my_runtime_op"));
+//!     .with_builtin(ExternalBuiltin::with_effect("my-op", "my_runtime_op", effect));
 //!
 //! compile_file_with_config(source, output, false, &config)?;
 //! ```
@@ -241,21 +248,31 @@ pub fn compile_file_with_config(
     let mut type_checker = TypeChecker::new();
 
     // Register external builtins with the type checker
+    // All external builtins must have explicit effects (v2.0 requirement)
     if !config.external_builtins.is_empty() {
-        let external_effects: Vec<(&str, Option<&types::Effect>)> = config
+        for builtin in &config.external_builtins {
+            if builtin.effect.is_none() {
+                return Err(format!(
+                    "External builtin '{}' is missing a stack effect declaration.\n\
+                     All external builtins must have explicit effects for type safety.",
+                    builtin.seq_name
+                ));
+            }
+        }
+        let external_effects: Vec<(&str, &types::Effect)> = config
             .external_builtins
             .iter()
-            .map(|b| (b.seq_name.as_str(), b.effect.as_ref()))
+            .map(|b| (b.seq_name.as_str(), b.effect.as_ref().unwrap()))
             .collect();
         type_checker.register_external_words(&external_effects);
     }
 
     // Register FFI functions with the type checker
     if !ffi_bindings.functions.is_empty() {
-        let ffi_effects: Vec<(&str, Option<&types::Effect>)> = ffi_bindings
+        let ffi_effects: Vec<(&str, &types::Effect)> = ffi_bindings
             .functions
             .values()
-            .map(|f| (f.seq_name.as_str(), Some(&f.effect)))
+            .map(|f| (f.seq_name.as_str(), &f.effect))
             .collect();
         type_checker.register_external_words(&ffi_effects);
     }
@@ -366,11 +383,21 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
     let mut type_checker = TypeChecker::new();
 
     // Register external builtins with the type checker
+    // All external builtins must have explicit effects (v2.0 requirement)
     if !config.external_builtins.is_empty() {
-        let external_effects: Vec<(&str, Option<&types::Effect>)> = config
+        for builtin in &config.external_builtins {
+            if builtin.effect.is_none() {
+                return Err(format!(
+                    "External builtin '{}' is missing a stack effect declaration.\n\
+                     All external builtins must have explicit effects for type safety.",
+                    builtin.seq_name
+                ));
+            }
+        }
+        let external_effects: Vec<(&str, &types::Effect)> = config
             .external_builtins
             .iter()
-            .map(|b| (b.seq_name.as_str(), b.effect.as_ref()))
+            .map(|b| (b.seq_name.as_str(), b.effect.as_ref().unwrap()))
             .collect();
         type_checker.register_external_words(&external_effects);
     }

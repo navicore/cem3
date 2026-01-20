@@ -222,11 +222,20 @@ pub fn analyze_with_config(source: &str, config: &CompilerConfig) -> AnalysisRes
     let mut typechecker = TypeChecker::new();
 
     // Register external builtins if configured
+    // All external builtins must have explicit effects (v2.0 requirement)
     if !config.external_builtins.is_empty() {
+        for builtin in &config.external_builtins {
+            if builtin.effect.is_none() {
+                errors.push(format!(
+                    "External builtin '{}' is missing a stack effect declaration.",
+                    builtin.seq_name
+                ));
+            }
+        }
         let external_effects: Vec<_> = config
             .external_builtins
             .iter()
-            .map(|b| (b.seq_name.as_str(), b.effect.as_ref()))
+            .filter_map(|b| b.effect.as_ref().map(|e| (b.seq_name.as_str(), e)))
             .collect();
         typechecker.register_external_words(&external_effects);
     }

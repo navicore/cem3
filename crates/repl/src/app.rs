@@ -685,7 +685,7 @@ impl App {
                             ));
                         }
                         self.repl_state
-                            .add_entry(HistoryEntry::new(expr).with_error(&format!(
+                            .add_entry(HistoryEntry::new(expr).with_error(format!(
                                 "Timeout after {}s (SEQ_REPL_TIMEOUT to adjust)",
                                 timeout_secs
                             )));

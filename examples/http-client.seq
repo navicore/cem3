@@ -13,24 +13,97 @@
   swap int->string swap string.concat io.write-line
 ;
 
+# Extract a string field from response map, with error handling
+: get-string-field ( Map String -- String Bool )
+  map.get
+  if
+    true
+  else
+    drop "" false
+  then
+;
+
+# Extract an int field from response map, with error handling
+: get-int-field ( Map String -- Int Bool )
+  map.get
+  if
+    true
+  else
+    drop 0 false
+  then
+;
+
+# Extract the boolean "ok" field
+: get-ok ( Map -- Bool Bool )
+  "ok" map.get
+  if
+    true
+  else
+    drop false false
+  then
+;
+
+# Show status code from response map
+: show-status ( Map -- )
+  "status" get-int-field
+  if
+    "Status: " show-int
+  else
+    drop "Status field missing" io.write-line
+  then
+;
+
+# Show body size from response map
+: show-body-size ( Map -- )
+  "body" get-string-field
+  if
+    string.length int->string " bytes received" string.concat io.write-line
+  else
+    drop "Body field missing" io.write-line
+  then
+;
+
+# Show error message from response map
+: show-error ( Map -- )
+  "error" get-string-field
+  if
+    "Error: " show
+  else
+    drop "Unknown error" io.write-line
+  then
+;
+
+# Handle successful HTTP response (ok=true)
+: handle-success ( Map -- )
+  dup show-status
+  show-body-size
+;
+
+# Handle failed HTTP response (ok=false)
+: handle-failure ( Map -- )
+  show-error
+;
+
+# Handle HTTP response with proper error checking
+: handle-response ( Map -- )
+  dup get-ok
+  if
+    if
+      handle-success
+    else
+      handle-failure
+    then
+  else
+    drop drop "Response missing 'ok' field" io.write-line
+  then
+;
+
 # Simple GET request
 : demo-get ( -- )
   "=== HTTP GET ===" io.write-line
   "" io.write-line
-
   "https://httpbin.org/get" http.get
-
-  # Check if request succeeded
-  dup "ok" map.get drop  # get ok value (map ok)
-  if
-    dup "status" map.get drop "Status: " show-int
-    "body" map.get drop
-    dup string.length int->string " bytes received" string.concat io.write-line
-    drop
-  else
-    "error" map.get drop "Error: " show
-  then
-
+  handle-response
   "" io.write-line
 ;
 
@@ -41,18 +114,22 @@
 
   "https://httpbin.org/status/404" http.get
 
-  dup "ok" map.get drop
+  dup get-ok
   if
-    "Unexpected success" io.write-line
-    drop
-  else
-    dup "status" map.get drop "Status: " show-int
-    dup "error" map.has?
     if
-      "error" map.get drop "Error: " show
-    else
+      "Unexpected success" io.write-line
       drop
+    else
+      dup show-status
+      dup "error" map.has?
+      if
+        show-error
+      else
+        drop
+      then
     then
+  else
+    drop drop "Response missing 'ok' field" io.write-line
   then
 
   "" io.write-line
@@ -62,43 +139,37 @@
 : demo-post ( -- )
   "=== HTTP POST ===" io.write-line
   "" io.write-line
-
   "https://httpbin.org/post"
   "{\"name\":\"Alice\",\"age\":30}"
   "application/json"
   http.post
-
-  dup "ok" map.get drop
-  if
-    dup "status" map.get drop "Status: " show-int
-    "body" map.get drop
-    # The response body contains the echoed data
-    dup string.length int->string " bytes received" string.concat io.write-line
-    drop
-  else
-    "error" map.get drop "Error: " show
-  then
-
+  handle-response
   "" io.write-line
+;
+
+# Handle status-only response (no body needed)
+: handle-status-response ( Map -- )
+  dup get-ok
+  if
+    if
+      show-status
+    else
+      handle-failure
+    then
+  else
+    drop drop "Response missing 'ok' field" io.write-line
+  then
 ;
 
 # PUT to update a resource
 : demo-put ( -- )
   "=== HTTP PUT ===" io.write-line
   "" io.write-line
-
   "https://httpbin.org/put"
   "{\"updated\":true}"
   "application/json"
   http.put
-
-  dup "ok" map.get drop
-  if
-    "status" map.get drop "Status: " show-int
-  else
-    "error" map.get drop "Error: " show
-  then
-
+  handle-status-response
   "" io.write-line
 ;
 
@@ -106,16 +177,8 @@
 : demo-delete ( -- )
   "=== HTTP DELETE ===" io.write-line
   "" io.write-line
-
   "https://httpbin.org/delete" http.delete
-
-  dup "ok" map.get drop
-  if
-    "status" map.get drop "Status: " show-int
-  else
-    "error" map.get drop "Error: " show
-  then
-
+  handle-status-response
   "" io.write-line
 ;
 
@@ -127,13 +190,17 @@
   # Non-routable IP address will timeout/fail
   "http://192.0.2.1:12345/test" http.get
 
-  dup "ok" map.get drop
+  dup get-ok
   if
-    "Unexpected success" io.write-line
-    drop
+    if
+      "Unexpected success" io.write-line
+      drop
+    else
+      dup show-status
+      show-error
+    then
   else
-    dup "status" map.get drop "Status: " show-int
-    "error" map.get drop "Error: " show
+    drop drop "Response missing 'ok' field" io.write-line
   then
 
   "" io.write-line

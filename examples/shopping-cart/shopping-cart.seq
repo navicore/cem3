@@ -351,45 +351,47 @@ include std:stack-utils
   then
 ;
 
+# Insert item into cart (assumes stock was already checked)
+: insert-cart-item ( Int Int Int -- Int String )
+  # Stack: ( db product_id qty )
+  2 pick "INSERT INTO cart_items (product_id, quantity) VALUES (?, ?)" db-prepare
+  db-ok? if
+    dup 3 pick 1 swap db-bind-int drop  # bind product_id
+    dup 2 pick 2 swap db-bind-int drop  # bind qty
+    dup db-step drop
+    db-finalize 3drop
+    "Added to cart"
+  else
+    db-finalize 3drop
+    "Failed to prepare insert"
+  then
+;
+
+# Check stock and insert if sufficient
+: check-stock-and-insert ( Int Int Int Int Int -- Int String )
+  # Stack: ( db product_id qty stmt stock )
+  3 pick i.< if
+    db-finalize 3drop
+    "Insufficient stock"
+  else
+    db-finalize drop
+    insert-cart-item
+  then
+;
+
 # Add item to cart using prepared statement (prevents SQL injection)
 : add-to-cart ( Int Int Int -- Int String )
   # Stack: ( db product_id qty -- db result )
-  # First check if product exists and has sufficient stock
   2 pick "SELECT stock FROM products WHERE id = ?" db-prepare
   db-ok? if
-    # Stack: ( db product_id qty stmt )
-    dup 3 pick 1 swap db-bind-int drop  # bind product_id to param 1
+    dup 3 pick 1 swap db-bind-int drop
     dup db-step SQLITE_ROW i.= if
-      # Product exists, check stock
-      dup 0 db-column-int  # ( db product_id qty stmt stock )
-      3 pick               # ( db product_id qty stmt stock qty )
-      i.< if
-        # Not enough stock
-        db-finalize 3drop
-        "Insufficient stock"
-      else
-        db-finalize drop
-        # Insert using prepared statement
-        2 pick "INSERT INTO cart_items (product_id, quantity) VALUES (?, ?)" db-prepare
-        db-ok? if
-          # Stack: ( db product_id qty stmt )
-          dup 3 pick 1 swap db-bind-int drop  # bind product_id
-          dup 2 pick 2 swap db-bind-int drop  # bind qty
-          dup db-step drop  # keep stmt, call step, drop result
-          db-finalize 3drop  # finalize stmt and clean up
-          "Added to cart"
-        else
-          # Stack: ( db product_id qty stmt ) - finalize and clean up, keep db
-          db-finalize 3drop
-          "Failed to prepare insert"
-        then
-      then
+      dup 0 db-column-int check-stock-and-insert
     else
       db-finalize 3drop
       "Product not found"
     then
   else
-    # Stack: ( db product_id qty stmt ) - finalize and clean up, keep db
     db-finalize 3drop
     "Failed to prepare query"
   then
@@ -497,63 +499,72 @@ include std:stack-utils
   db-ok?
 ;
 
-: checkout ( Int -- Int String )
-  # Stack: ( db -- db result-string )
-  # Calculate totals first
-  calculate-cart-total
+# Build checkout success message
+: checkout-success-message ( Int Int -- String )
+  # Stack: ( total count -- message )
+  swap int->string swap int->string
+  "Checkout successful! Order total: $" rot string.concat
+  " (" string.concat
+  swap string.concat
+  " items)" string.concat
+;
+
+# Try to clear cart and commit, rollback on failure
+: try-clear-and-commit ( Int Int Int -- Int String )
   # Stack: ( db total count )
-
-  dup 0 i.= if
-    # Empty cart
-    drop drop
-    "Cart is empty - nothing to checkout"
+  2 pick clear-cart if
+    drop
+    2 pick "COMMIT" db-exec drop
+    checkout-success-message
   else
-    # Check stock availability before proceeding
+    drop
+    2 pick "ROLLBACK" db-exec 3drop
+    "Checkout failed: could not clear cart"
+  then
+;
+
+# Try to create order, then clear cart
+: try-create-order ( Int Int Int Int Int -- Int String )
+  # Stack: ( db total count total count )
+  4 pick rot rot create-order if
+    drop try-clear-and-commit
+  else
+    drop
+    2 pick "ROLLBACK" db-exec 3drop
+    "Checkout failed: could not create order"
+  then
+;
+
+# Try to update stock, then create order
+: try-update-stock ( Int Int Int Int Int -- Int String )
+  # Stack: ( db total count total count )
+  4 pick update-stock if
+    drop try-create-order
+  else
+    drop
+    4 pick "ROLLBACK" db-exec drop
+    3drop drop
+    "Checkout failed: could not update stock"
+  then
+;
+
+# Execute checkout transaction
+: execute-checkout ( Int Int Int -- Int String )
+  # Stack: ( db total count )
+  2dup
+  4 pick "BEGIN TRANSACTION" db-exec drop
+  try-update-stock
+;
+
+: checkout ( Int -- Int String )
+  calculate-cart-total
+  dup 0 i.= if
+    drop drop "Cart is empty - nothing to checkout"
+  else
     2 pick check-stock-available if
-      drop  # drop extra db from 2 pick, now ( db total count )
-      # Save values for later: total count
-      2dup  # ( db total count total count )
-
-      # Start transaction
-      4 pick "BEGIN TRANSACTION" db-exec drop
-
-      # Update stock
-      4 pick update-stock if
-        drop  # drop update result
-        # Create order record ( db total count total count )
-        4 pick rot rot create-order if
-          drop  # drop create result
-          # Clear cart ( db total count )
-          2 pick clear-cart if
-            drop  # drop clear result
-            # Commit
-            2 pick "COMMIT" db-exec drop
-
-            # Build success message ( db total count )
-            swap int->string swap int->string
-            "Checkout successful! Order total: $" rot string.concat
-            " (" string.concat
-            swap string.concat
-            " items)" string.concat
-          else
-            drop  # drop clear result
-            2 pick "ROLLBACK" db-exec 3drop  # drop result, total, count
-            "Checkout failed: could not clear cart"
-          then
-        else
-          drop  # drop create result
-          2 pick "ROLLBACK" db-exec 3drop  # drop result, total, count
-          "Checkout failed: could not create order"
-        then
-      else
-        drop  # drop extra db from 4 pick
-        4 pick "ROLLBACK" db-exec drop  # stack is ( db total count total count )
-        3drop drop  # clean up extra total count
-        "Checkout failed: could not update stock"
-      then
+      drop execute-checkout
     else
-      3drop  # drop extra db + total + count
-      "Checkout failed: insufficient stock for one or more items"
+      3drop "Checkout failed: insufficient stock for one or more items"
     then
   then
 ;
@@ -573,48 +584,51 @@ include std:stack-utils
   list-cart http-ok
 ;
 
+# Check if product param is missing
+: product-missing? ( String String -- String String Bool )
+  over string.length 0 i.= ;
+
+# Check if qty param is missing
+: qty-missing? ( String String -- String String Bool )
+  dup string.length 0 i.= ;
+
+# Try to parse and validate add-to-cart params after basic validation
+: try-parse-add-params ( Int String String String -- )
+  # Stack: ( db request product_str qty_str )
+  string->int if
+    swap string->int if
+      swap dup 0 i.> if
+        rot drop true
+      else
+        3drop "Quantity must be positive" false
+      then
+    else
+      3drop "Invalid product ID (must be a number)" false
+    then
+  else
+    3drop "Invalid quantity (must be a number)" false
+  then
+;
+
+# Validate and parse add-to-cart parameters
+# Returns: ( db product_id qty true ) on success, or ( db error_msg false ) on failure
+: parse-add-params ( Int String String String -- )
+  [ product-missing? ] [ 3drop "Missing 'product' parameter" false ]
+  [ qty-missing? ]     [ 3drop "Missing 'qty' parameter" false ]
+  [ true ]             [ try-parse-add-params ]
+  3 cond
+;
+
 : handle-add-to-cart ( Int String -- Int String )
   # Stack: ( db request -- db response )
-  # Extract query params
   dup http-query-string
   dup "product" query-param
   swap "qty" query-param
-  # Stack: ( db request product_str qty_str )
-
-  # Validate params present
-  over string.length 0 i.= if
-    3drop
-    "Missing 'product' parameter" http-bad-request
+  parse-add-params
+  if
+    add-to-cart http-ok
   else
-    dup string.length 0 i.= if
-      3drop
-      "Missing 'qty' parameter" http-bad-request
-    else
-      # Stack: ( db request product_str qty_str )
-      # Parse qty string to int
-      string->int if
-        # qty parsed successfully ( db request product_str qty_int )
-        swap string->int if
-          # product parsed successfully ( db request qty_int product_int )
-          swap  # ( db request product_int qty_int )
-          # Validate qty is positive
-          dup 0 i.> if
-            rot drop  # ( db product_int qty_int )
-            add-to-cart
-            http-ok
-          else
-            3drop
-            "Quantity must be positive" http-bad-request
-          then
-        else
-          3drop  # drop request, qty_int, product_int; keep db
-          "Invalid product ID (must be a number)" http-bad-request
-        then
-      else
-        3drop  # drop request, product_str, qty_int; keep db
-        "Invalid quantity (must be a number)" http-bad-request
-      then
-    then
+    http-bad-request
   then
 ;
 
@@ -642,43 +656,39 @@ include std:stack-utils
   checkout http-ok
 ;
 
+# Helper to get method and path from request
+: request-method ( String -- String )
+  http-request-method
+;
+
+: request-path ( String -- String )
+  http-path-base
+;
+
+# Route GET requests
+: route-get ( Int String -- Int String )
+  [ dup request-path "/products" string.equal? ] [ handle-get-products ]
+  [ dup request-path "/cart" string.equal? ]     [ handle-get-cart ]
+  [ dup request-path "/" string.equal? ]         [ drop "Shopping Cart API\n\nEndpoints:\n  GET  /products - List products\n  GET  /cart - View cart\n  POST /cart/add?product=ID&qty=N - Add to cart\n  POST /cart/remove?id=N - Remove from cart\n  POST /cart/checkout - Complete purchase" http-ok ]
+  [ true ]                                       [ drop "Not found" http-not-found ]
+  4 cond
+;
+
+# Route POST requests
+: route-post ( Int String -- Int String )
+  [ dup request-path "/cart/add" string.equal? ]      [ handle-add-to-cart ]
+  [ dup request-path "/cart/remove" string.equal? ]   [ handle-remove-from-cart ]
+  [ dup request-path "/cart/checkout" string.equal? ] [ handle-checkout ]
+  [ true ]                                            [ drop "Not found" http-not-found ]
+  4 cond
+;
+
 : route ( Int String -- Int String )
   # Stack: ( db request -- db response )
-  # Check method and path
-  dup http-request-method "GET" string.equal? if
-    dup http-path-base "/products" string.equal? if
-      handle-get-products
-    else
-      dup http-path-base "/cart" string.equal? if
-        handle-get-cart
-      else
-        dup http-path-base "/" string.equal? if
-          drop
-          "Shopping Cart API\n\nEndpoints:\n  GET  /products - List products\n  GET  /cart - View cart\n  POST /cart/add?product=ID&qty=N - Add to cart\n  POST /cart/remove?id=N - Remove from cart\n  POST /cart/checkout - Complete purchase" http-ok
-        else
-          drop "Not found" http-not-found
-        then
-      then
-    then
-  else
-    dup http-request-method "POST" string.equal? if
-      dup http-path-base "/cart/add" string.equal? if
-        handle-add-to-cart
-      else
-        dup http-path-base "/cart/remove" string.equal? if
-          handle-remove-from-cart
-        else
-          dup http-path-base "/cart/checkout" string.equal? if
-            handle-checkout
-          else
-            drop "Not found" http-not-found
-          then
-        then
-      then
-    else
-      drop "Method not allowed" http-bad-request
-    then
-  then
+  [ dup request-method "GET" string.equal? ]  [ route-get ]
+  [ dup request-method "POST" string.equal? ] [ route-post ]
+  [ true ]                                    [ drop "Method not allowed" http-bad-request ]
+  3 cond
 ;
 
 # =============================================================================

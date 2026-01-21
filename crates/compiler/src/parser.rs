@@ -48,6 +48,8 @@ pub struct Parser {
     /// Counter for assigning unique IDs to quotations
     /// Used by the typechecker to track inferred types
     next_quotation_id: usize,
+    /// Pending lint annotations collected from `# seq:allow(lint-id)` comments
+    pending_allowed_lints: Vec<String>,
 }
 
 impl Parser {
@@ -57,6 +59,7 @@ impl Parser {
             tokens,
             pos: 0,
             next_quotation_id: 0,
+            pending_allowed_lints: Vec::new(),
         }
     }
 
@@ -335,6 +338,9 @@ impl Parser {
     }
 
     fn parse_word_def(&mut self) -> Result<WordDef, String> {
+        // Consume any pending lint annotations collected from comments before this word
+        let allowed_lints = std::mem::take(&mut self.pending_allowed_lints);
+
         // Capture start line from ':' token
         let start_line = self.current_token().map(|t| t.line).unwrap_or(0);
 
@@ -390,6 +396,7 @@ impl Parser {
                 start_line,
                 end_line,
             )),
+            allowed_lints,
         })
     }
 
@@ -1039,12 +1046,26 @@ impl Parser {
     fn skip_comments(&mut self) {
         loop {
             if self.check("#") {
-                // Skip until newline
+                self.advance(); // consume #
+
+                // Collect all tokens until newline to reconstruct the comment text
+                let mut comment_parts: Vec<String> = Vec::new();
                 while !self.is_at_end() && self.current() != "\n" {
+                    comment_parts.push(self.current().to_string());
                     self.advance();
                 }
                 if !self.is_at_end() {
                     self.advance(); // skip newline
+                }
+
+                // Join parts and check for seq:allow annotation
+                // Format: # seq:allow(lint-id) -> parts = ["seq", ":", "allow", "(", "lint-id", ")"]
+                let comment = comment_parts.join("");
+                if let Some(lint_id) = comment
+                    .strip_prefix("seq:allow(")
+                    .and_then(|s| s.strip_suffix(")"))
+                {
+                    self.pending_allowed_lints.push(lint_id.to_string());
                 }
             } else if self.check("\n") {
                 // Skip blank lines

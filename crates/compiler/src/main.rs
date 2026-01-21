@@ -258,20 +258,20 @@ fn run_lint(
         println!("No lint issues found in {} file(s)", files_checked);
     } else {
         print!("{}", lint::format_diagnostics(&all_diagnostics));
+        let files_with_issues: std::collections::HashSet<_> =
+            all_diagnostics.iter().map(|d| &d.file).collect();
         println!(
-            "\n{} issue(s) in {} file(s)",
+            "\n{} issue(s) in {} file(s) ({} file(s) checked)",
             all_diagnostics.len(),
+            files_with_issues.len(),
             files_checked
         );
-        // Exit with error if there are any errors
+        // Exit with error if there are any errors, or any issues when --deny-warnings is set
         let has_errors = all_diagnostics
             .iter()
             .any(|d| d.severity == lint::Severity::Error);
-        let has_warnings = all_diagnostics
-            .iter()
-            .any(|d| d.severity == lint::Severity::Warning);
 
-        if has_errors || (deny_warnings && has_warnings) {
+        if has_errors || (deny_warnings && !all_diagnostics.is_empty()) {
             process::exit(1);
         }
     }

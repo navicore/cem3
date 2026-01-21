@@ -455,12 +455,14 @@ mod tests {
                 effect: None,
                 body: vec![],
                 source: Some(SourceLocation::new(PathBuf::from("a.seq"), 1)),
+                allowed_lints: vec![],
             },
             WordDef {
                 name: "bar".to_string(),
                 effect: None,
                 body: vec![],
                 source: Some(SourceLocation::new(PathBuf::from("b.seq"), 1)),
+                allowed_lints: vec![],
             },
         ];
 
@@ -475,12 +477,14 @@ mod tests {
                 effect: None,
                 body: vec![],
                 source: Some(SourceLocation::new(PathBuf::from("a.seq"), 1)),
+                allowed_lints: vec![],
             },
             WordDef {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
                 source: Some(SourceLocation::new(PathBuf::from("b.seq"), 5)),
+                allowed_lints: vec![],
             },
         ];
 
@@ -503,12 +507,14 @@ mod tests {
                 effect: None,
                 body: vec![],
                 source: Some(SourceLocation::new(PathBuf::from("a.seq"), 1)),
+                allowed_lints: vec![],
             },
             WordDef {
                 name: "foo".to_string(),
                 effect: None,
                 body: vec![],
                 source: Some(SourceLocation::new(PathBuf::from("a.seq"), 5)),
+                allowed_lints: vec![],
             },
         ];
 

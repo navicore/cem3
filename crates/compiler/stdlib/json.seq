@@ -216,54 +216,29 @@
 # Serialization
 # ============================================================================
 
+# Serialize JsonBool to string
+: serialize-bool ( Variant -- String )
+  json-unwrap-bool 0 i.= if "false" else "true" then
+;
+
+# Serialize JsonString to string
+: serialize-string ( Variant -- String )
+  json-unwrap-string
+  string.json-escape-string
+  quote-char swap string.concat quote-char string.concat
+;
+
 # Serialize a JSON value to a string
 : json-serialize ( Variant -- String )
   dup variant.tag
-  # Stack: value tag
-
-  # JsonNull
-  dup :JsonNull symbol.= if
-    drop drop "null"
-  else
-
-  # JsonBool
-  dup :JsonBool symbol.= if
-    drop
-    # Stack: value
-    json-unwrap-bool
-    0 i.= if "false" else "true" then
-  else
-
-  # JsonNumber
-  dup :JsonNumber symbol.= if
-    drop
-    json-unwrap-number
-    float->string
-  else
-
-  # JsonString
-  dup :JsonString symbol.= if
-    drop
-    json-unwrap-string
-    string.json-escape-string
-    quote-char swap string.concat quote-char string.concat
-  else
-
-  # JsonArray
-  dup :JsonArray symbol.= if
-    drop  # drop the duplicated tag
-    # value is still on stack, json-serialize-array will consume it
-    json-serialize-array
-  else
-
-  # JsonObject
-  dup :JsonObject symbol.= if
-    drop
-    json-serialize-object
-  else
-    # Unknown tag - should not happen
-    drop drop "null"
-  then then then then then then
+  [ dup :JsonNull symbol.= ]   [ drop drop "null" ]
+  [ dup :JsonBool symbol.= ]   [ drop serialize-bool ]
+  [ dup :JsonNumber symbol.= ] [ drop json-unwrap-number float->string ]
+  [ dup :JsonString symbol.= ] [ drop serialize-string ]
+  [ dup :JsonArray symbol.= ]  [ drop json-serialize-array ]
+  [ dup :JsonObject symbol.= ] [ drop json-serialize-object ]
+  [ true ]                     [ drop drop "null" ]
+  7 cond
 ;
 
 # Escape special characters in a string for JSON output
@@ -272,60 +247,40 @@
   string.json-escape
 ;
 
+# Serialize 1-element array
+: serialize-array-1 ( Variant -- String )
+  0 variant.field-at json-serialize
+  "[" swap string.concat "]" string.concat
+;
+
+# Serialize 2-element array
+: serialize-array-2 ( Variant -- String )
+  dup 0 variant.field-at json-serialize
+  swap 1 variant.field-at json-serialize
+  swap "[" swap string.concat "," string.concat
+  swap string.concat "]" string.concat
+;
+
+# Serialize 3-element array
+: serialize-array-3 ( Variant -- String )
+  "["
+  over 0 variant.field-at json-serialize string.concat
+  "," string.concat
+  over 1 variant.field-at json-serialize string.concat
+  "," string.concat
+  swap 2 variant.field-at json-serialize string.concat
+  "]" string.concat
+;
+
 # Serialize a JSON array to string (supports 0-3 elements)
 : json-serialize-array ( Variant -- String )
-  # Stack: JsonArray
-  dup variant.field-count    # JsonArray count
-  dup 0 i.= if
-    # Empty array
-    drop drop "[]"
-  else
-    dup 1 i.= if
-      # Single element array
-      drop                   # JsonArray
-      0 variant.field-at     # elem
-      json-serialize         # elemstr
-      "[" swap string.concat # "[elem"
-      "]" string.concat      # "[elem]"
-    else
-      dup 2 i.= if
-        # Two element array
-        drop                   # JsonArray
-        # Get first element
-        dup 0 variant.field-at # JsonArray elem0
-        json-serialize         # JsonArray elem0str
-        # Get second element
-        swap                   # elem0str JsonArray
-        1 variant.field-at     # elem0str elem1
-        json-serialize         # elem0str elem1str
-        # Build result: "[" + elem0str + "," + elem1str + "]"
-        swap                   # elem1str elem0str
-        "[" swap string.concat # elem1str "[elem0"
-        "," string.concat      # elem1str "[elem0,"
-        swap string.concat     # "[elem0,elem1"
-        "]" string.concat      # "[elem0,elem1]"
-      else
-        dup 3 i.= if
-          # Three element array
-          drop                     # JsonArray
-          # Build incrementally using over
-          "["                      # JsonArray "["
-          over 0 variant.field-at  # JsonArray "[" elem0
-          json-serialize string.concat  # JsonArray "[elem0"
-          "," string.concat        # JsonArray "[elem0,"
-          over 1 variant.field-at  # JsonArray "[elem0," elem1
-          json-serialize string.concat  # JsonArray "[elem0,elem1"
-          "," string.concat        # JsonArray "[elem0,elem1,"
-          swap 2 variant.field-at  # "[elem0,elem1," elem2
-          json-serialize string.concat  # "[elem0,elem1,elem2"
-          "]" string.concat        # "[elem0,elem1,elem2]"
-        else
-          # More than 3 elements - fall back to representation
-          drop drop "[...]"
-        then
-      then
-    then
-  then
+  dup variant.field-count
+  [ dup 0 i.= ] [ drop drop "[]" ]
+  [ dup 1 i.= ] [ drop serialize-array-1 ]
+  [ dup 2 i.= ] [ drop serialize-array-2 ]
+  [ dup 3 i.= ] [ drop serialize-array-3 ]
+  [ true ]      [ drop drop "[...]" ]
+  5 cond
 ;
 
 # Serialize a JSON object to string (supports 0-2 key-value pairs)
@@ -449,12 +404,10 @@
 # Check if a character code is whitespace (space, tab, newline, carriage return)
 # Stack: ( Int -- Bool )
 : pstate-is-ws-char? ( Int -- Bool )
-  dup 32 i.= if drop true else
-  dup 9 i.= if drop true else
-  dup 10 i.= if drop true else
-  dup 13 i.= if drop true else
-  drop false
-  then then then then
+  dup 32 i.=      # space?
+  over 9 i.= or   # or tab?
+  over 10 i.= or  # or newline?
+  swap 13 i.= or  # or carriage return?
 ;
 
 # Skip whitespace in parser state
@@ -512,6 +465,7 @@
 # ============================================================================
 
 # Parse "null" keyword (returns JsonValue and success flag)
+# seq:allow(deep-nesting)
 : json-parse-null ( ..rest String Int -- ..rest String Int Variant Bool )
   json-char-at 110 i.= if
     1 json-advance
@@ -537,6 +491,7 @@
 ;
 
 # Parse "true" keyword
+# seq:allow(deep-nesting)
 : json-parse-true ( ..rest String Int -- ..rest String Int Variant Bool )
   json-char-at 116 i.= if
     1 json-advance
@@ -562,6 +517,7 @@
 ;
 
 # Parse "false" keyword
+# seq:allow(deep-nesting)
 : json-parse-false ( ..rest String Int -- ..rest String Int Variant Bool )
   json-char-at 102 i.= if
     1 json-advance
@@ -999,6 +955,7 @@
 # Parse a single key-value pair and add it to an object
 # Stack: ( PState obj -- PState' obj' Bool )
 # Returns success=true if pair was parsed and added, false on failure
+# seq:allow(deep-nesting)
 : pstate-parse-one-pair ( ..rest Variant Variant -- ..rest Variant Variant Bool )
   # Stack: PState obj
   swap                           # obj PState
@@ -1154,6 +1111,7 @@
 # Main JSON parser entry point
 # Parses any JSON value
 # Stack: ( str pos -- str pos JsonValue Bool )
+# seq:allow(deep-nesting)
 : json-parse-value ( ..rest String Int -- ..rest String Int Variant Bool )
   json-at-end? if
     json-null false

@@ -1374,6 +1374,7 @@ mod tests {
                 make_word_call("drop"),
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1400,6 +1401,7 @@ mod tests {
                 make_word_call("strand.weave-cancel"),
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1433,6 +1435,7 @@ mod tests {
                 },
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1464,6 +1467,7 @@ mod tests {
                 },
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1483,6 +1487,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("chan.make"), make_word_call("drop")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1500,6 +1505,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("chan.make"), make_word_call("chan.close")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1527,6 +1533,7 @@ mod tests {
                 make_word_call("drop"), // drops 1
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1560,6 +1567,7 @@ mod tests {
                 make_word_call("drop"), // drops original chan - also warns
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1600,6 +1608,7 @@ mod tests {
                 make_word_call("chan.send"),
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1631,6 +1640,7 @@ mod tests {
                 },
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1662,6 +1672,7 @@ mod tests {
                 },
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1693,6 +1704,7 @@ mod tests {
                 make_word_call("drop"), // drops the channel
             ],
             source: None,
+            allowed_lints: vec![],
         };
 
         let mut analyzer = ResourceAnalyzer::new(Path::new("test.seq"));
@@ -1726,6 +1738,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("chan.make")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let leak_it = WordDef {
@@ -1733,6 +1746,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("make-chan"), make_word_call("drop")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let program = Program {
@@ -1767,6 +1781,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("chan.make")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let use_it = WordDef {
@@ -1774,6 +1789,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("make-chan"), make_word_call("chan.close")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let program = Program {
@@ -1806,6 +1822,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("chan.make")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let wrap_chan = WordDef {
@@ -1813,6 +1830,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("make-chan")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let leak_chain = WordDef {
@@ -1820,6 +1838,7 @@ mod tests {
             effect: None,
             body: vec![make_word_call("wrap-chan"), make_word_call("drop")],
             source: None,
+            allowed_lints: vec![],
         };
 
         let program = Program {

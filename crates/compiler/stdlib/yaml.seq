@@ -132,6 +132,7 @@
 # ============================================================================
 
 # Parse a scalar value string into a YAML value
+# seq:allow(deep-nesting)
 : yaml-parse-scalar ( String -- Variant )
   # Check for null
   dup "null" string.equal? if
@@ -610,6 +611,7 @@
 
 # Parse multiple lines with nesting support
 # Stack: ( obj str -- obj' )
+# seq:allow(deep-nesting)
 : yaml-parse-nested-lines ( ..rest Variant String -- ..rest Variant )
   dup string.empty? if
     drop
@@ -672,6 +674,7 @@
 ;
 
 # Serialize a YAML value to a JSON-like string
+# seq:allow(deep-nesting)
 : yaml-serialize ( Variant -- String )
   dup variant.tag
 
@@ -697,6 +700,7 @@
 ;
 
 # Serialize an object (supports up to 3 pairs)
+# seq:allow(deep-nesting)
 : yaml-serialize-object ( Variant -- String )
   dup variant.field-count
   dup 0 i.= if

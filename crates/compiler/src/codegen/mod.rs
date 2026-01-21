@@ -121,6 +121,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -155,6 +156,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -187,6 +189,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -222,6 +225,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -282,6 +286,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -329,6 +334,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -494,6 +500,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -524,6 +531,7 @@ mod tests {
                     Statement::Symbol("world".to_string()), // Different symbol
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -592,6 +600,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -601,6 +610,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -668,6 +678,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -677,6 +688,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -723,6 +735,7 @@ mod tests {
                     effect: None,
                     body: vec![Statement::IntLiteral(42)],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "test_dup".to_string(),
@@ -748,6 +761,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -757,6 +771,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -816,6 +831,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -825,6 +841,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -890,6 +907,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -899,6 +917,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -951,6 +970,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -963,6 +983,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -1025,6 +1046,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -1037,6 +1059,7 @@ mod tests {
                         },
                     ],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -1101,6 +1124,7 @@ mod tests {
                         ],
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -1110,6 +1134,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };

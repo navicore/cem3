@@ -27,17 +27,34 @@
 //! All Seq code execution happens outside the signal handler, when the user
 //! explicitly checks for received signals.
 //!
-//! # Thread Safety
+//! # Thread Safety and Concurrent Access
 //!
-//! Signal handler installation is protected by a mutex to ensure thread safety
-//! when multiple strands attempt to modify signal handlers concurrently.
+//! This module is designed to be safe for concurrent use from multiple strands:
+//!
+//! - **Handler installation** (`signal.trap`, `signal.default`, `signal.ignore`):
+//!   Protected by a mutex to ensure only one strand modifies handlers at a time.
+//!   Concurrent calls will serialize safely.
+//!
+//! - **Flag operations** (`signal.received?`, `signal.pending?`, `signal.clear`):
+//!   Use lock-free atomic operations with appropriate memory ordering:
+//!   - `signal.received?`: Atomic swap with Acquire ordering (read-modify-write)
+//!   - `signal.pending?`: Atomic load with Acquire ordering (read-only)
+//!   - `signal.clear`: Atomic store with Release ordering (write-only)
+//!
+//!   Multiple strands can safely check the same signal. However, `signal.received?`
+//!   clears the flag atomically, so if two strands both call it, only one will
+//!   observe `true`. Use `signal.pending?` if you need non-destructive reads.
+//!
+//! - **Signal handler**: Executes outside the strand context (in OS interrupt
+//!   context) and only performs a single atomic store. This is async-signal-safe.
+//!
 //! This module uses `sigaction()` instead of the deprecated `signal()` function
 //! for well-defined behavior in multithreaded environments.
 //!
 //! # Platform Support
 //!
 //! - Unix: Full signal support using sigaction()
-//! - Windows: Stub implementations (signals not supported)
+//! - Windows: Stub implementations (signals not supported, all operations no-op)
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
@@ -96,6 +113,193 @@ extern "C" fn flag_signal_handler(sig: libc::c_int) {
     }
 }
 
+// ============================================================================
+// Signal Constants - Platform-correct values from libc
+// ============================================================================
+
+/// Get SIGINT constant (Ctrl+C interrupt)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigint(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGINT as i64)) }
+}
+
+/// Get SIGTERM constant (termination request)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigterm(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGTERM as i64)) }
+}
+
+/// Get SIGHUP constant (hangup)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sighup(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGHUP as i64)) }
+}
+
+/// Get SIGPIPE constant (broken pipe)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigpipe(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGPIPE as i64)) }
+}
+
+/// Get SIGUSR1 constant (user signal 1)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigusr1(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGUSR1 as i64)) }
+}
+
+/// Get SIGUSR2 constant (user signal 2)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigusr2(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGUSR2 as i64)) }
+}
+
+/// Get SIGCHLD constant (child status change)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigchld(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGCHLD as i64)) }
+}
+
+/// Get SIGALRM constant (alarm clock)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigalrm(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGALRM as i64)) }
+}
+
+/// Get SIGCONT constant (continue)
+///
+/// Stack effect: ( -- Int )
+///
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigcont(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(libc::SIGCONT as i64)) }
+}
+
+// Non-Unix stubs for signal constants (return 0)
+// Safety: Stack pointer must be valid for all functions below.
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigint(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigterm(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sighup(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigpipe(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigusr1(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigusr2(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigchld(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigalrm(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_sigcont(stack: Stack) -> Stack {
+    unsafe { push(stack, Value::Int(0)) }
+}
+
 /// Install a signal handler using sigaction (thread-safe)
 ///
 /// Uses sigaction() instead of signal() for:
@@ -112,7 +316,8 @@ fn install_signal_handler(sig_num: libc::c_int) -> Result<(), std::io::Error> {
 
     unsafe {
         let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
-        action.sa_sigaction = flag_signal_handler as usize;
+        // Use sa_handler (not sa_sigaction) since we're not using SA_SIGINFO
+        action.sa_sigaction = flag_signal_handler as libc::sighandler_t;
         action.sa_flags = libc::SA_RESTART;
         libc::sigemptyset(&mut action.sa_mask);
 
@@ -135,7 +340,8 @@ fn restore_default_handler(sig_num: libc::c_int) -> Result<(), std::io::Error> {
 
     unsafe {
         let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
-        action.sa_sigaction = libc::SIG_DFL;
+        // Use SIG_DFL to restore default handler
+        action.sa_sigaction = libc::SIG_DFL as libc::sighandler_t;
         action.sa_flags = 0;
         libc::sigemptyset(&mut action.sa_mask);
 
@@ -158,7 +364,8 @@ fn ignore_signal(sig_num: libc::c_int) -> Result<(), std::io::Error> {
 
     unsafe {
         let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
-        action.sa_sigaction = libc::SIG_IGN;
+        // Use SIG_IGN to ignore the signal
+        action.sa_sigaction = libc::SIG_IGN as libc::sighandler_t;
         action.sa_flags = 0;
         libc::sigemptyset(&mut action.sa_mask);
 
@@ -218,6 +425,7 @@ pub unsafe extern "C" fn patch_seq_signal_trap(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have an Int (signal number) on top
+#[cfg(unix)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_signal_received(stack: Stack) -> Stack {
     unsafe {
@@ -250,6 +458,7 @@ pub unsafe extern "C" fn patch_seq_signal_received(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have an Int (signal number) on top
+#[cfg(unix)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_signal_pending(stack: Stack) -> Stack {
     unsafe {
@@ -350,6 +559,7 @@ pub unsafe extern "C" fn patch_seq_signal_ignore(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Stack must have an Int (signal number) on top
+#[cfg(unix)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_signal_clear(stack: Stack) -> Stack {
     unsafe {
@@ -373,6 +583,10 @@ pub unsafe extern "C" fn patch_seq_signal_clear(stack: Stack) -> Stack {
 }
 
 // Stub implementations for non-Unix platforms
+// Safety: Stack pointer must be valid for all functions below.
+
+/// # Safety
+/// Stack pointer must be valid.
 #[cfg(not(unix))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_signal_trap(stack: Stack) -> Stack {
@@ -381,6 +595,8 @@ pub unsafe extern "C" fn patch_seq_signal_trap(stack: Stack) -> Stack {
     stack
 }
 
+/// # Safety
+/// Stack pointer must be valid.
 #[cfg(not(unix))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_signal_default(stack: Stack) -> Stack {
@@ -388,10 +604,42 @@ pub unsafe extern "C" fn patch_seq_signal_default(stack: Stack) -> Stack {
     stack
 }
 
+/// # Safety
+/// Stack pointer must be valid.
 #[cfg(not(unix))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_signal_ignore(stack: Stack) -> Stack {
     let (stack, _) = unsafe { pop(stack) };
+    stack
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_received(stack: Stack) -> Stack {
+    let (stack, _) = unsafe { pop(stack) };
+    // Always return false on non-Unix - signals not supported
+    unsafe { push(stack, Value::Bool(false)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_pending(stack: Stack) -> Stack {
+    let (stack, _) = unsafe { pop(stack) };
+    // Always return false on non-Unix - signals not supported
+    unsafe { push(stack, Value::Bool(false)) }
+}
+
+/// # Safety
+/// Stack pointer must be valid.
+#[cfg(not(unix))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_signal_clear(stack: Stack) -> Stack {
+    let (stack, _) = unsafe { pop(stack) };
+    // No-op on non-Unix
     stack
 }
 
@@ -464,5 +712,55 @@ mod tests {
 
         let result = install_signal_handler(libc::SIGSTOP);
         assert!(result.is_err(), "SIGSTOP should not be catchable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_ignore() {
+        // Test that we can set a signal to be ignored
+        let result = ignore_signal(libc::SIGUSR2);
+        assert!(result.is_ok(), "Failed to ignore SIGUSR2");
+
+        // Restore default
+        let result = restore_default_handler(libc::SIGUSR2);
+        assert!(result.is_ok(), "Failed to restore SIGUSR2 default handler");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_multiple_signals_independent() {
+        // Install handlers for two different signals
+        install_signal_handler(libc::SIGUSR1).expect("Failed to install SIGUSR1");
+        install_signal_handler(libc::SIGUSR2).expect("Failed to install SIGUSR2");
+
+        // Clear flags
+        SIGNAL_FLAGS[libc::SIGUSR1 as usize].store(false, Ordering::Release);
+        SIGNAL_FLAGS[libc::SIGUSR2 as usize].store(false, Ordering::Release);
+
+        // Send only SIGUSR1
+        unsafe {
+            libc::kill(libc::getpid(), libc::SIGUSR1);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        // Only SIGUSR1 should be set
+        assert!(SIGNAL_FLAGS[libc::SIGUSR1 as usize].load(Ordering::Acquire));
+        assert!(!SIGNAL_FLAGS[libc::SIGUSR2 as usize].load(Ordering::Acquire));
+
+        // Cleanup
+        restore_default_handler(libc::SIGUSR1).expect("Failed to restore SIGUSR1");
+        restore_default_handler(libc::SIGUSR2).expect("Failed to restore SIGUSR2");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_constants_valid() {
+        // Verify signal constants are in valid range
+        assert!(libc::SIGINT > 0 && (libc::SIGINT as usize) < MAX_SIGNAL);
+        assert!(libc::SIGTERM > 0 && (libc::SIGTERM as usize) < MAX_SIGNAL);
+        assert!(libc::SIGHUP > 0 && (libc::SIGHUP as usize) < MAX_SIGNAL);
+        assert!(libc::SIGPIPE > 0 && (libc::SIGPIPE as usize) < MAX_SIGNAL);
+        assert!(libc::SIGUSR1 > 0 && (libc::SIGUSR1 as usize) < MAX_SIGNAL);
+        assert!(libc::SIGUSR2 > 0 && (libc::SIGUSR2 as usize) < MAX_SIGNAL);
     }
 }

@@ -524,6 +524,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "signal.default", (a Int -- a));
     builtin!(sigs, "signal.ignore", (a Int -- a));
     builtin!(sigs, "signal.clear", (a Int -- a));
+    // Signal constants (platform-correct values)
+    builtin!(sigs, "signal.SIGINT", (a -- a Int));
+    builtin!(sigs, "signal.SIGTERM", (a -- a Int));
+    builtin!(sigs, "signal.SIGHUP", (a -- a Int));
+    builtin!(sigs, "signal.SIGPIPE", (a -- a Int));
+    builtin!(sigs, "signal.SIGUSR1", (a -- a Int));
+    builtin!(sigs, "signal.SIGUSR2", (a -- a Int));
+    builtin!(sigs, "signal.SIGCHLD", (a -- a Int));
+    builtin!(sigs, "signal.SIGALRM", (a -- a Int));
+    builtin!(sigs, "signal.SIGCONT", (a -- a Int));
 
     // =========================================================================
     // Terminal Operations (raw mode, character I/O, dimensions)
@@ -1061,6 +1071,21 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
         "signal.clear",
         "Clear the pending flag for a signal without checking it.",
     );
+    docs.insert("signal.SIGINT", "SIGINT constant (Ctrl+C interrupt).");
+    docs.insert("signal.SIGTERM", "SIGTERM constant (termination request).");
+    docs.insert("signal.SIGHUP", "SIGHUP constant (hangup detected).");
+    docs.insert("signal.SIGPIPE", "SIGPIPE constant (broken pipe).");
+    docs.insert(
+        "signal.SIGUSR1",
+        "SIGUSR1 constant (user-defined signal 1).",
+    );
+    docs.insert(
+        "signal.SIGUSR2",
+        "SIGUSR2 constant (user-defined signal 2).",
+    );
+    docs.insert("signal.SIGCHLD", "SIGCHLD constant (child status changed).");
+    docs.insert("signal.SIGALRM", "SIGALRM constant (alarm clock).");
+    docs.insert("signal.SIGCONT", "SIGCONT constant (continue if stopped).");
 
     // Terminal Operations
     docs.insert(

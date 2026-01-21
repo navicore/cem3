@@ -53,7 +53,7 @@
   # acc n
   dup 0 i.>
   if
-    swap over i.add swap 1 i.- sum-to-loop
+    tuck i.add swap 1 i.- sum-to-loop
   else
     drop
   then

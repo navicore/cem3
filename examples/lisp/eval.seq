@@ -107,6 +107,34 @@ include "parser"
 # List Evaluation (Function Application)
 # ============================================
 
+# Evaluate a symbol in function position (builtin dispatch)
+: eval-sym-call ( Variant Variant Variant -- Variant )
+  # Stack: Env List Head
+  ssym-val swap rot eval-builtin-with-env
+;
+
+# Evaluate a list in function position (lambda call)
+: eval-list-call ( Variant Variant Variant -- Variant )
+  # Stack: Env List Head
+  2 pick eval-with-env  # -> Env List EvaledHead
+  dup closure? if
+    # It's a closure - apply it
+    rot rot scdr swap apply-closure
+  else
+    # Not a closure - error
+    drop drop slist
+  then
+;
+
+# Dispatch on function type
+: eval-func-call ( Variant Variant Variant -- Variant )
+  # Stack: Env List Head
+  [ dup ssym? ]  [ eval-sym-call ]
+  [ dup slist? ] [ eval-list-call ]
+  [ true ]       [ drop slist nip ]  # Non-symbol, non-list
+  3 cond
+;
+
 : eval-list-with-env ( Variant Variant -- Variant )
   # Stack: Expr Env
   swap slist-val
@@ -115,32 +143,7 @@ include "parser"
     nip slist
   else
     # Non-empty list: first element is function
-    dup scar
-    dup ssym? if
-      # Symbol - check for built-in functions
-      # Stack: Env List Head
-      ssym-val swap rot eval-builtin-with-env
-    else
-      dup slist? if
-        # List in function position - evaluate it (likely a lambda)
-        # Stack: Env List Head
-        2 pick eval-with-env  # -> Env List EvaledHead
-        dup closure? if
-          # It's a closure - apply it
-          # Stack: Env List EvaledHead
-          rot rot  # -> EvaledHead Env List
-          scdr     # -> EvaledHead Env Args
-          swap     # -> EvaledHead Args Env
-          apply-closure
-        else
-          # Not a closure - error
-          drop drop slist
-        then
-      else
-        # Non-symbol, non-list in function position
-        drop slist nip
-      then
-    then
+    dup scar eval-func-call
   then
 ;
 
@@ -151,36 +154,15 @@ include "parser"
 : eval-builtin-with-env ( String Variant Variant -- Variant )
   # Stack: FuncName List Env
   rot
-  dup "+" string.equal? if
-    drop eval-add-with-env
-  else
-    dup "-" string.equal? if
-      drop eval-sub-with-env
-    else
-      dup "*" string.equal? if
-        drop eval-mul-with-env
-      else
-        dup "/" string.equal? if
-          drop eval-div-with-env
-        else
-          dup "if" string.equal? if
-            drop eval-if-with-env
-          else
-            dup "let" string.equal? if
-              drop eval-let-with-env
-            else
-              dup "lambda" string.equal? if
-                drop eval-lambda-with-env
-              else
-                # Unknown function - return list as-is
-                drop drop slist
-              then
-            then
-          then
-        then
-      then
-    then
-  then
+  [ dup "+" string.equal? ]      [ drop eval-add-with-env ]
+  [ dup "-" string.equal? ]      [ drop eval-sub-with-env ]
+  [ dup "*" string.equal? ]      [ drop eval-mul-with-env ]
+  [ dup "/" string.equal? ]      [ drop eval-div-with-env ]
+  [ dup "if" string.equal? ]     [ drop eval-if-with-env ]
+  [ dup "let" string.equal? ]    [ drop eval-let-with-env ]
+  [ dup "lambda" string.equal? ] [ drop eval-lambda-with-env ]
+  [ true ]                       [ drop drop slist ]  # Unknown function
+  8 cond
 ;
 
 # ============================================

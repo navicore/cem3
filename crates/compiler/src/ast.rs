@@ -148,6 +148,9 @@ pub struct WordDef {
     pub body: Vec<Statement>,
     /// Source location for error reporting (collision detection)
     pub source: Option<SourceLocation>,
+    /// Lint IDs that are allowed (suppressed) for this word
+    /// Set via `# seq:allow(lint-id)` annotation before the word definition
+    pub allowed_lints: Vec<String>,
 }
 
 /// Source span for a single token or expression
@@ -700,6 +703,7 @@ impl Program {
                     effect: Some(effect),
                     body,
                     source: variant.source.clone(),
+                    allowed_lints: vec![],
                 });
             }
         }
@@ -753,6 +757,7 @@ mod tests {
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -771,6 +776,7 @@ mod tests {
                     effect: None,
                     body: vec![Statement::IntLiteral(42)],
                     source: None,
+                    allowed_lints: vec![],
                 },
                 WordDef {
                     name: "main".to_string(),
@@ -780,6 +786,7 @@ mod tests {
                         span: None,
                     }],
                     source: None,
+                    allowed_lints: vec![],
                 },
             ],
         };
@@ -801,6 +808,7 @@ mod tests {
                     span: None,
                 }],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -825,6 +833,7 @@ mod tests {
                     span: None,
                 }], // typo
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 

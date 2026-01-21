@@ -65,29 +65,29 @@ union ParseResult {
 : parse ( String -- Sexpr )
   tokenize parse-tokens result-expr ;
 
+# Parse an atom (number or symbol)
+: parse-atom ( TokenList String -- ParseResult )
+  dup is-number-token if
+    string->int drop snum swap tcdr make-parse-result
+  else
+    ssym swap tcdr make-parse-result
+  then
+;
+
+# Parse a single token and return result
+: parse-token ( TokenList String -- ParseResult )
+  [ dup is-lparen ] [ drop tcdr parse-list ]
+  [ dup is-rparen ] [ drop tcdr parse-tokens ]  # Skip unexpected )
+  [ true ]          [ parse-atom ]
+  3 cond
+;
+
 : parse-tokens ( TokenList -- ParseResult )
-  # TokenList is a token list, returns parse result
   dup tnil? if
     # Empty token list - return nil expression
     snil slist swap make-parse-result
   else
-    dup tcar
-    dup is-lparen if
-      # Start of list - parse list contents
-      drop tcdr parse-list
-    else
-      dup is-rparen if
-        # Unexpected ) - error, just skip
-        drop tcdr parse-tokens
-      else
-        # Atom (number or symbol)
-        dup is-number-token if
-          string->int drop snum swap tcdr make-parse-result
-        else
-          ssym swap tcdr make-parse-result
-        then
-      then
-    then
+    dup tcar parse-token
   then
 ;
 

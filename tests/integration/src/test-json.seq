@@ -68,8 +68,8 @@ include std:json
 # Test array-with builder
 : test-json-array-builder ( -- )
   json-empty-array
-  1 json-number array-with
-  2 json-number array-with
+  1 json-int array-with
+  2 json-int array-with
   variant.field-count 2 test.assert-eq
 ;
 

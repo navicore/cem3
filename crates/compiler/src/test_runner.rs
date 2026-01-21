@@ -31,8 +31,17 @@ pub struct TestSummary {
     pub passed: usize,
     /// Tests failed
     pub failed: usize,
+    /// Files that failed to compile
+    pub compile_failures: usize,
     /// Results by file
     pub file_results: Vec<FileTestResults>,
+}
+
+impl TestSummary {
+    /// Returns true if any tests failed or any files failed to compile
+    pub fn has_failures(&self) -> bool {
+        self.failed > 0 || self.compile_failures > 0
+    }
 }
 
 /// Results for a single test file
@@ -321,6 +330,11 @@ impl TestRunner {
         for path in test_files {
             let file_results = self.run_file(&path);
 
+            // Track compilation failures
+            if file_results.compile_error.is_some() {
+                summary.compile_failures += 1;
+            }
+
             for test in &file_results.tests {
                 summary.total += 1;
                 if test.passed {
@@ -363,12 +377,19 @@ impl TestRunner {
 
         // Print summary
         println!("\n========================================");
-        println!(
-            "Results: {} passed, {} failed",
-            summary.passed, summary.failed
-        );
+        if summary.compile_failures > 0 {
+            println!(
+                "Results: {} passed, {} failed, {} failed to compile",
+                summary.passed, summary.failed, summary.compile_failures
+            );
+        } else {
+            println!(
+                "Results: {} passed, {} failed",
+                summary.passed, summary.failed
+            );
+        }
 
-        // Print failures in detail
+        // Print test failures in detail
         let failures: Vec<_> = summary
             .file_results
             .iter()
@@ -376,10 +397,30 @@ impl TestRunner {
             .collect();
 
         if !failures.is_empty() {
-            println!("\nFAILURES:\n");
+            println!("\nTEST FAILURES:\n");
             for (path, test) in failures {
                 println!("{}::{}", path.display(), test.name);
                 if let Some(ref error) = test.error_output {
+                    for line in error.lines() {
+                        println!("  {}", line);
+                    }
+                }
+                println!();
+            }
+        }
+
+        // Print compilation failures in detail
+        let compile_failures: Vec<_> = summary
+            .file_results
+            .iter()
+            .filter(|fr| fr.compile_error.is_some())
+            .collect();
+
+        if !compile_failures.is_empty() {
+            println!("\nCOMPILATION FAILURES:\n");
+            for fr in compile_failures {
+                println!("{}:", fr.path.display());
+                if let Some(ref error) = fr.compile_error {
                     for line in error.lines() {
                         println!("  {}", line);
                     }

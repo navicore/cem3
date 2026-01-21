@@ -127,6 +127,11 @@
   :JsonNumber variant.make-1
 ;
 
+# Create a JSON number from an Int (converts to Float internally)
+: json-int ( Int -- Variant )
+  int->float json-number
+;
+
 # Create a JSON string
 : json-string ( String -- Variant )
   :JsonString variant.make-1

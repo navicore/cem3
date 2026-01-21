@@ -32,6 +32,7 @@ pub mod os;
 pub mod quotations;
 pub mod scheduler;
 pub mod serialize;
+pub mod signal;
 pub mod string_ops;
 pub mod tcp;
 pub mod tcp_test;

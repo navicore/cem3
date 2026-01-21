@@ -1,0 +1,70 @@
+# Tests for signal handling API
+#
+# Note: We can't easily send signals from within a test, so these tests
+# verify the API works correctly for flag operations that don't require
+# actual signal delivery.
+
+include std:signal
+
+# Test signal constants are valid (non-zero, positive)
+# Note: We don't hardcode values since they differ between Linux and macOS
+: test-signal-constants ( -- )
+  signal.SIGINT 0 i.> test.assert
+  signal.SIGTERM 0 i.> test.assert
+  signal.SIGHUP 0 i.> test.assert
+  signal.SIGPIPE 0 i.> test.assert
+  signal.SIGUSR1 0 i.> test.assert
+  signal.SIGUSR2 0 i.> test.assert
+;
+
+# Test that received? returns false when no signal was sent
+: test-signal-not-received ( -- )
+  # Trap SIGUSR1 (safe to use for testing - won't affect process)
+  signal.SIGUSR1 signal.trap
+  # Should be false - no signal sent
+  signal.SIGUSR1 signal.received? test.assert-not
+;
+
+# Test that pending? returns false when no signal was sent
+: test-signal-not-pending ( -- )
+  signal.SIGUSR1 signal.trap
+  signal.SIGUSR1 signal.pending? test.assert-not
+;
+
+# Test that clear works (doesn't crash on cleared flag)
+: test-signal-clear ( -- )
+  signal.SIGUSR1 signal.trap
+  signal.SIGUSR1 signal.clear
+  signal.SIGUSR1 signal.received? test.assert-not
+;
+
+# Test trap-shutdown convenience function compiles
+: test-trap-shutdown ( -- )
+  signal.trap-shutdown
+  # Should not have received anything
+  signal.shutdown-requested? test.assert-not
+;
+
+# Test ignore-sigpipe convenience function compiles
+: test-ignore-sigpipe ( -- )
+  signal.ignore-sigpipe
+  # Just verify it doesn't crash
+  true test.assert
+;
+
+# Test default restores handler (doesn't crash)
+: test-signal-default ( -- )
+  signal.SIGUSR1 signal.trap
+  signal.SIGUSR1 signal.default
+  # Just verify it doesn't crash
+  true test.assert
+;
+
+# Test multiple signals can be trapped independently
+: test-multiple-signals ( -- )
+  signal.SIGUSR1 signal.trap
+  signal.SIGUSR2 signal.trap
+  # Neither should be received
+  signal.SIGUSR1 signal.received? test.assert-not
+  signal.SIGUSR2 signal.received? test.assert-not
+;

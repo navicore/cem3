@@ -1,0 +1,66 @@
+# Signal handling for Seq
+#
+# Provides Unix signal handling with a safe, flag-based API.
+# Signals are trapped and set internal flags - user code polls for signals
+# at safe points using signal.received? or signal.pending?
+#
+# Example: Graceful shutdown
+#
+#   include std:signal
+#
+#   : main ( -- Int )
+#     signal.SIGINT signal.trap
+#     signal.SIGTERM signal.trap
+#     server-loop
+#     0
+#   ;
+#
+#   : server-loop ( -- )
+#     signal.SIGINT signal.received?
+#     signal.SIGTERM signal.received? or if
+#       "Shutting down..." io.write-line
+#       return
+#     then
+#     handle-request
+#     server-loop
+#   ;
+
+# ============================================================================
+# Signal Constants
+# ============================================================================
+#
+# These constants are provided as builtins that return platform-correct values.
+# On Linux and macOS, some signal numbers differ (e.g., SIGUSR1 is 10 on Linux
+# but 30 on macOS). Using these builtins ensures portability.
+#
+# Available constants:
+#   signal.SIGINT   - Interrupt from keyboard (Ctrl+C)
+#   signal.SIGTERM  - Termination signal (graceful shutdown request)
+#   signal.SIGHUP   - Hangup detected on controlling terminal
+#   signal.SIGPIPE  - Broken pipe (useful to ignore in network servers)
+#   signal.SIGUSR1  - User-defined signal 1
+#   signal.SIGUSR2  - User-defined signal 2
+#   signal.SIGCHLD  - Child process stopped or terminated
+#   signal.SIGALRM  - Alarm clock (timer expired)
+#   signal.SIGCONT  - Continue if stopped
+
+# ============================================================================
+# Convenience Combinators
+# ============================================================================
+
+# Check if either SIGINT or SIGTERM was received (common shutdown pattern)
+: signal.shutdown-requested? ( -- Bool )
+  signal.SIGINT signal.received?
+  signal.SIGTERM signal.received? or
+;
+
+# Trap common shutdown signals (SIGINT and SIGTERM)
+: signal.trap-shutdown ( -- )
+  signal.SIGINT signal.trap
+  signal.SIGTERM signal.trap
+;
+
+# Ignore SIGPIPE (recommended for network servers)
+: signal.ignore-sigpipe ( -- )
+  signal.SIGPIPE signal.ignore
+;

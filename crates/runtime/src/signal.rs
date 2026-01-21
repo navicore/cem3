@@ -26,6 +26,18 @@
 //! This module uses only async-signal-safe operations (atomic flag setting).
 //! All Seq code execution happens outside the signal handler, when the user
 //! explicitly checks for received signals.
+//!
+//! # Thread Safety
+//!
+//! Signal handler installation is protected by a mutex to ensure thread safety
+//! when multiple strands attempt to modify signal handlers concurrently.
+//! This module uses `sigaction()` instead of the deprecated `signal()` function
+//! for well-defined behavior in multithreaded environments.
+//!
+//! # Platform Support
+//!
+//! - Unix: Full signal support using sigaction()
+//! - Windows: Stub implementations (signals not supported)
 
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
@@ -70,14 +82,92 @@ static SIGNAL_FLAGS: [AtomicBool; MAX_SIGNAL] = [
     AtomicBool::new(false),
 ];
 
+/// Mutex to protect signal handler installation from concurrent access
+#[cfg(unix)]
+static SIGNAL_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Signal handler that just sets the atomic flag
 /// This is async-signal-safe: only uses atomic operations
 #[cfg(unix)]
 extern "C" fn flag_signal_handler(sig: libc::c_int) {
     let sig_num = sig as usize;
     if sig_num < MAX_SIGNAL {
-        SIGNAL_FLAGS[sig_num].store(true, Ordering::SeqCst);
+        SIGNAL_FLAGS[sig_num].store(true, Ordering::Release);
     }
+}
+
+/// Install a signal handler using sigaction (thread-safe)
+///
+/// Uses sigaction() instead of signal() for:
+/// - Well-defined semantics across platforms
+/// - Thread safety with strands
+/// - SA_RESTART to automatically restart interrupted syscalls
+#[cfg(unix)]
+fn install_signal_handler(sig_num: libc::c_int) -> Result<(), std::io::Error> {
+    use std::mem::MaybeUninit;
+
+    let _guard = SIGNAL_MUTEX
+        .lock()
+        .expect("signal: mutex poisoned during handler installation");
+
+    unsafe {
+        let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
+        action.sa_sigaction = flag_signal_handler as usize;
+        action.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut action.sa_mask);
+
+        let result = libc::sigaction(sig_num, &action, std::ptr::null_mut());
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+/// Restore default signal handler using sigaction (thread-safe)
+#[cfg(unix)]
+fn restore_default_handler(sig_num: libc::c_int) -> Result<(), std::io::Error> {
+    use std::mem::MaybeUninit;
+
+    let _guard = SIGNAL_MUTEX
+        .lock()
+        .expect("signal: mutex poisoned during handler restoration");
+
+    unsafe {
+        let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
+        action.sa_sigaction = libc::SIG_DFL;
+        action.sa_flags = 0;
+        libc::sigemptyset(&mut action.sa_mask);
+
+        let result = libc::sigaction(sig_num, &action, std::ptr::null_mut());
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+/// Ignore a signal using sigaction (thread-safe)
+#[cfg(unix)]
+fn ignore_signal(sig_num: libc::c_int) -> Result<(), std::io::Error> {
+    use std::mem::MaybeUninit;
+
+    let _guard = SIGNAL_MUTEX
+        .lock()
+        .expect("signal: mutex poisoned during ignore");
+
+    unsafe {
+        let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
+        action.sa_sigaction = libc::SIG_IGN;
+        action.sa_flags = 0;
+        libc::sigemptyset(&mut action.sa_mask);
+
+        let result = libc::sigaction(sig_num, &action, std::ptr::null_mut());
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 /// Trap a signal: install handler that sets flag instead of default behavior
@@ -108,8 +198,13 @@ pub unsafe extern "C" fn patch_seq_signal_trap(stack: Stack) -> Stack {
             ),
         };
 
-        // Install our flag-setting handler
-        libc::signal(sig_num, flag_signal_handler as libc::sighandler_t);
+        // Install our flag-setting handler using sigaction
+        if let Err(e) = install_signal_handler(sig_num) {
+            panic!(
+                "signal.trap: failed to install handler for signal {}: {}",
+                sig_num, e
+            );
+        }
         stack
     }
 }
@@ -141,7 +236,7 @@ pub unsafe extern "C" fn patch_seq_signal_received(stack: Stack) -> Stack {
         };
 
         // Atomically swap the flag to false and return the old value
-        let was_set = SIGNAL_FLAGS[sig_num].swap(false, Ordering::SeqCst);
+        let was_set = SIGNAL_FLAGS[sig_num].swap(false, Ordering::Acquire);
         push(stack, Value::Bool(was_set))
     }
 }
@@ -172,7 +267,7 @@ pub unsafe extern "C" fn patch_seq_signal_pending(stack: Stack) -> Stack {
             ),
         };
 
-        let is_set = SIGNAL_FLAGS[sig_num].load(Ordering::SeqCst);
+        let is_set = SIGNAL_FLAGS[sig_num].load(Ordering::Acquire);
         push(stack, Value::Bool(is_set))
     }
 }
@@ -203,7 +298,12 @@ pub unsafe extern "C" fn patch_seq_signal_default(stack: Stack) -> Stack {
             ),
         };
 
-        libc::signal(sig_num, libc::SIG_DFL);
+        if let Err(e) = restore_default_handler(sig_num) {
+            panic!(
+                "signal.default: failed to restore default handler for signal {}: {}",
+                sig_num, e
+            );
+        }
         stack
     }
 }
@@ -235,7 +335,9 @@ pub unsafe extern "C" fn patch_seq_signal_ignore(stack: Stack) -> Stack {
             ),
         };
 
-        libc::signal(sig_num, libc::SIG_IGN);
+        if let Err(e) = ignore_signal(sig_num) {
+            panic!("signal.ignore: failed to ignore signal {}: {}", sig_num, e);
+        }
         stack
     }
 }
@@ -265,7 +367,7 @@ pub unsafe extern "C" fn patch_seq_signal_clear(stack: Stack) -> Stack {
             ),
         };
 
-        SIGNAL_FLAGS[sig_num].store(false, Ordering::SeqCst);
+        SIGNAL_FLAGS[sig_num].store(false, Ordering::Release);
         stack
     }
 }
@@ -300,19 +402,67 @@ mod tests {
     #[test]
     fn test_signal_flag_operations() {
         // Test flag is initially false
-        assert!(!SIGNAL_FLAGS[2].load(Ordering::SeqCst));
+        assert!(!SIGNAL_FLAGS[10].load(Ordering::Acquire));
 
         // Set flag manually (simulating signal receipt)
-        SIGNAL_FLAGS[2].store(true, Ordering::SeqCst);
-        assert!(SIGNAL_FLAGS[2].load(Ordering::SeqCst));
+        SIGNAL_FLAGS[10].store(true, Ordering::Release);
+        assert!(SIGNAL_FLAGS[10].load(Ordering::Acquire));
 
         // Swap should return old value and set new
-        let was_set = SIGNAL_FLAGS[2].swap(false, Ordering::SeqCst);
+        let was_set = SIGNAL_FLAGS[10].swap(false, Ordering::Acquire);
         assert!(was_set);
-        assert!(!SIGNAL_FLAGS[2].load(Ordering::SeqCst));
+        assert!(!SIGNAL_FLAGS[10].load(Ordering::Acquire));
 
         // Second swap should return false
-        let was_set = SIGNAL_FLAGS[2].swap(false, Ordering::SeqCst);
+        let was_set = SIGNAL_FLAGS[10].swap(false, Ordering::Acquire);
         assert!(!was_set);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_handler_installation() {
+        // Test that we can install a handler for SIGUSR1 (safe for testing)
+        let result = install_signal_handler(libc::SIGUSR1);
+        assert!(result.is_ok(), "Failed to install SIGUSR1 handler");
+
+        // Test that we can restore the default handler
+        let result = restore_default_handler(libc::SIGUSR1);
+        assert!(result.is_ok(), "Failed to restore SIGUSR1 default handler");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_delivery() {
+        // Install handler for SIGUSR1
+        install_signal_handler(libc::SIGUSR1).expect("Failed to install handler");
+
+        // Clear any pending flag
+        SIGNAL_FLAGS[libc::SIGUSR1 as usize].store(false, Ordering::Release);
+
+        // Send signal to self
+        unsafe {
+            libc::kill(libc::getpid(), libc::SIGUSR1);
+        }
+
+        // Give a tiny bit of time for signal delivery (should be immediate)
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        // Check that the flag was set
+        let received = SIGNAL_FLAGS[libc::SIGUSR1 as usize].swap(false, Ordering::Acquire);
+        assert!(received, "Signal was not received");
+
+        // Restore default handler
+        restore_default_handler(libc::SIGUSR1).expect("Failed to restore handler");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_invalid_signal_fails() {
+        // SIGKILL and SIGSTOP cannot be caught
+        let result = install_signal_handler(libc::SIGKILL);
+        assert!(result.is_err(), "SIGKILL should not be catchable");
+
+        let result = install_signal_handler(libc::SIGSTOP);
+        assert!(result.is_err(), "SIGSTOP should not be catchable");
     }
 }

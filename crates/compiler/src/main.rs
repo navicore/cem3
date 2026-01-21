@@ -350,9 +350,9 @@ fn run_test(paths: &[PathBuf], filter: Option<String>, verbose: bool) {
 
     runner.print_results(&summary);
 
-    if summary.failed > 0 {
+    if summary.has_failures() {
         process::exit(1);
-    } else if summary.total == 0 {
+    } else if summary.total == 0 && summary.compile_failures == 0 {
         eprintln!("No tests found");
         process::exit(2);
     }

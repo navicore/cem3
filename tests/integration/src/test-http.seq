@@ -134,13 +134,13 @@
   if
     test.assert-not  # ok should be false
   else
-    drop drop true test.assert  # Field missing, pass
+    drop true test.assert  # Field missing, pass (drop the sentinel, keep Map)
   then
   dup "status" get-int-field
   if
     0 test.assert-eq  # status should be 0
   else
-    drop drop true test.assert  # Field missing, pass
+    drop true test.assert  # Field missing, pass (drop the sentinel, keep Map)
   then
   "error" map.has? test.assert  # should have error key
 ;

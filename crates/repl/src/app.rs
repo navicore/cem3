@@ -22,10 +22,110 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
-use std::process::Command;
+use std::io::{BufRead, BufReader, Read as _, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
+
+/// Default execution timeout in seconds (can be overridden via SEQ_REPL_TIMEOUT)
+/// Set higher now that weaves don't block (issue #287 fix) - this is a safety net
+const DEFAULT_TIMEOUT_SECS: u64 = 10;
+
+/// Result of running a command with timeout
+#[allow(dead_code)] // Fields kept for API completeness
+enum RunResult {
+    /// Command completed successfully
+    Success { stdout: String, stderr: String },
+    /// Command failed with non-zero exit
+    Failed {
+        stdout: String,
+        stderr: String,
+        status: ExitStatus,
+    },
+    /// Command timed out and was killed
+    Timeout { timeout_secs: u64 },
+    /// Command failed to start
+    Error(String),
+}
+
+/// Run a compiled program with a timeout
+///
+/// This prevents the REPL from hanging indefinitely when a program blocks
+/// (e.g., creating a weave without resuming it).
+fn run_with_timeout(path: &Path) -> RunResult {
+    let timeout_secs = std::env::var("SEQ_REPL_TIMEOUT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_TIMEOUT_SECS);
+
+    let timeout = Duration::from_secs(timeout_secs);
+
+    // Spawn the child process
+    let mut child = match Command::new(path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return RunResult::Error(format!("Failed to start: {}", e)),
+    };
+
+    let start = Instant::now();
+    let poll_interval = Duration::from_millis(50);
+
+    // Poll for completion with timeout
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Process exited - collect output
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = String::new();
+                        let _ = s.read_to_string(&mut buf);
+                        buf
+                    })
+                    .unwrap_or_default();
+
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = String::new();
+                        let _ = s.read_to_string(&mut buf);
+                        buf
+                    })
+                    .unwrap_or_default();
+
+                if status.success() {
+                    return RunResult::Success { stdout, stderr };
+                } else {
+                    return RunResult::Failed {
+                        stdout,
+                        stderr,
+                        status,
+                    };
+                }
+            }
+            Ok(None) => {
+                // Still running - check timeout
+                if start.elapsed() >= timeout {
+                    // Timeout - kill the process
+                    let _ = child.kill();
+                    let _ = child.wait(); // Reap the zombie
+                    return RunResult::Timeout { timeout_secs };
+                }
+                // Brief sleep before next poll
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => {
+                return RunResult::Error(format!("Wait error: {}", e));
+            }
+        }
+    }
+}
 use vim_line::{Action, LineEditor, TextEdit, VimLineEditor};
 
 /// REPL template for new sessions (same as original REPL)
@@ -538,46 +638,59 @@ impl App {
         let output_path = self.session_path.with_extension("");
         match seqc::compile_file(&self.session_path, &output_path, false) {
             Ok(_) => {
-                // Run and capture output
-                let output = Command::new(&output_path).output();
-
+                // Run with timeout to prevent hanging on blocked operations
+                let result = run_with_timeout(&output_path);
                 let _ = fs::remove_file(&output_path);
 
-                match output {
-                    Ok(result) => {
-                        let stdout = String::from_utf8_lossy(&result.stdout);
-                        let stderr = String::from_utf8_lossy(&result.stderr);
+                match result {
+                    RunResult::Success { stdout, stderr: _ } => {
+                        // Update IR from the session file - only on success
+                        self.update_ir_from_session(expr);
 
-                        if result.status.success() {
-                            // Update IR from the session file - only on success
-                            self.update_ir_from_session(expr);
-
-                            let output_text = stdout.trim();
-                            if output_text.is_empty() {
-                                self.repl_state
-                                    .add_entry(HistoryEntry::new(expr).with_output("ok"));
-                            } else {
-                                self.repl_state
-                                    .add_entry(HistoryEntry::new(expr).with_output(output_text));
-                            }
-                        } else {
-                            // Rollback on runtime error - don't keep failed expression in session
-                            if let Err(rollback_err) = fs::write(&self.session_path, &original) {
-                                self.status_message = Some(format!(
-                                    "Warning: Could not rollback session file: {}",
-                                    rollback_err
-                                ));
-                            }
-                            let err = if stderr.is_empty() {
-                                format!("exit: {:?}", result.status.code())
-                            } else {
-                                stderr.trim().to_string()
-                            };
+                        let output_text = stdout.trim();
+                        if output_text.is_empty() {
                             self.repl_state
-                                .add_entry(HistoryEntry::new(expr).with_error(&err));
+                                .add_entry(HistoryEntry::new(expr).with_output("ok"));
+                        } else {
+                            self.repl_state
+                                .add_entry(HistoryEntry::new(expr).with_output(output_text));
                         }
                     }
-                    Err(e) => {
+                    RunResult::Failed {
+                        stdout: _,
+                        stderr,
+                        status,
+                    } => {
+                        // Rollback on runtime error - don't keep failed expression in session
+                        if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                            self.status_message = Some(format!(
+                                "Warning: Could not rollback session file: {}",
+                                rollback_err
+                            ));
+                        }
+                        let err = if stderr.is_empty() {
+                            format!("exit: {:?}", status.code())
+                        } else {
+                            stderr.trim().to_string()
+                        };
+                        self.repl_state
+                            .add_entry(HistoryEntry::new(expr).with_error(&err));
+                    }
+                    RunResult::Timeout { timeout_secs } => {
+                        // Rollback on timeout - the expression caused blocking
+                        if let Err(rollback_err) = fs::write(&self.session_path, &original) {
+                            self.status_message = Some(format!(
+                                "Warning: Could not rollback session file: {}",
+                                rollback_err
+                            ));
+                        }
+                        self.repl_state
+                            .add_entry(HistoryEntry::new(expr).with_error(format!(
+                                "Timeout after {}s (SEQ_REPL_TIMEOUT to adjust)",
+                                timeout_secs
+                            )));
+                    }
+                    RunResult::Error(e) => {
                         // Rollback on run error - don't keep failed expression in session
                         if let Err(rollback_err) = fs::write(&self.session_path, &original) {
                             self.status_message = Some(format!(
@@ -925,21 +1038,28 @@ impl App {
         let output_path = self.session_path.with_extension("");
         match seqc::compile_file(&self.session_path, &output_path, false) {
             Ok(_) => {
-                let output = Command::new(&output_path).output();
+                let result = run_with_timeout(&output_path);
                 let _ = fs::remove_file(&output_path);
 
-                if let Ok(result) = output
-                    && result.status.success()
-                {
-                    let stdout = String::from_utf8_lossy(&result.stdout);
-                    let output_text = stdout.trim();
-                    if !output_text.is_empty() {
-                        // Add an entry to show current stack
-                        self.repl_state
-                            .add_entry(HistoryEntry::new(label).with_output(output_text));
-                    } else {
-                        self.repl_state
-                            .add_entry(HistoryEntry::new(label).with_output("(empty)"));
+                match result {
+                    RunResult::Success { stdout, stderr: _ } => {
+                        let output_text = stdout.trim();
+                        if !output_text.is_empty() {
+                            self.repl_state
+                                .add_entry(HistoryEntry::new(label).with_output(output_text));
+                        } else {
+                            self.repl_state
+                                .add_entry(HistoryEntry::new(label).with_output("(empty)"));
+                        }
+                    }
+                    RunResult::Timeout { timeout_secs } => {
+                        self.status_message = Some(format!(
+                            "Timeout after {}s while showing stack",
+                            timeout_secs
+                        ));
+                    }
+                    _ => {
+                        // Failed or Error - just ignore for stack display
                     }
                 }
             }

@@ -8,7 +8,7 @@
 : factorial-acc ( Int Int -- Int )
   over 0 i.<=
   if
-    swap drop
+    nip
   else
     over i.*
     swap 1 i.- swap
@@ -50,7 +50,7 @@
   if
     drop
   else
-    swap over i.% gcd
+    tuck i.% gcd
   then
 ;
 

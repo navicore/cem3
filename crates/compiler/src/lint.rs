@@ -226,18 +226,28 @@ impl Linter {
     fn lint_word(&self, word: &WordDef, file: &Path, diagnostics: &mut Vec<LintDiagnostic>) {
         let fallback_line = word.source.as_ref().map(|s| s.start_line).unwrap_or(0);
 
+        // Collect diagnostics locally first, then filter by allowed_lints
+        let mut local_diagnostics = Vec::new();
+
         // Extract word sequence from the body (with span info)
         let word_infos = self.extract_word_sequence(&word.body);
 
         // Try each pattern
         for pattern in &self.patterns {
-            self.find_matches(&word_infos, pattern, word, file, fallback_line, diagnostics);
+            self.find_matches(
+                &word_infos,
+                pattern,
+                word,
+                file,
+                fallback_line,
+                &mut local_diagnostics,
+            );
         }
 
         // Check for deeply nested if/else chains
         let max_depth = Self::max_if_nesting_depth(&word.body);
         if max_depth >= MAX_NESTING_DEPTH {
-            diagnostics.push(LintDiagnostic {
+            local_diagnostics.push(LintDiagnostic {
                 id: "deep-nesting".to_string(),
                 message: format!(
                     "deeply nested if/else ({} levels) - consider using `cond` or extracting to helper words",
@@ -257,7 +267,14 @@ impl Linter {
         }
 
         // Recursively lint nested structures (quotations, if branches)
-        self.lint_nested(&word.body, word, file, diagnostics);
+        self.lint_nested(&word.body, word, file, &mut local_diagnostics);
+
+        // Filter out diagnostics that are allowed via # seq:allow(lint-id) annotation
+        for diagnostic in local_diagnostics {
+            if !word.allowed_lints.contains(&diagnostic.id) {
+                diagnostics.push(diagnostic);
+            }
+        }
     }
 
     /// Calculate the maximum if/else nesting depth in a statement list
@@ -673,6 +690,7 @@ severity = "warning"
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -705,6 +723,7 @@ severity = "warning"
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -747,6 +766,7 @@ severity = "warning"
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -807,6 +827,7 @@ severity = "warning"
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 
@@ -842,6 +863,7 @@ severity = "warning"
                     },
                 ],
                 source: None,
+                allowed_lints: vec![],
             }],
         };
 

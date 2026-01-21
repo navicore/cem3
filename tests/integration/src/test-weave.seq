@@ -104,3 +104,59 @@
   test.assert-not                          # weave should complete
   drop drop
 ;
+
+# ============================================================================
+# Issue #287 tests: Dormant weave handling
+# These tests verify proper weave lifecycle management
+# ============================================================================
+
+# Simple counter for dormant weave tests
+: dormant-counter ( Ctx Int -- | Yield Int )
+  tuck yield rot i.add dormant-counter
+;
+
+# Test: Create weave, cancel immediately without resuming
+# Verifies cancellation works on un-resumed weaves
+: test-weave-cancel-before-resume ( -- )
+  [ dormant-counter ] strand.weave  # Create weave
+  strand.weave-cancel               # Cancel without ever resuming
+  # If we get here without hanging, the test passes
+  true test.assert
+;
+
+# Test: Create weave, resume once, then cancel
+# Verifies cancellation works after partial use
+: test-weave-cancel-after-one-resume ( -- )
+  [ dormant-counter ] strand.weave  # Create weave
+  10 strand.resume                   # Resume once, get yielded value
+  test.assert                        # Should have more (infinite generator)
+  10 test.assert-eq                  # Yielded value should be 10
+  strand.weave-cancel               # Cancel properly
+  # If we get here without hanging, the test passes
+  true test.assert
+;
+
+# Test: Create multiple weaves, cancel all
+: test-weave-multiple-cancel ( -- )
+  [ dormant-counter ] strand.weave
+  [ dormant-counter ] strand.weave
+  [ dormant-counter ] strand.weave
+  strand.weave-cancel
+  strand.weave-cancel
+  strand.weave-cancel
+  # If we get here without hanging, the test passes
+  true test.assert
+;
+
+# Test: Mix of resumed and un-resumed weaves, all properly cancelled
+: test-weave-mixed-cancel ( -- )
+  [ dormant-counter ] strand.weave   # Will cancel without resume
+  [ dormant-counter ] strand.weave   # Will resume then cancel
+  5 strand.resume                    # Resume second weave
+  test.assert
+  5 test.assert-eq
+  strand.weave-cancel               # Cancel the resumed weave
+  strand.weave-cancel               # Cancel the un-resumed weave
+  # If we get here without hanging, the test passes
+  true test.assert
+;

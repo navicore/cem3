@@ -43,31 +43,14 @@ union SensorReading {
 
 # Classify a temperature into a safety level
 : classify ( Int -- Option )
-  dup 100 i.> if
-    drop Make-None                      # Too hot - dangerous
-  else
-    dup 90 i.> if
-      drop "Critical" Make-Some
-    else
-      dup 70 i.> if
-        drop "Hot" Make-Some
-      else
-        dup 50 i.> if
-          drop "Warm" Make-Some
-        else
-          dup 32 i.> if
-            drop "Normal" Make-Some
-          else
-            dup 0 i.> if
-              drop "Cold" Make-Some
-            else
-              drop Make-None            # Below freezing - dangerous
-            then
-          then
-        then
-      then
-    then
-  then
+  [ dup 100 i.> ] [ drop Make-None ]              # Too hot - dangerous
+  [ dup 90 i.> ]  [ drop "Critical" Make-Some ]
+  [ dup 70 i.> ]  [ drop "Hot" Make-Some ]
+  [ dup 50 i.> ]  [ drop "Warm" Make-Some ]
+  [ dup 32 i.> ]  [ drop "Normal" Make-Some ]
+  [ dup 0 i.> ]   [ drop "Cold" Make-Some ]
+  [ true ]        [ drop Make-None ]              # Below freezing - dangerous
+  7 cond
 ;
 
 # Classifier loop - processes readings until cancelled

@@ -545,44 +545,35 @@ union Message {
   dispatch-request
 ;
 
+# Handle 404 for unknown path segments
+: dispatch-404 ( Variant Int String Int -- Variant )
+  drop drop
+  "Not found - use 1-4 segments: company/region/district/store" http-not-found
+  over tcp.write
+  tcp.close
+;
+
+# Dispatch based on path segment count
+: dispatch-by-segments ( Variant Int String Int -- Variant )
+  [ dup 4 i.= ] [ drop do-get-store ]   # store query
+  [ dup 3 i.= ] [ drop do-get-actor ]   # district aggregate
+  [ dup 2 i.= ] [ drop do-get-actor ]   # region aggregate
+  [ dup 1 i.= ] [ drop do-get-actor ]   # company aggregate
+  [ true ]      [ dispatch-404 ]        # unknown
+  5 cond
+;
+
 # Dispatch request to appropriate handler
 # Stack: ( registry socket path method -- registry )
 : dispatch-request ( Variant Int String String -- Variant )
-  # Check if path ends with /increment
   over "/increment" string-ends-with? if
-    # Increment request - strip suffix and do increment
-    drop                     # ( registry socket path )
-    dup string.length 10 i.subtract 0 swap string.substring  # remove "/increment"
+    drop
+    dup string.length 10 i.subtract 0 swap string.substring
     do-increment
   else
-    drop                     # ( registry socket path )
-    # Count segments to determine resource level
-    dup count-path-segments  # ( registry socket path segments )
-    dup 4 i.= if
-      # 4 segments = store query
-      drop do-get-store
-    else
-      dup 3 i.= if
-        # 3 segments = district aggregate
-        drop do-get-actor
-      else
-        dup 2 i.= if
-          # 2 segments = region aggregate
-          drop do-get-actor
-        else
-          dup 1 i.= if
-            # 1 segment = company aggregate
-            drop do-get-actor
-          else
-            # Unknown - return 404
-            drop drop
-            "Not found - use 1-4 segments: company/region/district/store" http-not-found
-            over tcp.write
-            tcp.close
-          then
-        then
-      then
-    then
+    drop
+    dup count-path-segments
+    dispatch-by-segments
   then
 ;
 

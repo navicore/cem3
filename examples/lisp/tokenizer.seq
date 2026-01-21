@@ -72,44 +72,42 @@ union TokState {
   state-list trev
 ;
 
+# Check if character is whitespace
+: is-whitespace? ( Int -- Bool )
+  dup 32 i.= over 10 i.= or over 9 i.= or swap 13 i.= or
+;
+
+# Dispatch on character type and continue tokenizing
+: dispatch-char ( TokState Int -- TokState )
+  [ dup is-whitespace? ] [ drop handle-space tokenize-loop ]
+  [ dup 40 i.= ]         [ drop handle-lparen tokenize-loop ]
+  [ dup 41 i.= ]         [ drop handle-rparen tokenize-loop ]
+  [ true ]               [ drop handle-char tokenize-loop ]
+  4 cond
+;
+
+# Flush remaining token when done
+: flush-final-token ( TokState -- TokState )
+  dup state-tok string.empty? if
+    # Nothing to flush
+  else
+    dup state-input
+    over state-pos
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
 : tokenize-loop ( TokState -- TokState )
   dup state-input string.length
   over state-pos i.<= if
-    # Done - flush any remaining token
-    dup state-tok string.empty? if
-      # Nothing to flush - keep state as is (do nothing)
-    else
-      # Flush final token using consistent pattern
-      dup state-input
-      over state-pos
-      2 pick state-list
-      3 pick state-tok
-      swap tcons
-      "" swap
-      make-state nip
-    then
+    flush-final-token
   else
-    # Get current char code at position
     dup state-input over state-pos string.char-at
-    # Stack: State CharCode
-
-    dup 32 i.= over 10 i.= or over 9 i.= or over 13 i.= or if
-      # Whitespace
-      drop handle-space tokenize-loop
-    else
-      dup 40 i.= if
-        # Left paren
-        drop handle-lparen tokenize-loop
-      else
-        41 i.= if
-          # Right paren
-          handle-rparen tokenize-loop
-        else
-          # Regular char
-          handle-char tokenize-loop
-        then
-      then
-    then
+    dispatch-char
   then
 ;
 

@@ -573,6 +573,42 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_signal_clear(ptr)",
             category: None,
         },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigint(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigterm(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sighup(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigpipe(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigusr1(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigusr2(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigchld(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigalrm(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_signal_sigcont(ptr)",
+            category: None,
+        },
         // Terminal operations
         RuntimeDecl {
             decl: "declare ptr @patch_seq_terminal_raw_mode(ptr)",
@@ -1165,6 +1201,15 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("signal.default", "patch_seq_signal_default"),
         ("signal.ignore", "patch_seq_signal_ignore"),
         ("signal.clear", "patch_seq_signal_clear"),
+        ("signal.SIGINT", "patch_seq_signal_sigint"),
+        ("signal.SIGTERM", "patch_seq_signal_sigterm"),
+        ("signal.SIGHUP", "patch_seq_signal_sighup"),
+        ("signal.SIGPIPE", "patch_seq_signal_sigpipe"),
+        ("signal.SIGUSR1", "patch_seq_signal_sigusr1"),
+        ("signal.SIGUSR2", "patch_seq_signal_sigusr2"),
+        ("signal.SIGCHLD", "patch_seq_signal_sigchld"),
+        ("signal.SIGALRM", "patch_seq_signal_sigalrm"),
+        ("signal.SIGCONT", "patch_seq_signal_sigcont"),
         // Terminal operations
         ("terminal.raw-mode", "patch_seq_terminal_raw_mode"),
         ("terminal.read-char", "patch_seq_terminal_read_char"),

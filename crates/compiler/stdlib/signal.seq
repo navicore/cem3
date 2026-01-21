@@ -26,36 +26,23 @@
 #   ;
 
 # ============================================================================
-# Signal Constants (Unix)
+# Signal Constants
 # ============================================================================
-
-# Interrupt from keyboard (Ctrl+C)
-: signal.SIGINT ( -- Int ) 2 ;
-
-# Termination signal (graceful shutdown request)
-: signal.SIGTERM ( -- Int ) 15 ;
-
-# Hangup detected on controlling terminal
-: signal.SIGHUP ( -- Int ) 1 ;
-
-# Broken pipe - write to pipe with no readers
-# Useful to ignore in network servers
-: signal.SIGPIPE ( -- Int ) 13 ;
-
-# User-defined signal 1
-: signal.SIGUSR1 ( -- Int ) 10 ;
-
-# User-defined signal 2
-: signal.SIGUSR2 ( -- Int ) 12 ;
-
-# Child process stopped or terminated
-: signal.SIGCHLD ( -- Int ) 17 ;
-
-# Alarm clock (timer expired)
-: signal.SIGALRM ( -- Int ) 14 ;
-
-# Continue if stopped
-: signal.SIGCONT ( -- Int ) 18 ;
+#
+# These constants are provided as builtins that return platform-correct values.
+# On Linux and macOS, some signal numbers differ (e.g., SIGUSR1 is 10 on Linux
+# but 30 on macOS). Using these builtins ensures portability.
+#
+# Available constants:
+#   signal.SIGINT   - Interrupt from keyboard (Ctrl+C)
+#   signal.SIGTERM  - Termination signal (graceful shutdown request)
+#   signal.SIGHUP   - Hangup detected on controlling terminal
+#   signal.SIGPIPE  - Broken pipe (useful to ignore in network servers)
+#   signal.SIGUSR1  - User-defined signal 1
+#   signal.SIGUSR2  - User-defined signal 2
+#   signal.SIGCHLD  - Child process stopped or terminated
+#   signal.SIGALRM  - Alarm clock (timer expired)
+#   signal.SIGCONT  - Continue if stopped
 
 # ============================================================================
 # Convenience Combinators

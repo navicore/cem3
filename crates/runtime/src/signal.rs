@@ -649,20 +649,27 @@ mod tests {
 
     #[test]
     fn test_signal_flag_operations() {
-        // Test flag is initially false
-        assert!(!SIGNAL_FLAGS[10].load(Ordering::Acquire));
+        // Use index 31 to avoid conflicts with actual signal tests
+        // (SIGUSR1=10 on Linux, SIGUSR2=12 on Linux, different values on macOS)
+        const TEST_IDX: usize = 31;
+
+        // Clear flag first (other tests might have set it)
+        SIGNAL_FLAGS[TEST_IDX].store(false, Ordering::Release);
+
+        // Now test that flag is false
+        assert!(!SIGNAL_FLAGS[TEST_IDX].load(Ordering::Acquire));
 
         // Set flag manually (simulating signal receipt)
-        SIGNAL_FLAGS[10].store(true, Ordering::Release);
-        assert!(SIGNAL_FLAGS[10].load(Ordering::Acquire));
+        SIGNAL_FLAGS[TEST_IDX].store(true, Ordering::Release);
+        assert!(SIGNAL_FLAGS[TEST_IDX].load(Ordering::Acquire));
 
         // Swap should return old value and set new
-        let was_set = SIGNAL_FLAGS[10].swap(false, Ordering::Acquire);
+        let was_set = SIGNAL_FLAGS[TEST_IDX].swap(false, Ordering::Acquire);
         assert!(was_set);
-        assert!(!SIGNAL_FLAGS[10].load(Ordering::Acquire));
+        assert!(!SIGNAL_FLAGS[TEST_IDX].load(Ordering::Acquire));
 
         // Second swap should return false
-        let was_set = SIGNAL_FLAGS[10].swap(false, Ordering::Acquire);
+        let was_set = SIGNAL_FLAGS[TEST_IDX].swap(false, Ordering::Acquire);
         assert!(!was_set);
     }
 

@@ -107,17 +107,9 @@ fn strip_shebang(source: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// Run a .seq script (compile if needed, then exec)
-///
-/// This function does not return on success - it execs the compiled binary.
-/// On error, it returns an Err with the error message.
-#[cfg(unix)]
-pub fn run_script(
-    source_path: &Path,
-    args: &[OsString],
-) -> Result<std::convert::Infallible, String> {
-    use std::os::unix::process::CommandExt;
-
+/// Prepare a script for execution: parse, resolve includes, and compile if needed.
+/// Returns the path to the cached binary.
+fn prepare_script(source_path: &Path) -> Result<PathBuf, String> {
     // Canonicalize the source path
     let source_path = source_path.canonicalize().map_err(|e| {
         format!(
@@ -154,34 +146,68 @@ pub fn run_script(
     let cached_binary = cache_dir.join(&cache_key);
 
     // Check if cached binary exists
-    if !cached_binary.exists() {
-        // Create cache directory if needed
-        fs::create_dir_all(&cache_dir)
-            .map_err(|e| format!("Failed to create cache directory: {}", e))?;
-
-        // Compile to a temporary file first
-        let temp_binary = cache_dir.join(format!("{}.tmp", cache_key));
-
-        // Write preprocessed source to a temp file for compilation
-        let temp_source = cache_dir.join(format!("{}.seq", cache_key));
-        fs::write(&temp_source, source.as_ref())
-            .map_err(|e| format!("Failed to write temp source: {}", e))?;
-
-        // Compile with -O0 for fast compilation
-        let config = CompilerConfig::new().with_optimization_level(OptimizationLevel::O0);
-
-        let compile_result =
-            crate::compile_file_with_config(&temp_source, &temp_binary, false, &config);
-
-        // Clean up temp source file
-        fs::remove_file(&temp_source).ok();
-
-        compile_result?;
-
-        // Atomically move to final location
-        fs::rename(&temp_binary, &cached_binary)
-            .map_err(|e| format!("Failed to cache compiled binary: {}", e))?;
+    if cached_binary.exists() {
+        return Ok(cached_binary);
     }
+
+    // Create cache directory if needed
+    fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create cache directory: {}", e))?;
+
+    // Use process ID in temp file name to avoid collisions between parallel compilations
+    let pid = std::process::id();
+    let temp_binary = cache_dir.join(format!("{}.{}.tmp", cache_key, pid));
+    let temp_source = cache_dir.join(format!("{}.{}.seq", cache_key, pid));
+
+    // Write preprocessed source to a temp file for compilation
+    fs::write(&temp_source, source.as_ref())
+        .map_err(|e| format!("Failed to write temp source: {}", e))?;
+
+    // Compile with -O0 for fast compilation
+    let config = CompilerConfig::new().with_optimization_level(OptimizationLevel::O0);
+
+    let compile_result =
+        crate::compile_file_with_config(&temp_source, &temp_binary, false, &config);
+
+    // Clean up temp source file
+    fs::remove_file(&temp_source).ok();
+
+    // Handle compilation result
+    if let Err(e) = compile_result {
+        // Clean up temp binary on compilation failure
+        fs::remove_file(&temp_binary).ok();
+        return Err(e);
+    }
+
+    // Try to atomically move to final location
+    // If another process already created the cached binary, that's fine - use it
+    if fs::rename(&temp_binary, &cached_binary).is_err() {
+        // Rename failed - check if cached binary now exists (race with another process)
+        if cached_binary.exists() {
+            // Another process won the race, clean up our temp and use theirs
+            fs::remove_file(&temp_binary).ok();
+        } else {
+            // Rename failed for another reason, clean up and report error
+            fs::remove_file(&temp_binary).ok();
+            return Err("Failed to cache compiled binary".to_string());
+        }
+    }
+
+    Ok(cached_binary)
+}
+
+/// Run a .seq script (compile if needed, then exec)
+///
+/// This function does not return on success - it execs the compiled binary.
+/// On error, it returns an Err with the error message.
+#[cfg(unix)]
+pub fn run_script(
+    source_path: &Path,
+    args: &[OsString],
+) -> Result<std::convert::Infallible, String> {
+    use std::os::unix::process::CommandExt;
+
+    let cached_binary = prepare_script(source_path)?;
 
     // Exec the cached binary with script args
     let err = std::process::Command::new(&cached_binary).args(args).exec();
@@ -196,70 +222,7 @@ pub fn run_script(
     source_path: &Path,
     args: &[OsString],
 ) -> Result<std::convert::Infallible, String> {
-    // Canonicalize the source path
-    let source_path = source_path.canonicalize().map_err(|e| {
-        format!(
-            "Failed to find source file '{}': {}",
-            source_path.display(),
-            e
-        )
-    })?;
-
-    // Get cache directory
-    let cache_dir =
-        get_cache_dir().ok_or_else(|| "Could not determine cache directory".to_string())?;
-
-    // Parse the source to find includes (strip shebang if present)
-    let source_raw = fs::read_to_string(&source_path)
-        .map_err(|e| format!("Failed to read source file: {}", e))?;
-    let source = strip_shebang(&source_raw);
-
-    let mut parser = Parser::new(&source);
-    let program = parser.parse()?;
-
-    // Resolve includes to get list of dependencies
-    let (source_files, embedded_modules) = if !program.includes.is_empty() {
-        let stdlib_path = find_stdlib();
-        let mut resolver = Resolver::new(stdlib_path);
-        let result = resolver.resolve(&source_path, program)?;
-        (result.source_files, result.embedded_modules)
-    } else {
-        (vec![source_path.clone()], Vec::new())
-    };
-
-    // Compute cache key (use raw source for consistent hashing)
-    let cache_key = compute_cache_key(&source_path, &source_files, &embedded_modules)?;
-    let cached_binary = cache_dir.join(&cache_key);
-
-    // Check if cached binary exists
-    if !cached_binary.exists() {
-        // Create cache directory if needed
-        fs::create_dir_all(&cache_dir)
-            .map_err(|e| format!("Failed to create cache directory: {}", e))?;
-
-        // Compile to a temporary file first
-        let temp_binary = cache_dir.join(format!("{}.tmp", cache_key));
-
-        // Write preprocessed source to a temp file for compilation
-        let temp_source = cache_dir.join(format!("{}.seq", cache_key));
-        fs::write(&temp_source, source.as_ref())
-            .map_err(|e| format!("Failed to write temp source: {}", e))?;
-
-        // Compile with -O0 for fast compilation
-        let config = CompilerConfig::new().with_optimization_level(OptimizationLevel::O0);
-
-        let compile_result =
-            crate::compile_file_with_config(&temp_source, &temp_binary, false, &config);
-
-        // Clean up temp source file
-        fs::remove_file(&temp_source).ok();
-
-        compile_result?;
-
-        // Atomically move to final location
-        fs::rename(&temp_binary, &cached_binary)
-            .map_err(|e| format!("Failed to cache compiled binary: {}", e))?;
-    }
+    let cached_binary = prepare_script(source_path)?;
 
     // Spawn the cached binary and wait for it
     let status = std::process::Command::new(&cached_binary)

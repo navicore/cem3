@@ -1,0 +1,6 @@
+#!/usr/bin/env seqc
+# Script mode test file
+# Run with: seqc tests/integration/src/script_mode.seq
+# Or (with executable bit): ./tests/integration/src/script_mode.seq
+
+: main ( -- Int ) "Script mode works!" io.write-line 0 ;

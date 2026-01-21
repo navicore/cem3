@@ -33,6 +33,7 @@ pub mod lint;
 pub mod parser;
 pub mod resolver;
 pub mod resource_lint;
+pub mod script;
 pub mod stdlib_embed;
 pub mod test_runner;
 pub mod typechecker;
@@ -41,7 +42,7 @@ pub mod unification;
 
 pub use ast::Program;
 pub use codegen::CodeGen;
-pub use config::{CompilerConfig, ExternalBuiltin};
+pub use config::{CompilerConfig, ExternalBuiltin, OptimizationLevel};
 pub use lint::{LintConfig, LintDiagnostic, Linter, Severity};
 pub use parser::Parser;
 pub use resolver::{
@@ -317,9 +318,15 @@ pub fn compile_file_with_config(
     }
 
     // Build clang command with library paths
+    let opt_flag = match config.optimization_level {
+        config::OptimizationLevel::O0 => "-O0",
+        config::OptimizationLevel::O1 => "-O1",
+        config::OptimizationLevel::O2 => "-O2",
+        config::OptimizationLevel::O3 => "-O3",
+    };
     let mut clang = Command::new("clang");
     clang
-        .arg("-O3") // Enable aggressive LLVM optimizations
+        .arg(opt_flag)
         .arg(&ir_path)
         .arg("-o")
         .arg(output_path)

@@ -2005,8 +2005,10 @@ version = "2.0.1"
 dependencies = [
  "clap",
  "clap_complete",
+ "hex",
  "seq-runtime",
  "serde",
+ "sha2",
  "tempfile",
  "toml",
 ]

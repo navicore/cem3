@@ -347,12 +347,23 @@ pub unsafe extern "C" fn patch_seq_weave(stack: Stack) -> Stack {
 ///
 /// # Safety
 /// Must only be called from within a spawned coroutine, never from the main thread.
+///
+/// # Implementation
+/// Uses May's coroutine-aware channel blocking. We keep the sender alive so that
+/// recv() blocks the coroutine (not the OS thread) indefinitely. This is critical
+/// because std::thread::park() would block the OS thread and starve all other
+/// coroutines on that thread, potentially deadlocking the scheduler.
 fn block_forever() -> ! {
-    let (_, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
-    let _ = rx.recv();
-    // This loop is a fallback in case recv() somehow returns (it shouldn't)
+    // Create channel and keep sender alive to prevent recv() from returning Err
+    let (tx, rx): (mpmc::Sender<()>, mpmc::Receiver<()>) = mpmc::channel();
+    // Leak the sender so it's never dropped - this ensures recv() blocks forever
+    // rather than returning Err(RecvError) when all senders are dropped.
+    // This is an intentional memory leak - we're blocking forever anyway.
+    std::mem::forget(tx);
+    // Block forever using May's coroutine-aware recv()
+    // This yields the coroutine to the scheduler rather than blocking the OS thread
     loop {
-        std::thread::park();
+        let _ = rx.recv();
     }
 }
 

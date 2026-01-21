@@ -502,6 +502,13 @@ impl Program {
             "os.exit",
             "os.name",
             "os.arch",
+            // Signal handling
+            "signal.trap",
+            "signal.received?",
+            "signal.pending?",
+            "signal.default",
+            "signal.ignore",
+            "signal.clear",
             // Terminal operations
             "terminal.raw-mode",
             "terminal.read-char",

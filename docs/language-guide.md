@@ -286,7 +286,7 @@ Seq's `union` is similar to Rust's `enum` - each variant can carry multiple name
 
 | Feature | C++ `std::variant` | Rust `enum` | Seq `union` |
 |---------|-------------------|-------------|-------------|
-| Multiple fields per variant | No (single type) | Yes | Yes (max 4) |
+| Multiple fields per variant | No (single type) | Yes | Yes (max 12) |
 | Named fields | No | Yes | Yes |
 | Exhaustive matching | `std::visit` | `match` | `match` |
 
@@ -320,11 +320,12 @@ union Bad { Foo { x: Unknown } }  # Error: Unknown type 'Unknown'
 ```
 Valid field types: `Int`, `Float`, `Bool`, `String`, or another defined union.
 
-**Variant arity limit** - Maximum 4 fields per variant:
+**Variant arity limit** - Maximum 12 fields per variant:
 ```seq
-union TooBig { V { a: Int, b: Int, c: Int, d: Int, e: Int } }
-# Error: Variant 'V' has 5 fields, maximum is 4.
-# Consider grouping fields into nested union types.
+union TooBig { V { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int,
+                   g: Int, h: Int, i: Int, j: Int, k: Int, l: Int, m: Int } }
+# Error: Variant 'V' has 13 fields, maximum is 12.
+# Consider using a Map or grouping fields into nested union types.
 ```
 
 ### Pattern Matching

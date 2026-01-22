@@ -46,3 +46,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 tempfile.workspace = true
+serial_test.workspace = true

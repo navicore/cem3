@@ -1045,8 +1045,17 @@ impl Parser {
 
     fn skip_comments(&mut self) {
         loop {
-            if self.check("#") {
-                self.advance(); // consume #
+            // Check for comment: either standalone "#" or token starting with "#"
+            // The latter handles shebangs like "#!/usr/bin/env seqc"
+            let is_comment = if self.is_at_end() {
+                false
+            } else {
+                let tok = self.current();
+                tok == "#" || tok.starts_with("#!")
+            };
+
+            if is_comment {
+                self.advance(); // consume # or shebang token
 
                 // Collect all tokens until newline to reconstruct the comment text
                 let mut comment_parts: Vec<String> = Vec::new();

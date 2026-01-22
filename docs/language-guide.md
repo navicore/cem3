@@ -1066,6 +1066,34 @@ stack: list-of 1 lv 2 lv map-of "name" "Alice" kv :None wrap-0 true 42
 
 This makes it easy to copy values from the REPL output directly into Seq code.
 
+## Zipper: Functional List Navigation
+
+The `std:zipper` module provides a zipper data structure for efficient cursor-based navigation and editing of immutable lists. A zipper maintains a focus element with left and right context, enabling O(1) movement and modification.
+
+```seq
+include std:zipper
+
+# Create a zipper from a list
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+zipper.from-list               # focus at 1
+
+# Navigate
+zipper.right zipper.right      # focus at 3
+
+# Modify
+99 zipper.set                  # replace focus with 99
+
+# Convert back
+zipper.to-list                 # [1, 2, 99, 4, 5]
+```
+
+Key operations:
+- **Navigation**: `zipper.left`, `zipper.right`, `zipper.start`, `zipper.end`
+- **Query**: `zipper.focus`, `zipper.index`, `zipper.length`
+- **Modification**: `zipper.set`, `zipper.insert-left`, `zipper.insert-right`, `zipper.delete`
+
+See `STDLIB_REFERENCE.md` for the complete API.
+
 ## Higher-Order Words
 
 ```seq

@@ -1,0 +1,205 @@
+# Tests for std:zipper
+
+include std:son
+include std:zipper
+
+: test-pass ( String -- ) "[PASS] " swap string.concat io.write-line ;
+: test-fail ( String -- ) "[FAIL] " swap string.concat io.write-line ;
+
+# === Test helpers ===
+
+: assert-true ( Bool String -- )
+  swap if test-pass else test-fail then
+;
+
+: assert-false ( Bool String -- )
+  swap if test-fail else test-pass then
+;
+
+# === Construction tests ===
+
+: test-from-empty-list ( -- )
+  list.make zipper.from-list
+  zipper.empty?
+  "from-list on empty list creates Empty zipper" assert-true
+;
+
+: test-from-single-element ( -- )
+  list-of 42 lv zipper.from-list
+  dup zipper.empty? not "single element zipper not empty" assert-true
+  dup zipper.at-start? nip "single element at start" assert-true
+  zipper.at-end? nip "single element at end" assert-true
+;
+
+: test-from-multiple-elements ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.at-start? nip "starts at start" assert-true
+;
+
+# === Navigation tests ===
+
+: test-move-right ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right
+  zipper.at-start? not nip "after right, not at start" assert-true
+;
+
+: test-move-left ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right zipper.right  # at 3
+  zipper.left
+  zipper.at-end? not nip "after left, not at end" assert-true
+;
+
+: test-move-right-at-end ( -- )
+  list-of 1 lv 2 lv zipper.from-list
+  zipper.right  # at 2 (end)
+  dup zipper.at-end? nip "at end" assert-true
+  zipper.right  # should stay at 2
+  zipper.at-end? nip "moving right at end stays at end" assert-true
+;
+
+: test-move-left-at-start ( -- )
+  list-of 1 lv 2 lv zipper.from-list
+  dup zipper.at-start? nip "at start" assert-true
+  zipper.left  # should stay at 1
+  zipper.at-start? nip "moving left at start stays at start" assert-true
+;
+
+: test-go-to-start ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  zipper.right zipper.right zipper.right  # at 4
+  zipper.start
+  zipper.at-start? nip "at start after start" assert-true
+;
+
+: test-go-to-end ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  zipper.end
+  zipper.at-end? nip "at end after end" assert-true
+;
+
+# === Modification tests ===
+
+: test-set-focus ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  99 zipper.set
+  drop  # drop the zipper
+  "set-focus completed" test-pass
+;
+
+: test-insert-left ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  99 zipper.insert-left
+  zipper.to-list
+  list.length 4 i.= "length is 4 after insert-left" assert-true
+;
+
+: test-insert-right ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  99 zipper.insert-right
+  zipper.to-list
+  list.length 4 i.= "length is 4 after insert-right" assert-true
+;
+
+: test-delete-middle ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  zipper.delete
+  zipper.to-list
+  list.length 2 i.= "length is 2 after delete" assert-true
+;
+
+: test-delete-only-element ( -- )
+  list-of 42 lv zipper.from-list
+  zipper.delete
+  zipper.empty? "deleting only element creates Empty" assert-true
+;
+
+# === Round-trip tests ===
+
+: test-roundtrip-empty ( -- )
+  list.make
+  zipper.from-list zipper.to-list
+  list.length 0 i.= "roundtrip empty list" assert-true
+;
+
+: test-roundtrip-single ( -- )
+  list-of 42 lv
+  zipper.from-list zipper.to-list
+  list.length 1 i.= "roundtrip single length" assert-true
+;
+
+: test-roundtrip-multiple ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  zipper.from-list zipper.to-list
+  list.length 5 i.= "roundtrip multiple length" assert-true
+;
+
+: test-roundtrip-after-navigation ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  zipper.from-list
+  zipper.right zipper.right  # at 3
+  zipper.to-list
+  list.length 5 i.= "roundtrip after nav length" assert-true
+;
+
+# === Index tests ===
+
+: test-index ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  dup zipper.index 0 i.= "initial index is 0" assert-true
+  zipper.right
+  dup zipper.index 1 i.= "index after one right is 1" assert-true
+  zipper.right zipper.right
+  zipper.index 3 i.= "index after three rights is 3" assert-true
+;
+
+: test-length ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  dup zipper.length 5 i.= "length at start is 5" assert-true
+  zipper.right zipper.right
+  zipper.length 5 i.= "length after navigation still 5" assert-true
+;
+
+# === Main test runner ===
+
+: main ( -- Int )
+  "=== Zipper Tests ===" io.write-line
+
+  "--- Construction ---" io.write-line
+  test-from-empty-list
+  test-from-single-element
+  test-from-multiple-elements
+
+  "--- Navigation ---" io.write-line
+  test-move-right
+  test-move-left
+  test-move-right-at-end
+  test-move-left-at-start
+  test-go-to-start
+  test-go-to-end
+
+  "--- Modification ---" io.write-line
+  test-set-focus
+  test-insert-left
+  test-insert-right
+  test-delete-middle
+  test-delete-only-element
+
+  "--- Round-trip ---" io.write-line
+  test-roundtrip-empty
+  test-roundtrip-single
+  test-roundtrip-multiple
+  test-roundtrip-after-navigation
+
+  "--- Index/Length ---" io.write-line
+  test-index
+  test-length
+
+  "=== All tests complete ===" io.write-line
+  0
+;

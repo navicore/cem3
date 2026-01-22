@@ -2,6 +2,7 @@ use crate::includes::IncludeResolution;
 use seqc::ast::{Program, QuotationSpan, Statement};
 use seqc::types::Type;
 use seqc::{Parser, TypeChecker, lint};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::{
@@ -9,6 +10,28 @@ use tower_lsp::lsp_types::{
     WorkspaceEdit,
 };
 use tracing::{debug, warn};
+
+/// Strip shebang line from source if present.
+///
+/// Replaces the first line with a comment if it starts with `#!`
+/// so that line numbers in error messages remain correct.
+fn strip_shebang(source: &str) -> Cow<'_, str> {
+    if source.starts_with("#!") {
+        // Replace shebang with comment of same length to preserve line numbers
+        if let Some(newline_pos) = source.find('\n') {
+            let mut result = String::with_capacity(source.len());
+            result.push('#');
+            result.push_str(&" ".repeat(newline_pos - 1));
+            result.push_str(&source[newline_pos..]);
+            Cow::Owned(result)
+        } else {
+            // Single line file with just shebang
+            Cow::Borrowed("#")
+        }
+    } else {
+        Cow::Borrowed(source)
+    }
+}
 
 /// Information about a quotation for LSP hover support
 #[derive(Debug, Clone)]
@@ -82,13 +105,16 @@ pub fn check_document_with_quotations(
     let mut diagnostics = Vec::new();
     let mut quotation_info = Vec::new();
 
+    // Strip shebang if present (for script mode files)
+    let source = strip_shebang(source);
+
     // Phase 1: Parse
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(&source);
     let mut program = match parser.parse() {
         Ok(prog) => prog,
         Err(err) => {
             debug!("Parse error: {}", err);
-            diagnostics.push(error_to_diagnostic(&err, source));
+            diagnostics.push(error_to_diagnostic(&err, &source));
             return (diagnostics, quotation_info);
         }
     };
@@ -96,7 +122,7 @@ pub fn check_document_with_quotations(
     // Phase 1.5: Generate ADT constructors
     if let Err(err) = program.generate_constructors() {
         debug!("Constructor generation error: {}", err);
-        diagnostics.push(error_to_diagnostic(&err, source));
+        diagnostics.push(error_to_diagnostic(&err, &source));
         return (diagnostics, quotation_info);
     }
 
@@ -107,7 +133,7 @@ pub fn check_document_with_quotations(
     let included_word_names: Vec<&str> = includes.words.iter().map(|w| w.name.as_str()).collect();
     if let Err(err) = program.validate_word_calls_with_externals(&included_word_names) {
         debug!("Validation error: {}", err);
-        diagnostics.push(error_to_diagnostic(&err, source));
+        diagnostics.push(error_to_diagnostic(&err, &source));
     }
 
     // Phase 3: Type check
@@ -124,7 +150,7 @@ pub fn check_document_with_quotations(
 
     if let Err(err) = typechecker.check_program(&program) {
         debug!("Type error: {}", err);
-        diagnostics.push(error_to_diagnostic(&err, source));
+        diagnostics.push(error_to_diagnostic(&err, &source));
     }
 
     // Get quotation types and combine with spans
@@ -145,7 +171,7 @@ pub fn check_document_with_quotations(
     if let Ok(linter) = lint::Linter::with_defaults() {
         let lint_diagnostics = linter.lint_program(&program, &lint_file_path);
         for lint_diag in lint_diagnostics {
-            diagnostics.push(lint_to_diagnostic(&lint_diag, source));
+            diagnostics.push(lint_to_diagnostic(&lint_diag, &source));
         }
     }
 
@@ -163,8 +189,11 @@ pub fn get_code_actions(
 ) -> Vec<CodeAction> {
     let mut actions = Vec::new();
 
+    // Strip shebang if present (for script mode files)
+    let source = strip_shebang(source);
+
     // Parse the source
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(&source);
     let program = match parser.parse() {
         Ok(prog) => prog,
         Err(_) => return actions, // No actions if parse fails
@@ -184,12 +213,12 @@ pub fn get_code_actions(
 
     // Find lint diagnostics that overlap with the requested range
     for lint_diag in &lint_diagnostics {
-        let diag_range = make_lint_range(lint_diag, source);
+        let diag_range = make_lint_range(lint_diag, &source);
 
         // Check if ranges overlap
         if ranges_overlap(&diag_range, &range) {
             // Only create actions for diagnostics that have a fix
-            if let Some(action) = lint_to_code_action(lint_diag, source, uri, &diag_range) {
+            if let Some(action) = lint_to_code_action(lint_diag, &source, uri, &diag_range) {
                 actions.push(action);
             }
         }
@@ -589,6 +618,18 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             lint_diags.iter().any(|d| d.message.contains("cancel out")),
             "Expected swap swap warning, got: {:?}",
             lint_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_shebang_is_tolerated() {
+        // Files with shebang should parse without errors
+        let source = "#!/usr/bin/env seqc\n: main ( -- Int ) 0 ;";
+        let diagnostics = check_document(source);
+        assert!(
+            diagnostics.is_empty(),
+            "Shebang should be tolerated, got: {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 }

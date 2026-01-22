@@ -925,7 +925,7 @@ This is a deliberate design choice, not a limitation. **Implicit type conversion
 
 Many languages silently convert between numeric types, leading to subtle bugs:
 - JavaScript's `"5" + 3` yields `"53"` but `"5" - 3` yields `2`
-- C silently promotes integers and truncates floats, losing precision without warning
+- C silently converts between numeric types - promoting integers, truncating floats to integers, and losing precision when narrowing - without warning by default
 - Python 2's `/` behaved differently for int vs float operands
 
 Seq rejects this entirely. When you write `i.+`, you know both operands are integers and the result is an integer. When you need to mix types, you convert explicitly:

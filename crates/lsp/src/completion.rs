@@ -6,11 +6,24 @@ use tower_lsp::lsp_types::{
 
 /// Standard library modules available via `include std:module`
 const STDLIB_MODULES: &[(&str, &str)] = &[
+    ("imath", "Integer math functions (abs, min, max, clamp)"),
+    (
+        "fmath",
+        "Float math functions (abs, min, max, clamp, floor, ceil)",
+    ),
     ("json", "JSON parsing and serialization"),
     ("yaml", "YAML parsing and serialization"),
     ("http", "HTTP request/response utilities"),
-    ("math", "Mathematical functions"),
     ("stack-utils", "Stack manipulation utilities"),
+    ("result", "Result/Option pattern helpers"),
+    ("map", "Map utilities and helpers"),
+    ("list", "List utilities (list-of, lv)"),
+    ("son", "SON serialization (list-of, lv, son.dump)"),
+    ("signal", "Unix signal handling"),
+    (
+        "zipper",
+        "Functional list zipper for O(1) cursor navigation",
+    ),
 ];
 
 /// Context for completion requests.

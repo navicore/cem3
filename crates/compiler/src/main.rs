@@ -5,6 +5,7 @@
 
 use clap::{CommandFactory, Parser as ClapParser, Subcommand};
 use clap_complete::{Shell, generate};
+use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -92,6 +93,27 @@ enum Commands {
 }
 
 fn main() {
+    let args: Vec<OsString> = std::env::args_os().collect();
+
+    // Check for script mode: seqc <file.seq> [args...]
+    // This runs before clap parsing to handle shebang invocation
+    if args.len() >= 2 {
+        let first_arg = args[1].to_string_lossy();
+        if first_arg.ends_with(".seq") && !first_arg.starts_with('-') {
+            let source_path = PathBuf::from(&args[1]);
+            let script_args = &args[2..];
+
+            match seqc::script::run_script(&source_path, script_args) {
+                Ok(never) => match never {},
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(1);
+                }
+            }
+        }
+    }
+
+    // Normal subcommand processing
     let cli = Cli::parse();
 
     match cli.command {

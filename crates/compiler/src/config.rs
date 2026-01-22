@@ -27,6 +27,20 @@
 use crate::types::Effect;
 use std::path::PathBuf;
 
+/// Optimization level for clang compilation
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OptimizationLevel {
+    /// No optimization (fastest compile, for script mode)
+    O0,
+    /// Basic optimizations
+    O1,
+    /// Moderate optimizations
+    O2,
+    /// Aggressive optimizations (default for production builds)
+    #[default]
+    O3,
+}
+
 /// Definition of an external builtin function
 ///
 /// External builtins are functions provided by a runtime extension
@@ -149,6 +163,9 @@ pub struct CompilerConfig {
     /// Only supports inline operations (integers, arithmetic, stack ops).
     /// Used for testing and benchmarking pure computation without FFI overhead.
     pub pure_inline_test: bool,
+
+    /// Optimization level for clang compilation
+    pub optimization_level: OptimizationLevel,
 }
 
 impl CompilerConfig {
@@ -193,6 +210,12 @@ impl CompilerConfig {
     /// Add multiple external FFI manifest paths
     pub fn with_ffi_manifests(mut self, paths: impl IntoIterator<Item = PathBuf>) -> Self {
         self.ffi_manifest_paths.extend(paths);
+        self
+    }
+
+    /// Set the optimization level for compilation
+    pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
+        self.optimization_level = level;
         self
     }
 

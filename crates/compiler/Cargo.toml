@@ -20,6 +20,8 @@ clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true
 toml.workspace = true
+sha2.workspace = true
+hex.workspace = true
 
 [build-dependencies]
 # Version must EXACTLY match workspace version - enforced by build.rs and CI
@@ -44,3 +46,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 tempfile.workspace = true
+serial_test.workspace = true

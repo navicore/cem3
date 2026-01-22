@@ -20,6 +20,10 @@ pub struct ResolveResult {
     pub program: Program,
     /// FFI library names that were included (e.g., ["readline"])
     pub ffi_includes: Vec<String>,
+    /// Filesystem .seq files that were included (for cache invalidation)
+    pub source_files: Vec<PathBuf>,
+    /// Embedded stdlib modules that were included
+    pub embedded_modules: Vec<String>,
 }
 
 /// Words and unions collected from a resolved include
@@ -120,6 +124,8 @@ impl Resolver {
         Ok(ResolveResult {
             program: resolved_program,
             ffi_includes: std::mem::take(&mut self.ffi_includes),
+            source_files: self.included_files.iter().cloned().collect(),
+            embedded_modules: self.included_embedded.iter().cloned().collect(),
         })
     }
 

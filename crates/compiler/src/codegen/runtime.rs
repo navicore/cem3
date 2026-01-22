@@ -849,6 +849,38 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             category: None,
         },
         RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_5(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_6(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_7(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_8(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_9(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_10(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_11(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_make_variant_12(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
             decl: "declare ptr @patch_seq_unpack_variant(ptr, i64)",
             category: None,
         },
@@ -1319,12 +1351,28 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("variant.make-2", "patch_seq_make_variant_2"),
         ("variant.make-3", "patch_seq_make_variant_3"),
         ("variant.make-4", "patch_seq_make_variant_4"),
+        ("variant.make-5", "patch_seq_make_variant_5"),
+        ("variant.make-6", "patch_seq_make_variant_6"),
+        ("variant.make-7", "patch_seq_make_variant_7"),
+        ("variant.make-8", "patch_seq_make_variant_8"),
+        ("variant.make-9", "patch_seq_make_variant_9"),
+        ("variant.make-10", "patch_seq_make_variant_10"),
+        ("variant.make-11", "patch_seq_make_variant_11"),
+        ("variant.make-12", "patch_seq_make_variant_12"),
         // wrap-N aliases for dynamic variant construction (SON)
         ("wrap-0", "patch_seq_make_variant_0"),
         ("wrap-1", "patch_seq_make_variant_1"),
         ("wrap-2", "patch_seq_make_variant_2"),
         ("wrap-3", "patch_seq_make_variant_3"),
         ("wrap-4", "patch_seq_make_variant_4"),
+        ("wrap-5", "patch_seq_make_variant_5"),
+        ("wrap-6", "patch_seq_make_variant_6"),
+        ("wrap-7", "patch_seq_make_variant_7"),
+        ("wrap-8", "patch_seq_make_variant_8"),
+        ("wrap-9", "patch_seq_make_variant_9"),
+        ("wrap-10", "patch_seq_make_variant_10"),
+        ("wrap-11", "patch_seq_make_variant_11"),
+        ("wrap-12", "patch_seq_make_variant_12"),
         // Float arithmetic
         ("f.add", "patch_seq_f_add"),
         ("f.subtract", "patch_seq_f_subtract"),

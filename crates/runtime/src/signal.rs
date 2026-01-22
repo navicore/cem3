@@ -646,12 +646,15 @@ pub unsafe extern "C" fn patch_seq_signal_clear(stack: Stack) -> Stack {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_signal_flag_operations() {
-        // Use index 31 to avoid conflicts with actual signal tests
-        // (SIGUSR1=10 on Linux, SIGUSR2=12 on Linux, different values on macOS)
-        const TEST_IDX: usize = 31;
+        // Use index 3 (SIGQUIT) to avoid conflicts with actual signal tests
+        // Tests use: SIGUSR1 (10 Linux, 30 macOS), SIGUSR2 (12 Linux, 31 macOS)
+        // Index 3 is safe on both platforms
+        const TEST_IDX: usize = 3;
 
         // Clear flag first (other tests might have set it)
         SIGNAL_FLAGS[TEST_IDX].store(false, Ordering::Release);
@@ -671,10 +674,14 @@ mod tests {
         // Second swap should return false
         let was_set = SIGNAL_FLAGS[TEST_IDX].swap(false, Ordering::Acquire);
         assert!(!was_set);
+
+        // Clean up
+        SIGNAL_FLAGS[TEST_IDX].store(false, Ordering::Release);
     }
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn test_signal_handler_installation() {
         // Test that we can install a handler for SIGUSR1 (safe for testing)
         let result = install_signal_handler(libc::SIGUSR1);
@@ -687,6 +694,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn test_signal_delivery() {
         // Install handler for SIGUSR1
         install_signal_handler(libc::SIGUSR1).expect("Failed to install handler");
@@ -712,6 +720,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn test_invalid_signal_fails() {
         // SIGKILL and SIGSTOP cannot be caught
         let result = install_signal_handler(libc::SIGKILL);
@@ -723,6 +732,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn test_signal_ignore() {
         // Test that we can set a signal to be ignored
         let result = ignore_signal(libc::SIGUSR2);
@@ -735,6 +745,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn test_multiple_signals_independent() {
         // Install handlers for two different signals
         install_signal_handler(libc::SIGUSR1).expect("Failed to install SIGUSR1");

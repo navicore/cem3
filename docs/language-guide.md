@@ -936,6 +936,8 @@ Seq rejects this entirely. When you write `i.+`, you know both operands are inte
 
 The code states exactly what happens. No implicit coercion, no surprises, no "wat" moments. The few extra characters buy certainty about program behavior.
 
+Note that explicit conversions can still lose precision - `int->float` loses precision for integers beyond 2^53, and `float->int` truncates the fractional part. The point isn't that conversions are lossless; it's that you asked for it, and it's visible in the code.
+
 ### Rationale
 
 The naming convention provides:

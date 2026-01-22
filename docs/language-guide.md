@@ -159,12 +159,20 @@ Seq has these value types:
 
 ### Numeric Literals
 
+Integers can be written in decimal, hexadecimal, or binary:
+
 ```seq
-42          # Decimal
--123        # Negative
-0xFF        # Hexadecimal (case insensitive: 0xff, 0XFF)
-0b1010      # Binary (case insensitive: 0B1010)
+42          # Int (decimal)
+-123        # Int (negative)
+0xFF        # Int (hexadecimal, case insensitive: 0xff, 0XFF)
+0b1010      # Int (binary, case insensitive: 0B1010)
+```
+
+Floats use decimal notation with a decimal point:
+
+```seq
 3.14        # Float
+-0.5        # Float (negative)
 ```
 
 ## Stack Operations

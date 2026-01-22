@@ -1,0 +1,176 @@
+# Object-Oriented Programming in Seq
+#
+# This example demonstrates OOP patterns using unions for data
+# and pattern matching for polymorphic dispatch.
+#
+# Key concepts:
+# - Encapsulation: data bundled in union variants
+# - Polymorphism: pattern matching dispatches to correct implementation
+# - Factory functions: constructors that return initialized objects
+#
+# Run: seqc build examples/paradigms/oop/shapes.seq -o /tmp/shapes && /tmp/shapes
+
+include std:fmath
+
+# =============================================================================
+# Shape "class hierarchy" using a union
+# =============================================================================
+
+union Shape {
+  Circle { radius: Float }
+  Rectangle { width: Float, height: Float }
+  Square { side: Float }
+}
+
+# =============================================================================
+# "Constructor" functions
+# =============================================================================
+
+: make-circle ( Float -- Shape )
+  Make-Circle
+;
+
+: make-rectangle ( Float Float -- Shape )
+  Make-Rectangle
+;
+
+: make-square ( Float -- Shape )
+  Make-Square
+;
+
+# =============================================================================
+# Polymorphic "methods" via pattern matching
+# =============================================================================
+
+: shape.area ( Shape -- Float )
+  match
+    Circle { >radius } ->
+      # Stack: ( radius )
+      # pi * r^2
+      dup f.* 3.14159265359 f.*
+
+    Rectangle { >width >height } ->
+      # Stack: ( width height )
+      f.*
+
+    Square { >side } ->
+      # Stack: ( side )
+      # side^2
+      dup f.*
+  end
+;
+
+: shape.perimeter ( Shape -- Float )
+  match
+    Circle { >radius } ->
+      # Stack: ( radius )
+      # 2 * pi * r
+      2.0 f.* 3.14159265359 f.*
+
+    Rectangle { >width >height } ->
+      # Stack: ( width height )
+      # 2 * (width + height)
+      f.+ 2.0 f.*
+
+    Square { >side } ->
+      # Stack: ( side )
+      # 4 * side
+      4.0 f.*
+  end
+;
+
+: shape.describe ( Shape -- String )
+  match
+    Circle { >radius } ->
+      # Stack: ( radius )
+      float->string "Circle(r=" swap string.concat ")" string.concat
+
+    Rectangle { >width >height } ->
+      # Stack: ( width height )
+      float->string swap float->string
+      # Stack: ( height-str width-str )
+      "Rectangle(" swap string.concat "x" string.concat
+      swap string.concat ")" string.concat
+
+    Square { >side } ->
+      # Stack: ( side )
+      float->string "Square(" swap string.concat ")" string.concat
+  end
+;
+
+# "is-a" type checks (like instanceof)
+: shape.is-circle? ( Shape -- Shape Bool )
+  dup variant.tag :Circle symbol.=
+;
+
+: shape.is-rectangle? ( Shape -- Shape Bool )
+  dup variant.tag :Rectangle symbol.=
+;
+
+: shape.is-square? ( Shape -- Shape Bool )
+  dup variant.tag :Square symbol.=
+;
+
+# =============================================================================
+# Helper for demo
+# =============================================================================
+
+: print-shape ( Shape -- )
+  dup shape.describe io.write-line
+  "  Area:      " io.write dup shape.area float->string io.write-line
+  "  Perimeter: " io.write shape.perimeter float->string io.write-line
+;
+
+# =============================================================================
+# Demo
+# =============================================================================
+
+: main ( -- Int )
+  "=== OOP Shapes Demo ===" io.write-line
+  "" io.write-line
+
+  "--- Creating shapes ---" io.write-line
+  "" io.write-line
+
+  # Circle with radius 5
+  5.0 make-circle
+  print-shape
+  "" io.write-line
+
+  # Rectangle 4x3
+  4.0 3.0 make-rectangle
+  print-shape
+  "" io.write-line
+
+  # Square 7x7
+  7.0 make-square
+  print-shape
+  "" io.write-line
+
+  # =============================================================================
+  # Polymorphism demo - same code works for all shapes
+  # =============================================================================
+  "--- Polymorphism Demo ---" io.write-line
+  "Processing different shapes with the same code:" io.write-line
+  "" io.write-line
+
+  10.0 make-circle print-shape "" io.write-line
+  6.0 8.0 make-rectangle print-shape "" io.write-line
+  5.0 make-square print-shape "" io.write-line
+
+  # =============================================================================
+  # Type checking demo
+  # =============================================================================
+  "--- Type Checking (instanceof) ---" io.write-line
+
+  3.0 make-circle
+  shape.is-circle? if "Circle is a circle: true" else "Circle is a circle: false" then
+  io.write-line drop
+
+  4.0 5.0 make-rectangle
+  shape.is-square? if "Rectangle is a square: true" else "Rectangle is a square: false" then
+  io.write-line drop
+
+  "=== Demo Complete ===" io.write-line
+  0
+;

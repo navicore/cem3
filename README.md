@@ -101,6 +101,24 @@ seqc build examples/hello-world.seq
 ./hello-world
 ```
 
+**Script mode (run directly):**
+```bash
+seqc examples/hello-world.seq          # Compile and run in one step
+```
+
+Scripts can use shebangs for direct execution:
+```seq
+#!/usr/bin/env seqc
+: main ( -- Int ) "Hello from script!" io.write-line 0 ;
+```
+
+```bash
+chmod +x myscript.seq
+./myscript.seq arg1 arg2    # Shebang invokes seqc automatically
+```
+
+Script mode compiles with `-O0` for fast startup and caches binaries in `~/.cache/seq/` (or `$XDG_CACHE_HOME/seq/`). Cache keys include the source and all includes, so scripts recompile automatically when dependencies change.
+
 **Check version:**
 ```bash
 seqc --version

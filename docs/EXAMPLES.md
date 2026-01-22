@@ -247,6 +247,25 @@ seqc build examples/lisp/test_eval.seq -o /tmp/lisp-test
 /tmp/lisp-test
 ```
 
+### Script Mode
+
+For quick testing, use script mode to compile and run in one step:
+
+```bash
+seqc examples/hello-world.seq
+```
+
+Script mode uses `-O0` for fast compilation and caches binaries in `~/.cache/seq/`. Great for iteration during development.
+
+### Shebang Scripts
+
+Scripts with shebangs can run directly:
+
+```bash
+chmod +x tests/integration/src/script_mode.seq
+./tests/integration/src/script_mode.seq
+```
+
 Some examples require the full standard library features:
 
 ```bash

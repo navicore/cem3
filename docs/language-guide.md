@@ -157,6 +157,16 @@ Seq has these value types:
 | Map | (via map ops) | Key-value dictionary |
 | Quotation | `[ code ]` | Deferred execution |
 
+### Numeric Literals
+
+```seq
+42          # Decimal
+-123        # Negative
+0xFF        # Hexadecimal (case insensitive: 0xff, 0XFF)
+0b1010      # Binary (case insensitive: 0B1010)
+3.14        # Float
+```
+
 ## Stack Operations
 
 The fundamental stack manipulators:
@@ -633,14 +643,6 @@ For low-level bit manipulation:
 | `clz` | `( Int -- Int )` | Count leading zeros |
 | `ctz` | `( Int -- Int )` | Count trailing zeros |
 | `int-bits` | `( -- Int )` | Push 64 (bit width of Int) |
-
-### Numeric Literals
-
-```seq
-42          # Decimal
-0xFF        # Hexadecimal (case insensitive: 0xff, 0XFF)
-0b1010      # Binary (case insensitive: 0B1010)
-```
 
 ### Shift Behavior
 

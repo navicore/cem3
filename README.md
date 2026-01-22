@@ -17,10 +17,6 @@
 
 A concatenative, stack-based programming language that compiles to native executables. Seq combines the elegance of stack-based programming with a sophisticated type system, guaranteed tail call optimization, and CSP-style concurrency.
 
-## Project Status
-
-**Stable as of 1.1.0.** The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
-
 ```seq
 : factorial ( Int -- Int )
   dup 1 i.<= if
@@ -32,6 +28,10 @@ A concatenative, stack-based programming language that compiles to native execut
 
 : main ( -- ) 10 factorial int->string io.write-line ;
 ```
+
+## Project Status
+
+**Stable as of 1.1.0.** The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
 
 ## Why Seq?
 

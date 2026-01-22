@@ -291,14 +291,14 @@ pub fn compile_file_with_config(
     let statement_types = type_checker.take_statement_top_types();
 
     // Generate LLVM IR with type information and external builtins
+    // Note: Mutual TCO already works via existing musttail emission for all
+    // user-word tail calls. The call_graph is used by type checker for
+    // divergent branch detection, not by codegen.
     let mut codegen = if config.pure_inline_test {
         CodeGen::new_pure_inline_test()
     } else {
         CodeGen::new()
     };
-
-    // Pass tail call info for mutual recursion TCO (Issue #229)
-    codegen.set_tail_call_info(call_graph::TailCallInfo::from_call_graph(&call_graph));
     let ir = codegen
         .codegen_program_with_ffi(
             &program,

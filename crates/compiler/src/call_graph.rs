@@ -7,8 +7,32 @@
 //!
 //! ```ignore
 //! let call_graph = CallGraph::build(&program);
-//! let cycles = call_graph.find_recursive_cycles();
+//! let cycles = call_graph.recursive_cycles();
 //! ```
+//!
+//! # Primary Use Cases
+//!
+//! 1. **Type checker divergence detection**: The type checker uses the call graph
+//!    to identify mutually recursive tail calls, enabling correct type inference
+//!    for patterns like even/odd that would otherwise require branch unification.
+//!
+//! 2. **Future optimizations**: The call graph infrastructure can support dead code
+//!    detection, inlining decisions, and diagnostic tools.
+//!
+//! # Implementation Details
+//!
+//! - **Algorithm**: Tarjan's SCC algorithm, O(V + E) time complexity
+//! - **Builtins**: Calls to builtins/external words are excluded from the graph
+//!   (they don't affect recursion detection since they always return)
+//! - **Quotations**: Calls within quotations are included in the analysis
+//! - **Match arms**: Calls within match arms are included in the analysis
+//!
+//! # Note on Tail Call Optimization
+//!
+//! The existing codegen already emits `musttail` for all tail calls to user-defined
+//! words (see `codegen/statements.rs`). This means mutual TCO works automatically
+//! without needing explicit call graph checks in codegen. The call graph is primarily
+//! used for type checking, not for enabling TCO.
 
 use crate::ast::{Program, Statement};
 use std::collections::{HashMap, HashSet};
@@ -251,7 +275,19 @@ fn extract_calls_from_statement(
 }
 
 /// Information about tail calls for mutual TCO optimization.
+///
+/// # Current Status
+///
+/// This struct is currently **infrastructure for future use**. The existing codegen
+/// already emits `musttail` for all tail calls to user-defined words, so mutual TCO
+/// works without explicit call graph checks.
+///
+/// Potential future uses:
+/// - Selective TCO (only optimize detected recursive cycles)
+/// - Diagnostic tools (show which words are mutually recursive)
+/// - Dead code detection (unreachable words in non-recursive paths)
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Infrastructure for future optimizations
 pub struct TailCallInfo {
     /// Words that are in a recursive cycle and should get mutual TCO
     pub recursive_words: HashSet<String>,
@@ -267,13 +303,16 @@ impl TailCallInfo {
         TailCallInfo { recursive_words }
     }
 
-    /// Check if a call from `caller` to `callee` should be optimized with musttail.
+    /// Check if a call from `caller` to `callee` is between mutually recursive words.
     ///
     /// Returns true if both are in the same recursive cycle.
+    ///
+    /// # Note
+    ///
+    /// Currently unused in codegen since all user-word tail calls get `musttail`.
+    /// Kept as infrastructure for potential future selective optimization.
+    #[allow(dead_code)] // Infrastructure for future optimizations
     pub fn should_use_musttail(&self, caller: &str, callee: &str) -> bool {
-        // If both caller and callee are in the recursive set and we have a graph,
-        // we should check if they're in the same SCC. For now, we'll be conservative
-        // and only optimize if both are recursive.
         self.recursive_words.contains(caller) && self.recursive_words.contains(callee)
     }
 }
@@ -443,5 +482,116 @@ mod tests {
         assert!(info.should_use_musttail("pong", "ping"));
         assert!(!info.should_use_musttail("helper", "ping"));
         assert!(!info.should_use_musttail("ping", "helper"));
+    }
+
+    #[test]
+    fn test_cycle_with_builtins_interspersed() {
+        // Cycles should be detected even when builtins are called between user words
+        // e.g., : foo dup drop bar ;  : bar swap foo ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                make_word("foo", vec!["dup", "drop", "bar"]),
+                make_word("bar", vec!["swap", "foo"]),
+            ],
+        };
+
+        let graph = CallGraph::build(&program);
+        // foo and bar should still form a cycle despite builtin calls
+        assert!(graph.is_recursive("foo"));
+        assert!(graph.is_recursive("bar"));
+        assert!(graph.are_mutually_recursive("foo", "bar"));
+
+        // Builtins should not appear in callees
+        let foo_callees = graph.callees("foo").unwrap();
+        assert!(foo_callees.contains("bar"));
+        assert!(!foo_callees.contains("dup"));
+        assert!(!foo_callees.contains("drop"));
+    }
+
+    #[test]
+    fn test_cycle_through_quotation() {
+        // Calls inside quotations should be detected
+        // e.g., : foo [ bar ] call ;  : bar foo ;
+        use crate::ast::Statement;
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "foo".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::Quotation {
+                            id: 0,
+                            body: vec![Statement::WordCall {
+                                name: "bar".to_string(),
+                                span: None,
+                            }],
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "call".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+                make_word("bar", vec!["foo"]),
+            ],
+        };
+
+        let graph = CallGraph::build(&program);
+        // foo calls bar (inside quotation), bar calls foo
+        assert!(graph.is_recursive("foo"));
+        assert!(graph.is_recursive("bar"));
+        assert!(graph.are_mutually_recursive("foo", "bar"));
+    }
+
+    #[test]
+    fn test_cycle_through_if_branch() {
+        // Calls inside if branches should be detected
+        use crate::ast::Statement;
+
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "even".to_string(),
+                    effect: None,
+                    body: vec![Statement::If {
+                        then_branch: vec![],
+                        else_branch: Some(vec![Statement::WordCall {
+                            name: "odd".to_string(),
+                            span: None,
+                        }]),
+                    }],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+                WordDef {
+                    name: "odd".to_string(),
+                    effect: None,
+                    body: vec![Statement::If {
+                        then_branch: vec![],
+                        else_branch: Some(vec![Statement::WordCall {
+                            name: "even".to_string(),
+                            span: None,
+                        }]),
+                    }],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+            ],
+        };
+
+        let graph = CallGraph::build(&program);
+        assert!(graph.is_recursive("even"));
+        assert!(graph.is_recursive("odd"));
+        assert!(graph.are_mutually_recursive("even", "odd"));
     }
 }

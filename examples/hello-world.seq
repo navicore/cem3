@@ -1,3 +1,5 @@
+#!./target/release/seqc
+
 # Hello World in cem3
 # The classic first program
 

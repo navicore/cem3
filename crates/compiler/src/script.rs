@@ -109,6 +109,12 @@ fn strip_shebang(source: &str) -> std::borrow::Cow<'_, str> {
 
 /// Prepare a script for execution: parse, resolve includes, and compile if needed.
 /// Returns the path to the cached binary.
+///
+/// # Symlink Behavior
+///
+/// The source path is canonicalized, which resolves symlinks to their target.
+/// This means the same script accessed via different symlinks will share one
+/// cache entry (based on the resolved path's content hash).
 fn prepare_script(source_path: &Path) -> Result<PathBuf, String> {
     // Canonicalize the source path
     let source_path = source_path.canonicalize().map_err(|e| {
@@ -236,8 +242,10 @@ pub fn run_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_get_cache_dir_with_xdg() {
         // Save original env vars
         let orig_xdg = std::env::var("XDG_CACHE_HOME").ok();
@@ -268,6 +276,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_cache_dir_fallback_to_home() {
         // Save original env vars
         let orig_xdg = std::env::var("XDG_CACHE_HOME").ok();

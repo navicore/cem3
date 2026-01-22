@@ -66,9 +66,9 @@ pub fn compute_cache_key(
     for file in sorted_files {
         if file != source_path {
             // Don't double-hash the main file
-            if let Ok(content) = fs::read(file) {
-                hasher.update(&content);
-            }
+            let content = fs::read(file)
+                .map_err(|e| format!("Failed to read included file '{}': {}", file.display(), e))?;
+            hasher.update(&content);
         }
     }
 

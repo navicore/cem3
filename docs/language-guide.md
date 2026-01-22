@@ -745,6 +745,51 @@ For hot loops that need guaranteed TCO, use a named word rather than a quotation
 | `args.count` | `( -- Int )` | Number of arguments |
 | `args.at` | `( Int -- String )` | Get argument by index |
 
+## Script Mode
+
+For quick iteration and scripting, you can run `.seq` files directly without a separate build step:
+
+```bash
+seqc myscript.seq arg1 arg2
+```
+
+Script mode compiles with `-O0` for fast startup and caches the binary for subsequent runs. The cache key includes the source content and all transitive includes, so scripts automatically recompile when any dependency changes.
+
+### Shebang Support
+
+Scripts can include a shebang for direct execution:
+
+```seq
+#!/usr/bin/env seqc
+: main ( -- Int ) "Hello from script!" io.write-line 0 ;
+```
+
+```bash
+chmod +x myscript.seq
+./myscript.seq arg1 arg2    # Arguments passed to main
+```
+
+Note that the `main` word in a script must return `Int` (the exit code), unlike compiled programs where `main` returns `( -- )`.
+
+### Cache Location
+
+Compiled binaries are cached in:
+- `$XDG_CACHE_HOME/seq/` if `XDG_CACHE_HOME` is set
+- `~/.cache/seq/` otherwise
+
+Cache entries are named by their SHA-256 hash. To clear the cache: `rm -rf ~/.cache/seq/`
+
+### When to Use Script Mode
+
+| Use Case | Recommendation |
+|----------|----------------|
+| Quick testing | Script mode |
+| Development iteration | Script mode |
+| Production deployment | `seqc build` with `-O3` (default) |
+| Performance-critical | `seqc build` with optimizations |
+
+Script mode trades runtime optimization (`-O0`) for faster compilation. For production use, compile with `seqc build` to get full LLVM optimizations.
+
 ## File Operations
 
 | Word | Effect | Description |

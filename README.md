@@ -6,6 +6,7 @@
 [![seq-repl](https://img.shields.io/crates/v/seq-repl.svg?label=seq-repl)](https://crates.io/crates/seq-repl)
 [![seq-lsp](https://img.shields.io/crates/v/seq-lsp.svg?label=seq-lsp)](https://crates.io/crates/seq-lsp)
 [![seq-runtime](https://img.shields.io/crates/v/seq-runtime.svg?label=seq-runtime)](https://crates.io/crates/seq-runtime)
+[![seq-core](https://img.shields.io/crates/v/seq-core.svg?label=seq-core)](https://crates.io/crates/seq-core)
 [![vim-line](https://img.shields.io/crates/v/vim-line.svg?label=vim-line)](https://crates.io/crates/vim-line)
 
 [![seq-compiler docs](https://img.shields.io/docsrs/seq-compiler?label=seq-compiler%20docs)](https://docs.rs/seq-compiler)

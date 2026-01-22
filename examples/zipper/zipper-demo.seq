@@ -1,0 +1,85 @@
+# Zipper Demo - Functional list navigation with O(1) cursor movement
+#
+# A zipper provides efficient cursor-based navigation and editing of
+# immutable lists. Instead of copying the entire list for each edit,
+# a zipper maintains the elements to the left and right of the focus,
+# allowing O(1) movement and modification.
+#
+# Run: seqc build examples/zipper/zipper-demo.seq -o /tmp/zipper-demo && /tmp/zipper-demo
+
+include std:son
+include std:zipper
+
+# Helper to print a zipper's state
+: print-zipper ( Zipper -- Zipper )
+  dup zipper.empty? if
+    "  [empty zipper]" io.write-line
+  else
+    "  List: " io.write
+    dup zipper.to-list son.dump io.write-line
+    "  Focus index: " io.write
+    dup zipper.index int->string io.write-line
+    "  Focus value: " io.write
+    dup zipper.focus son.dump io.write-line
+  then
+;
+
+: main ( -- Int )
+  "=== Zipper Demo ===" io.write-line
+  "" io.write-line
+
+  # Create a list and convert to zipper
+  "1. Creating a zipper from [1, 2, 3, 4, 5]:" io.write-line
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  zipper.from-list
+  print-zipper
+  "" io.write-line
+
+  # Navigate right
+  "2. Moving right twice (focus now at 3):" io.write-line
+  zipper.right zipper.right
+  print-zipper
+  "" io.write-line
+
+  # Replace the focused element
+  "3. Setting focus to 99:" io.write-line
+  99 zipper.set
+  print-zipper
+  "" io.write-line
+
+  # Insert to the left of focus
+  "4. Inserting 42 to the left of focus:" io.write-line
+  42 zipper.insert-left
+  print-zipper
+  "" io.write-line
+
+  # Convert back to list
+  "5. Final list:" io.write-line
+  "  " io.write
+  zipper.to-list son.dump io.write-line
+  "" io.write-line
+
+  # Demonstrate navigation helpers
+  "6. Navigation demo:" io.write-line
+  list-of 10 lv 20 lv 30 lv 40 lv 50 lv
+  zipper.from-list
+  "  Starting at: " io.write dup zipper.focus son.dump io.write-line
+  zipper.end
+  "  After end:   " io.write dup zipper.focus son.dump io.write-line
+  zipper.start
+  "  After start: " io.write zipper.focus son.dump io.write-line
+  "" io.write-line
+
+  # Delete demo
+  "7. Delete demo (removing middle element from [a, b, c]):" io.write-line
+  list-of "a" lv "b" lv "c" lv
+  zipper.from-list
+  zipper.right  # focus on "b"
+  "  Before delete: " io.write dup zipper.to-list son.dump io.write-line
+  "  Focus: " io.write dup zipper.focus son.dump io.write-line
+  zipper.delete
+  "  After delete:  " io.write zipper.to-list son.dump io.write-line
+
+  "=== Demo Complete ===" io.write-line
+  0
+;

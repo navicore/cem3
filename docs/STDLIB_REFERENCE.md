@@ -34,6 +34,8 @@ Complete reference for all 152 built-in operations.
 - [Time Operations](#time-operations)
 - [Serialization](#serialization)
 - [Stack Introspection](#stack-introspection)
+- [Standard Library Modules](#standard-library-modules)
+  - [std:zipper](#stdzipper---functional-list-zipper)
 
 ---
 
@@ -383,6 +385,65 @@ Complete reference for all 152 built-in operations.
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `stack.dump` | `( ... -- )` | Print all stack values and clear (REPL) |
+
+---
+
+## Standard Library Modules
+
+These modules are included with `include std:<module-name>`.
+
+### std:zipper - Functional List Zipper
+
+A zipper provides O(1) cursor movement and "editing" of immutable lists by maintaining
+a focus element with left and right context.
+
+```seq
+include std:zipper
+
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+zipper.from-list
+zipper.right zipper.right   # focus is now 3
+zipper.focus                # get current element (3)
+10 zipper.set               # replace focus with 10
+zipper.to-list              # [1, 2, 10, 4, 5]
+```
+
+#### Construction
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `zipper.from-list` | `( List -- Zipper )` | Create zipper from list, focus at first element |
+| `zipper.to-list` | `( Zipper -- List )` | Convert zipper back to list |
+| `zipper.make-empty` | `( -- Zipper )` | Create empty zipper |
+
+#### Navigation
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `zipper.right` | `( Zipper -- Zipper )` | Move focus right (no-op at end) |
+| `zipper.left` | `( Zipper -- Zipper )` | Move focus left (no-op at start) |
+| `zipper.start` | `( Zipper -- Zipper )` | Move focus to first element |
+| `zipper.end` | `( Zipper -- Zipper )` | Move focus to last element |
+
+#### Query
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `zipper.focus` | `( Zipper -- T )` | Get focused element |
+| `zipper.empty?` | `( Zipper -- Bool )` | Check if zipper is empty |
+| `zipper.at-start?` | `( Zipper -- Zipper Bool )` | Check if at first element |
+| `zipper.at-end?` | `( Zipper -- Zipper Bool )` | Check if at last element |
+| `zipper.length` | `( Zipper -- Int )` | Get total number of elements |
+| `zipper.index` | `( Zipper -- Int )` | Get current focus index (0-based) |
+
+#### Modification
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `zipper.set` | `( Zipper T -- Zipper )` | Replace focused element |
+| `zipper.insert-left` | `( Zipper T -- Zipper )` | Insert element to left of focus |
+| `zipper.insert-right` | `( Zipper T -- Zipper )` | Insert element to right of focus |
+| `zipper.delete` | `( Zipper -- Zipper )` | Delete focused element, focus moves right (or left at end) |
 
 ---
 

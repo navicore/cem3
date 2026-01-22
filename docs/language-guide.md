@@ -902,7 +902,6 @@ Operations are grouped by functionality:
 |--------|---------|---------|
 | `?` | Predicate (returns boolean) | `nil?`, `string.empty?`, `file.exists?` |
 | `+` | Returns result + status | `file.for-each-line+` |
-| `-safe` | Safe variant (no panic) | `chan.send-safe`, `map.get-safe` |
 
 ### Core Primitives (No Prefix)
 
@@ -1094,36 +1093,31 @@ Processes) model - similar to Go channels or Erlang message passing.
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `chan.make` | `( -- Int )` | Create channel, return ID |
-| `chan.send` | `( value Int -- )` | Send value to channel |
-| `chan.receive` | `( Int -- value )` | Receive value from channel (blocks) |
-| `chan.close` | `( Int -- )` | Close the channel |
+| `chan.make` | `( -- Channel )` | Create channel |
+| `chan.send` | `( value Channel -- Bool )` | Send value, returns true on success |
+| `chan.receive` | `( Channel -- value Bool )` | Receive value, returns (value, success) |
+| `chan.close` | `( Channel -- )` | Close the channel |
 
-Safe variants return status instead of panicking:
-
-| Word | Effect | Description |
-|------|--------|-------------|
-| `chan.send-safe` | `( value Int -- Int )` | Returns 1 on success, 0 if closed |
-| `chan.receive-safe` | `( Int -- value Int )` | Returns (value 1) or (0 0) if closed |
+Channel operations return status flags rather than panicking. Always check the boolean result:
 
 ### Producer-Consumer Example
 
 ```seq
-: send-messages ( channel count -- )
+: send-messages ( Channel Int -- )
     dup 0 i.> if
-        over "message" swap chan.send
+        over "message" swap chan.send drop  # send returns Bool, drop it
         1 i.- send-messages
     else
         drop chan.close
     then
 ;
 
-: producer ( channel -- )
+: producer ( Channel -- )
     10 send-messages
 ;
 
-: consumer ( channel -- )
-    dup chan.receive-safe if
+: consumer ( Channel -- )
+    dup chan.receive if
         io.write-line
         consumer        # loop via recursion
     else

@@ -296,8 +296,8 @@ Complete reference for all 152 built-in operations.
 | `variant.make-0` / `wrap-0` | `( Symbol -- Variant )` | Create variant with 0 fields |
 | `variant.make-1` / `wrap-1` | `( T Symbol -- Variant )` | Create variant with 1 field |
 | `variant.make-2` / `wrap-2` | `( T T Symbol -- Variant )` | Create variant with 2 fields |
-| `variant.make-3` / `wrap-3` | `( T T T Symbol -- Variant )` | Create variant with 3 fields |
-| `variant.make-4` / `wrap-4` | `( T T T T Symbol -- Variant )` | Create variant with 4 fields |
+| ... | ... | ... |
+| `variant.make-12` / `wrap-12` | `( T ... T Symbol -- Variant )` | Create variant with 12 fields |
 
 ## List Operations
 

@@ -248,7 +248,11 @@ pub use os::{
 pub use variant_ops::{
     patch_seq_make_variant_0 as make_variant_0, patch_seq_make_variant_1 as make_variant_1,
     patch_seq_make_variant_2 as make_variant_2, patch_seq_make_variant_3 as make_variant_3,
-    patch_seq_make_variant_4 as make_variant_4, patch_seq_unpack_variant as unpack_variant,
+    patch_seq_make_variant_4 as make_variant_4, patch_seq_make_variant_5 as make_variant_5,
+    patch_seq_make_variant_6 as make_variant_6, patch_seq_make_variant_7 as make_variant_7,
+    patch_seq_make_variant_8 as make_variant_8, patch_seq_make_variant_9 as make_variant_9,
+    patch_seq_make_variant_10 as make_variant_10, patch_seq_make_variant_11 as make_variant_11,
+    patch_seq_make_variant_12 as make_variant_12, patch_seq_unpack_variant as unpack_variant,
     patch_seq_variant_field_at as variant_field_at,
     patch_seq_variant_field_count as variant_field_count, patch_seq_variant_tag as variant_tag,
 };

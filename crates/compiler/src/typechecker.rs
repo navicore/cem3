@@ -5,6 +5,7 @@
 
 use crate::ast::{Program, Statement, WordDef};
 use crate::builtins::builtin_signature;
+use crate::call_graph::CallGraph;
 use crate::capture_analysis::calculate_captures;
 use crate::types::{
     Effect, SideEffect, StackType, Type, UnionTypeInfo, VariantFieldInfo, VariantInfo,
@@ -34,6 +35,9 @@ pub struct TypeChecker {
     /// Maps (word_name, statement_index) -> concrete top-of-stack type before statement
     /// Only stores trivially-copyable types (Int, Float, Bool) to enable optimizations
     statement_top_types: std::cell::RefCell<HashMap<(String, usize), Type>>,
+    /// Call graph for detecting mutual recursion (Issue #229)
+    /// Used to improve divergent branch detection beyond direct recursion
+    call_graph: Option<CallGraph>,
 }
 
 impl TypeChecker {
@@ -46,7 +50,16 @@ impl TypeChecker {
             expected_quotation_type: std::cell::RefCell::new(None),
             current_word: std::cell::RefCell::new(None),
             statement_top_types: std::cell::RefCell::new(HashMap::new()),
+            call_graph: None,
         }
+    }
+
+    /// Set the call graph for mutual recursion detection.
+    ///
+    /// When set, the type checker can detect divergent branches caused by
+    /// mutual recursion (e.g., even/odd pattern) in addition to direct recursion.
+    pub fn set_call_graph(&mut self, call_graph: CallGraph) {
+        self.call_graph = Some(call_graph);
     }
 
     /// Look up a union type by name
@@ -791,15 +804,20 @@ impl TypeChecker {
         Ok(arm_stack)
     }
 
-    /// Check if a branch ends with a recursive tail call to the current word.
+    /// Check if a branch ends with a recursive tail call to the current word
+    /// or to a mutually recursive word.
+    ///
     /// Such branches are "divergent" - they never return to the if/else,
     /// so their stack effect shouldn't constrain the other branch.
     ///
+    /// # Detection Capabilities
+    ///
+    /// - Direct recursion: word calls itself
+    /// - Mutual recursion: word calls another word in the same SCC (when call graph is available)
+    ///
     /// # Limitations
     ///
-    /// This detection is intentionally conservative and only catches direct
-    /// recursive tail calls to the current word. It does NOT detect:
-    /// - Mutual recursion (word-a calls word-b which calls word-a)
+    /// This detection does NOT detect:
     /// - Calls to known non-returning functions (panic, exit, infinite loops)
     /// - Nested control flow with tail calls (if ... if ... recurse then then)
     ///
@@ -807,11 +825,25 @@ impl TypeChecker {
     /// could track known non-returning functions or support explicit divergence
     /// annotations (similar to Rust's `!` type).
     fn is_divergent_branch(&self, statements: &[Statement]) -> bool {
-        if let Some(current_word) = self.current_word.borrow().as_ref()
-            && let Some(Statement::WordCall { name, .. }) = statements.last()
-        {
-            return name == current_word;
+        let Some(current_word) = self.current_word.borrow().as_ref().cloned() else {
+            return false;
+        };
+        let Some(Statement::WordCall { name, .. }) = statements.last() else {
+            return false;
+        };
+
+        // Direct recursion: word calls itself
+        if name == &current_word {
+            return true;
         }
+
+        // Mutual recursion: word calls another word in the same SCC
+        if let Some(ref graph) = self.call_graph
+            && graph.are_mutually_recursive(&current_word, name)
+        {
+            return true;
+        }
+
         false
     }
 

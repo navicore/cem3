@@ -4,6 +4,7 @@
 //! used across the code generation modules.
 
 use crate::ast::UnionDef;
+use crate::call_graph::TailCallInfo;
 use crate::ffi::FfiBindings;
 use crate::types::Type;
 use std::collections::HashMap;
@@ -182,6 +183,9 @@ pub struct CodeGen {
     /// Values here are in SSA variables, not yet written to memory.
     /// The memory stack pointer tracks where memory ends; virtual values are "above" it.
     pub(super) virtual_stack: Vec<VirtualValue>,
+    /// Tail call optimization info for mutual recursion (Issue #229)
+    /// When set, enables musttail for calls between mutually recursive words.
+    pub(super) tail_call_info: Option<TailCallInfo>,
 }
 
 impl Default for CodeGen {
@@ -220,7 +224,16 @@ impl CodeGen {
             prev_stmt_is_trivial_literal: false,
             prev_stmt_int_value: None,
             virtual_stack: Vec::new(),
+            tail_call_info: None,
         }
+    }
+
+    /// Set tail call info for mutual recursion optimization (Issue #229).
+    ///
+    /// When set, enables `musttail` optimization for calls between words
+    /// that are in the same recursive cycle (mutual recursion).
+    pub fn set_tail_call_info(&mut self, info: TailCallInfo) {
+        self.tail_call_info = Some(info);
     }
 
     /// Create a CodeGen for pure inline testing.

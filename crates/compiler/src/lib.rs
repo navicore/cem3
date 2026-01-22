@@ -25,6 +25,7 @@
 
 pub mod ast;
 pub mod builtins;
+pub mod call_graph;
 pub mod capture_analysis;
 pub mod codegen;
 pub mod config;
@@ -245,8 +246,12 @@ pub fn compile_file_with_config(
     external_names.extend(ffi_bindings.function_names());
     program.validate_word_calls_with_externals(&external_names)?;
 
+    // Build call graph for mutual recursion detection (Issue #229)
+    let call_graph = call_graph::CallGraph::build(&program);
+
     // Type check (validates stack effects, especially for conditionals)
     let mut type_checker = TypeChecker::new();
+    type_checker.set_call_graph(call_graph.clone());
 
     // Register external builtins with the type checker
     // All external builtins must have explicit effects (v2.0 requirement)
@@ -291,6 +296,9 @@ pub fn compile_file_with_config(
     } else {
         CodeGen::new()
     };
+
+    // Pass tail call info for mutual recursion TCO (Issue #229)
+    codegen.set_tail_call_info(call_graph::TailCallInfo::from_call_graph(&call_graph));
     let ir = codegen
         .codegen_program_with_ffi(
             &program,

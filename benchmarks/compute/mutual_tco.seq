@@ -1,0 +1,73 @@
+# Mutual Tail Call Optimization benchmark
+#
+# Tests that mutual recursion is properly optimized with TCO.
+# Without TCO, 1,000,000 mutual recursive calls would overflow the stack
+# (each frame needs at least 8-16 bytes, totaling 8-16+ MB).
+#
+# This benchmark verifies TCO by:
+# 1. Running 1M mutual recursive calls (would crash without TCO)
+# 2. Measuring performance (TCO should be fast, ~loop speed)
+
+# Classic even/odd mutual recursion - the simplest mutual recursion pattern
+: is-even ( Int -- Bool )
+  dup 0 i.= if
+    drop true
+  else
+    1 i.- is-odd
+  then
+;
+
+: is-odd ( Int -- Bool )
+  dup 0 i.= if
+    drop false
+  else
+    1 i.- is-even
+  then
+;
+
+# Accumulating mutual recursion - tests that values are preserved across TCO
+: count-down-a ( Int Int -- Int )
+  # ( n acc -- result )
+  over 0 i.<= if
+    nip  # return acc
+  else
+    swap 1 i.- swap 1 i.+ count-down-b
+  then
+;
+
+: count-down-b ( Int Int -- Int )
+  # ( n acc -- result )
+  over 0 i.<= if
+    nip  # return acc
+  else
+    swap 1 i.- swap 1 i.+ count-down-a
+  then
+;
+
+: main ( -- Int )
+  # Test 1: 1,000,000 mutual recursive calls
+  # This WILL stack overflow without TCO
+  "Testing 1,000,000 mutual recursive calls..." io.write-line
+  1000000 is-even
+  if "  PASS: 1M is even" else "  FAIL: 1M should be even" then
+  io.write-line
+
+  # Test 2: Verify correctness with odd number
+  1000001 is-odd
+  if "  PASS: 1M+1 is odd" else "  FAIL: 1M+1 should be odd" then
+  io.write-line
+
+  # Test 3: Accumulating mutual recursion
+  # count-down-a(1000000, 0) should return 1000000
+  "Testing accumulating mutual recursion..." io.write-line
+  1000000 0 count-down-a
+  dup 1000000 i.= if
+    drop "  PASS: accumulated correctly"
+  else
+    int->string "  FAIL: expected 1000000, got " swap string.concat
+  then
+  io.write-line
+
+  "Mutual TCO benchmark complete." io.write-line
+  0
+;

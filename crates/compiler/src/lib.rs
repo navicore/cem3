@@ -25,6 +25,7 @@
 
 pub mod ast;
 pub mod builtins;
+pub mod call_graph;
 pub mod capture_analysis;
 pub mod codegen;
 pub mod config;
@@ -245,8 +246,12 @@ pub fn compile_file_with_config(
     external_names.extend(ffi_bindings.function_names());
     program.validate_word_calls_with_externals(&external_names)?;
 
+    // Build call graph for mutual recursion detection (Issue #229)
+    let call_graph = call_graph::CallGraph::build(&program);
+
     // Type check (validates stack effects, especially for conditionals)
     let mut type_checker = TypeChecker::new();
+    type_checker.set_call_graph(call_graph.clone());
 
     // Register external builtins with the type checker
     // All external builtins must have explicit effects (v2.0 requirement)
@@ -286,6 +291,9 @@ pub fn compile_file_with_config(
     let statement_types = type_checker.take_statement_top_types();
 
     // Generate LLVM IR with type information and external builtins
+    // Note: Mutual TCO already works via existing musttail emission for all
+    // user-word tail calls. The call_graph is used by type checker for
+    // divergent branch detection, not by codegen.
     let mut codegen = if config.pure_inline_test {
         CodeGen::new_pure_inline_test()
     } else {

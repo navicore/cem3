@@ -155,7 +155,7 @@ Types are inferred at compile time. The type checker:
 Variants are tagged unions with N fields:
 
 ```seq
-# Create using typed constructors (0-4 fields)
+# Create using typed constructors (0-12 fields)
 42 "hello" 1 make-variant-2    # Tag 1 with fields [42, "hello"]
 5 make-variant-0               # Tag 5 with no fields
 

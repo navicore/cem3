@@ -658,7 +658,7 @@ impl Program {
     /// Generate constructor words for all union definitions
     ///
     /// Maximum number of fields a variant can have (limited by runtime support)
-    pub const MAX_VARIANT_FIELDS: usize = 4;
+    pub const MAX_VARIANT_FIELDS: usize = 12;
 
     /// For each union variant, generates a `Make-VariantName` word that:
     /// 1. Takes the variant's field values from the stack

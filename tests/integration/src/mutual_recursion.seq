@@ -1,0 +1,105 @@
+# Mutual Recursion Test
+#
+# Tests that mutually recursive functions work correctly with TCO.
+# This is a classic even/odd pattern that would stack overflow without TCO.
+
+# Classic even/odd mutual recursion
+# For large N, this would overflow without TCO
+
+: is-even ( Int -- Bool )
+  dup 0 i.= if
+    drop true
+  else
+    1 i.- is-odd
+  then
+;
+
+: is-odd ( Int -- Bool )
+  dup 0 i.= if
+    drop false
+  else
+    1 i.- is-even
+  then
+;
+
+# Three-way mutual recursion (a -> b -> c -> a)
+
+: triple-a ( Int -- Int )
+  dup 0 i.<= if
+    # Base case: return 0
+  else
+    1 i.- triple-b
+  then
+;
+
+: triple-b ( Int -- Int )
+  dup 0 i.<= if
+    1 i.+  # Return n + 1 for variety
+  else
+    1 i.- triple-c
+  then
+;
+
+: triple-c ( Int -- Int )
+  dup 0 i.<= if
+    2 i.+  # Return n + 2 for variety
+  else
+    1 i.- triple-a
+  then
+;
+
+# Helper: check a boolean condition and print pass/fail
+: check-true ( Bool String -- )
+  swap if
+    "[PASS] " io.write io.write-line
+  else
+    "[FAIL] " io.write io.write-line
+  then
+;
+
+: check-false ( Bool String -- )
+  swap not if
+    "[PASS] " io.write io.write-line
+  else
+    "[FAIL] " io.write io.write-line
+  then
+;
+
+: main ( -- Int )
+  "=== Mutual Recursion Tests ===" io.write-line
+  "" io.write-line
+
+  # Test is-even with small values
+  "--- is-even tests ---" io.write-line
+  0 is-even  "0 is even" check-true
+  1 is-even  "1 is not even" check-false
+  2 is-even  "2 is even" check-true
+  3 is-even  "3 is not even" check-false
+  4 is-even  "4 is even" check-true
+
+  # Test is-odd with small values
+  "" io.write-line
+  "--- is-odd tests ---" io.write-line
+  0 is-odd   "0 is not odd" check-false
+  1 is-odd   "1 is odd" check-true
+  2 is-odd   "2 is not odd" check-false
+  3 is-odd   "3 is odd" check-true
+  4 is-odd   "4 is not odd" check-false
+
+  # Test with large value (would overflow without TCO)
+  # 1,000,000 mutual recursive calls - requires at least 8MB stack without TCO
+  "" io.write-line
+  "--- Large value tests (TCO required) ---" io.write-line
+  1000000 is-even "1000000 is even (1M mutual calls)" check-true
+  1000001 is-odd  "1000001 is odd (1M mutual calls)" check-true
+
+  # Test triple mutual recursion
+  "" io.write-line
+  "--- Triple mutual recursion ---" io.write-line
+  0 triple-a 0 i.= "triple-a(0) = 0" check-true
+  3 triple-a 0 i.= "triple-a(3) cycles to 0" check-true
+
+  "" io.write-line
+  "=== All mutual recursion tests complete ===" io.write-line
+  0
+;

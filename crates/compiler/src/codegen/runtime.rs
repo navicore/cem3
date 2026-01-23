@@ -231,10 +231,6 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             category: None,
         },
         RuntimeDecl {
-            decl: "declare ptr @patch_seq_3drop(ptr)",
-            category: None,
-        },
-        RuntimeDecl {
             decl: "declare ptr @patch_seq_pick_op(ptr)",
             category: None,
         },
@@ -1189,7 +1185,6 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("nip", "patch_seq_nip"),
         ("tuck", "patch_seq_tuck"),
         ("2dup", "patch_seq_2dup"),
-        ("3drop", "patch_seq_3drop"),
         ("drop", "patch_seq_drop_op"),
         ("pick", "patch_seq_pick_op"),
         ("roll", "patch_seq_roll"),

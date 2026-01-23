@@ -758,23 +758,6 @@ pub unsafe extern "C" fn patch_seq_2dup(stack: Stack) -> Stack {
     }
 }
 
-/// Drop top three values: ( a b c -- )
-///
-/// # Safety
-/// Stack must have at least three values.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_3drop(stack: Stack) -> Stack {
-    unsafe {
-        let (sp, sv_c) = pop_sv(stack);
-        let (sp, sv_b) = pop_sv(sp);
-        let (sp, sv_a) = pop_sv(sp);
-        drop_stack_value(sv_c);
-        drop_stack_value(sv_b);
-        drop_stack_value(sv_a);
-        sp
-    }
-}
-
 /// Pick: Copy the nth value to the top
 /// ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )
 ///
@@ -1014,7 +997,6 @@ pub unsafe fn clone_stack_with_base(sp: Stack) -> (Stack, Stack) {
 // ============================================================================
 
 pub use patch_seq_2dup as two_dup;
-pub use patch_seq_3drop as three_drop;
 pub use patch_seq_dup as dup;
 pub use patch_seq_nip as nip;
 pub use patch_seq_over as over;

@@ -1,69 +1,169 @@
 # Examples
 
-The `examples/` directory contains programs demonstrating Seq's features, from simple "hello world" to a complete Lisp interpreter. These examples are tested in CI and serve as both documentation and regression tests.
+> **Note**: This file is auto-generated from README files in the `examples/` directory.
+> Edit those files instead of this one.
 
-## Quick Reference
+The `examples/` directory contains programs demonstrating Seq's features, organized by category. These examples are tested in CI and serve as both documentation and regression tests.
 
-| Directory | What It Demonstrates |
-|-----------|----------------------|
-| `hello-world.seq` | Minimal program |
-| `language-features/` | Core language concepts |
-| `recursion/` | Tail-recursive algorithms |
-| `csp/` | Actor model with HTTP interface |
-| `weave/` | Generators and coroutines |
-| `lisp/` | Complete Lisp interpreter |
-| `http/` | TCP servers and routing |
-| `json/` | JSON parsing |
-| `yaml/` | YAML parsing |
-| `hackers-delight/` | Bit manipulation puzzles |
-| `ffi/` | Foreign function interface |
+## Categories
+
+| Directory | Description |
+|-----------|-------------|
+| [basics/](basics/) | Getting started - hello world and simple programs |
+| [language/](language/) | Core language features - quotations, closures, recursion |
+| [paradigms/](paradigms/) | Programming paradigms - OOP, actors, functional |
+| [data/](data/) | Data formats - JSON, YAML, SON, zipper |
+| [io/](io/) | Input/output - HTTP, terminal, files, text processing |
+| [projects/](projects/) | Complete applications - Lisp interpreter, crypto, algorithms |
+| [ffi/](ffi/) | Foreign function interface - SQLite, libedit |
+
+## Running Examples
+
+```bash
+# Build and run
+seqc build examples/basics/hello-world.seq -o /tmp/hello
+/tmp/hello
+
+# Or use script mode (compile + run in one step)
+seqc examples/basics/hello-world.seq
+```
+
+## Learning Path
+
+If you're new to Seq, we suggest this order:
+
+1. `basics/hello-world.seq` - Verify your setup
+2. `language/stack-effects.seq` - Understand the type system
+3. `language/control-flow.seq` - Conditionals and recursion
+4. `language/quotations.seq` - First-class functions
+5. `data/json/json_tree.seq` - Real-world data processing
+6. `paradigms/actor/` - Concurrency patterns
+7. `projects/lisp/` - A complete interpreter
 
 ---
 
-## Getting Started
+# Basics
 
-### hello-world.seq
+Getting started with Seq - the simplest programs to verify your setup.
 
-The simplest Seq program:
+## hello-world.seq
+
+The canonical first program:
 
 ```seq
-: main ( -- ) "Hello, World!" io.write-line ;
+: main ( -- Int ) "Hello, World!" io.write-line 0 ;
 ```
 
-Build and run:
-```bash
-seqc build examples/hello-world.seq
-./hello-world
-```
+## cond.seq
+
+Demonstrates the `cond` combinator for multi-way branching - a cleaner alternative to nested if/else.
 
 ---
 
-## Language Features
+# Language Features
 
-The `language-features/` directory covers core concepts:
+Core Seq language concepts demonstrated through focused examples.
 
-### stack-effects.seq
-Stack effect declarations and how the type checker enforces them.
+## Stack Effects (stack-effects.seq)
 
-### quotations.seq
-Anonymous code blocks (quotations) and calling them with `call`.
+Stack effect declarations and how the type checker enforces them:
 
-### closures.seq
-Quotations that capture values from their environment.
+```seq
+: square ( Int -- Int ) dup i.* ;
+```
 
-### control-flow.seq
-Conditionals (`if`/`else`/`then`), pattern matching, and the `cond` combinator.
+## Quotations (quotations.seq)
 
-### recursion.seq
-Tail-recursive algorithms demonstrating guaranteed TCO.
+Anonymous code blocks that can be passed around and called:
+
+```seq
+: apply-twice ( Int { Int -- Int } -- Int )
+  dup rot swap call swap call ;
+
+5 [ 2 i.* ] apply-twice  # Result: 20
+```
+
+## Closures (closures.seq)
+
+Quotations that capture values from their environment:
+
+```seq
+: make-adder ( Int -- { Int -- Int } )
+  { i.+ } ;
+
+10 make-adder  # Creates a closure that adds 10
+5 swap call    # Result: 15
+```
+
+## Control Flow (control-flow.seq)
+
+Conditionals, pattern matching, and loops:
+
+```seq
+: fizzbuzz ( Int -- String )
+  dup 15 i.mod 0 i.= if drop "FizzBuzz"
+  else dup 3 i.mod 0 i.= if drop "Fizz"
+  else dup 5 i.mod 0 i.= if drop "Buzz"
+  else int->string
+  then then then ;
+```
+
+## Recursion (recursion.seq)
+
+Tail-recursive algorithms with guaranteed TCO:
+
+```seq
+: factorial-acc ( Int Int -- Int )
+  over 0 i.<= if nip
+  else swap dup rot i.* swap 1 i.- swap factorial-acc
+  then ;
+
+: factorial ( Int -- Int ) 1 factorial-acc ;
+```
+
+## Strands (strands.seq)
+
+Lightweight concurrent execution:
+
+```seq
+[ "Hello from strand!" io.write-line ] strand.spawn
+```
+
+## Include Demo (main.seq, http_simple.seq)
+
+Demonstrates the module include system for code organization.
 
 ---
 
-## Concurrency
+# Programming Paradigms
 
-### csp/actor_counters.seq
+Seq is flexible enough to express multiple programming paradigms. These examples demonstrate different approaches to structuring programs.
 
-A sophisticated CSP/Actor demonstration with 4-tier hierarchical aggregation:
+## Object-Oriented (oop/)
+
+**shapes.seq** - OOP patterns using unions and pattern matching:
+
+- Encapsulation: data bundled in union variants
+- Polymorphism: pattern matching dispatches to correct implementation
+- Factory functions as constructors
+- Type checks via `variant.tag` (like `instanceof`)
+
+```seq
+union Shape {
+  Circle { radius: Float }
+  Rectangle { width: Float, height: Float }
+}
+
+: shape.area ( Shape -- Float )
+  match
+    Circle { >radius } -> dup f.* 3.14159 f.*
+    Rectangle { >width >height } -> f.*
+  end ;
+```
+
+## Actor Model (actor/)
+
+**actor_counters.seq** - CSP/Actor demonstration with hierarchical aggregation:
 
 ```
 Company (aggregate)
@@ -73,45 +173,140 @@ Company (aggregate)
 ```
 
 Features:
-- **Actor model**: Independent strands communicate via channels
-- **HTTP interface**: RESTful API for queries and updates
-- **Hierarchical aggregation**: Stores batch updates, parents aggregate
-- **Request-response pattern**: Synchronous queries via response channels
+- Independent strands communicate via channels
+- HTTP interface for queries and updates
+- Request-response pattern with response channels
 
-Run it:
-```bash
-seqc build examples/csp/actor_counters.seq -o /tmp/actors
-/tmp/actors &
-curl http://localhost:8080/acme/west/seattle/0001
-curl -X POST http://localhost:8080/acme/west/seattle/0001/increment
-curl http://localhost:8080/acme  # Company total
-```
+**counter.seq** - Simple generator pattern using weaves.
 
-### weave/counter.seq
+**sensor-classifier.seq** - Stream processing with structured data.
 
-Generator pattern using weaves:
+## Functional (functional/)
 
-```seq
-: counter-loop ( Ctx Int -- | Yield Int )
-  tuck yield rot i.add counter-loop
-;
-```
+*Coming soon* - Pure functional patterns, composition, immutability.
 
-The counter yields its current value and receives an increment.
+## Logic (logic/)
 
-### weave/sensor-classifier.seq
+*Coming soon* - Backtracking, unification patterns.
 
-Stream processing with structured data - a generator that classifies sensor readings.
+## Dataflow (dataflow/)
+
+*Coming soon* - Reactive and stream-based patterns.
 
 ---
 
-## The Lisp Interpreter
+# Data Formats & Structures
 
-The `lisp/` directory contains a complete Lisp interpreter in Seq:
+Working with structured data in Seq.
+
+## JSON (json/)
+
+**json_tree.seq** - Parse and traverse JSON:
+
+```seq
+include std:json
+
+: main ( -- Int )
+  "{\"name\": \"Alice\", \"age\": 30}" json.parse
+  "name" json.get json.as-string io.write-line
+  0 ;
+```
+
+## YAML (yaml/)
+
+YAML parsing with support for:
+- Multiline strings
+- Nested structures
+- Anchors and aliases
+
+## SON (son/)
+
+**serialize.seq** - Seq Object Notation, Seq's native serialization format optimized for stack-based data.
+
+## Zipper (zipper/)
+
+**zipper-demo.seq** - Functional list navigation with O(1) cursor movement:
+
+```seq
+include std:zipper
+
+{ 1 2 3 4 5 } list->zipper
+zipper.right zipper.right  # Move to element 3
+100 zipper.set             # Replace with 100
+zipper.to-list             # { 1 2 100 4 5 }
+```
+
+## Encoding (encoding.seq)
+
+Base64, hex, and other encoding/decoding operations.
+
+---
+
+# Input/Output
+
+Networking, file I/O, terminal, and text processing.
+
+## HTTP Server (http/)
+
+**http_server.seq** - TCP server with HTTP routing:
+
+```seq
+include std:http
+
+: handle-request ( TcpStream -- )
+  tcp.read-request
+  request-path "/" string.equal? if
+    "Hello from Seq!" 200 make-response
+  else
+    "Not Found" 404 make-response
+  then
+  tcp.write-response ;
+```
+
+**test_simple.seq** - Basic HTTP request/response testing.
+
+## HTTP Client (http-client.seq)
+
+Making HTTP requests using the std:http module:
+
+```seq
+include std:http
+
+"https://api.example.com/data" http.get
+http.body io.write-line
+```
+
+## Terminal (terminal/)
+
+**terminal-demo.seq** - Terminal colors, cursor control, and formatting using ANSI escape sequences.
+
+## Operating System (os/)
+
+**os-demo.seq** - Environment variables, paths, and system information.
+
+## Text Processing (text/)
+
+**log-parser.seq** - Parsing structured log files with string operations.
+
+**regex-demo.seq** - Regular expression matching and extraction.
+
+## Compression (compress-demo.seq)
+
+Zstd compression and decompression for efficient data storage.
+
+---
+
+# Complete Projects
+
+Larger applications demonstrating Seq's capabilities.
+
+## Lisp Interpreter (lisp/)
+
+A complete Lisp interpreter in Seq:
 
 | File | Purpose |
 |------|---------|
-| `sexpr.seq` | S-expression data types |
+| `sexpr.seq` | S-expression data types (ADTs) |
 | `tokenizer.seq` | Lexical analysis |
 | `parser.seq` | Parsing tokens to AST |
 | `eval.seq` | Evaluation with environments |
@@ -124,68 +319,15 @@ Supported features:
 - `if` conditionals
 - `lambda` with closures
 
-This example demonstrates:
+This project demonstrates:
 - **Union types (ADTs)** for the AST
 - **Pattern matching** for dispatch
 - **Recursive descent** parsing
 - **Environment passing** for lexical scope
 
----
+## Hacker's Delight (hackers-delight/)
 
-## HTTP and Networking
-
-### http/http_server.seq
-
-A TCP server with HTTP routing:
-
-```seq
-include std:http
-
-: handle-request ( TcpStream -- )
-  tcp.read-request
-  request-path "/" string.equal? if
-    "Hello from Seq!" 200 make-response
-  else
-    "Not Found" 404 make-response
-  then
-  tcp.write-response
-;
-```
-
-### http-client.seq
-
-HTTP client requests using the std:http module.
-
----
-
-## Data Formats
-
-### json/json_tree.seq
-
-Parse JSON and traverse the resulting tree:
-
-```seq
-include std:json
-
-: main ( -- )
-  "{\"name\": \"Alice\", \"age\": 30}" json.parse
-  "name" json.get json.as-string io.write-line
-;
-```
-
-### yaml/
-
-YAML parsing with multiline strings and nested structures.
-
-### son/serialize.seq
-
-SON (Seq Object Notation) - Seq's native serialization format.
-
----
-
-## Bit Manipulation
-
-The `hackers-delight/` directory implements algorithms from *Hacker's Delight*:
+Bit manipulation algorithms from the book *Hacker's Delight*:
 
 | File | Algorithm |
 |------|-----------|
@@ -195,102 +337,57 @@ The `hackers-delight/` directory implements algorithms from *Hacker's Delight*:
 | `04-branchless.seq` | Branchless min, max, abs, sign |
 | `05-swap-reverse.seq` | Bit reversal and byte swapping |
 
-These demonstrate Seq's bitwise operations (`band`, `bor`, `bxor`, `shl`, `shr`, `popcount`, `clz`, `ctz`).
+Demonstrates Seq's bitwise operations: `band`, `bor`, `bxor`, `shl`, `shr`, `popcount`, `clz`, `ctz`.
+
+## Cryptography (crypto.seq)
+
+Cryptographic operations including hashing and encoding.
+
+## Shopping Cart (shopping-cart/)
+
+A domain modeling example showing how to structure a typical business application with Seq.
 
 ---
 
-## Foreign Function Interface
+# Foreign Function Interface
 
-### ffi/libedit-demo.seq
+Calling native C libraries from Seq.
 
-Call into native libraries (libedit) for readline-style input.
+## SQLite (sqlite/)
 
-### ffi/sqlite/
+**sqlite-demo.seq** - Database access through FFI:
 
-SQLite database access through FFI.
+```seq
+include ffi:sqlite
+
+: main ( -- Int )
+  "test.db" sqlite.open
+  "CREATE TABLE users (id INTEGER, name TEXT)" sqlite.exec
+  "INSERT INTO users VALUES (1, 'Alice')" sqlite.exec
+  "SELECT * FROM users" sqlite.query
+  sqlite.close
+  0 ;
+```
+
+Requires `sqlite.toml` manifest defining the FFI bindings.
+
+## Libedit (libedit-demo.seq)
+
+Readline-style input using the libedit library for interactive command-line applications.
+
+## Creating FFI Bindings
+
+1. Create a TOML manifest defining the C functions
+2. Use `include ffi:name` to load the bindings
+3. Call functions with Seq-style names (e.g., `sqlite.open`)
+
+See the [FFI Guide](../../docs/FFI_GUIDE.md) for complete documentation.
 
 ---
-
-## Other Examples
-
-### text/log-parser.seq
-Log file parsing with string operations.
-
-### text/regex-demo.seq
-Regular expression matching.
-
-### crypto.seq
-Cryptographic operations (hashing, encoding).
-
-### terminal/terminal-demo.seq
-Terminal colors and cursor control.
-
-### os/os-demo.seq
-Environment variables, paths, and system info.
-
-### io/compress-demo.seq
-Compression and decompression.
-
----
-
-## Running Examples
-
-Most examples can be built and run directly:
-
-```bash
-# Build and run
-seqc build examples/json/json_tree.seq
-./json_tree
-
-# Or compile to specific output
-seqc build examples/lisp/test_eval.seq -o /tmp/lisp-test
-/tmp/lisp-test
-```
-
-### Script Mode
-
-For quick testing, use script mode to compile and run in one step:
-
-```bash
-seqc examples/hello-world.seq
-```
-
-Script mode uses `-O0` for fast compilation and caches binaries in `~/.cache/seq/`. Great for iteration during development.
-
-### Shebang Scripts
-
-Scripts with shebangs can run directly:
-
-```bash
-chmod +x tests/integration/src/script_mode.seq
-./tests/integration/src/script_mode.seq
-```
-
-Some examples require the full standard library features:
-
-```bash
-# HTTP requires the http feature
-seqc build examples/http/http_server.seq
-```
-
----
-
-## Learning Path
-
-If you're new to Seq, we suggest this order:
-
-1. **hello-world.seq** - Verify your setup
-2. **language-features/stack-effects.seq** - Understand the type system
-3. **language-features/control-flow.seq** - Conditionals and recursion
-4. **language-features/quotations.seq** - First-class functions
-5. **json/json_tree.seq** - Real-world data processing
-6. **csp/actor_counters.seq** - Concurrency patterns
-7. **lisp/** - A complete interpreter
-
-For hands-on learning with exercises, see [seqlings](https://github.com/navicore/seqlings).
 
 ## See Also
 
 - [Language Guide](language-guide.md) - Core language concepts
 - [Weaves Guide](WEAVES_GUIDE.md) - Generators and coroutines
 - [Testing Guide](TESTING_GUIDE.md) - Writing and running tests
+- [seqlings](https://github.com/navicore/seqlings) - Interactive exercises

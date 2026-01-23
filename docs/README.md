@@ -17,6 +17,8 @@
 
 A concatenative, stack-based programming language that compiles to native executables. Seq combines the elegance of stack-based programming with a sophisticated type system, guaranteed tail call optimization, and CSP-style concurrency.
 
+**Resources:** [Documentation](https://navicore.github.io/patch-seq/) | [GitHub Repository](https://github.com/navicore/patch-seq)
+
 ```seq
 : factorial ( Int -- Int )
   dup 1 i.<= if

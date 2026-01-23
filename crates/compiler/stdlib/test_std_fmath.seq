@@ -6,7 +6,7 @@ include std:fmath
 
 # Helper to check if two floats are approximately equal
 # (within 0.0001 tolerance for floating point comparison)
-: f.approx-eq ( Float Float -- Int )
+: f.approx-eq ( Float Float -- Bool )
   f.subtract f.abs 0.0001 f.<
 ;
 

@@ -30,7 +30,8 @@ pub struct TypeChecker {
     expected_quotation_type: std::cell::RefCell<Option<Type>>,
     /// Current word being type-checked (for detecting recursive tail calls)
     /// Used to identify divergent branches in if/else expressions
-    current_word: std::cell::RefCell<Option<String>>,
+    /// Stores (name, line_number) for better error messages
+    current_word: std::cell::RefCell<Option<(String, Option<usize>)>>,
     /// Per-statement type info for codegen optimization (Issue #186)
     /// Maps (word_name, statement_index) -> concrete top-of-stack type before statement
     /// Only stores trivially-copyable types (Int, Float, Bool) to enable optimizations
@@ -60,6 +61,15 @@ impl TypeChecker {
     /// mutual recursion (e.g., even/odd pattern) in addition to direct recursion.
     pub fn set_call_graph(&mut self, call_graph: CallGraph) {
         self.call_graph = Some(call_graph);
+    }
+
+    /// Get line info prefix for error messages (e.g., "at line 42: " or "")
+    fn line_prefix(&self) -> String {
+        self.current_word
+            .borrow()
+            .as_ref()
+            .and_then(|(_, line)| line.map(|l| format!("at line {}: ", l + 1)))
+            .unwrap_or_default()
     }
 
     /// Look up a union type by name
@@ -352,7 +362,8 @@ impl TypeChecker {
     /// Type check a word definition
     fn check_word(&self, word: &WordDef) -> Result<(), String> {
         // Track current word for detecting recursive tail calls (divergent branches)
-        *self.current_word.borrow_mut() = Some(word.name.clone());
+        let line = word.source.as_ref().map(|s| s.start_line);
+        *self.current_word.borrow_mut() = Some((word.name.clone(), line));
 
         // All words must have declared effects (enforced in check_program)
         let declared_effect = word.effect.as_ref().expect("word must have effect");
@@ -373,10 +384,13 @@ impl TypeChecker {
         *self.expected_quotation_type.borrow_mut() = None;
 
         // Verify result matches declared output
+        let line_info = line
+            .map(|l| format!("at line {}: ", l + 1))
+            .unwrap_or_default();
         unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
             format!(
-                "Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
-                word.name, declared_effect.outputs, result_stack, e
+                "{}Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
+                line_info, word.name, declared_effect.outputs, result_stack, e
             )
         })?;
 
@@ -386,9 +400,9 @@ impl TypeChecker {
         for inferred in &inferred_effects {
             if !self.effect_matches_any(inferred, &declared_effect.effects) {
                 return Err(format!(
-                    "Word '{}': body produces effect '{}' but no matching effect is declared.\n\
+                    "{}Word '{}': body produces effect '{}' but no matching effect is declared.\n\
                      Hint: Add '| Yield <type>' to the word's stack effect declaration.",
-                    word.name, inferred
+                    line_info, word.name, inferred
                 ));
             }
         }
@@ -398,9 +412,9 @@ impl TypeChecker {
         for declared in &declared_effect.effects {
             if !self.effect_matches_any(declared, &inferred_effects) {
                 return Err(format!(
-                    "Word '{}': declares effect '{}' but body doesn't produce it.\n\
+                    "{}Word '{}': declares effect '{}' but body doesn't produce it.\n\
                      Hint: Remove the effect declaration or ensure the body uses yield.",
-                    word.name, declared
+                    line_info, word.name, declared
                 ));
             }
         }
@@ -487,7 +501,8 @@ impl TypeChecker {
             // Capture statement type info for codegen optimization (Issue #186)
             // Record the top-of-stack type BEFORE this statement for operations like dup
             // Only capture for top-level word bodies, not nested branches/loops
-            if capture_stmt_types && let Some(word_name) = self.current_word.borrow().as_ref() {
+            if capture_stmt_types && let Some((word_name, _)) = self.current_word.borrow().as_ref()
+            {
                 self.capture_statement_type(word_name, i, &current_stack);
             }
 
@@ -592,8 +607,11 @@ impl TypeChecker {
                 }
                 StackType::Empty => {
                     return Err(format!(
-                        "{}: stack underflow - position {} requested but stack has only {} concrete items",
-                        op, n, pos
+                        "{}{}: stack underflow - position {} requested but stack has only {} concrete items",
+                        self.line_prefix(),
+                        op,
+                        n,
+                        pos
                     ));
                 }
             }
@@ -657,8 +675,10 @@ impl TypeChecker {
                 }
                 StackType::Empty => {
                     return Err(format!(
-                        "roll: stack underflow - position {} requested but stack has only {} items",
-                        n, pos
+                        "{}roll: stack underflow - position {} requested but stack has only {} items",
+                        self.line_prefix(),
+                        n,
+                        pos
                     ));
                 }
             }
@@ -825,7 +845,7 @@ impl TypeChecker {
     /// could track known non-returning functions or support explicit divergence
     /// annotations (similar to Rust's `!` type).
     fn is_divergent_branch(&self, statements: &[Statement]) -> bool {
-        let Some(current_word) = self.current_word.borrow().as_ref().cloned() else {
+        let Some((current_word_name, _)) = self.current_word.borrow().as_ref().cloned() else {
             return false;
         };
         let Some(Statement::WordCall { name, .. }) = statements.last() else {
@@ -833,13 +853,13 @@ impl TypeChecker {
         };
 
         // Direct recursion: word calls itself
-        if name == &current_word {
+        if name == &current_word_name {
             return true;
         }
 
         // Mutual recursion: word calls another word in the same SCC
         if let Some(ref graph) = self.call_graph
-            && graph.are_mutually_recursive(&current_word, name)
+            && graph.are_mutually_recursive(&current_word_name, name)
         {
             return true;
         }
@@ -1027,10 +1047,13 @@ impl TypeChecker {
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Pop the quotation from the stack
-        let (remaining_stack, quot_type) = current_stack
-            .clone()
-            .pop()
-            .ok_or_else(|| "call: stack underflow - expected quotation on stack".to_string())?;
+        let line_prefix = self.line_prefix();
+        let (remaining_stack, quot_type) = current_stack.clone().pop().ok_or_else(|| {
+            format!(
+                "{}call: stack underflow - expected quotation on stack",
+                line_prefix
+            )
+        })?;
 
         // Extract the quotation's effect
         let quot_effect = match &quot_type {
@@ -1151,10 +1174,19 @@ impl TypeChecker {
             let is_rigid = row_var_name == "rest";
 
             if is_rigid && effect_concrete > stack_concrete {
-                let word_name = self.current_word.borrow().clone().unwrap_or_default();
+                let word_name = self
+                    .current_word
+                    .borrow()
+                    .as_ref()
+                    .map(|(n, _)| n.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
                 return Err(format!(
-                    "In '{}': {}: stack underflow - requires {} value(s), only {} provided",
-                    word_name, operation, effect_concrete, stack_concrete
+                    "{}In '{}': {}: stack underflow - requires {} value(s), only {} provided",
+                    self.line_prefix(),
+                    word_name,
+                    operation,
+                    effect_concrete,
+                    stack_concrete
                 ));
             }
         }

@@ -165,7 +165,7 @@
     rot call                 # ( OkCtor new-value )
     swap call                # ( Result )
   else
-    rot drop rot drop        # ( Result ) - keep original Err
+    nip nip                  # ( Result ) - keep original Err
   then
 ;
 
@@ -250,7 +250,7 @@
     rot call                 # ( SomeCtor new-value )
     swap call                # ( Option )
   else
-    rot drop rot drop        # ( Option ) - keep original None
+    nip nip                  # ( Option ) - keep original None
   then
 ;
 

@@ -157,6 +157,22 @@ install-lsp: build-lsp
     @echo "✅ seq-lsp installed to ~/.local/bin/seq-lsp"
     @echo "   Make sure ~/.local/bin is in your PATH"
 
+# Generate examples documentation for mdBook
+gen-docs:
+    @echo "Generating examples documentation..."
+    ./scripts/generate-examples-docs.sh
+    @echo "✅ Documentation generated"
+
+# Build the mdBook documentation
+docs: gen-docs
+    @echo "Building documentation..."
+    mdbook build
+    @echo "✅ Documentation built in book/"
+
+# Serve documentation locally with hot reload
+docs-serve: gen-docs
+    mdbook serve --open
+
 # Clean all build artifacts
 clean:
     @echo "Cleaning build artifacts..."

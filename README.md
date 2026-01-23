@@ -29,15 +29,19 @@ A concatenative, stack-based programming language that compiles to native execut
 : main ( -- ) 10 factorial int->string io.write-line ;
 ```
 
+---
+
 ## Project Status
 
-**Stable as of 1.1.0.** The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
+Stable as of 1.1.0. The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
+
+---
 
 ## Why Seq?
 
-**Stack-based simplicity.** No variable declarations, no argument lists - values flow through the stack. Code reads left-to-right as a pipeline of transformations.
+*Stack-based simplicity.* No variable declarations, no argument lists - values flow through the stack. Code reads left-to-right as a pipeline of transformations.
 
-**Strongly typed with effect tracking.** Stack effects aren't just comments - they're enforced by the compiler. The type system tracks not only what goes on and off the stack, but also side effects like yielding from generators:
+*Strongly typed with effect tracking.* Stack effects aren't just comments - they're enforced by the compiler. The type system tracks not only what goes on and off the stack, but also side effects like yielding from generators:
 
 ```seq
 : counter ( Ctx Int -- Ctx | Yield Int )   # Yields integers, takes a context
@@ -46,22 +50,22 @@ A concatenative, stack-based programming language that compiles to native execut
 ;
 ```
 
-**Guaranteed tail call optimization.** Recursive functions run in constant stack space via LLVM's `musttail`. Write elegant recursive algorithms without stack overflow concerns.
+*Guaranteed tail call optimization.* Recursive functions run in constant stack space via LLVM's `musttail`. Write elegant recursive algorithms without stack overflow concerns.
 
-**CSP-style concurrency.** Lightweight strands (green threads) communicate through channels. No shared memory, no locks - just message passing.
+*CSP-style concurrency.* Lightweight strands (green threads) communicate through channels. No shared memory, no locks - just message passing.
 
-**No implicit numeric conversions.** Operations like `i.+` and `f.+` make types explicit. No silent coercion, no precision loss, no "wat" moments - when you need to mix types, you convert explicitly with `int->float` or `float->int`.
+*No implicit numeric conversions.* Operations like `i.+` and `f.+` make types explicit. No silent coercion, no precision loss, no "wat" moments - when you need to mix types, you convert explicitly with `int->float` or `float->int`.
+
+---
 
 ## Installation
 
-### Prerequisites
-
-**clang** is required to compile Seq programs (used to compile LLVM IR to native executables):
+*Prerequisites* — **clang** is required to compile Seq programs (used to compile LLVM IR to native executables):
 - macOS: `xcode-select --install`
 - Ubuntu/Debian: `apt install clang`
 - Fedora: `dnf install clang`
 
-### Install from crates.io
+*Install from crates.io:*
 
 ```bash
 cargo install seq-compiler  # installs seqc (compiler)
@@ -69,15 +73,13 @@ cargo install seq-repl      # installs seqr (interactive REPL)
 cargo install seq-lsp       # installs seq-lsp (optional, for editor support)
 ```
 
-### Build from source
+*Build from source:*
 
 ```bash
 cargo build --release
 ```
 
-### Virtual Environments
-
-Create isolated environments to manage multiple Seq versions or pin a specific version for a project:
+*Virtual Environments* — Create isolated environments to manage multiple Seq versions or pin a specific version for a project:
 
 ```bash
 seqc venv myenv
@@ -86,7 +88,7 @@ source myenv/bin/activate
 
 This copies the `seqc`, `seqr`, and `seq-lsp` binaries into `myenv/bin/`, completely isolated from your system installation. Unlike Python's venv (which uses symlinks), Seq copies binaries so your project won't break if the system Seq is updated.
 
-**Activate/deactivate:**
+Activate/deactivate:
 ```bash
 source myenv/bin/activate   # Prepends myenv/bin to PATH, shows (myenv) in prompt
 deactivate                  # Restores original PATH
@@ -94,15 +96,17 @@ deactivate                  # Restores original PATH
 
 Supports bash, zsh, fish (`activate.fish`), and csh/tcsh (`activate.csh`).
 
+---
+
 ## Quick Start
 
-**Compile and run a program:**
+Compile and run a program:
 ```bash
 seqc build examples/hello-world.seq
 ./hello-world
 ```
 
-**Script mode (run directly):**
+Script mode (run directly):
 ```bash
 seqc examples/hello-world.seq          # Compile and run in one step
 ```
@@ -120,21 +124,25 @@ chmod +x myscript.seq
 
 Script mode compiles with `-O0` for fast startup and caches binaries in `~/.cache/seq/` (or `$XDG_CACHE_HOME/seq/`). Cache keys include the source and all includes, so scripts recompile automatically when dependencies change.
 
-**Check version:**
+Check version:
 ```bash
 seqc --version
 ```
 
-**Run tests:**
+Run tests:
 ```bash
 cargo test --all
 ```
 
+---
+
 ## Learn Seq
 
-**New to concatenative programming?** Start with the [Glossary](https://navicore.github.io/patch-seq/GLOSSARY.html) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms.
+New to concatenative programming? Start with the [Glossary](GLOSSARY.md) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms.
 
-**Learn by doing:** Work through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
+Learn by doing: Work through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
+
+---
 
 ## Interactive REPL
 
@@ -144,7 +152,7 @@ The `seqr` REPL provides an interactive environment for exploring Seq:
 seqr
 ```
 
-**Stack persists across lines:**
+Stack persists across lines:
 ```
 seqr> 1 2
 stack: 1 2
@@ -158,24 +166,15 @@ seqr> square
 stack: 3 25
 ```
 
-**Commands:**
-- `:clear`  - Reset session
-- `:edit`   - Open in $EDITOR
-- `:pop`    - Remove last expression (undo)
-- `:quit`   - Exit
-- `:show`   - Show current file
-- `:stack`  - Show current stack
+Commands: `:clear` (reset), `:edit` (open in $EDITOR), `:pop` (undo), `:quit` (exit), `:show` (show file), `:stack` (show stack)
 
-**Editing:**
-- Vi-mode editing (Esc for normal mode, i for insert)
-- **Shift+Enter** - Insert newline for multiline input
-- **Tab** - Trigger completions
-- **F1/F2/F3** - Toggle IR pane views (Stack/AST/LLVM)
+Editing: Vi-mode (Esc for normal, i for insert), Shift+Enter (newline), Tab (completions), F1/F2/F3 (toggle IR views)
+
+---
 
 ## Language Features
 
-### Stack Operations & Arithmetic
-
+*Stack Operations & Arithmetic:*
 ```seq
 dup drop swap over rot nip tuck pick 2dup 3drop   # Stack manipulation
 i.+ i.- i.* i./ i.%                               # Integer arithmetic
@@ -186,9 +185,7 @@ band bor bxor bnot shl shr popcount               # Bitwise operations
 
 Numeric literals support decimal, hex (`0xFF`), and binary (`0b1010`).
 
-### Algebraic Data Types
-
-Define sum types with `union` and pattern match with `match`:
+*Algebraic Data Types* — Define sum types with `union` and pattern match with `match`:
 
 ```seq
 union Option { None, Some { value: Int } }
@@ -201,18 +198,14 @@ union Option { None, Some { value: Int } }
 ;
 ```
 
-### Quotations & Higher-Order Programming
-
-Quotations are first-class anonymous functions:
+*Quotations & Higher-Order Programming* — Quotations are first-class anonymous functions:
 
 ```seq
 [ dup i.* ] 5 swap call    # Square 5 → 25
 my-list [ 2 i.* ] list.map # Double each element
 ```
 
-### Concurrency
-
-Strands (green threads) communicate through channels:
+*Concurrency* — Strands (green threads) communicate through channels:
 
 ```seq
 make-channel
@@ -227,9 +220,7 @@ Weaves provide generator-style coroutines with bidirectional communication:
 initial-value strand.resume   # Yields values back and forth
 ```
 
-### Standard Library
-
-Import modules with `include std:module`:
+*Standard Library* — Import modules with `include std:module`:
 
 | Module | Purpose |
 |--------|---------|
@@ -239,58 +230,47 @@ Import modules with `include std:module`:
 | `std:math` | Mathematical functions |
 | `std:stack-utils` | Stack manipulation utilities |
 
-## Examples
+---
 
-The `examples/` directory contains programs demonstrating various features:
+## Sample Programs
 
-| Directory | What it shows |
-|-----------|---------------|
-| `hello-world.seq` | Basic I/O |
-| `recursion/` | Tail-recursive algorithms (fibonacci, factorial) |
-| `json/` | JSON parsing with the standard library |
-| `http/` | HTTP routing and TCP servers |
-| `weave/` | Generator patterns and coroutines |
-| `csp/` | Channel-based actor patterns |
-| `hackers-delight/` | Bit manipulation puzzles |
-| `lisp/` | A Lisp interpreter in Seq |
+See the [Examples](EXAMPLES.md) chapter for complete programs organized by category (basics, language features, paradigms, data formats, I/O, projects, FFI).
+
+---
 
 ## Editor Support
 
 The `seq-lsp` language server provides IDE features in your editor.
 
-**Install:**
-```bash
-cargo install seq-lsp
-```
+Install: `cargo install seq-lsp`
 
-**Neovim:** Use [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) with Lazy:
+Neovim: Use [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) with Lazy:
 ```lua
 { "navicore/patch-seq.nvim", ft = "seq", opts = {} }
 ```
 
-**Features:**
-- Real-time diagnostics (parse errors, type errors, undefined words)
-- Autocompletion for builtins, local words, and included modules
-- Context-aware completions (stack effects, include statements)
-- Syntax highlighting
+Features: Real-time diagnostics, autocompletion for builtins/local words/modules, context-aware completions, syntax highlighting.
+
+---
 
 ## Configuration
 
-**Environment Variables:**
+Environment Variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SEQ_STACK_SIZE` | 1048576 (1MB) | Coroutine stack size in bytes. Increase if you hit stack overflow in deeply nested (non-tail) calls. |
-| `SEQ_YIELD_INTERVAL` | 0 (disabled) | Yield to scheduler every N tail calls. Prevents tight recursive loops from starving other strands. |
-| `SEQ_WATCHDOG_SECS` | 0 (disabled) | Detect strands running longer than N seconds. See `crates/runtime/src/watchdog.rs` for details. |
+| `SEQ_STACK_SIZE` | 1048576 (1MB) | Coroutine stack size in bytes |
+| `SEQ_YIELD_INTERVAL` | 0 (disabled) | Yield to scheduler every N tail calls |
+| `SEQ_WATCHDOG_SECS` | 0 (disabled) | Detect strands running longer than N seconds |
 
-Examples:
 ```bash
 SEQ_STACK_SIZE=2097152 ./my-program      # 2MB stacks
 SEQ_YIELD_INTERVAL=10000 ./my-program    # Yield every 10K tail calls
 SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
 ```
 
+---
+
 ## License
 
-MIT License
+MIT

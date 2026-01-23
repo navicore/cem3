@@ -1,48 +1,85 @@
 #!/bin/bash
-# Generate docs/EXAMPLES.md from examples/README.md files
-#
-# This script assembles the examples documentation from README files
-# in the examples directory. Run it before building the mdBook.
+# Generate docs from source files:
+#   - docs/README.md from root README.md (with ## converted to bold for mdBook)
+#   - docs/EXAMPLES.md from examples/README.md files
 #
 # Usage: ./scripts/generate-examples-docs.sh
+#        just gen-docs
 
 set -e
+
+# Generate docs/README.md from root README.md
+# Convert ## headers to bold so they don't appear in mdBook sidebar
+echo "Generating docs/README.md..."
+sed 's/^## \(.*\)/**\1**/' README.md > docs/README.md
 
 OUTPUT="docs/EXAMPLES.md"
 EXAMPLES_DIR="examples"
 
-# Start with the main examples README
+# Start with minimal header
 cat > "$OUTPUT" << 'HEADER'
 # Examples
 
 > **Note**: This file is auto-generated from README files in the `examples/` directory.
-> Edit those files instead of this one.
+> Run `just gen-docs` to regenerate, or edit the source README files.
 
 HEADER
 
-# Add the main overview (skip the title since we added one)
-tail -n +3 "$EXAMPLES_DIR/README.md" >> "$OUTPUT"
-
-echo "" >> "$OUTPUT"
-echo "---" >> "$OUTPUT"
-echo "" >> "$OUTPUT"
-
-# Process each category in order
+# Categories in display order (top-level only)
 CATEGORIES="basics language paradigms data io projects ffi"
 
+# Function to adjust header levels
+# $1 = number of levels to increase (1 for category, 2 for subcategory)
+adjust_headers() {
+    local levels=$1
+    if [ "$levels" -eq 1 ]; then
+        # # -> ##, ## -> ###, etc.
+        awk '{
+            if (/^####/) { sub(/^####/, "#####"); }
+            else if (/^###/) { sub(/^###/, "####"); }
+            else if (/^##/) { sub(/^##/, "###"); }
+            else if (/^#/) { sub(/^#/, "##"); }
+            print
+        }'
+    else
+        # # -> ###, ## -> ####, etc. (for nested subcategories)
+        awk '{
+            if (/^###/) { sub(/^###/, "#####"); }
+            else if (/^##/) { sub(/^##/, "####"); }
+            else if (/^#/) { sub(/^#/, "###"); }
+            print
+        }'
+    fi
+}
+
 for category in $CATEGORIES; do
-    readme="$EXAMPLES_DIR/$category/README.md"
-    if [ -f "$readme" ]; then
-        echo "Processing $readme..."
-        cat "$readme" >> "$OUTPUT"
+    category_readme="$EXAMPLES_DIR/$category/README.md"
+
+    if [ -f "$category_readme" ]; then
+        echo "Processing $category_readme..."
         echo "" >> "$OUTPUT"
-        echo "---" >> "$OUTPUT"
+        cat "$category_readme" | adjust_headers 1 >> "$OUTPUT"
         echo "" >> "$OUTPUT"
     fi
+
+    # Look for subcategory READMEs (one level deep)
+    for subdir in "$EXAMPLES_DIR/$category"/*/; do
+        if [ -d "$subdir" ]; then
+            sub_readme="${subdir}README.md"
+            if [ -f "$sub_readme" ]; then
+                echo "  Processing $sub_readme..."
+                echo "" >> "$OUTPUT"
+                cat "$sub_readme" | adjust_headers 2 >> "$OUTPUT"
+                echo "" >> "$OUTPUT"
+            fi
+        fi
+    done
 done
 
 # Add footer
 cat >> "$OUTPUT" << 'FOOTER'
+---
+
 ## See Also
 
 - [Language Guide](language-guide.md) - Core language concepts

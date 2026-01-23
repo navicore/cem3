@@ -894,15 +894,31 @@ impl CodeGen {
             }
 
             // 3drop: ( a b c -- )
-            // Must call runtime to properly drop heap values
+            // Just call drop three times - simple and correct
             "3drop" => {
-                let result_var = self.fresh_temp();
+                // Spill virtual registers before runtime calls (Issue #189)
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
+                let drop1 = self.fresh_temp();
+                let drop2 = self.fresh_temp();
+                let drop3 = self.fresh_temp();
                 writeln!(
                     &mut self.output,
-                    "  %{} = call ptr @patch_seq_3drop(ptr %{})",
-                    result_var, stack_var
+                    "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                    drop1, stack_var
                 )?;
-                Ok(Some(result_var))
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                    drop2, drop1
+                )?;
+                writeln!(
+                    &mut self.output,
+                    "  %{} = call ptr @patch_seq_drop_op(ptr %{})",
+                    drop3, drop2
+                )?;
+                Ok(Some(drop3))
             }
 
             // pick: ( ... xn ... x1 x0 n -- ... xn ... x1 x0 xn )

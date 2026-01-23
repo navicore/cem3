@@ -22,4 +22,4 @@ level = 1
 [output.html.search]
 enable = true
 limit-results = 30
-use-hierarchical-headings = true
+boost-hierarchy = 2

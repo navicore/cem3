@@ -1,52 +1,14 @@
 # Examples
 
 > **Note**: This file is auto-generated from README files in the `examples/` directory.
-> Edit those files instead of this one.
+> Run `just gen-docs` to regenerate, or edit the source README files.
 
-The `examples/` directory contains programs demonstrating Seq's features, organized by category. These examples are tested in CI and serve as both documentation and regression tests.
 
-## Categories
-
-| Directory | Description |
-|-----------|-------------|
-| [basics/](basics/) | Getting started - hello world and simple programs |
-| [language/](language/) | Core language features - quotations, closures, recursion |
-| [paradigms/](paradigms/) | Programming paradigms - OOP, actors, functional |
-| [data/](data/) | Data formats - JSON, YAML, SON, zipper |
-| [io/](io/) | Input/output - HTTP, terminal, files, text processing |
-| [projects/](projects/) | Complete applications - Lisp interpreter, crypto, algorithms |
-| [ffi/](ffi/) | Foreign function interface - SQLite, libedit |
-
-## Running Examples
-
-```bash
-# Build and run
-seqc build examples/basics/hello-world.seq -o /tmp/hello
-/tmp/hello
-
-# Or use script mode (compile + run in one step)
-seqc examples/basics/hello-world.seq
-```
-
-## Learning Path
-
-If you're new to Seq, we suggest this order:
-
-1. `basics/hello-world.seq` - Verify your setup
-2. `language/stack-effects.seq` - Understand the type system
-3. `language/control-flow.seq` - Conditionals and recursion
-4. `language/quotations.seq` - First-class functions
-5. `data/json/json_tree.seq` - Real-world data processing
-6. `paradigms/actor/` - Concurrency patterns
-7. `projects/lisp/` - A complete interpreter
-
----
-
-# Basics
+## Basics
 
 Getting started with Seq - the simplest programs to verify your setup.
 
-## hello-world.seq
+### hello-world.seq
 
 The canonical first program:
 
@@ -54,17 +16,16 @@ The canonical first program:
 : main ( -- Int ) "Hello, World!" io.write-line 0 ;
 ```
 
-## cond.seq
+### cond.seq
 
 Demonstrates the `cond` combinator for multi-way branching - a cleaner alternative to nested if/else.
 
----
 
-# Language Features
+## Language Features
 
 Core Seq language concepts demonstrated through focused examples.
 
-## Stack Effects (stack-effects.seq)
+### Stack Effects (stack-effects.seq)
 
 Stack effect declarations and how the type checker enforces them:
 
@@ -72,7 +33,7 @@ Stack effect declarations and how the type checker enforces them:
 : square ( Int -- Int ) dup i.* ;
 ```
 
-## Quotations (quotations.seq)
+### Quotations (quotations.seq)
 
 Anonymous code blocks that can be passed around and called:
 
@@ -83,7 +44,7 @@ Anonymous code blocks that can be passed around and called:
 5 [ 2 i.* ] apply-twice  # Result: 20
 ```
 
-## Closures (closures.seq)
+### Closures (closures.seq)
 
 Quotations that capture values from their environment:
 
@@ -95,7 +56,7 @@ Quotations that capture values from their environment:
 5 swap call    # Result: 15
 ```
 
-## Control Flow (control-flow.seq)
+### Control Flow (control-flow.seq)
 
 Conditionals, pattern matching, and loops:
 
@@ -108,7 +69,7 @@ Conditionals, pattern matching, and loops:
   then then then ;
 ```
 
-## Recursion (recursion.seq)
+### Recursion (recursion.seq)
 
 Tail-recursive algorithms with guaranteed TCO:
 
@@ -121,7 +82,7 @@ Tail-recursive algorithms with guaranteed TCO:
 : factorial ( Int -- Int ) 1 factorial-acc ;
 ```
 
-## Strands (strands.seq)
+### Strands (strands.seq)
 
 Lightweight concurrent execution:
 
@@ -129,17 +90,16 @@ Lightweight concurrent execution:
 [ "Hello from strand!" io.write-line ] strand.spawn
 ```
 
-## Include Demo (main.seq, http_simple.seq)
+### Include Demo (main.seq, http_simple.seq)
 
 Demonstrates the module include system for code organization.
 
----
 
-# Programming Paradigms
+## Programming Paradigms
 
 Seq is flexible enough to express multiple programming paradigms. These examples demonstrate different approaches to structuring programs.
 
-## Object-Oriented (oop/)
+### Object-Oriented (oop/)
 
 **shapes.seq** - OOP patterns using unions and pattern matching:
 
@@ -161,7 +121,7 @@ union Shape {
   end ;
 ```
 
-## Actor Model (actor/)
+### Actor Model (actor/)
 
 **actor_counters.seq** - CSP/Actor demonstration with hierarchical aggregation:
 
@@ -181,25 +141,44 @@ Features:
 
 **sensor-classifier.seq** - Stream processing with structured data.
 
-## Functional (functional/)
+### Functional (functional/)
 
-*Coming soon* - Pure functional patterns, composition, immutability.
+**lists.seq** - Higher-order functions and list processing:
 
-## Logic (logic/)
+```seq
+## Built-in higher-order functions
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  [ 2 i.* ] list.map       # (2 4 6 8 10)
+  [ 2 mod 0 i.= ] list.filter  # keep evens
+  0 [ i.+ ] list.fold      # sum
+
+## Functional pipelines
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv 6 lv 7 lv 8 lv 9 lv 10 lv
+  keep-odds      # filter to 1,3,5,7,9
+  square-each    # map to 1,9,25,49,81
+  sum            # fold to 165
+```
+
+Features:
+- **map**: Transform each element with a quotation
+- **filter**: Keep elements matching a predicate
+- **fold**: Reduce list to single value with accumulator
+- Composable operations for data pipelines
+
+### Logic (logic/)
 
 *Coming soon* - Backtracking, unification patterns.
 
-## Dataflow (dataflow/)
+### Dataflow (dataflow/)
 
 *Coming soon* - Reactive and stream-based patterns.
 
----
 
-# Data Formats & Structures
+## Data Formats & Structures
 
 Working with structured data in Seq.
 
-## JSON (json/)
+### JSON (json/)
 
 **json_tree.seq** - Parse and traverse JSON:
 
@@ -212,18 +191,18 @@ include std:json
   0 ;
 ```
 
-## YAML (yaml/)
+### YAML (yaml/)
 
 YAML parsing with support for:
 - Multiline strings
 - Nested structures
 - Anchors and aliases
 
-## SON (son/)
+### SON (son/)
 
 **serialize.seq** - Seq Object Notation, Seq's native serialization format optimized for stack-based data.
 
-## Zipper (zipper/)
+### Zipper (zipper/)
 
 **zipper-demo.seq** - Functional list navigation with O(1) cursor movement:
 
@@ -236,17 +215,228 @@ zipper.right zipper.right  # Move to element 3
 zipper.to-list             # { 1 2 100 4 5 }
 ```
 
-## Encoding (encoding.seq)
+### Encoding (encoding.seq)
 
 Base64, hex, and other encoding/decoding operations.
 
----
 
-# Input/Output
+### JSON Examples
+
+Practical examples demonstrating JSON parsing and serialization in Seq.
+
+#### json_tree.seq - JSON Tree Viewer
+
+An interactive tool that reads JSON from files, command-line, or stdin, parses it, and displays the structure.
+
+##### Usage
+
+```bash
+### Build
+cargo build --release
+./target/release/seqc --output json_tree examples/json/json_tree.seq
+
+### Read from a JSON file (preferred)
+./json_tree config.json
+./json_tree data/users.json
+
+### Or with command-line JSON string
+./json_tree '42'
+./json_tree 'true'
+./json_tree '"hello world"'
+./json_tree '[42]'
+
+### Or with piped input
+echo '42' | ./json_tree
+
+### Or interactive (type JSON, press Enter)
+./json_tree
+```
+
+##### Example Output
+
+```
+$ ./json_tree '[42]'
+=== JSON Tree Viewer ===
+
+Input: [42]
+
+Type: 4
+Value:
+  [42]
+```
+
+Type codes: 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
+
+#### What This Example Reveals We Need
+
+Building this practical example highlighted several missing features that would make Seq more useful for real-world JSON processing:
+
+##### Implemented
+
+1. **Command-line arguments** (`arg-count`, `arg`) ✓
+   - `arg-count` returns number of arguments (including program name)
+   - `arg` takes an index and returns the argument string
+   - Example: `./json_tree '[42]'` now works!
+
+2. **File I/O** (`file-slurp`, `file-exists?`) ✓
+   - `file-slurp` reads entire file contents as a string
+   - `file-exists?` checks if a file exists (returns 1 or 0)
+   - Example: `./json_tree config.json` now works!
+
+3. **Multi-element arrays (up to 2 elements)** ✓
+   - `[1]`, `[1, 2]`, `["a", "b"]`, `[42, "mixed"]`
+   - Strings, numbers, booleans all work inside arrays
+
+4. **Strings at any position** ✓
+   - Strings now parse correctly whether top-level or inside arrays
+   - `"hello"`, `["hello"]`, `["a", "b"]` all work
+
+5. **Multi-element arrays** ✓
+   - Arrays with any number of elements: `[1, 2, 3, ...]`
+   - Nested arrays: `[[1, 2], [3, 4]]`
+   - Mixed content: `[1, "hello", true, null]`
+
+6. **Multi-pair objects** ✓
+   - Objects with any number of key-value pairs
+   - Nested objects: `{"person": {"name": "John", "age": 30}}`
+   - Complex structures: `[{"name": "John"}, {"name": "Jane"}]`
+
+7. **Functional collection builders** ✓
+   - `array-with`: `( arr val -- arr' )` - append to array
+   - `obj-with`: `( obj key val -- obj' )` - add key-value pair
+   - `variant-append`: low-level primitive for building variants
+
+##### High Priority
+
+1. **Write without newline** (`write` vs `write_line`)
+   - Would allow proper indentation output
+   - Currently can only output complete lines
+
+##### Medium Priority
+
+2. **Pattern matching / case statement**
+   - Would simplify tag-based dispatch
+   - Currently requires nested if/else chains
+
+##### Nice to Have
+
+5. **String escape sequences** (`\"`, `\\`, `\n`)
+6. **Pretty-print with indentation levels**
+7. **JSON path queries** (`$.foo.bar`)
+
+#### Current JSON Support
+
+Works:
+- Primitives: `null`, `true`, `false`
+- Numbers: `42`, `-3.14`, `1e10`
+- Strings: `"hello"`, `"hello world"` (no escapes)
+- Arrays: `[]`, `[1]`, `[1, 2]`, `[1, 2, 3]`, nested arrays, any length
+- Objects: `{}`, `{"a": 1}`, `{"a": 1, "b": 2}`, nested objects, any number of pairs
+- Complex nested structures: `[{"name": "John", "age": 30}, {"name": "Jane"}]`
+
+Serialization limits (parsing works for any size):
+- Arrays: up to 3 elements display fully, 4+ show as `[...]`
+- Objects: up to 2 pairs display fully, 3+ show as `{...}`
+
+Limitations:
+- String escapes: `"say \"hi\""` - not supported
+
+#### Technical Notes
+
+##### Why Serialization Has Size Limits
+
+The serializer (`json-serialize-array`, `json-serialize-object`) uses nested if/else
+chains to handle different sizes (0, 1, 2, 3 elements). This is because Seq currently
+lacks:
+
+1. **Loops** - No `for i in 0..count` construct
+2. **Tail-call optimization** - Recursion would blow the stack for large collections
+3. **Variant fold/map** - No way to iterate over variant fields from Seq
+
+Possible solutions:
+- Add a `variant-fold` runtime primitive: `( variant init quot -- result )`
+- Add counted loops to the language
+- Implement TCO for recursive serialization
+
+##### Why Parsing Has No Size Limits
+
+Parsing uses recursive descent with the functional builders (`array-with`, `obj-with`).
+Each recursive call builds up the collection incrementally. The stack usage is
+proportional to nesting depth, not collection size, so `[1,2,3,...,1000]` works fine
+but deeply nested structures could overflow.
+
+
+### YAML Examples
+
+Examples demonstrating the YAML parsing library implemented in Seq.
+
+#### Overview
+
+The YAML library (`std:yaml`) is written entirely in Seq, using only the
+existing language primitives. This validates that the builtin/stdlib balance
+allows building complex parsers without language changes.
+
+#### Primitives Used
+
+The YAML parser uses these existing primitives:
+- String operations: `string-find`, `string-substring`, `string-trim`, `string-empty`, `string-length`, `string-char-at`, `string-concat`, `string->float`
+- Character conversion: `char->string`
+- Variant operations: `make-variant-0`, `make-variant-1`, `variant-tag`, `variant-field-at`, `variant-field-count`, `variant-append`
+- Standard stack operations: `dup`, `drop`, `swap`, `over`, `rot`
+- Arithmetic and comparison: `add`, `subtract`, `<`, `>`, `=`, `<>`
+- Control flow: `if/else/then`
+
+No new primitives were required.
+
+#### Examples
+
+##### yaml_test.seq
+Basic tests for single-line YAML parsing:
+- Strings: `name: John`
+- Numbers: `age: 42`, `price: 19.99`
+- Booleans: `active: true`, `enabled: false`
+- Null: `data: null`, `empty: ~`
+
+##### yaml_multiline.seq
+Tests for multi-line YAML documents:
+- Multiple key-value pairs
+- Blank lines (ignored)
+- Comments (lines starting with #)
+
+#### Running
+
+```bash
+cargo run --release -- examples/yaml/yaml_test.seq -o /tmp/yaml_test
+/tmp/yaml_test
+
+cargo run --release -- examples/yaml/yaml_multiline.seq -o /tmp/yaml_multi
+/tmp/yaml_multi
+```
+
+#### Supported YAML Features
+
+- Multi-line documents with multiple key-value pairs
+- String values (unquoted)
+- Integer and floating-point numbers
+- Booleans (true/false)
+- Null values (null or ~)
+- Comments (# to end of line)
+- Blank lines
+
+#### Not Yet Supported
+
+- Nested objects (indentation-based nesting)
+- Arrays/lists (- item syntax)
+- Multi-line strings (| and > block scalars)
+- Quoted strings with escapes
+- Anchors and aliases
+
+
+## Input/Output
 
 Networking, file I/O, terminal, and text processing.
 
-## HTTP Server (http/)
+### HTTP Server (http/)
 
 **http_server.seq** - TCP server with HTTP routing:
 
@@ -265,7 +455,7 @@ include std:http
 
 **test_simple.seq** - Basic HTTP request/response testing.
 
-## HTTP Client (http-client.seq)
+### HTTP Client (http-client.seq)
 
 Making HTTP requests using the std:http module:
 
@@ -276,31 +466,129 @@ include std:http
 http.body io.write-line
 ```
 
-## Terminal (terminal/)
+### Terminal (terminal/)
 
 **terminal-demo.seq** - Terminal colors, cursor control, and formatting using ANSI escape sequences.
 
-## Operating System (os/)
+### Operating System (os/)
 
 **os-demo.seq** - Environment variables, paths, and system information.
 
-## Text Processing (text/)
+### Text Processing (text/)
 
 **log-parser.seq** - Parsing structured log files with string operations.
 
 **regex-demo.seq** - Regular expression matching and extraction.
 
-## Compression (compress-demo.seq)
+### Compression (compress-demo.seq)
 
 Zstd compression and decompression for efficient data storage.
 
----
 
-# Complete Projects
+### HTTP Server Example for Seq
+
+A complete concurrent HTTP server demonstrating Seq's capabilities:
+- TCP socket operations
+- Concurrent request handling with strands (green threads)
+- Channel-based communication (CSP)
+- Closure capture for spawned workers
+- HTTP routing with pattern matching
+
+#### Prerequisites
+
+Build the compiler:
+```bash
+cargo build --release
+```
+
+#### Running the Server
+
+```bash
+./target/release/seqc --output /tmp/http_server examples/http/http_server.seq
+/tmp/http_server
+```
+
+The server listens on port 8080 and handles multiple concurrent connections.
+
+#### Testing
+
+In another terminal:
+
+```bash
+### Test root endpoint
+curl http://localhost:8080/
+### Output: Hello from Seq!
+
+### Test health endpoint
+curl http://localhost:8080/health
+### Output: OK
+
+### Test echo endpoint
+curl http://localhost:8080/echo
+### Output: Echo!
+
+### Test 404 handling
+curl http://localhost:8080/invalid
+### Output: 404 Not Found
+```
+
+#### How It Works
+
+The server demonstrates several Seq features:
+
+1. **TCP Operations**: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`, `tcp-close`
+2. **Routing**: Uses `cond` combinator for multi-way branching on request paths
+3. **Concurrency**: Each connection is handled in a separate strand (green thread)
+4. **Channels**: Spawned workers receive socket IDs via channels
+5. **Closures**: The `[ worker ]` quotation captures the channel ID when spawned
+
+##### Architecture
+
+```
+main
+  ├─ tcp-listen (creates listener socket)
+  └─ accept-loop (infinite)
+       ├─ tcp-accept (waits for connection)
+       ├─ make-channel (creates communication channel)
+       ├─ spawn [ worker ] (launches handler strand with channel)
+       └─ send (passes socket ID to worker via channel)
+
+worker strand
+  ├─ receive (gets socket ID from channel)
+  └─ handle-connection
+       ├─ tcp-read (reads HTTP request)
+       ├─ route (pattern matches to response)
+       ├─ tcp-write (sends HTTP response)
+       └─ tcp-close (cleanup)
+```
+
+#### Key Features
+
+**Non-blocking I/O**: All TCP operations cooperate with May's coroutine scheduler, yielding instead of blocking OS threads.
+
+**Efficient Concurrency**: The server can handle thousands of concurrent connections using lightweight strands.
+
+**Stack-based Routing**: HTTP routing is implemented using Seq's `cond` combinator, demonstrating clean concatenative style.
+
+#### Next Steps
+
+This example serves as a foundation for:
+- RESTful APIs with JSON
+- WebSocket servers
+- HTTP client implementations
+- More sophisticated routing (path parameters, query strings)
+
+#### References
+
+- [Seq Roadmap](../../docs/ROADMAP.md)
+- [Concatenative Design](../../docs/CLEAN_CONCATENATIVE_DESIGN.md)
+
+
+## Complete Projects
 
 Larger applications demonstrating Seq's capabilities.
 
-## Lisp Interpreter (lisp/)
+### Lisp Interpreter (lisp/)
 
 A complete Lisp interpreter in Seq:
 
@@ -325,7 +613,7 @@ This project demonstrates:
 - **Recursive descent** parsing
 - **Environment passing** for lexical scope
 
-## Hacker's Delight (hackers-delight/)
+### Hacker's Delight (hackers-delight/)
 
 Bit manipulation algorithms from the book *Hacker's Delight*:
 
@@ -339,21 +627,154 @@ Bit manipulation algorithms from the book *Hacker's Delight*:
 
 Demonstrates Seq's bitwise operations: `band`, `bor`, `bxor`, `shl`, `shr`, `popcount`, `clz`, `ctz`.
 
-## Cryptography (crypto.seq)
+### Cryptography (crypto.seq)
 
 Cryptographic operations including hashing and encoding.
 
-## Shopping Cart (shopping-cart/)
+### Shopping Cart (shopping-cart/)
 
 A domain modeling example showing how to structure a typical business application with Seq.
 
----
 
-# Foreign Function Interface
+### Hacker's Delight Examples
+
+Bit manipulation puzzles inspired by the classic techniques in low-level programming.
+
+#### Files
+
+| File | Topic |
+|------|-------|
+| `01-rightmost-bits.seq` | Rightmost bit manipulation (turn off, isolate, propagate) |
+| `02-power-of-two.seq` | Power of 2 detection, next power, log2 |
+| `03-counting-bits.seq` | Popcount algorithms, parity, leading/trailing zeros |
+| `04-branchless.seq` | Branchless abs, sign, min, max |
+| `05-swap-reverse.seq` | XOR swap, bit reversal, bit set/clear/toggle |
+
+#### Running
+
+```bash
+seqc examples/hackers-delight/01-rightmost-bits.seq -o /tmp/demo && /tmp/demo
+```
+
+#### Bitwise Operations Used
+
+These examples use Seq's bitwise operations:
+
+- `band` - bitwise AND
+- `bor` - bitwise OR
+- `bxor` - bitwise XOR
+- `bnot` - bitwise NOT
+- `shl` - shift left
+- `shr` - logical shift right
+- `popcount` - count 1-bits
+- `clz` - count leading zeros
+- `ctz` - count trailing zeros
+- `int-bits` - bit width (64)
+
+#### Numeric Literals
+
+Seq supports hex and binary literals for bit manipulation:
+
+```seq
+0xFF        # hex: 255
+0b10101010  # binary: 170
+```
+
+
+### Shopping Cart REST Server
+
+A complete example demonstrating:
+- HTTP REST API with multiple endpoints
+- SQLite persistence with prepared statements
+- Database transactions for checkout
+- URL query parameter parsing
+- Concurrent request handling with strands
+
+#### Build
+
+```bash
+seqc --ffi-manifest examples/shopping-cart/sqlite.toml \
+     examples/shopping-cart/shopping-cart.seq -o shopping-cart
+```
+
+#### Run
+
+```bash
+./shopping-cart
+```
+
+#### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | API info |
+| GET | `/products` | List all products |
+| GET | `/cart` | View cart contents |
+| POST | `/cart/add?product=ID&qty=N` | Add item to cart |
+| POST | `/cart/remove?id=N` | Remove item from cart |
+| POST | `/cart/checkout` | Process order with transaction |
+
+#### Test with curl
+
+```bash
+### List products
+curl http://localhost:8080/products
+
+### Add items to cart
+curl -X POST "http://localhost:8080/cart/add?product=1&qty=2"
+curl -X POST "http://localhost:8080/cart/add?product=4&qty=1"
+
+### View cart
+curl http://localhost:8080/cart
+
+### Checkout (uses transaction)
+curl -X POST http://localhost:8080/cart/checkout
+
+### Verify stock was updated
+curl http://localhost:8080/products
+```
+
+#### Database
+
+The server creates `shop.db` with three tables:
+- `products` - Product catalog with stock tracking
+- `cart_items` - Shopping cart
+- `orders` - Completed orders
+
+Check the database directly:
+```bash
+sqlite3 shop.db "SELECT * FROM products"
+sqlite3 shop.db "SELECT * FROM orders"
+```
+
+#### Features Demonstrated
+
+##### SQLite FFI
+- `db-open`, `db-close` - Connection management
+- `db-exec` - Simple SQL execution
+- `db-prepare`, `db-step`, `db-finalize` - Prepared statements
+- `db-column-int`, `db-column-text` - Result extraction
+
+##### Transactions
+The checkout process uses `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK`:
+1. Calculate cart total
+2. Begin transaction
+3. Update product stock
+4. Create order record
+5. Clear cart
+6. Commit (or rollback on error)
+
+##### HTTP Server
+- Route matching by method and path
+- Query parameter parsing
+- Concurrent request handling with strands
+
+
+## Foreign Function Interface
 
 Calling native C libraries from Seq.
 
-## SQLite (sqlite/)
+### SQLite (sqlite/)
 
 **sqlite-demo.seq** - Database access through FFI:
 
@@ -371,17 +792,100 @@ include ffi:sqlite
 
 Requires `sqlite.toml` manifest defining the FFI bindings.
 
-## Libedit (libedit-demo.seq)
+### Libedit (libedit-demo.seq)
 
 Readline-style input using the libedit library for interactive command-line applications.
 
-## Creating FFI Bindings
+### Creating FFI Bindings
 
 1. Create a TOML manifest defining the C functions
 2. Use `include ffi:name` to load the bindings
 3. Call functions with Seq-style names (e.g., `sqlite.open`)
 
 See the [FFI Guide](../../docs/FFI_GUIDE.md) for complete documentation.
+
+
+### SQLite FFI Example
+
+This example demonstrates using SQLite via FFI, including the `by_ref` pass mode
+for out parameters (used by `sqlite3_open` to return the database handle).
+
+#### Building
+
+```bash
+seqc --ffi-manifest examples/ffi/sqlite/sqlite.toml \
+     examples/ffi/sqlite/sqlite-demo.seq \
+     -o sqlite-demo
+./sqlite-demo
+```
+
+#### Dependencies
+
+- **macOS**: SQLite is pre-installed
+- **Ubuntu/Debian**: `apt install libsqlite3-dev`
+- **Fedora**: `dnf install sqlite-devel`
+
+#### FFI Features Demonstrated
+
+##### `by_ref` Out Parameters
+
+SQLite's `sqlite3_open` returns the database handle via an out parameter:
+
+```c
+int sqlite3_open(const char *filename, sqlite3 **ppDb);
+```
+
+In the FFI manifest, this is declared as:
+
+```toml
+[[library.function]]
+c_name = "sqlite3_open"
+seq_name = "db-open"
+stack_effect = "( String -- Int Int )"
+args = [
+  { type = "string", pass = "c_string" },
+  { type = "ptr", pass = "by_ref" }
+]
+[library.function.return]
+type = "int"
+```
+
+The `by_ref` argument doesn't come from the Seq stack - instead:
+1. The compiler allocates local storage
+2. Passes a pointer to that storage to the C function
+3. After the call, reads the value and pushes it onto the stack
+
+Result: `db-open` has stack effect `( String -- Int Int )` where the first Int
+is the database handle (from the out param) and the second is the return code.
+
+**Important: Ownership Semantics**
+
+The `by_ref` pointer value pushed onto the stack is an **opaque handle** owned by
+the C library (SQLite in this case). You must:
+
+- Only pass it to functions from the same library (e.g., `db-exec`, `db-close`)
+- Never attempt to free it manually
+- Always close/release it using the library's cleanup function (`db-close`)
+- Not store it beyond its valid lifetime
+
+The compiler treats these as integers for simplicity, but they are NOT arbitrary
+integers - they are pointers that must be used according to the C library's API.
+
+##### Fixed Value Arguments
+
+For `sqlite3_exec`, we pass NULL for unused callback parameters:
+
+```toml
+args = [
+  { type = "ptr", pass = "ptr" },
+  { type = "string", pass = "c_string" },
+  { type = "ptr", value = "null" },  # callback
+  { type = "ptr", value = "null" },  # callback arg
+  { type = "ptr", value = "null" }   # error msg
+]
+```
+
+Arguments with `value` don't come from the stack - they're compiled as constants.
 
 ---
 

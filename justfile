@@ -179,6 +179,7 @@ clean:
     cargo clean
     rm -f examples/*.ll
     rm -rf target/examples
+    rm -rf book
     @echo "✅ Clean complete"
 
 # Development: quick format + build + test

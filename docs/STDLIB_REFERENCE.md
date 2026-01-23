@@ -1,8 +1,12 @@
 # Seq Standard Library Reference
 
-Complete reference for all 152 built-in operations.
+This document covers:
+- **Built-in Operations** - 152 primitives implemented in the runtime
+- **Standard Library Modules** - Seq code included via `include std:<module>`
 
 ## Table of Contents
+
+### Built-in Operations
 
 - [I/O Operations](#io-operations)
 - [Command-line Arguments](#command-line-arguments)
@@ -34,8 +38,19 @@ Complete reference for all 152 built-in operations.
 - [Time Operations](#time-operations)
 - [Serialization](#serialization)
 - [Stack Introspection](#stack-introspection)
-- [Standard Library Modules](#standard-library-modules)
-  - [std:zipper](#stdzipper---functional-list-zipper)
+
+### Standard Library Modules
+
+- [std:result](#stdresult---resultoption-helpers)
+- [std:json](#stdjson---json-parsing)
+- [std:yaml](#stdyaml---yaml-parsing)
+- [std:http](#stdhttp---http-response-helpers)
+- [std:list](#stdlist---list-utilities)
+- [std:map](#stdmap---map-utilities)
+- [std:imath](#stdimath---integer-math)
+- [std:fmath](#stdfmath---float-math)
+- [std:zipper](#stdzipper---functional-list-zipper)
+- [std:signal](#stdsignal---signal-handling)
 
 ---
 
@@ -392,6 +407,268 @@ Complete reference for all 152 built-in operations.
 
 These modules are included with `include std:<module-name>`.
 
+---
+
+### std:result - Result/Option Helpers
+
+Helper words for working with Result and Option patterns. Since Seq doesn't support generic types, you define your own Result/Option unions with specific types.
+
+```seq
+include std:result
+
+union IntResult { Ok { value: Int } Err { error: String } }
+
+: safe-divide ( Int Int -- IntResult )
+  dup 0 i.= if
+    drop "Division by zero" Make-Err
+  else
+    i.divide Make-Ok
+  then
+;
+
+10 2 safe-divide
+result-ok? if result-unwrap int->string io.write-line then
+```
+
+#### Result Predicates
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `result-ok?` | `( Result -- Result Bool )` | Check if Ok (keeps value) |
+| `result-err?` | `( Result -- Result Bool )` | Check if Err (keeps value) |
+
+#### Result Unwrapping
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `result-unwrap` | `( Result -- value )` | Extract Ok value (panics on Err) |
+| `result-unwrap-err` | `( Result -- error )` | Extract Err value (panics on Ok) |
+| `result-unwrap-or` | `( Result default -- value )` | Extract Ok or return default |
+
+#### Result Combinators
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `result-map` | `( Result [T -- U] -- Result )` | Transform Ok value |
+| `result-bind` | `( Result [T -- Result] -- Result )` | Chain fallible operations |
+
+#### Option Predicates
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `option-some?` | `( Option -- Option Bool )` | Check if Some (keeps value) |
+| `option-none?` | `( Option -- Option Bool )` | Check if None (keeps value) |
+
+#### Option Unwrapping
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `option-unwrap` | `( Option -- value )` | Extract Some value (panics on None) |
+| `option-unwrap-or` | `( Option default -- value )` | Extract Some or return default |
+
+#### Option Combinators
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `option-map` | `( Option [T -- U] -- Option )` | Transform Some value |
+| `option-bind` | `( Option [T -- Option] -- Option )` | Chain optional operations |
+
+---
+
+### std:json - JSON Parsing
+
+JSON parsing and serialization implemented in Seq.
+
+```seq
+include std:json
+
+"hello" json-string json-serialize io.write-line  # "hello"
+"{\"name\":\"bob\"}" json-parse drop json-serialize io.write-line
+```
+
+#### Value Constructors
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `json-null` | `( -- JsonValue )` | Create null |
+| `json-bool` | `( Int -- JsonValue )` | Create boolean (0=false) |
+| `json-true` | `( -- JsonValue )` | Create true |
+| `json-false` | `( -- JsonValue )` | Create false |
+| `json-number` | `( Float -- JsonValue )` | Create number |
+| `json-int` | `( Int -- JsonValue )` | Create number from int |
+| `json-string` | `( String -- JsonValue )` | Create string |
+| `json-empty-array` | `( -- JsonArray )` | Create empty array |
+| `json-empty-object` | `( -- JsonObject )` | Create empty object |
+
+#### Builders
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `array-with` | `( JsonArray JsonValue -- JsonArray )` | Append element to array |
+| `obj-with` | `( JsonObject JsonString JsonValue -- JsonObject )` | Add key-value pair |
+
+#### Type Predicates
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `json-null?` | `( JsonValue -- JsonValue Bool )` | Check if null |
+| `json-bool?` | `( JsonValue -- JsonValue Bool )` | Check if boolean |
+| `json-number?` | `( JsonValue -- JsonValue Bool )` | Check if number |
+| `json-string?` | `( JsonValue -- JsonValue Bool )` | Check if string |
+| `json-array?` | `( JsonValue -- JsonValue Bool )` | Check if array |
+| `json-object?` | `( JsonValue -- JsonValue Bool )` | Check if object |
+
+#### Extractors
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `json-unwrap-bool` | `( JsonValue -- Int )` | Extract boolean as 0/1 |
+| `json-unwrap-number` | `( JsonValue -- Float )` | Extract number |
+| `json-unwrap-string` | `( JsonValue -- String )` | Extract string |
+
+#### Parsing & Serialization
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `json-parse` | `( String -- JsonValue Bool )` | Parse JSON string |
+| `json-serialize` | `( JsonValue -- String )` | Serialize to JSON string |
+
+---
+
+### std:yaml - YAML Parsing
+
+YAML parsing for configuration files and data.
+
+```seq
+include std:yaml
+
+"name: hello\nport: 8080" yaml-parse drop yaml-serialize io.write-line
+```
+
+Supports: key-value pairs, nested objects (indentation), strings, numbers, booleans, null, comments.
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `yaml-parse` | `( String -- YamlValue Bool )` | Parse YAML string |
+| `yaml-serialize` | `( YamlValue -- String )` | Serialize to JSON-like string |
+| `yaml-null` | `( -- YamlValue )` | Create null |
+| `yaml-bool` | `( Int -- YamlValue )` | Create boolean |
+| `yaml-number` | `( Float -- YamlValue )` | Create number |
+| `yaml-string` | `( String -- YamlValue )` | Create string |
+| `yaml-empty-object` | `( -- YamlObject )` | Create empty object |
+| `yaml-obj-with` | `( YamlObject key value -- YamlObject )` | Add key-value pair |
+
+---
+
+### std:http - HTTP Response Helpers
+
+Helper functions for building HTTP servers.
+
+```seq
+include std:http
+
+"Hello, World!" http-ok   # Returns full HTTP 200 response
+request http-request-path # Extract path from request
+```
+
+#### Response Building
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `http-ok` | `( String -- String )` | Build 200 OK response |
+| `http-not-found` | `( String -- String )` | Build 404 response |
+| `http-error` | `( String -- String )` | Build 500 response |
+| `http-response` | `( Int String String -- String )` | Build custom response (code, reason, body) |
+
+#### Request Parsing
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `http-request-line` | `( String -- String )` | Extract first line |
+| `http-request-path` | `( String -- String )` | Extract path |
+| `http-request-method` | `( String -- String )` | Extract method |
+| `http-is-get` | `( String -- Bool )` | Check if GET request |
+| `http-is-post` | `( String -- Bool )` | Check if POST request |
+| `http-path-is` | `( String String -- Bool )` | Check if path matches |
+| `http-path-starts-with` | `( String String -- Bool )` | Check path prefix |
+| `http-path-suffix` | `( String String -- String )` | Extract path after prefix |
+
+---
+
+### std:list - List Utilities
+
+Convenient words for building lists.
+
+```seq
+include std:list
+
+list-of 1 lv 2 lv 3 lv  # Build [1, 2, 3]
+```
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `list-of` | `( -- List )` | Create empty list (alias for `list.make`) |
+| `lv` | `( List V -- List )` | Append value (alias for `list.push`) |
+
+---
+
+### std:map - Map Utilities
+
+*(Currently empty - placeholder for future map utilities)*
+
+---
+
+### std:imath - Integer Math
+
+Common mathematical operations for integers.
+
+```seq
+include std:imath
+
+-5 abs            # 5
+48 18 gcd         # 6
+2 10 pow          # 1024
+15 0 100 clamp    # 15
+```
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `abs` | `( Int -- Int )` | Absolute value |
+| `max` | `( Int Int -- Int )` | Maximum |
+| `min` | `( Int Int -- Int )` | Minimum |
+| `mod` | `( Int Int -- Int )` | Modulo |
+| `gcd` | `( Int Int -- Int )` | Greatest common divisor |
+| `pow` | `( Int Int -- Int )` | Power (base^exp) |
+| `sign` | `( Int -- Int )` | Sign (-1, 0, or 1) |
+| `square` | `( Int -- Int )` | Square |
+| `clamp` | `( Int Int Int -- Int )` | Clamp between min and max |
+
+---
+
+### std:fmath - Float Math
+
+Common mathematical operations for floats.
+
+```seq
+include std:fmath
+
+-3.14 f.abs       # 3.14
+2.5 3.7 f.max     # 3.7
+1.5 f.square      # 2.25
+```
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `f.abs` | `( Float -- Float )` | Absolute value |
+| `f.max` | `( Float Float -- Float )` | Maximum |
+| `f.min` | `( Float Float -- Float )` | Minimum |
+| `f.sign` | `( Float -- Float )` | Sign (-1.0, 0.0, or 1.0) |
+| `f.square` | `( Float -- Float )` | Square |
+| `f.neg` | `( Float -- Float )` | Negate |
+| `f.clamp` | `( Float Float Float -- Float )` | Clamp between min and max |
+
+---
+
 ### std:zipper - Functional List Zipper
 
 A zipper provides O(1) cursor movement and "editing" of immutable lists by maintaining
@@ -447,4 +724,44 @@ zipper.to-list              # [1, 2, 10, 4, 5]
 
 ---
 
-*Generated from builtins.rs - 152 operations total*
+### std:signal - Signal Handling
+
+Unix signal handling with a safe, flag-based API.
+
+```seq
+include std:signal
+
+signal.trap-shutdown  # Trap SIGINT and SIGTERM
+
+: server-loop ( -- )
+  signal.shutdown-requested? if
+    "Shutting down..." io.write-line
+  else
+    handle-request
+    server-loop
+  then
+;
+```
+
+#### Signal Constants (builtins)
+
+| Word | Description |
+|------|-------------|
+| `signal.SIGINT` | Interrupt (Ctrl+C) |
+| `signal.SIGTERM` | Termination request |
+| `signal.SIGHUP` | Hangup |
+| `signal.SIGPIPE` | Broken pipe |
+| `signal.SIGUSR1` | User-defined 1 |
+| `signal.SIGUSR2` | User-defined 2 |
+
+#### Convenience Words
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `signal.shutdown-requested?` | `( -- Bool )` | Check for SIGINT or SIGTERM |
+| `signal.trap-shutdown` | `( -- )` | Trap SIGINT and SIGTERM |
+| `signal.ignore-sigpipe` | `( -- )` | Ignore SIGPIPE (for servers) |
+
+---
+
+*Built-in operations: 152 total. Standard library modules provide additional functionality.*

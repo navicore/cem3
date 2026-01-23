@@ -56,8 +56,8 @@ build-examples: build
             echo "  Skipping $file (requires external manifest, see $dir/README.md)"
             continue
         fi
-        # Get category and name (e.g., examples/basics/hello-world.seq -> basics-hello-world)
-        category=$(dirname "$file" | sed 's|examples/||' | sed 's|examples||')
+        # Get category and name (e.g., examples/projects/lisp/test.seq -> projects-lisp-test)
+        category=$(dirname "$file" | sed 's|examples/||' | sed 's|examples||' | sed 's|/|-|g')
         name=$(basename "$file" .seq)
         if [ -z "$category" ]; then
             output_name="$name"

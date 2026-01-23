@@ -46,7 +46,27 @@ Features:
 
 ## Functional (functional/)
 
-*Coming soon* - Pure functional patterns, composition, immutability.
+**lists.seq** - Higher-order functions and list processing:
+
+```seq
+# Built-in higher-order functions
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  [ 2 i.* ] list.map       # (2 4 6 8 10)
+  [ 2 mod 0 i.= ] list.filter  # keep evens
+  0 [ i.+ ] list.fold      # sum
+
+# Functional pipelines
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv 6 lv 7 lv 8 lv 9 lv 10 lv
+  keep-odds      # filter to 1,3,5,7,9
+  square-each    # map to 1,9,25,49,81
+  sum            # fold to 165
+```
+
+Features:
+- **map**: Transform each element with a quotation
+- **filter**: Keep elements matching a predicate
+- **fold**: Reduce list to single value with accumulator
+- Composable operations for data pipelines
 
 ## Logic (logic/)
 

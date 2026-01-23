@@ -258,6 +258,19 @@ fn run_lint(
             // Recursively find .seq files
             for entry in walkdir(path) {
                 if entry.extension().is_some_and(|e| e == "seq") {
+                    // Skip files in directories with .toml manifests (require --ffi-manifest)
+                    if let Some(parent) = entry.parent() {
+                        let has_manifest = std::fs::read_dir(parent)
+                            .map(|entries| {
+                                entries
+                                    .filter_map(|e| e.ok())
+                                    .any(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
+                            })
+                            .unwrap_or(false);
+                        if has_manifest {
+                            continue;
+                        }
+                    }
                     lint_file(&entry, &linter, &mut all_diagnostics);
                     files_checked += 1;
                 }
@@ -300,7 +313,9 @@ fn run_lint(
 }
 
 fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::LintDiagnostic>) {
-    use seqc::{Parser, ProgramResourceAnalyzer};
+    use seqc::{
+        Parser, ProgramResourceAnalyzer, TypeChecker, call_graph, lint, resolver::Resolver,
+    };
     use std::fs;
 
     let source = match fs::read_to_string(path) {
@@ -312,13 +327,19 @@ fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::
     };
 
     let mut parser = Parser::new(&source);
-    let program = match parser.parse() {
+    let mut program = match parser.parse() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Parse error in {}: {}", path.display(), e);
             return;
         }
     };
+
+    // Generate ADT constructors
+    if let Err(e) = program.generate_constructors() {
+        eprintln!("Constructor error in {}: {}", path.display(), e);
+        return;
+    }
 
     // Phase 1: Pattern-based linting
     let file_diagnostics = linter.lint_program(&program, path);
@@ -328,6 +349,52 @@ fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::
     let mut resource_analyzer = ProgramResourceAnalyzer::new(path);
     let resource_diagnostics = resource_analyzer.analyze_program(&program);
     diagnostics.extend(resource_diagnostics);
+
+    // Phase 3: Type checking (catches stack underflows, effect mismatches, etc.)
+    // Resolve includes to get external words, then type check the merged program
+    let mut resolver = Resolver::new(None);
+    let mut resolved = match resolver.resolve(path, program) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Include resolution error in {}: {}", path.display(), e);
+            return;
+        }
+    };
+
+    // Skip type checking for files with FFI dependencies (require --ffi-manifest to compile)
+    if !resolved.ffi_includes.is_empty() {
+        // FFI files can't be fully type-checked without loading their manifests
+        // Pattern linting and resource analysis are still performed above
+        return;
+    }
+
+    // Generate ADT constructors for the merged program (includes may have unions)
+    if let Err(e) = resolved.program.generate_constructors() {
+        eprintln!("Constructor error in {}: {}", path.display(), e);
+        return;
+    }
+
+    let call_graph = call_graph::CallGraph::build(&resolved.program);
+    let mut type_checker = TypeChecker::new();
+    type_checker.set_call_graph(call_graph);
+
+    if let Err(e) = type_checker.check_program(&resolved.program) {
+        // Convert type error to lint diagnostic
+        diagnostics.push(lint::LintDiagnostic {
+            id: "type-error".to_string(),
+            severity: lint::Severity::Error,
+            message: e,
+            file: path.clone(),
+            line: 0, // Line info is now in the error message itself
+            start_column: None,
+            end_line: None,
+            end_column: None,
+            word_name: String::new(),
+            start_index: 0,
+            end_index: 0,
+            replacement: String::new(),
+        });
+    }
 }
 
 /// Simple recursive directory walker with error logging

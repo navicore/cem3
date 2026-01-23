@@ -6,7 +6,7 @@
 include std:imath
 
 : assert-eq ( Int Int String -- )
-  rot rot = if
+  rot rot i.= if
     " PASS" string.concat io.write-line
   else
     " FAIL" string.concat io.write-line

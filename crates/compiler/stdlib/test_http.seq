@@ -2,6 +2,11 @@
 #
 # Tests HTTP response building and request parsing helpers.
 
+# Helper to convert Bool to display string
+: bool->display ( Bool -- String )
+  if "1" else "0" then
+;
+
 # Include http.seq functions (copy-paste since no module system yet)
 : http-ok ( String -- String )
   dup string.length int->string
@@ -34,12 +39,12 @@
   0 variant.field-at
 ;
 
-: http-path-is ( String String -- Int )
+: http-path-is ( String String -- Bool )
   swap http-request-path
   swap string.equal?
 ;
 
-: http-path-starts-with ( String String -- Int )
+: http-path-starts-with ( String String -- Bool )
   swap http-request-path
   swap string.starts-with
 ;
@@ -52,19 +57,19 @@
 
   # Should contain status line
   dup "HTTP/1.1 200 OK" string.contains
-  "  Status line check" swap int->string string.concat io.write-line
+  "  Status line check" swap bool->display string.concat io.write-line
 
   # Should contain Content-Type
   dup "Content-Type: text/plain" string.contains
-  "  Content-Type check" swap int->string string.concat io.write-line
+  "  Content-Type check" swap bool->display string.concat io.write-line
 
   # Should contain body
   dup "Hello, World!" string.contains
-  "  Body check" swap int->string string.concat io.write-line
+  "  Body check" swap bool->display string.concat io.write-line
 
   # Should contain Content-Length
   "Content-Length: 13" string.contains
-  "  Content-Length check" swap int->string string.concat io.write-line
+  "  Content-Length check" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;
@@ -77,11 +82,11 @@
 
   # Should contain 404 status
   dup "404 Not Found" string.contains
-  "  404 status check" swap int->string string.concat io.write-line
+  "  404 status check" swap bool->display string.concat io.write-line
 
   # Should contain body
   "Not Found" string.contains
-  "  Body check" swap int->string string.concat io.write-line
+  "  Body check" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;
@@ -94,7 +99,7 @@
   http-request-line
 
   "GET /api/users HTTP/1.1" string.equal?
-  "  Extract request line" swap int->string string.concat io.write-line
+  "  Extract request line" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;
@@ -107,7 +112,7 @@
   http-request-path
 
   "/api/users" string.equal?
-  "  Extract path" swap int->string string.concat io.write-line
+  "  Extract path" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;
@@ -120,13 +125,13 @@
   http-request-method
 
   "GET" string.equal?
-  "  Extract method" swap int->string string.concat io.write-line
+  "  Extract method" swap bool->display string.concat io.write-line
 
   "POST /data HTTP/1.1\r\n\r\n"
   http-request-method
 
   "POST" string.equal?
-  "  Extract POST method" swap int->string string.concat io.write-line
+  "  Extract POST method" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;
@@ -136,10 +141,10 @@
   "Test http-path-is:" io.write-line
 
   "GET /health HTTP/1.1\r\n\r\n" "/health" http-path-is
-  "  Path matches /health" swap int->string string.concat io.write-line
+  "  Path matches /health" swap bool->display string.concat io.write-line
 
   "GET /api HTTP/1.1\r\n\r\n" "/health" http-path-is not
-  "  Path doesn't match /health" swap int->string string.concat io.write-line
+  "  Path doesn't match /health" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;
@@ -149,10 +154,10 @@
   "Test http-path-starts-with:" io.write-line
 
   "GET /api/users HTTP/1.1\r\n\r\n" "/api" http-path-starts-with
-  "  Path starts with /api" swap int->string string.concat io.write-line
+  "  Path starts with /api" swap bool->display string.concat io.write-line
 
   "GET /health HTTP/1.1\r\n\r\n" "/api" http-path-starts-with not
-  "  Path doesn't start with /api" swap int->string string.concat io.write-line
+  "  Path doesn't start with /api" swap bool->display string.concat io.write-line
 
   "" io.write-line
 ;

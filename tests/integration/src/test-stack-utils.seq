@@ -1,0 +1,67 @@
+# Test stack operations - dup, drop, swap, over, rot, nip, tuck, 2dup, 3drop
+
+: test-dup ( -- )
+  42 dup
+  42 test.assert-eq
+  42 test.assert-eq
+;
+
+: test-drop ( -- )
+  1 2 drop
+  1 test.assert-eq
+;
+
+: test-swap ( -- )
+  1 2 swap
+  1 test.assert-eq
+  2 test.assert-eq
+;
+
+: test-over ( -- )
+  1 2 over
+  1 test.assert-eq
+  2 test.assert-eq
+  1 test.assert-eq
+;
+
+: test-rot ( -- )
+  1 2 3 rot
+  1 test.assert-eq
+  3 test.assert-eq
+  2 test.assert-eq
+;
+
+: test-nip ( -- )
+  1 2 nip
+  2 test.assert-eq
+;
+
+: test-tuck ( -- )
+  1 2 tuck
+  2 test.assert-eq
+  1 test.assert-eq
+  2 test.assert-eq
+;
+
+: test-2dup ( -- )
+  1 2 2dup
+  2 test.assert-eq
+  1 test.assert-eq
+  2 test.assert-eq
+  1 test.assert-eq
+;
+
+: test-3drop ( -- )
+  1 2 3 4 3drop
+  1 test.assert-eq
+;
+
+# Regression test for 3drop bug (PR #298)
+# The original patch_seq_3drop runtime function had a virtual stack spilling issue
+# that caused `1 2 3 4 5 3drop` to incorrectly produce `1 5` instead of `1 2`.
+# Fixed by implementing 3drop as three sequential drop operations.
+: test-3drop-five-values ( -- )
+  1 2 3 4 5 3drop
+  2 test.assert-eq
+  1 test.assert-eq
+;

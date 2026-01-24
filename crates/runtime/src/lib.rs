@@ -71,8 +71,8 @@ pub use seq_core::{
     DISC_STRING, DISC_SYMBOL, DISC_VARIANT, DISC_WEAVECTX, Stack, alloc_stack, alloc_test_stack,
     clone_stack, clone_stack_segment, clone_stack_value, clone_value, drop_op, drop_stack_value,
     drop_top, dup, is_empty, nip, over, peek, peek_sv, pick_op, pop, pop_sv, push, push_sv,
-    push_value, roll, rot, set_stack_base, stack_dump, stack_value_to_value, swap, tuck,
-    two_dup, value_to_stack_value,
+    push_value, roll, rot, set_stack_base, stack_dump, stack_value_to_value, swap, tuck, two_dup,
+    value_to_stack_value,
 };
 
 // SON serialization (from seq-core)

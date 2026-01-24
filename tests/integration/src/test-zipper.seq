@@ -1,0 +1,144 @@
+# Tests for std:zipper
+
+include std:son
+include std:zipper
+
+# === Construction tests ===
+
+: test-zipper-from-empty-list ( -- )
+  list.make zipper.from-list
+  zipper.empty? test.assert
+;
+
+: test-zipper-from-single-element ( -- )
+  list-of 42 lv zipper.from-list
+  dup zipper.empty? not test.assert
+  dup zipper.at-start? nip test.assert
+  zipper.at-end? nip test.assert
+;
+
+: test-zipper-from-multiple-elements ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.at-start? nip test.assert
+;
+
+# === Navigation tests ===
+
+: test-zipper-move-right ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right
+  zipper.at-start? not nip test.assert
+;
+
+: test-zipper-move-left ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right zipper.right  # at 3
+  zipper.left
+  zipper.at-end? not nip test.assert
+;
+
+: test-zipper-move-right-at-end ( -- )
+  list-of 1 lv 2 lv zipper.from-list
+  zipper.right  # at 2 (end)
+  dup zipper.at-end? nip test.assert
+  zipper.right  # should stay at 2
+  zipper.at-end? nip test.assert
+;
+
+: test-zipper-move-left-at-start ( -- )
+  list-of 1 lv 2 lv zipper.from-list
+  dup zipper.at-start? nip test.assert
+  zipper.left  # should stay at 1
+  zipper.at-start? nip test.assert
+;
+
+: test-zipper-go-to-start ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  zipper.right zipper.right zipper.right  # at 4
+  zipper.start
+  zipper.at-start? nip test.assert
+;
+
+: test-zipper-go-to-end ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  zipper.end
+  zipper.at-end? nip test.assert
+;
+
+# === Modification tests ===
+
+: test-zipper-insert-left ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  99 zipper.insert-left
+  zipper.to-list
+  list.length 4 test.assert-eq
+;
+
+: test-zipper-insert-right ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  99 zipper.insert-right
+  zipper.to-list
+  list.length 4 test.assert-eq
+;
+
+: test-zipper-delete-middle ( -- )
+  list-of 1 lv 2 lv 3 lv zipper.from-list
+  zipper.right  # at 2
+  zipper.delete
+  zipper.to-list
+  list.length 2 test.assert-eq
+;
+
+: test-zipper-delete-only-element ( -- )
+  list-of 42 lv zipper.from-list
+  zipper.delete
+  zipper.empty? test.assert
+;
+
+# === Round-trip tests ===
+
+: test-zipper-roundtrip-empty ( -- )
+  list.make
+  zipper.from-list zipper.to-list
+  list.length 0 test.assert-eq
+;
+
+: test-zipper-roundtrip-single ( -- )
+  list-of 42 lv
+  zipper.from-list zipper.to-list
+  list.length 1 test.assert-eq
+;
+
+: test-zipper-roundtrip-multiple ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  zipper.from-list zipper.to-list
+  list.length 5 test.assert-eq
+;
+
+: test-zipper-roundtrip-after-navigation ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+  zipper.from-list
+  zipper.right zipper.right  # at 3
+  zipper.to-list
+  list.length 5 test.assert-eq
+;
+
+# === Index tests ===
+
+: test-zipper-index ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  dup zipper.index 0 test.assert-eq
+  zipper.right
+  dup zipper.index 1 test.assert-eq
+  zipper.right zipper.right
+  zipper.index 3 test.assert-eq
+;
+
+: test-zipper-length ( -- )
+  list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+  dup zipper.length 5 test.assert-eq
+  zipper.right zipper.right
+  zipper.length 5 test.assert-eq
+;

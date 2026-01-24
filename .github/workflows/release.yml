@@ -185,7 +185,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       - name: Wait for crates.io to index seq-core
-        run: sleep 30
+        run: sleep 60
 
       - name: Publish seq-runtime to crates.io
         run: cargo publish -p seq-runtime --token ${{ secrets.CRATES_IO_TOKEN }}
@@ -193,7 +193,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       - name: Wait for crates.io to index seq-runtime
-        run: sleep 30
+        run: sleep 60
 
       - name: Build runtime for embedding
         run: cargo build --release -p seq-runtime
@@ -204,7 +204,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       - name: Wait for crates.io to index seq-compiler
-        run: sleep 30
+        run: sleep 60
 
       - name: Publish seq-lsp to crates.io
         run: cargo publish -p seq-lsp --token ${{ secrets.CRATES_IO_TOKEN }}
@@ -217,7 +217,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       - name: Wait for crates.io to index vim-line
-        run: sleep 30
+        run: sleep 60
 
       - name: Publish seq-repl to crates.io
         run: cargo publish -p seq-repl --token ${{ secrets.CRATES_IO_TOKEN }}

@@ -26,10 +26,10 @@
 
 # Example 2: FizzBuzz logic using cond
 : fizzbuzz ( Int -- String )
-  [ dup 15 i.% 0 i.= ]  [ drop "FizzBuzz" ]
-  [ dup 3 i.% 0 i.= ]   [ drop "Fizz" ]
-  [ dup 5 i.% 0 i.= ]   [ drop "Buzz" ]
-  [ true ]              [ int->string ]
+  [ dup 15 i.% drop 0 i.= ]  [ drop "FizzBuzz" ]
+  [ dup 3 i.% drop 0 i.= ]   [ drop "Fizz" ]
+  [ dup 5 i.% drop 0 i.= ]   [ drop "Buzz" ]
+  [ true ]                   [ int->string ]
   4 cond
 ;
 

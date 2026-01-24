@@ -16,7 +16,7 @@
 # - abs: ( Int -- Int ) - Absolute value
 # - max: ( Int Int -- Int ) - Maximum of two values
 # - min: ( Int Int -- Int ) - Minimum of two values
-# - mod: ( Int Int -- Int ) - Modulo operation (a mod b)
+# - mod: ( Int Int -- Int Bool ) - Modulo operation (a mod b), returns success flag
 # - gcd: ( Int Int -- Int ) - Greatest common divisor (Euclidean algorithm)
 # - pow: ( Int Int -- Int ) - Power (base^exp) - WARNING: Not tail-recursive
 # - sign: ( Int -- Int ) - Sign function: returns -1, 0, or 1
@@ -68,20 +68,20 @@
 ;
 
 # Modulo operation: a mod b
-: mod ( Int Int -- Int )
-  2dup
-  i.divide
-  i.multiply
-  i.subtract
+# Uses i.modulo which returns (Int Bool) for error handling
+: mod ( Int Int -- Int Bool )
+  i.modulo
 ;
 
 # Greatest common divisor (Euclidean algorithm)
+# Note: mod returns (Int Bool), we assume valid inputs (non-zero divisor)
 : gcd ( Int Int -- Int )
   dup 0 i.= if
     drop
   else
-    2dup mod
-    rot drop
+    2dup mod           # ( a b r success )
+    drop               # drop success flag (assume valid)
+    rot drop           # ( b r )
     gcd
   then
 ;

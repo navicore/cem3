@@ -1,0 +1,147 @@
+# Result/Option Pattern Example
+#
+# This file demonstrates how to implement Result and Option patterns in Seq.
+# This is NOT a stdlib module - it's an example of how users can build their
+# own Result/Option types with proper concrete types for compile-time safety.
+#
+# ## Why This Isn't in the Standard Library
+#
+# Seq prioritizes compile-time type safety. A generic Result<T,E> type would
+# require either:
+#   1. Losing type information (everything becomes Variant) - undermines safety
+#   2. Generic/parametric types - not supported by Seq's type system
+#
+# Instead, Seq uses the `( value Bool )` pattern for fallible operations:
+#   - string->int returns ( Int Bool ) - value and success flag
+#   - file.slurp returns ( String Bool ) - content and success flag
+#
+# This preserves type information: the Int stays an Int, the String stays a String.
+#
+# ## When to Use This Pattern
+#
+# If you want functional composition (map, bind, chaining), you can define
+# your own Result types with concrete types:
+#
+#   union ParseResult {
+#     Ok { value: Int }
+#     Err { message: String }
+#   }
+#
+# This gives you compile-time safety because Ok.value is known to be Int.
+#
+# ## Standard Seq Pattern (Recommended)
+#
+# For most code, use the standard `( value Bool )` pattern:
+#
+#   "42" string->int if
+#     # use the int - it's right here on the stack
+#     2 i.*
+#   else
+#     drop  # discard the failed parse value
+#     0     # use default
+#   then
+#
+# This is simpler, more efficient (no allocation), and idiomatic for Seq.
+#
+# =============================================================================
+#                    EXAMPLE: Building Your Own Result Type
+# =============================================================================
+
+# Define a concrete Result type for integer operations
+union IntResult {
+  Ok { value: Int }
+  Err { error: String }
+}
+
+# Constructors
+: Make-IntOk ( Int -- IntResult ) :Ok variant.make-1 ;
+: Make-IntErr ( String -- IntResult ) :Err variant.make-1 ;
+
+# Check if result is Ok
+: int-result-ok? ( IntResult -- IntResult Bool )
+  dup variant.tag :Ok symbol.=
+;
+
+# Check if result is Err
+: int-result-err? ( IntResult -- IntResult Bool )
+  dup variant.tag :Err symbol.=
+;
+
+# Extract Ok value or return default
+: int-result-unwrap-or ( IntResult Int -- Int )
+  swap                       # ( default result )
+  dup variant.tag :Ok symbol.= if
+    0 variant.field-at nip   # return Ok value, drop default
+  else
+    drop                     # drop result, return default
+  then
+;
+
+# Transform the Ok value
+: int-result-map ( IntResult [Int -- Int] -- IntResult )
+  swap                       # ( quotation result )
+  dup variant.tag :Ok symbol.= if
+    0 variant.field-at       # ( quotation value )
+    swap call                # ( new-value )
+    Make-IntOk               # wrap as Ok
+  else
+    nip                      # keep original Err
+  then
+;
+
+# =============================================================================
+#                         EXAMPLE USAGE
+# =============================================================================
+
+# A function that returns our Result type
+: safe-divide ( Int Int -- IntResult )
+  dup 0 i.= if
+    drop drop "Division by zero" Make-IntErr
+  else
+    i./ drop Make-IntOk   # drop success Bool (we already checked for zero)
+  then
+;
+
+# Using the Result with combinators
+: example-with-result ( -- Int )
+  10 2 safe-divide
+  [ 3 i.* ] int-result-map   # multiply Ok value by 3
+  0 int-result-unwrap-or     # get value or 0 on error
+;
+
+# Compare with standard Seq pattern - simpler and just as safe:
+: example-standard-pattern ( -- Int )
+  10 2 i./ if                # i./ returns ( result success )
+    3 i.*                    # multiply by 3
+  else
+    drop 0                   # use default on failure
+  then
+;
+
+# =============================================================================
+#                    GENERIC HELPERS (Use with caution)
+#
+# These work on ANY variant with Ok/Err or Some/None tags.
+# They use Variant type which loses compile-time type information.
+# Prefer concrete types like IntResult above for better safety.
+# =============================================================================
+
+# Check if any Result-like variant is Ok
+: result-ok? ( Variant -- Variant Bool )
+  dup variant.tag :Ok symbol.=
+;
+
+# Check if any Result-like variant is Err
+: result-err? ( Variant -- Variant Bool )
+  dup variant.tag :Err symbol.=
+;
+
+# Check if any Option-like variant is Some
+: option-some? ( Variant -- Variant Bool )
+  dup variant.tag :Some symbol.=
+;
+
+# Check if any Option-like variant is None
+: option-none? ( Variant -- Variant Bool )
+  dup variant.tag :None symbol.=
+;

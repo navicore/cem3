@@ -69,9 +69,10 @@ static STREAMS: Mutex<SocketRegistry<TcpStream>> = Mutex::new(SocketRegistry::ne
 
 /// TCP listen on a port
 ///
-/// Stack effect: ( port -- listener_id )
+/// Stack effect: ( port -- listener_id Bool )
 ///
-/// Binds to 0.0.0.0:port and returns a listener ID
+/// Binds to 0.0.0.0:port and returns a listener ID with success flag.
+/// Returns (0, false) on failure (invalid port, bind error, socket limit).
 ///
 /// # Safety
 /// Stack must have an Int (port number) on top
@@ -81,37 +82,50 @@ pub unsafe extern "C" fn patch_seq_tcp_listen(stack: Stack) -> Stack {
         let (stack, port_val) = pop(stack);
         let port = match port_val {
             Value::Int(p) => p,
-            _ => panic!(
-                "tcp_listen: expected Int (port) on stack, got {:?}",
-                port_val
-            ),
+            _ => {
+                // Type error - return failure
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         // Validate port range (1-65535, or 0 for OS-assigned)
         if !(0..=65535).contains(&port) {
-            panic!("tcp_listen: invalid port {}, must be 0-65535", port);
+            let stack = push(stack, Value::Int(0));
+            return push(stack, Value::Bool(false));
         }
 
         // Bind to the port (non-blocking via May)
         let addr = format!("0.0.0.0:{}", port);
-        let listener = TcpListener::bind(&addr)
-            .unwrap_or_else(|e| panic!("tcp_listen: failed to bind to {}: {}", addr, e));
+        let listener = match TcpListener::bind(&addr) {
+            Ok(l) => l,
+            Err(_) => {
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
+        };
 
         // Store listener and get ID
         let mut listeners = LISTENERS.lock().unwrap();
-        let listener_id = listeners
-            .allocate(listener)
-            .unwrap_or_else(|e| panic!("tcp_listen: {}", e));
-
-        push(stack, Value::Int(listener_id))
+        match listeners.allocate(listener) {
+            Ok(listener_id) => {
+                let stack = push(stack, Value::Int(listener_id));
+                push(stack, Value::Bool(true))
+            }
+            Err(_) => {
+                let stack = push(stack, Value::Int(0));
+                push(stack, Value::Bool(false))
+            }
+        }
     }
 }
 
 /// TCP accept a connection
 ///
-/// Stack effect: ( listener_id -- client_id )
+/// Stack effect: ( listener_id -- client_id Bool )
 ///
-/// Accepts a connection (yields the strand until one arrives)
+/// Accepts a connection (yields the strand until one arrives).
+/// Returns (0, false) on failure (invalid listener, accept error, socket limit).
 ///
 /// # Safety
 /// Stack must have an Int (listener_id) on top
@@ -121,26 +135,38 @@ pub unsafe extern "C" fn patch_seq_tcp_accept(stack: Stack) -> Stack {
         let (stack, listener_id_val) = pop(stack);
         let listener_id = match listener_id_val {
             Value::Int(id) => id as usize,
-            _ => panic!(
-                "tcp_accept: expected Int (listener_id), got {:?}",
-                listener_id_val
-            ),
+            _ => {
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         // Take the listener out temporarily (so we don't hold lock during accept)
         let listener = {
             let mut listeners = LISTENERS.lock().unwrap();
-            listeners
-                .get_mut(listener_id)
-                .and_then(|opt| opt.take())
-                .unwrap_or_else(|| panic!("tcp_accept: invalid listener_id {}", listener_id))
+            match listeners.get_mut(listener_id).and_then(|opt| opt.take()) {
+                Some(l) => l,
+                None => {
+                    let stack = push(stack, Value::Int(0));
+                    return push(stack, Value::Bool(false));
+                }
+            }
         };
         // Lock released
 
         // Accept connection (this yields the strand, doesn't block OS thread)
-        let (stream, _addr) = listener
-            .accept()
-            .unwrap_or_else(|e| panic!("tcp_accept: failed to accept connection: {}", e));
+        let (stream, _addr) = match listener.accept() {
+            Ok(result) => result,
+            Err(_) => {
+                // Put listener back before returning
+                let mut listeners = LISTENERS.lock().unwrap();
+                if let Some(slot) = listeners.get_mut(listener_id) {
+                    *slot = Some(listener);
+                }
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
+        };
 
         // Put the listener back
         {
@@ -152,19 +178,25 @@ pub unsafe extern "C" fn patch_seq_tcp_accept(stack: Stack) -> Stack {
 
         // Store stream and get ID
         let mut streams = STREAMS.lock().unwrap();
-        let client_id = streams
-            .allocate(stream)
-            .unwrap_or_else(|e| panic!("tcp_accept: {}", e));
-
-        push(stack, Value::Int(client_id))
+        match streams.allocate(stream) {
+            Ok(client_id) => {
+                let stack = push(stack, Value::Int(client_id));
+                push(stack, Value::Bool(true))
+            }
+            Err(_) => {
+                let stack = push(stack, Value::Int(0));
+                push(stack, Value::Bool(false))
+            }
+        }
     }
 }
 
 /// TCP read from a socket
 ///
-/// Stack effect: ( socket_id -- string )
+/// Stack effect: ( socket_id -- string Bool )
 ///
-/// Reads all available data from the socket
+/// Reads all available data from the socket.
+/// Returns ("", false) on failure (invalid socket, read error, size limit, invalid UTF-8).
 ///
 /// # Safety
 /// Stack must have an Int (socket_id) on top
@@ -174,19 +206,22 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
         let (stack, socket_id_val) = pop(stack);
         let socket_id = match socket_id_val {
             Value::Int(id) => id as usize,
-            _ => panic!(
-                "tcp_read: expected Int (socket_id), got {:?}",
-                socket_id_val
-            ),
+            _ => {
+                let stack = push(stack, Value::String("".into()));
+                return push(stack, Value::Bool(false));
+            }
         };
 
         // Take the stream out of the registry (so we don't hold the lock during I/O)
         let mut stream = {
             let mut streams = STREAMS.lock().unwrap();
-            streams
-                .get_mut(socket_id)
-                .and_then(|opt| opt.take())
-                .unwrap_or_else(|| panic!("tcp_read: invalid socket_id {}", socket_id))
+            match streams.get_mut(socket_id).and_then(|opt| opt.take()) {
+                Some(s) => s,
+                None => {
+                    let stack = push(stack, Value::String("".into()));
+                    return push(stack, Value::Bool(false));
+                }
+            }
         };
         // Registry lock is now released
 
@@ -195,16 +230,15 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
         // Returns when: data is available and read, EOF, or WouldBlock
         let mut buffer = Vec::new();
         let mut chunk = [0u8; 4096];
+        let mut read_error = false;
 
         // Read until we get data, EOF, or error
         // For HTTP: Read once and return immediately to avoid blocking when client waits for response
         loop {
             // Check size limit to prevent memory exhaustion
             if buffer.len() >= MAX_READ_SIZE {
-                panic!(
-                    "tcp_read: read size limit exceeded ({} bytes). Possible memory exhaustion attack.",
-                    MAX_READ_SIZE
-                );
+                read_error = true;
+                break;
             }
 
             match stream.read(&mut chunk) {
@@ -233,12 +267,12 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
                     // If we already have some data, return it
                     break;
                 }
-                Err(e) => panic!("tcp_read: failed to read from socket: {}", e),
+                Err(_) => {
+                    read_error = true;
+                    break;
+                }
             }
         }
-
-        let data = String::from_utf8(buffer)
-            .unwrap_or_else(|e| panic!("tcp_read: invalid UTF-8 data: {}", e));
 
         // Put the stream back
         {
@@ -248,15 +282,30 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
             }
         }
 
-        push(stack, Value::String(data.into()))
+        if read_error {
+            let stack = push(stack, Value::String("".into()));
+            return push(stack, Value::Bool(false));
+        }
+
+        match String::from_utf8(buffer) {
+            Ok(data) => {
+                let stack = push(stack, Value::String(data.into()));
+                push(stack, Value::Bool(true))
+            }
+            Err(_) => {
+                let stack = push(stack, Value::String("".into()));
+                push(stack, Value::Bool(false))
+            }
+        }
     }
 }
 
 /// TCP write to a socket
 ///
-/// Stack effect: ( string socket_id -- )
+/// Stack effect: ( string socket_id -- Bool )
 ///
-/// Writes string to the socket
+/// Writes string to the socket.
+/// Returns false on failure (invalid socket, write error).
 ///
 /// # Safety
 /// Stack must have Int (socket_id) and String on top
@@ -266,36 +315,38 @@ pub unsafe extern "C" fn patch_seq_tcp_write(stack: Stack) -> Stack {
         let (stack, socket_id_val) = pop(stack);
         let socket_id = match socket_id_val {
             Value::Int(id) => id as usize,
-            _ => panic!(
-                "tcp_write: expected Int (socket_id), got {:?}",
-                socket_id_val
-            ),
+            _ => {
+                return push(stack, Value::Bool(false));
+            }
         };
 
         let (stack, data_val) = pop(stack);
         let data = match data_val {
             Value::String(s) => s,
-            _ => panic!("tcp_write: expected String, got {:?}", data_val),
+            _ => {
+                return push(stack, Value::Bool(false));
+            }
         };
 
         // Take the stream out of the registry (so we don't hold the lock during I/O)
         let mut stream = {
             let mut streams = STREAMS.lock().unwrap();
-            streams
-                .get_mut(socket_id)
-                .and_then(|opt| opt.take())
-                .unwrap_or_else(|| panic!("tcp_write: invalid socket_id {}", socket_id))
+            match streams.get_mut(socket_id).and_then(|opt| opt.take()) {
+                Some(s) => s,
+                None => {
+                    return push(stack, Value::Bool(false));
+                }
+            }
         };
         // Registry lock is now released
 
         // Write data (non-blocking via May, yields strand as needed)
-        stream
-            .write_all(data.as_str().as_bytes())
-            .unwrap_or_else(|e| panic!("tcp_write: failed to write to socket: {}", e));
-
-        stream
-            .flush()
-            .unwrap_or_else(|e| panic!("tcp_write: failed to flush socket: {}", e));
+        let write_result = stream.write_all(data.as_str().as_bytes());
+        let flush_result = if write_result.is_ok() {
+            stream.flush()
+        } else {
+            write_result
+        };
 
         // Put the stream back
         {
@@ -305,15 +356,16 @@ pub unsafe extern "C" fn patch_seq_tcp_write(stack: Stack) -> Stack {
             }
         }
 
-        stack
+        push(stack, Value::Bool(flush_result.is_ok()))
     }
 }
 
 /// TCP close a socket
 ///
-/// Stack effect: ( socket_id -- )
+/// Stack effect: ( socket_id -- Bool )
 ///
-/// Closes the socket connection and frees the socket ID for reuse
+/// Closes the socket connection and frees the socket ID for reuse.
+/// Returns true on success, false if socket_id was invalid.
 ///
 /// # Safety
 /// Stack must have an Int (socket_id) on top
@@ -323,17 +375,23 @@ pub unsafe extern "C" fn patch_seq_tcp_close(stack: Stack) -> Stack {
         let (stack, socket_id_val) = pop(stack);
         let socket_id = match socket_id_val {
             Value::Int(id) => id as usize,
-            _ => panic!(
-                "tcp_close: expected Int (socket_id), got {:?}",
-                socket_id_val
-            ),
+            _ => {
+                return push(stack, Value::Bool(false));
+            }
         };
 
-        // Remove the stream and mark ID as free for reuse
+        // Check if socket exists before freeing
         let mut streams = STREAMS.lock().unwrap();
-        streams.free(socket_id);
+        let existed = streams
+            .get_mut(socket_id)
+            .map(|slot| slot.is_some())
+            .unwrap_or(false);
 
-        stack
+        if existed {
+            streams.free(socket_id);
+        }
+
+        push(stack, Value::Bool(existed))
     }
 }
 
@@ -359,6 +417,13 @@ mod tests {
             let stack = push_int(stack, 0); // Port 0 = OS assigns random port
             let stack = tcp_listen(stack);
 
+            // Now returns (Int, Bool) - Bool on top
+            let (stack, success) = pop(stack);
+            assert!(
+                matches!(success, Value::Bool(true)),
+                "tcp_listen should succeed"
+            );
+
             let (_stack, result) = pop(stack);
             match result {
                 Value::Int(listener_id) => {
@@ -374,14 +439,20 @@ mod tests {
         unsafe {
             scheduler_init();
             let stack = crate::stack::alloc_test_stack();
-            let _stack = push_int(stack, -1);
+            let stack = push_int(stack, -1);
+            let stack = tcp_listen(stack);
 
-            // Note: tcp_listen is extern "C" so it aborts on panic
-            // We document that invalid ports cause panics
-            // In practice, these would be caught by the type system
-            // (user code would provide validated ints)
-
-            // tcp_listen(stack); // Would abort
+            // Invalid port returns (0, false)
+            let (stack, success) = pop(stack);
+            assert!(
+                matches!(success, Value::Bool(false)),
+                "Invalid port should return false"
+            );
+            let (_stack, result) = pop(stack);
+            assert!(
+                matches!(result, Value::Int(0)),
+                "Invalid port should return 0"
+            );
         }
     }
 
@@ -390,12 +461,20 @@ mod tests {
         unsafe {
             scheduler_init();
             let stack = crate::stack::alloc_test_stack();
-            let _stack = push_int(stack, 65536);
+            let stack = push_int(stack, 65536);
+            let stack = tcp_listen(stack);
 
-            // Note: tcp_listen is extern "C" so it aborts on panic
-            // We document that invalid ports cause panics
-
-            // tcp_listen(stack); // Would abort
+            // Invalid port returns (0, false)
+            let (stack, success) = pop(stack);
+            assert!(
+                matches!(success, Value::Bool(false)),
+                "Invalid port should return false"
+            );
+            let (_stack, result) = pop(stack);
+            assert!(
+                matches!(result, Value::Int(0)),
+                "Invalid port should return 0"
+            );
         }
     }
 
@@ -407,6 +486,8 @@ mod tests {
             // Test port 0 (OS-assigned)
             let stack = push_int(crate::stack::alloc_test_stack(), 0);
             let stack = tcp_listen(stack);
+            let (stack, success) = pop(stack);
+            assert!(matches!(success, Value::Bool(true)));
             let (_, result) = pop(stack);
             assert!(matches!(result, Value::Int(_)));
 
@@ -414,6 +495,8 @@ mod tests {
             // Use port 9999 which should be available and doesn't require privileges
             let stack = push_int(crate::stack::alloc_test_stack(), 9999);
             let stack = tcp_listen(stack);
+            let (stack, success) = pop(stack);
+            assert!(matches!(success, Value::Bool(true)));
             let (_, result) = pop(stack);
             assert!(matches!(result, Value::Int(_)));
 
@@ -431,6 +514,8 @@ mod tests {
             // Create a listener and accept a hypothetical connection
             let stack = push_int(crate::stack::alloc_test_stack(), 0);
             let stack = tcp_listen(stack);
+            let (stack, success) = pop(stack);
+            assert!(matches!(success, Value::Bool(true)));
             let (_stack, listener_result) = pop(stack);
 
             let listener_id = match listener_result {
@@ -453,13 +538,20 @@ mod tests {
         unsafe {
             scheduler_init();
 
-            // Note: tcp_read is extern "C" so it aborts on panic
-            // Invalid socket IDs cause panics which are documented behavior
-            // let stack = push_int(crate::stack::alloc_test_stack(), 9999);
-            // tcp_read(stack); // Would abort
+            // Invalid socket ID now returns ("", false) instead of panicking
+            let stack = push_int(crate::stack::alloc_test_stack(), 9999);
+            let stack = tcp_read(stack);
 
-            // Instead, we verify that valid operations work
-            // and document that invalid IDs are programming errors
+            let (stack, success) = pop(stack);
+            assert!(
+                matches!(success, Value::Bool(false)),
+                "Invalid socket should return false"
+            );
+            let (_stack, result) = pop(stack);
+            match result {
+                Value::String(s) => assert_eq!(s.as_str(), ""),
+                _ => panic!("Expected empty string"),
+            }
         }
     }
 
@@ -468,11 +560,19 @@ mod tests {
         unsafe {
             scheduler_init();
 
-            // Note: tcp_write is extern "C" so it aborts on panic
-            // Invalid socket IDs cause panics which are documented behavior
-            // let stack = push(crate::stack::alloc_test_stack(), Value::String("test".into()));
-            // let stack = push_int(stack, 9999);
-            // tcp_write(stack); // Would abort
+            // Invalid socket ID now returns false instead of panicking
+            let stack = push(
+                crate::stack::alloc_test_stack(),
+                Value::String("test".into()),
+            );
+            let stack = push_int(stack, 9999);
+            let stack = tcp_write(stack);
+
+            let (_stack, success) = pop(stack);
+            assert!(
+                matches!(success, Value::Bool(false)),
+                "Invalid socket should return false"
+            );
         }
     }
 
@@ -484,12 +584,19 @@ mod tests {
             // Create a socket to close
             let stack = push_int(crate::stack::alloc_test_stack(), 0);
             let stack = tcp_listen(stack);
+            let (stack, success) = pop(stack);
+            assert!(matches!(success, Value::Bool(true)));
             let (stack, _listener_result) = pop(stack);
 
-            // Close is idempotent - closing an already closed or invalid socket
-            // should not crash (it just does nothing via free())
+            // Close an invalid socket - now returns false instead of crashing
             let stack = push_int(stack, 9999);
-            let _stack = tcp_close(stack);
+            let stack = tcp_close(stack);
+
+            let (_stack, success) = pop(stack);
+            assert!(
+                matches!(success, Value::Bool(false)),
+                "Invalid socket close should return false"
+            );
         }
     }
 

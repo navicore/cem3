@@ -21,9 +21,9 @@ include std:imath
 ;
 
 : test-mod ( -- )
-  10 3 mod 1 test.assert-eq
-  15 5 mod 0 test.assert-eq
-  17 4 mod 1 test.assert-eq
+  10 3 mod test.assert 1 test.assert-eq
+  15 5 mod test.assert 0 test.assert-eq
+  17 4 mod test.assert 1 test.assert-eq
 ;
 
 : test-gcd ( -- )

@@ -56,6 +56,10 @@
   1 test.assert-eq
 ;
 
+# Regression test for 3drop bug (PR #298)
+# The original patch_seq_3drop runtime function had a virtual stack spilling issue
+# that caused `1 2 3 4 5 3drop` to incorrectly produce `1 5` instead of `1 2`.
+# Fixed by implementing 3drop as three sequential drop operations.
 : test-3drop-five-values ( -- )
   1 2 3 4 5 3drop
   2 test.assert-eq

@@ -33,34 +33,40 @@
 # regex.find-all - Find all matches
 : test-find-all ( -- )
   "a1 b2 c3" "[a-z][0-9]" regex.find-all
+  test.assert   # success flag
   dup list.length 3 test.assert-eq  # 3 matches
   0 list.get drop "a1" test.assert-eq-str
 ;
 
 : test-find-all-no-matches ( -- )
   "hello" "[0-9]" regex.find-all
+  test.assert   # valid regex succeeds even with no matches
   list.length 0 test.assert-eq
 ;
 
 # regex.replace - Replace first match
 : test-replace-first ( -- )
   "hello world" "world" "Seq" regex.replace
+  test.assert   # success flag
   "hello Seq" test.assert-eq-str
 ;
 
 : test-replace-no-match ( -- )
   "hello" "xyz" "abc" regex.replace
+  test.assert   # valid regex succeeds even with no match
   "hello" test.assert-eq-str  # unchanged
 ;
 
 # regex.replace-all - Replace all matches
 : test-replace-all ( -- )
   "a1 b2 c3" "[0-9]" "X" regex.replace-all
+  test.assert   # success flag
   "aX bX cX" test.assert-eq-str
 ;
 
 : test-replace-all-pattern ( -- )
   "hello   world" "\\s+" " " regex.replace-all
+  test.assert   # success flag
   "hello world" test.assert-eq-str
 ;
 
@@ -83,12 +89,14 @@
 # regex.split - Split string by pattern
 : test-split-digits ( -- )
   "a1b2c3" "[0-9]" regex.split
+  test.assert   # success flag
   dup list.length 4 test.assert-eq  # "a", "b", "c", ""
   0 list.get drop "a" test.assert-eq-str
 ;
 
 : test-split-whitespace ( -- )
   "hello world foo" "\\s+" regex.split
+  test.assert   # success flag
   list.length 3 test.assert-eq
 ;
 

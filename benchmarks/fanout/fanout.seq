@@ -112,7 +112,7 @@
 
   # Calculate elapsed time
   swap i.subtract           # ( done work elapsed_ns )
-  1000000 i.divide          # ( done work ms )
+  1000000 i.divide drop     # ( done work ms )
 
   # Clean up channels
   swap drop               # ( done ms )
@@ -130,7 +130,7 @@
   dup 0 i.= if
     drop 0
   else
-    num-messages 1000 i.multiply swap i.divide
+    num-messages 1000 i.multiply swap i.divide drop
   then
 
   "Throughput: " swap int->string string.concat " msg/sec" string.concat io.write-line

@@ -38,7 +38,7 @@
   # Demo 3: Find all matches
   "=== Find All Numbers ===" io.write-line
   "Counts: 10, 25, 100, 42"
-  "[0-9]+" regex.find-all
+  "[0-9]+" regex.find-all drop
   "  Numbers: " io.write
   [ io.write " " io.write ] list.each
   "" io.write-line
@@ -62,22 +62,22 @@
   # Demo 5: Replace operations
   "=== Replace Operations ===" io.write-line
   "hello world world"
-  "world" "Seq" regex.replace
+  "world" "Seq" regex.replace drop
   "  Replace first: " swap string.concat io.write-line
 
   "a1 b2 c3"
-  "[0-9]" "X" regex.replace-all
+  "[0-9]" "X" regex.replace-all drop
   "  Replace all digits: " swap string.concat io.write-line
 
   "hello    world   test"
-  "\\s+" " " regex.replace-all
+  "\\s+" " " regex.replace-all drop
   "  Normalize spaces: " swap string.concat io.write-line
   "" io.write-line
 
   # Demo 6: Split by pattern
   "=== Split by Pattern ===" io.write-line
   "one,two;three:four"
-  "[,;:]" regex.split
+  "[,;:]" regex.split drop
   "  Split result: " io.write
   [ io.write " | " io.write ] list.each
   "" io.write-line
@@ -86,7 +86,7 @@
   # Demo 7: Email extraction
   "=== Email Extraction ===" io.write-line
   "Contact john@example.com or jane@test.org for help"
-  "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}" regex.find-all
+  "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}" regex.find-all drop
   "  Emails found: " io.write
   [ io.write " " io.write ] list.each
   "" io.write-line

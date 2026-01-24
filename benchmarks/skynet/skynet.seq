@@ -26,7 +26,7 @@
     chan.make  # ( result-chan num size child-chan )
 
     # Calculate child size: size / 10
-    over 10 i.divide  # ( result-chan num size child-chan child-size )
+    over 10 i.divide drop  # ( result-chan num size child-chan child-size )
 
     # We need to spawn 10 children with:
     #   child's result-chan = our child-chan
@@ -138,7 +138,7 @@
   # ( start result end )
   rot           # ( result end start )
   i.subtract    # ( result end-start = elapsed )
-  1000000 i.divide  # ( result ms )
+  1000000 i.divide drop  # ( result ms )
 
   # Print results
   swap          # ( ms result )

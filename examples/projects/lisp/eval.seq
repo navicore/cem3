@@ -277,7 +277,7 @@ include "parser"
     # Get first element and eval it
     2 pick scar over eval-with-env snum-val
     # Stack: List Acc Env FirstVal
-    rot swap i.divide
+    rot swap i.divide drop   # drop success Bool
     # Stack: List Env NewAcc
     swap rot scdr rot rot
     # Stack: RestList NewAcc Env

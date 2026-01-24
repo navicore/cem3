@@ -12,7 +12,7 @@
   else
     # Continue: check if n % divisor == 0
     over over     # n divisor n divisor
-    i.% 0 i.= if  # n divisor (n % divisor == 0?)
+    i.% drop 0 i.= if  # n divisor (n % divisor == 0?)
       drop drop false
     else
       1 i.+ is-prime-loop

@@ -546,79 +546,68 @@ Seq sidesteps all of this:
 
 Seq's model is closest to functional languages with persistent data structures. The simplicity cost is that large maps are expensive to "modify" (you clone the whole thing). The benefit is that you never think about lifetimes, borrows, or use-after-free.
 
-## Error Handling with Result/Option
+## Error Handling
 
-The `std:result` module provides helpers for Result/Option patterns. Since Seq doesn't have generics, you define your own Result/Option unions with specific types, then use the standard helpers.
+Seq uses a simple, type-preserving pattern for fallible operations: `( value Bool )`.
 
-### Defining Result Types
+### The Value-Bool Pattern
+
+Operations that can fail return their result plus a Bool success flag:
 
 ```seq
-include std:result
+"42" string->int    # ( -- 42 true ) on success
+"abc" string->int   # ( -- 0 false ) on failure
+```
 
-# Define a Result type for your use case
-union IntResult {
-  Ok { value: Int }
-  Err { error: String }
-}
+This pattern is used consistently across the standard library:
 
-: safe-divide ( Int Int -- IntResult )
-  dup 0 i.= if
-    drop "Division by zero" Make-Err
+| Category | Example | Signature |
+|----------|---------|-----------|
+| Parsing | `string->int` | `( String -- Int Bool )` |
+| File I/O | `file.slurp` | `( String -- String Bool )` |
+| Environment | `os.getenv` | `( String -- String Bool )` |
+| Collections | `map.get` | `( Map Key -- Value Bool )` |
+| Encoding | `encoding.base64-decode` | `( String -- String Bool )` |
+
+### Using the Pattern
+
+The idiomatic way to handle fallible operations:
+
+```seq
+"42" string->int if
+  # Success - the Int is on the stack
+  2 i.*    # use it
+else
+  drop     # discard the failure value
+  0        # provide a default
+then
+```
+
+### Chaining Fallible Operations
+
+For multiple fallible operations, check each result:
+
+```seq
+: load-and-parse ( String -- Int Bool )
+  file.slurp if           # read file
+    string->int if        # parse content
+      true                # both succeeded
+    else
+      drop false          # parse failed
+    then
   else
-    i.divide Make-Ok
+    drop false            # read failed
   then
 ;
 ```
 
-### Result Helpers
+### Why Not Result/Option Types?
 
-The helpers work with any union following the convention: Ok = tag 0, Err = tag 1.
+Seq prioritizes compile-time type safety. A generic `Result<T,E>` type would require either losing type information (everything becomes Variant) or generic/parametric types (not supported).
 
-| Word | Effect | Description |
-|------|--------|-------------|
-| `result-ok?` | `( Result -- Result Int )` | Check if Ok (non-destructive) |
-| `result-err?` | `( Result -- Result Int )` | Check if Err (non-destructive) |
-| `result-unwrap` | `( Result -- value )` | Extract Ok value (panics on Err) |
-| `result-unwrap-or` | `( Result default -- value )` | Extract Ok or use default |
-| `result-map` | `( Result Quotation -- Result )` | Transform Ok value |
-| `result-bind` | `( Result Quotation -- Result )` | Chain fallible operations |
+The `( value Bool )` pattern preserves types: the Int stays an Int, the String stays a String.
 
-### Point-Free Error Chaining
-
-The `result-bind` combinator enables elegant point-free chaining:
-
-```seq
-: parse-positive ( String -- IntResult )
-  string->int if
-    dup 0 i.> if Make-Ok else drop "not positive" Make-Err then
-  else
-    drop "not a number" Make-Err
-  then
-;
-
-# Chain fallible operations - errors short-circuit automatically
-"5" parse-positive
-  [ 2 i.* Make-Ok ] result-bind
-  [ 3 i.+ Make-Ok ] result-bind
-# Result: Ok(13) or Err if any step fails
-```
-
-### Option Helpers
-
-For optional values (Some = tag 0, None = tag 1):
-
-```seq
-union IntOption { Some { value: Int } None }
-```
-
-| Word | Effect | Description |
-|------|--------|-------------|
-| `option-some?` | `( Option -- Option Int )` | Check if Some |
-| `option-none?` | `( Option -- Option Int )` | Check if None |
-| `option-unwrap` | `( Option -- value )` | Extract Some (panics on None) |
-| `option-unwrap-or` | `( Option default -- value )` | Extract Some or use default |
-| `option-map` | `( Option Quotation -- Option )` | Transform Some value |
-| `option-bind` | `( Option Quotation -- Option )` | Chain optional operations |
+If you need functional composition patterns (map, bind), you can define your own concrete Result types - see `examples/paradigms/functional/result.seq` for an example.
 
 ## String Operations
 

@@ -1,0 +1,92 @@
+# Tests for division operations with error handling
+# Division operations now return ( Int Int -- Int Bool ) for safe error propagation
+
+# =============================================================================
+#                           INTEGER DIVISION
+# =============================================================================
+
+: test-divide-success ( -- )
+  10 2 i./
+  test.assert        # Bool should be true (success)
+  5 test.assert-eq   # result should be 5
+;
+
+: test-divide-negative ( -- )
+  -10 2 i./
+  test.assert        # Bool should be true
+  -5 test.assert-eq  # result should be -5
+;
+
+: test-divide-by-negative ( -- )
+  10 -2 i./
+  test.assert        # Bool should be true
+  -5 test.assert-eq  # result should be -5
+;
+
+: test-divide-by-zero ( -- )
+  10 0 i./
+  not test.assert    # Bool should be false (failure)
+  0 test.assert-eq   # result should be 0 on failure
+;
+
+: test-divide-zero-by-nonzero ( -- )
+  0 5 i./
+  test.assert        # Bool should be true
+  0 test.assert-eq   # result should be 0
+;
+
+: test-divide-same-number ( -- )
+  7 7 i./
+  test.assert        # Bool should be true
+  1 test.assert-eq   # result should be 1
+;
+
+# =============================================================================
+#                           INTEGER MODULO
+# =============================================================================
+
+: test-modulo-success ( -- )
+  10 3 i.%
+  test.assert        # Bool should be true (success)
+  1 test.assert-eq   # result should be 1 (10 % 3 = 1)
+;
+
+: test-modulo-no-remainder ( -- )
+  10 5 i.%
+  test.assert        # Bool should be true
+  0 test.assert-eq   # result should be 0
+;
+
+: test-modulo-negative-dividend ( -- )
+  -10 3 i.%
+  test.assert        # Bool should be true
+  -1 test.assert-eq  # result should be -1 (follows C semantics)
+;
+
+: test-modulo-by-zero ( -- )
+  10 0 i.%
+  not test.assert    # Bool should be false (failure)
+  0 test.assert-eq   # result should be 0 on failure
+;
+
+: test-modulo-zero-by-nonzero ( -- )
+  0 5 i.%
+  test.assert        # Bool should be true
+  0 test.assert-eq   # result should be 0
+;
+
+# =============================================================================
+#                         LONG FORM ALIASES
+# =============================================================================
+
+: test-i-divide-alias ( -- )
+  20 4 i.divide
+  test.assert
+  5 test.assert-eq
+;
+
+: test-i-modulo-alias ( -- )
+  17 5 i.modulo
+  test.assert
+  2 test.assert-eq
+;

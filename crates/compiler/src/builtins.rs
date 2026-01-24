@@ -332,15 +332,14 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Integer Arithmetic ( a Int Int -- a Int )
     // =========================================================================
 
-    builtins_int_int_to_int!(
-        sigs,
-        "i.add",
-        "i.subtract",
-        "i.multiply",
-        "i.divide",
-        "i.modulo"
-    );
-    builtins_int_int_to_int!(sigs, "i.+", "i.-", "i.*", "i./", "i.%");
+    builtins_int_int_to_int!(sigs, "i.add", "i.subtract", "i.multiply");
+    builtins_int_int_to_int!(sigs, "i.+", "i.-", "i.*");
+
+    // Division operations return ( a Int Int -- a Int Bool ) for error handling
+    builtin!(sigs, "i.divide", (a Int Int -- a Int Bool));
+    builtin!(sigs, "i.modulo", (a Int Int -- a Int Bool));
+    builtin!(sigs, "i./", (a Int Int -- a Int Bool));
+    builtin!(sigs, "i.%", (a Int Int -- a Int Bool));
 
     // =========================================================================
     // Integer Comparison ( a Int Int -- a Bool )
@@ -491,11 +490,12 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // TCP Operations
     // =========================================================================
 
-    builtin!(sigs, "tcp.listen", (a Int -- a Int));
-    builtin!(sigs, "tcp.accept", (a Int -- a Int));
-    builtin!(sigs, "tcp.read", (a Int -- a String));
-    builtin!(sigs, "tcp.write", (a String Int -- a));
-    builtin!(sigs, "tcp.close", (a Int -- a));
+    // TCP operations return Bool for error handling
+    builtin!(sigs, "tcp.listen", (a Int -- a Int Bool));
+    builtin!(sigs, "tcp.accept", (a Int -- a Int Bool));
+    builtin!(sigs, "tcp.read", (a Int -- a String Bool));
+    builtin!(sigs, "tcp.write", (a String Int -- a Bool));
+    builtin!(sigs, "tcp.close", (a Int -- a Bool));
 
     // =========================================================================
     // OS Operations
@@ -616,13 +616,14 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     // Regular Expression Operations
     // =========================================================================
 
+    // Regex operations return Bool for error handling (invalid regex)
     builtin!(sigs, "regex.match?", (a String String -- a Bool));
     builtin!(sigs, "regex.find", (a String String -- a String Bool));
-    builtin!(sigs, "regex.find-all", (a String String -- a V));
-    builtin!(sigs, "regex.replace", (a String String String -- a String));
-    builtin!(sigs, "regex.replace-all", (a String String String -- a String));
+    builtin!(sigs, "regex.find-all", (a String String -- a V Bool));
+    builtin!(sigs, "regex.replace", (a String String String -- a String Bool));
+    builtin!(sigs, "regex.replace-all", (a String String String -- a String Bool));
     builtin!(sigs, "regex.captures", (a String String -- a V Bool));
-    builtin!(sigs, "regex.split", (a String String -- a V));
+    builtin!(sigs, "regex.split", (a String String -- a V Bool));
     builtin!(sigs, "regex.valid?", (a String -- a Bool));
 
     // =========================================================================
@@ -1021,15 +1022,18 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     // TCP Operations
     docs.insert(
         "tcp.listen",
-        "Start listening on a port. Returns socket ID.",
+        "Start listening on a port. Returns (socket_id, success).",
     );
     docs.insert(
         "tcp.accept",
-        "Accept a connection. Returns client socket ID.",
+        "Accept a connection. Returns (client_id, success).",
     );
-    docs.insert("tcp.read", "Read data from a socket. Returns string.");
-    docs.insert("tcp.write", "Write data to a socket.");
-    docs.insert("tcp.close", "Close a socket.");
+    docs.insert(
+        "tcp.read",
+        "Read data from a socket. Returns (string, success).",
+    );
+    docs.insert("tcp.write", "Write data to a socket. Returns success.");
+    docs.insert("tcp.close", "Close a socket. Returns success.");
 
     // OS Operations
     docs.insert(
@@ -1266,15 +1270,15 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     );
     docs.insert(
         "regex.find-all",
-        "Find all matches. ( text pattern -- list )",
+        "Find all matches. ( text pattern -- list success )",
     );
     docs.insert(
         "regex.replace",
-        "Replace first match. ( text pattern replacement -- result )",
+        "Replace first match. ( text pattern replacement -- result success )",
     );
     docs.insert(
         "regex.replace-all",
-        "Replace all matches. ( text pattern replacement -- result )",
+        "Replace all matches. ( text pattern replacement -- result success )",
     );
     docs.insert(
         "regex.captures",
@@ -1282,7 +1286,7 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     );
     docs.insert(
         "regex.split",
-        "Split string by pattern. ( text pattern -- list )",
+        "Split string by pattern. ( text pattern -- list success )",
     );
     docs.insert(
         "regex.valid?",

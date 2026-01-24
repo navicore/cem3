@@ -181,13 +181,15 @@ This document covers:
 
 ## TCP Operations
 
+All TCP operations return a Bool success flag for error handling.
+
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `tcp.listen` | `( Int -- Int )` | Listen on port. Returns socket ID |
-| `tcp.accept` | `( Int -- Int )` | Accept connection. Returns client socket |
-| `tcp.read` | `( Int -- String )` | Read from socket |
-| `tcp.write` | `( String Int -- )` | Write to socket |
-| `tcp.close` | `( Int -- )` | Close socket |
+| `tcp.listen` | `( Int -- Int Bool )` | Listen on port. Returns (socket_id, success) |
+| `tcp.accept` | `( Int -- Int Bool )` | Accept connection. Returns (client_id, success) |
+| `tcp.read` | `( Int -- String Bool )` | Read from socket. Returns (data, success) |
+| `tcp.write` | `( String Int -- Bool )` | Write to socket. Returns success |
+| `tcp.close` | `( Int -- Bool )` | Close socket. Returns success |
 
 ## OS Operations
 
@@ -278,15 +280,17 @@ This document covers:
 
 ## Regular Expressions
 
+All regex operations return a Bool success flag (false for invalid regex).
+
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `regex.match?` | `( String String -- Bool )` | Check if pattern matches. (text, pattern) |
-| `regex.find` | `( String String -- String Bool )` | Find first match |
-| `regex.find-all` | `( String String -- List )` | Find all matches |
-| `regex.replace` | `( String String String -- String )` | Replace first match. (text, pattern, replacement) |
-| `regex.replace-all` | `( String String String -- String )` | Replace all matches |
-| `regex.captures` | `( String String -- List Bool )` | Extract capture groups |
-| `regex.split` | `( String String -- List )` | Split by pattern |
+| `regex.find` | `( String String -- String Bool )` | Find first match. Returns (match, success) |
+| `regex.find-all` | `( String String -- List Bool )` | Find all matches. Returns (matches, success) |
+| `regex.replace` | `( String String String -- String Bool )` | Replace first match. Returns (result, success) |
+| `regex.replace-all` | `( String String String -- String Bool )` | Replace all matches. Returns (result, success) |
+| `regex.captures` | `( String String -- List Bool )` | Extract capture groups. Returns (groups, success) |
+| `regex.split` | `( String String -- List Bool )` | Split by pattern. Returns (parts, success) |
 | `regex.valid?` | `( String -- Bool )` | Check if valid regex |
 
 ## Compression
@@ -406,72 +410,6 @@ This document covers:
 ## Standard Library Modules
 
 These modules are included with `include std:<module-name>`.
-
----
-
-### std:result - Result/Option Helpers
-
-Helper words for working with Result and Option patterns. Since Seq doesn't support generic types, you define your own Result/Option unions with specific types.
-
-```seq
-include std:result
-
-union IntResult { Ok { value: Int } Err { error: String } }
-
-: safe-divide ( Int Int -- IntResult )
-  dup 0 i.= if
-    drop "Division by zero" Make-Err
-  else
-    i.divide Make-Ok
-  then
-;
-
-10 2 safe-divide
-result-ok? if result-unwrap int->string io.write-line then
-```
-
-#### Result Predicates
-
-| Word | Stack Effect | Description |
-|------|--------------|-------------|
-| `result-ok?` | `( Result -- Result Bool )` | Check if Ok (keeps value) |
-| `result-err?` | `( Result -- Result Bool )` | Check if Err (keeps value) |
-
-#### Result Unwrapping
-
-| Word | Stack Effect | Description |
-|------|--------------|-------------|
-| `result-unwrap` | `( Result -- value )` | Extract Ok value (panics on Err) |
-| `result-unwrap-err` | `( Result -- error )` | Extract Err value (panics on Ok) |
-| `result-unwrap-or` | `( Result default -- value )` | Extract Ok or return default |
-
-#### Result Combinators
-
-| Word | Stack Effect | Description |
-|------|--------------|-------------|
-| `result-map` | `( Result [T -- U] -- Result )` | Transform Ok value |
-| `result-bind` | `( Result [T -- Result] -- Result )` | Chain fallible operations |
-
-#### Option Predicates
-
-| Word | Stack Effect | Description |
-|------|--------------|-------------|
-| `option-some?` | `( Option -- Option Bool )` | Check if Some (keeps value) |
-| `option-none?` | `( Option -- Option Bool )` | Check if None (keeps value) |
-
-#### Option Unwrapping
-
-| Word | Stack Effect | Description |
-|------|--------------|-------------|
-| `option-unwrap` | `( Option -- value )` | Extract Some value (panics on None) |
-| `option-unwrap-or` | `( Option default -- value )` | Extract Some or return default |
-
-#### Option Combinators
-
-| Word | Stack Effect | Description |
-|------|--------------|-------------|
-| `option-map` | `( Option [T -- U] -- Option )` | Transform Some value |
-| `option-bind` | `( Option [T -- Option] -- Option )` | Chain optional operations |
 
 ---
 

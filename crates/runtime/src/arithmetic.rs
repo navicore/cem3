@@ -21,7 +21,6 @@
 //!
 //! This matches the behavior of Forth and Factor, providing consistency for low-level code.
 
-use crate::error::set_runtime_error;
 use crate::stack::DISC_INT;
 use crate::stack::{Stack, peek_sv, pop, pop_two, push};
 use crate::value::Value;
@@ -101,11 +100,11 @@ pub unsafe extern "C" fn patch_seq_multiply(stack: Stack) -> Stack {
 
 /// Divide two integers (a / b)
 ///
-/// Stack effect: ( a b -- a/b )
+/// Stack effect: ( a b -- result success )
 ///
-/// # Error Handling
-/// - Division by zero: Sets runtime error and returns 0
-/// - Type mismatch: Sets runtime error and returns 0
+/// Returns the quotient and a Bool success flag.
+/// On division by zero, returns (0, false).
+/// On success, returns (a/b, true).
 ///
 /// # Safety
 /// Stack must have at least two values on top
@@ -113,33 +112,30 @@ pub unsafe extern "C" fn patch_seq_multiply(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "divide") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(0)) => {
-            // Division by zero - set error and return 0
-            set_runtime_error(format!(
-                "divide: division by zero (attempted {} / 0)",
-                a_val
-            ));
-            unsafe { push(rest, Value::Int(0)) }
+        (Value::Int(_a_val), Value::Int(0)) => {
+            // Division by zero - return 0 and false
+            let stack = unsafe { push(rest, Value::Int(0)) };
+            unsafe { push(stack, Value::Bool(false)) }
         }
         (Value::Int(a_val), Value::Int(b_val)) => {
             // Use wrapping_div to handle i64::MIN / -1 overflow edge case
-            unsafe { push(rest, Value::Int(a_val.wrapping_div(b_val))) }
+            let stack = unsafe { push(rest, Value::Int(a_val.wrapping_div(b_val))) };
+            unsafe { push(stack, Value::Bool(true)) }
         }
         _ => {
             // Type error - should not happen with type-checked code
-            set_runtime_error("divide: expected two integers on stack");
-            unsafe { push(rest, Value::Int(0)) }
+            panic!("divide: expected two integers on stack");
         }
     }
 }
 
 /// Modulo (remainder) of two integers (a % b)
 ///
-/// Stack effect: ( a b -- a%b )
+/// Stack effect: ( a b -- result success )
 ///
-/// # Error Handling
-/// - Division by zero: Sets runtime error and returns 0
-/// - Type mismatch: Sets runtime error and returns 0
+/// Returns the remainder and a Bool success flag.
+/// On division by zero, returns (0, false).
+/// On success, returns (a%b, true).
 ///
 /// # Safety
 /// Stack must have at least two values on top
@@ -147,22 +143,19 @@ pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_modulo(stack: Stack) -> Stack {
     let (rest, a, b) = unsafe { pop_two(stack, "modulo") };
     match (a, b) {
-        (Value::Int(a_val), Value::Int(0)) => {
-            // Division by zero - set error and return 0
-            set_runtime_error(format!(
-                "modulo: division by zero (attempted {} % 0)",
-                a_val
-            ));
-            unsafe { push(rest, Value::Int(0)) }
+        (Value::Int(_a_val), Value::Int(0)) => {
+            // Division by zero - return 0 and false
+            let stack = unsafe { push(rest, Value::Int(0)) };
+            unsafe { push(stack, Value::Bool(false)) }
         }
         (Value::Int(a_val), Value::Int(b_val)) => {
             // Use wrapping_rem to handle i64::MIN % -1 overflow edge case
-            unsafe { push(rest, Value::Int(a_val.wrapping_rem(b_val))) }
+            let stack = unsafe { push(rest, Value::Int(a_val.wrapping_rem(b_val))) };
+            unsafe { push(stack, Value::Bool(true)) }
         }
         _ => {
             // Type error - should not happen with type-checked code
-            set_runtime_error("modulo: expected two integers on stack");
-            unsafe { push(rest, Value::Int(0)) }
+            panic!("modulo: expected two integers on stack");
         }
     }
 }
@@ -659,6 +652,9 @@ mod tests {
             let stack = push_int(stack, 4);
             let stack = divide(stack);
 
+            // Division now returns (result, success_bool)
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(true));
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(5));
         }
@@ -729,6 +725,8 @@ mod tests {
             let stack = push_int(stack, -10);
             let stack = push_int(stack, 3);
             let stack = divide(stack);
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(true));
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(-3)); // Truncates toward zero
 
@@ -736,6 +734,8 @@ mod tests {
             let stack = push_int(stack, 10);
             let stack = push_int(stack, -3);
             let stack = divide(stack);
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(true));
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(-3));
 
@@ -743,6 +743,8 @@ mod tests {
             let stack = push_int(stack, -10);
             let stack = push_int(stack, -3);
             let stack = divide(stack);
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(true));
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(3));
         }
@@ -758,6 +760,8 @@ mod tests {
             let stack = push_int(stack, i64::MIN);
             let stack = push_int(stack, -1);
             let stack = divide(stack);
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(true));
             let (_stack, result) = pop(stack);
             // i64::MIN / -1 would be i64::MAX + 1, which wraps to i64::MIN
             assert_eq!(result, Value::Int(i64::MIN));
@@ -872,20 +876,18 @@ mod tests {
     }
 
     #[test]
-    fn test_divide_by_zero_sets_error() {
+    fn test_divide_by_zero_returns_false() {
         unsafe {
-            crate::error::clear_runtime_error();
             let stack = crate::stack::alloc_test_stack();
             let stack = push_int(stack, 42);
             let stack = push_int(stack, 0);
             let stack = divide(stack);
 
-            // Should have set an error
-            assert!(crate::error::has_runtime_error());
-            let error = crate::error::take_runtime_error().unwrap();
-            assert!(error.contains("division by zero"));
+            // Division by zero now returns (0, false) instead of setting runtime error
+            let (stack, success) = pop(stack);
+            assert_eq!(success, Value::Bool(false));
 
-            // Should have pushed 0 as sentinel
+            // Should have pushed 0 as result
             let (_stack, result) = pop(stack);
             assert_eq!(result, Value::Int(0));
         }

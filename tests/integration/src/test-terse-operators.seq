@@ -20,16 +20,16 @@
 ;
 
 : test-terse-divide ( -- )
-  15 3 i./ 5 i.= test.assert
-  10 3 i./ 3 i.= test.assert  # integer division
-  0 5 i.subtract 2 i./ 0 2 i.subtract i.= test.assert  # -5 / 2 = -2 (truncate toward zero)
+  15 3 i./ test.assert 5 i.= test.assert
+  10 3 i./ test.assert 3 i.= test.assert  # integer division
+  0 5 i.subtract 2 i./ test.assert 0 2 i.subtract i.= test.assert  # -5 / 2 = -2 (truncate toward zero)
 ;
 
 : test-modulo ( -- )
-  10 3 i.% 1 i.= test.assert
-  15 5 i.% 0 i.= test.assert
-  7 4 i.% 3 i.= test.assert
-  100 7 i.% 2 i.= test.assert
+  10 3 i.% test.assert 1 i.= test.assert
+  15 5 i.% test.assert 0 i.= test.assert
+  7 4 i.% test.assert 3 i.= test.assert
+  100 7 i.% test.assert 2 i.= test.assert
 ;
 
 : test-verbose-eq ( -- )

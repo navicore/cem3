@@ -10,6 +10,8 @@ Version 3.0.0 standardizes error handling across the language using the `(value 
 
 Division and modulo now return `(Int Bool)` to handle division by zero.
 
+**Important:** When the Bool is `false`, the value is undefined and should be ignored (typically dropped). Division by zero returns `(0, false)` but the `0` is a placeholder - always check the Bool before using the result.
+
 ### Before (2.x)
 ```seq
 : divide-example ( -- )

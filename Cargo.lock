@@ -237,9 +237,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.53"
+version = "1.2.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "755d2fce177175ffca841e9a06afdb2c4ab0f593d53b4dee48147dfaade85932"
+checksum = "6354c81bbfd62d9cfa9cb3c773c2b7b2a3a482d569de977fd0e961f6e7c00583"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -2027,7 +2027,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-compiler"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "bumpalo",
  "may",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2063,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "clap",
  "crossterm",
@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "2.3.1"
+version = "2.3.2"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2298,9 +2298,9 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
+checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
@@ -2562,7 +2562,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.1",
+ "socket2 0.6.2",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]
@@ -2877,7 +2877,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "2.3.1"
+version = "2.3.2"
 
 [[package]]
 name = "vtparse"

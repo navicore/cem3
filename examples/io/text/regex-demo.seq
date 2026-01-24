@@ -46,6 +46,7 @@
 
   # Find all numbers
   "Items: 10, 20, 30" "[0-9]+" regex.find-all
+  drop   # drop success Bool
   "  All numbers in 'Items: 10, 20, 30': [" io.write
   [ io.write " " io.write ] list.each
   "]" io.write-line
@@ -59,14 +60,17 @@
 
   # Replace first occurrence
   "hello world world" "world" "Seq" regex.replace
+  drop   # drop success Bool
   "  Replace first 'world': " show
 
   # Replace all occurrences
   "foo bar foo baz foo" "foo" "XXX" regex.replace-all
+  drop   # drop success Bool
   "  Replace all 'foo': " show
 
   # Normalize whitespace
   "hello    world   test" "\\s+" " " regex.replace-all
+  drop   # drop success Bool
   "  Normalize whitespace: " show
 
   "" io.write-line
@@ -100,12 +104,14 @@
 
   # Split on comma and optional whitespace
   "apple, banana,  cherry,orange" ",\\s*" regex.split
+  drop   # drop success Bool
   "  Split CSV: [" io.write
   [ io.write " | " io.write ] list.each
   "]" io.write-line
 
   # Split on multiple delimiters
   "one;two:three-four" "[;:-]" regex.split
+  drop   # drop success Bool
   "  Split multi-delimiter: [" io.write
   [ io.write " | " io.write ] list.each
   "]" io.write-line

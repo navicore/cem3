@@ -353,22 +353,30 @@
   # We need the socket twice: once for read, once for write.
   # dup gives us a copy.
 
-  tcp.read                 # ( socket request_string )
+  tcp.read                 # ( socket request_string success )
   # Read from the copy. Original socket still there!
+  # tcp.read returns (String, Bool) for error handling.
 
-  route                    # ( socket response_string )
-  # Transform request into response.
+  not if
+    # Read failed - clean up and exit
+    drop                   # drop empty string
+    tcp.close drop         # close socket, drop success flag
+  else
+    route                  # ( socket response_string )
+    # Transform request into response.
 
-  over                     # ( socket response_string socket )
-  # We need the socket on top to write to it.
-  # "over" copies the second item to the top.
+    over                   # ( socket response_string socket )
+    # We need the socket on top to write to it.
+    # "over" copies the second item to the top.
 
-  tcp.write                # ( socket )
-  # Write response. tcp.write consumes both response and socket,
-  # but we still have our original socket underneath!
+    tcp.write              # ( socket success )
+    # Write response. tcp.write returns success flag.
+    drop                   # drop success flag
 
-  tcp.close                # ( )
-  # Clean up by closing the connection.
+    tcp.close              # ( success )
+    # Clean up by closing the connection.
+    drop                   # drop success flag
+  then
 ;
 
 # ============================================================================
@@ -417,31 +425,38 @@
 
   dup tcp.accept
   # dup:        ( listener_socket listener_socket )
-  # tcp.accept: ( listener_socket client_socket )
+  # tcp.accept: ( listener_socket client_socket success )
   # We keep the listener to accept more connections!
 
-  chan.make
-  # Creates a channel for sending the socket to the worker
-  # Stack: ( listener_socket client_socket channel_id )
+  not if
+    # Accept failed - drop invalid socket and retry
+    drop                   # drop the 0 client_socket
+    accept-loop
+  else
+    # Accept succeeded - spawn worker
+    chan.make
+    # Creates a channel for sending the socket to the worker
+    # Stack: ( listener_socket client_socket channel_id )
 
-  dup [ worker ] strand.spawn
-  # dup:    ( listener_socket client_socket channel_id channel_id )
-  # [ worker ]: Push the worker quotation
-  # strand.spawn: Start a new strand running "worker" with channel_id, passes stack to child
-  # Stack: ( listener_socket client_socket channel_id channel_id strand_id )
+    dup [ worker ] strand.spawn
+    # dup:    ( listener_socket client_socket channel_id channel_id )
+    # [ worker ]: Push the worker quotation
+    # strand.spawn: Start a new strand running "worker" with channel_id, passes stack to child
+    # Stack: ( listener_socket client_socket channel_id channel_id strand_id )
 
-  drop drop
-  # We don't need the strand_id, and strand.spawn leaves the extra dup'd channel
-  # Stack: ( listener_socket client_socket channel_id )
+    drop drop
+    # We don't need the strand_id, and strand.spawn leaves the extra dup'd channel
+    # Stack: ( listener_socket client_socket channel_id )
 
-  chan.send
-  # Send client_socket through the channel to the worker
-  # Stack: ( listener_socket success )
-  not if "Failed to send socket to worker" io.write-line then
-  # The worker receives the socket and handles the connection!
+    chan.send
+    # Send client_socket through the channel to the worker
+    # Stack: ( listener_socket success )
+    not if "Failed to send socket to worker" io.write-line then
+    # The worker receives the socket and handles the connection!
 
-  accept-loop
-  # Tail call - TCO converts this to a jump, no stack growth
+    accept-loop
+    # Tail call - TCO converts this to a jump, no stack growth
+  then
 ;
 
 # ============================================================================
@@ -465,12 +480,16 @@
 
   8080 tcp.listen
   # Push port number, call tcp.listen
-  # Returns a listener socket on the stack
+  # Returns ( listener_socket success ) on the stack
 
-  "Listening..." io.write-line
-
-  accept-loop
-  # Enters infinite loop via tail recursion - never returns
+  not if
+    drop
+    "Failed to bind to port 8080" io.write-line
+  else
+    "Listening..." io.write-line
+    accept-loop
+    # Enters infinite loop via tail recursion - never returns
+  then
 ;
 
 # ============================================================================

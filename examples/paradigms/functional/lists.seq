@@ -81,12 +81,12 @@ include std:imath
 
 # Keep only even numbers
 : keep-evens ( Variant -- Variant )
-  [ 2 mod 0 i.= ] list.filter
+  [ 2 mod drop 0 i.= ] list.filter
 ;
 
 # Keep only odd numbers
 : keep-odds ( Variant -- Variant )
-  [ 2 mod 1 i.= ] list.filter
+  [ 2 mod drop 1 i.= ] list.filter
 ;
 
 # Keep numbers greater than 10 (specific version since quotations don't capture)

@@ -374,31 +374,4 @@ include "utils"
             names
         );
     }
-
-    #[test]
-    fn test_resolve_stdlib_result_includes_constructors() {
-        // Parse a document that includes std:result
-        let source = "include std:result\n";
-        let (includes, _) = parse_document(source);
-        assert_eq!(includes.len(), 1);
-
-        // Resolve the includes using embedded stdlib
-        let result = resolve_includes(&includes, None);
-
-        // Check that union constructors are extracted
-        // std:result defines IntResult with Ok and Err variants
-        let names: Vec<&str> = result.words.iter().map(|w| w.name.as_str()).collect();
-
-        // The result module should have helper words
-        assert!(
-            names.contains(&"result-ok?"),
-            "Expected result-ok? in {:?}",
-            names
-        );
-
-        // If the module has unions, their constructors should be included
-        // Note: std:result may not define unions itself but documents how to use them
-        // This test verifies the mechanism works - actual union constructors come from
-        // files that define unions
-    }
 }

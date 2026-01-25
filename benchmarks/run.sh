@@ -1,18 +1,22 @@
-#!/bin/bash
-# Benchmark runner for Seq vs Go vs Rust comparison
+#!/usr/bin/env bash
+# Unified Benchmark Runner
+#
+# Runs all benchmarks in all languages and produces a comparison table.
 #
 # Usage:
 #   ./run.sh             # Run all benchmarks
-#   ./run.sh skynet      # Run only skynet benchmark
-#   ./run.sh pingpong    # Run only pingpong benchmark
-#   ./run.sh fanout      # Run only fanout benchmark
-#   ./run.sh compute     # Run only compute benchmarks (fib, sum_squares, primes)
-#   ./run.sh concurrency # Run only concurrency benchmarks
+#   ./run.sh fibonacci   # Run only fibonacci benchmark
 
 set -e
 cd "$(dirname "$0")"
 
-# Colors for output
+# Configuration
+BENCHMARKS="fibonacci collections primes skynet pingpong fanout"
+LANGUAGES="seq python go rust"
+RESULTS_DIR="results"
+SEQC="../target/release/seqc"
+
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -20,307 +24,125 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Seq vs Go vs Rust Benchmarks ===${NC}"
+# Parse arguments
+FILTER="${1:-}"
+
+# Setup
+mkdir -p "$RESULTS_DIR"
+rm -f "$RESULTS_DIR"/*.txt
+
+echo -e "${GREEN}${BOLD}=== Seq Benchmark Suite ===${NC}"
 echo
 
-# Check for Go
-if ! command -v go &> /dev/null; then
-    echo -e "${RED}Error: go not found. Please install Go.${NC}"
-    exit 1
+# Check dependencies
+HAS_SEQ=true
+HAS_PYTHON=true
+HAS_GO=true
+HAS_RUST=true
+
+if [ ! -f "$SEQC" ]; then
+    echo -e "${CYAN}Building seqc...${NC}"
+    (cd .. && cargo build --release -p seq-compiler 2>/dev/null) || HAS_SEQ=false
 fi
 
-# Check for Rust
-if ! command -v rustc &> /dev/null; then
-    echo -e "${RED}Error: rustc not found. Please install Rust.${NC}"
-    exit 1
-fi
+command -v python3 &>/dev/null || { echo -e "${YELLOW}Warning: python3 not found${NC}"; HAS_PYTHON=false; }
+command -v go &>/dev/null || { echo -e "${YELLOW}Warning: go not found${NC}"; HAS_GO=false; }
+command -v rustc &>/dev/null || { echo -e "${YELLOW}Warning: rustc not found${NC}"; HAS_RUST=false; }
 
-# Check for hyperfine (use silently if available)
-USE_HYPERFINE=false
-command -v hyperfine &> /dev/null && USE_HYPERFINE=true
+echo
 
-# Check for jq (optional, for robust JSON parsing)
-USE_JQ=false
-command -v jq &> /dev/null && USE_JQ=true
+# Run a single benchmark for a single language
+run_bench() {
+    local bench=$1
+    local lang=$2
+    local output_file="$RESULTS_DIR/${bench}_${lang}.txt"
 
-# Build seqc in release mode
-echo -e "${GREEN}Building seqc (release mode)...${NC}"
-(cd .. && cargo build --release -p seq-compiler 2>/dev/null)
-SEQC="../target/release/seqc"
-
-# Arrays to store results for summary
-declare -a BENCH_NAMES
-declare -a SEQ_TIMES
-declare -a RUST_TIMES
-declare -a GO_TIMES
-declare -a SEQ_GO_RATIOS
-
-# Function to build and run a concurrency benchmark (Seq vs Go vs Rust)
-run_benchmark() {
-    local name=$1
-    local dir=$2
-
-    echo -e "\n${GREEN}=== $name Benchmark ===${NC}"
-
-    # Build Seq version
-    echo "Building $name.seq..."
-    $SEQC build "$dir/$name.seq" -o "$dir/$name" 2>/dev/null
-
-    # Build Go version
-    echo "Building $name.go..."
-    (cd "$dir" && go build -o "${name}_go" "$name.go")
-
-    # Build Rust version
-    echo "Building $name.rs..."
-    rustc -O -o "$dir/${name}_rust" "$dir/$name.rs"
-
-    # Run comparison and capture results
-    if [ "$USE_HYPERFINE" = true ]; then
-        local json_file=$(mktemp)
-        hyperfine --warmup 2 --min-runs 5 \
-            --command-name "Seq" "$dir/$name" \
-            --command-name "Rust" "$dir/${name}_rust" \
-            --command-name "Go" "$dir/${name}_go" \
-            --export-json "$json_file"
-
-        # Parse JSON to extract mean times (in seconds)
-        local seq_time rust_time go_time
-        if [ "$USE_JQ" = true ]; then
-            seq_time=$(jq -r '.results[] | select(.command == "Seq") | .mean' "$json_file")
-            rust_time=$(jq -r '.results[] | select(.command == "Rust") | .mean' "$json_file")
-            go_time=$(jq -r '.results[] | select(.command == "Go") | .mean' "$json_file")
-        else
-            seq_time=$(grep -A20 '"command": "Seq"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
-            rust_time=$(grep -A20 '"command": "Rust"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
-            go_time=$(grep -A20 '"command": "Go"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
-        fi
-        rm -f "$json_file"
-
-        # Store results
-        BENCH_NAMES+=("$name")
-        SEQ_TIMES+=("$seq_time")
-        RUST_TIMES+=("$rust_time")
-        GO_TIMES+=("$go_time")
-
-        # Calculate Seq/Go ratio
-        if [ -n "$seq_time" ] && [ -n "$go_time" ]; then
-            local ratio=$(echo "scale=2; $seq_time / $go_time" | bc)
-            SEQ_GO_RATIOS+=("$ratio")
-        else
-            SEQ_GO_RATIOS+=("N/A")
-        fi
-    else
-        echo "Seq:"
-        time "$dir/$name"
-        echo
-        echo "Rust:"
-        time "$dir/${name}_rust"
-        echo
-        echo "Go:"
-        time "$dir/${name}_go"
-
-        BENCH_NAMES+=("$name")
-        SEQ_TIMES+=("(see above)")
-        RUST_TIMES+=("(see above)")
-        GO_TIMES+=("(see above)")
-        SEQ_GO_RATIOS+=("(manual)")
-    fi
+    case $lang in
+        seq)
+            [ "$HAS_SEQ" = false ] && { echo "SKIP:$bench:$lang:seqc not available" > "$output_file"; return; }
+            local src="$bench/seq.seq"
+            local bin="/tmp/bench_${bench}_seq"
+            [ -f "$src" ] && "$SEQC" build "$src" -o "$bin" 2>/dev/null && "$bin" > "$output_file" 2>&1 || echo "ERROR:$bench:$lang:failed" > "$output_file"
+            ;;
+        python)
+            [ "$HAS_PYTHON" = false ] && { echo "SKIP:$bench:$lang:python3 not available" > "$output_file"; return; }
+            local src="$bench/python.py"
+            [ -f "$src" ] && python3 "$src" > "$output_file" 2>&1 || echo "ERROR:$bench:$lang:failed" > "$output_file"
+            ;;
+        go)
+            [ "$HAS_GO" = false ] && { echo "SKIP:$bench:$lang:go not available" > "$output_file"; return; }
+            local src="$bench/go.go"
+            local bin="/tmp/bench_${bench}_go"
+            [ -f "$src" ] && go build -o "$bin" "$src" 2>/dev/null && "$bin" > "$output_file" 2>&1 || echo "ERROR:$bench:$lang:failed" > "$output_file"
+            ;;
+        rust)
+            [ "$HAS_RUST" = false ] && { echo "SKIP:$bench:$lang:rustc not available" > "$output_file"; return; }
+            local src="$bench/rust.rs"
+            local bin="/tmp/bench_${bench}_rust"
+            [ -f "$src" ] && rustc -O -o "$bin" "$src" 2>/dev/null && "$bin" > "$output_file" 2>&1 || echo "ERROR:$bench:$lang:failed" > "$output_file"
+            ;;
+    esac
 }
 
-# Function to build and run a compute benchmark (Seq vs Rust vs Go)
-run_compute_benchmark() {
-    local name=$1
-    local dir=$2
+# Run benchmarks
+for bench in $BENCHMARKS; do
+    [ -n "$FILTER" ] && [ "$bench" != "$FILTER" ] && continue
 
-    echo -e "\n${GREEN}=== $name (compute) ===${NC}"
-
-    # Build all versions
-    echo "Building $name.seq..."
-    $SEQC build "$dir/$name.seq" -o "$dir/${name}_seq" 2>/dev/null
-
-    echo "Building $name.rs..."
-    rustc -O -o "$dir/${name}_rust" "$dir/$name.rs"
-
-    echo "Building $name.go..."
-    (cd "$dir" && go build -o "${name}_go" "$name.go")
-
-    # Run comparison
-    if [ "$USE_HYPERFINE" = true ]; then
-        local json_file=$(mktemp)
-        hyperfine --warmup 1 --min-runs 3 \
-            --command-name "Seq" "$dir/${name}_seq" \
-            --command-name "Rust" "$dir/${name}_rust" \
-            --command-name "Go" "$dir/${name}_go" \
-            --export-json "$json_file"
-
-        local seq_time rust_time go_time
-        if [ "$USE_JQ" = true ]; then
-            seq_time=$(jq -r '.results[] | select(.command == "Seq") | .mean' "$json_file")
-            rust_time=$(jq -r '.results[] | select(.command == "Rust") | .mean' "$json_file")
-            go_time=$(jq -r '.results[] | select(.command == "Go") | .mean' "$json_file")
+    echo -e "${CYAN}Running $bench benchmark...${NC}"
+    for lang in $LANGUAGES; do
+        printf "  %-8s " "$lang"
+        run_bench "$bench" "$lang"
+        if grep -q "^BENCH:" "$RESULTS_DIR/${bench}_${lang}.txt" 2>/dev/null; then
+            echo -e "${GREEN}✓${NC}"
+        elif grep -q "^SKIP:" "$RESULTS_DIR/${bench}_${lang}.txt" 2>/dev/null; then
+            echo -e "${YELLOW}skipped${NC}"
         else
-            seq_time=$(grep -A20 '"command": "Seq"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
-            rust_time=$(grep -A20 '"command": "Rust"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
-            go_time=$(grep -A20 '"command": "Go"' "$json_file" | grep '"mean"' | head -1 | sed 's/.*: //' | sed 's/,//')
+            echo -e "${RED}✗${NC}"
         fi
-        rm -f "$json_file"
-
-        BENCH_NAMES+=("$name")
-        SEQ_TIMES+=("$seq_time")
-        RUST_TIMES+=("$rust_time")
-        GO_TIMES+=("$go_time")
-
-        if [ -n "$seq_time" ] && [ -n "$go_time" ]; then
-            local ratio=$(echo "scale=2; $seq_time / $go_time" | bc)
-            SEQ_GO_RATIOS+=("$ratio")
-        else
-            SEQ_GO_RATIOS+=("N/A")
-        fi
-    else
-        echo "Seq:"
-        time "$dir/${name}_seq"
-        echo
-        echo "Rust:"
-        time "$dir/${name}_rust"
-        echo
-        echo "Go:"
-        time "$dir/${name}_go"
-
-        BENCH_NAMES+=("$name")
-        SEQ_TIMES+=("(see above)")
-        RUST_TIMES+=("(see above)")
-        GO_TIMES+=("(see above)")
-        SEQ_GO_RATIOS+=("(manual)")
-    fi
-}
-
-# Print summary table
-print_summary() {
-    if [ ${#BENCH_NAMES[@]} -eq 0 ]; then
-        return
-    fi
-
-    echo -e "\n${BOLD}${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║                           BENCHMARK SUMMARY                              ║${NC}"
-    echo -e "${BOLD}${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
-    printf "${CYAN}║${NC} ${BOLD}%-12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} │ ${BOLD}%12s${NC} ${CYAN}║${NC}\n" \
-        "Benchmark" "Seq" "Rust" "Go" "Seq/Go"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
-
-    for i in "${!BENCH_NAMES[@]}"; do
-        local name="${BENCH_NAMES[$i]}"
-        local seq="${SEQ_TIMES[$i]}"
-        local rust="${RUST_TIMES[$i]}"
-        local go="${GO_TIMES[$i]}"
-        local ratio="${SEQ_GO_RATIOS[$i]}"
-
-        # Format times as milliseconds if they're numbers
-        local seq_fmt="$seq"
-        local rust_fmt="$rust"
-        local go_fmt="$go"
-        if [[ "$seq" =~ ^[0-9.]+$ ]]; then
-            seq_fmt=$(printf "%.0f ms" $(echo "$seq * 1000" | bc))
-        fi
-        if [[ "$rust" =~ ^[0-9.]+$ ]]; then
-            rust_fmt=$(printf "%.0f ms" $(echo "$rust * 1000" | bc))
-        fi
-        if [[ "$go" =~ ^[0-9.]+$ ]]; then
-            go_fmt=$(printf "%.0f ms" $(echo "$go * 1000" | bc))
-        fi
-
-        # Color the ratio based on performance
-        local ratio_color="$NC"
-        if [[ "$ratio" =~ ^[0-9.]+$ ]]; then
-            local ratio_int=$(echo "$ratio" | cut -d. -f1)
-            if [ -z "$ratio_int" ]; then
-                ratio_int=0
-            fi
-            if [ "$ratio_int" -le 2 ]; then
-                ratio_color="$GREEN"
-            elif [ "$ratio_int" -le 10 ]; then
-                ratio_color="$YELLOW"
-            else
-                ratio_color="$RED"
-            fi
-            ratio="${ratio}x"
-        fi
-
-        printf "${CYAN}║${NC} %-12s │ %12s │ %12s │ %12s │ ${ratio_color}%12s${NC} ${CYAN}║${NC}\n" \
-            "$name" "$seq_fmt" "$rust_fmt" "$go_fmt" "$ratio"
     done
+    echo
+done
 
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+# Generate report
+echo -e "${GREEN}${BOLD}=== Results ===${NC}"
+echo
 
-    echo -e "\n${BOLD}Legend (Seq/Go):${NC} ${GREEN}≤2x${NC} excellent │ ${YELLOW}2-10x${NC} good │ ${RED}>10x${NC} investigate"
+# Helper to get time from results
+get_time() {
+    local suite=$1 test=$2 lang=$3
+    local file="$RESULTS_DIR/${suite}_${lang}.txt"
+    [ -f "$file" ] || { echo "-"; return; }
+    local time=$(grep "^BENCH:${suite}:${test}:" "$file" 2>/dev/null | cut -d: -f5)
+    [ -n "$time" ] && echo "${time} ms" || echo "-"
 }
 
-# Determine which benchmarks to run
-BENCHMARKS="${1:-all}"
+# Print table
+print_table() {
+    local suite=$1
+    shift
+    local tests=("$@")
 
-case $BENCHMARKS in
-    skynet)
-        run_benchmark "skynet" "skynet"
-        ;;
-    pingpong)
-        run_benchmark "pingpong" "pingpong"
-        ;;
-    fanout)
-        run_benchmark "fanout" "fanout"
-        ;;
-    fib)
-        run_compute_benchmark "fib" "compute"
-        ;;
-    sum_squares)
-        run_compute_benchmark "sum_squares" "compute"
-        ;;
-    primes)
-        run_compute_benchmark "primes" "compute"
-        ;;
-    leibniz_pi)
-        run_compute_benchmark "leibniz_pi" "compute"
-        ;;
-    compute)
-        run_compute_benchmark "fib" "compute"
-        run_compute_benchmark "sum_squares" "compute"
-        run_compute_benchmark "primes" "compute"
-        run_compute_benchmark "leibniz_pi" "compute"
-        ;;
-    concurrency)
-        run_benchmark "skynet" "skynet"
-        run_benchmark "pingpong" "pingpong"
-        run_benchmark "fanout" "fanout"
-        ;;
-    all)
-        echo -e "${CYAN}--- Concurrency Benchmarks ---${NC}"
-        run_benchmark "skynet" "skynet"
-        run_benchmark "pingpong" "pingpong"
-        run_benchmark "fanout" "fanout"
-        echo -e "\n${CYAN}--- Compute Benchmarks ---${NC}"
-        run_compute_benchmark "fib" "compute"
-        run_compute_benchmark "sum_squares" "compute"
-        run_compute_benchmark "primes" "compute"
-        run_compute_benchmark "leibniz_pi" "compute"
-        ;;
-    *)
-        echo "Unknown benchmark: $BENCHMARKS"
-        echo "Usage: $0 [skynet|pingpong|fanout|fib|sum_squares|primes|leibniz_pi|compute|concurrency|all]"
-        exit 1
-        ;;
-esac
+    echo -e "${BOLD}$suite${NC}"
+    printf "%-25s %12s %12s %12s %12s\n" "Test" "Seq" "Python" "Go" "Rust"
+    printf "%-25s %12s %12s %12s %12s\n" "------------------------" "----------" "----------" "----------" "----------"
 
-# Print consolidated summary
-print_summary
+    for test in "${tests[@]}"; do
+        printf "%-25s %12s %12s %12s %12s\n" \
+            "$test" \
+            "$(get_time "$suite" "$test" seq)" \
+            "$(get_time "$suite" "$test" python)" \
+            "$(get_time "$suite" "$test" go)" \
+            "$(get_time "$suite" "$test" rust)"
+    done
+    echo
+}
 
-echo -e "\n${GREEN}=== Benchmarks Complete ===${NC}"
+print_table "fibonacci" "fib-naive-30" "fib-naive-35" "fib-fast-30" "fib-fast-50" "fib-naive-20-x1000" "fib-fast-20-x1000"
+print_table "collections" "build-100k" "map-double" "filter-evens" "fold-sum" "chain"
+print_table "primes" "count-10k" "count-100k"
+print_table "skynet" "spawn-100k"
+print_table "pingpong" "roundtrip-100k"
+print_table "fanout" "throughput-100k"
 
-# Save timestamp and commit to LATEST_RUN.txt for CI staleness check
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-cat > LATEST_RUN.txt << EOF
-# Benchmark run record - DO NOT EDIT MANUALLY
-# This file is checked by CI to ensure benchmarks are run regularly
-timestamp: $TIMESTAMP
-commit: $COMMIT
-benchmarks_run: $BENCHMARKS
-EOF
-echo -e "${GREEN}Updated LATEST_RUN.txt (commit: $COMMIT)${NC}"
+echo -e "${CYAN}Note: Python concurrency uses asyncio (cooperative, single-threaded).${NC}"
+echo -e "${CYAN}      Go/Seq/Rust use lightweight threads or OS threads.${NC}"

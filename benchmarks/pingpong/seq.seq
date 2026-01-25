@@ -1,0 +1,46 @@
+# Pingpong Benchmark - Seq implementation
+# Output format: BENCH:pingpong:<test>:<result>:<time_ms>
+#
+# Two strands exchange messages N times.
+# Tests channel round-trip latency.
+
+: iterations ( -- Int ) 100000 ;
+
+: pong ( Channel Channel Int -- )
+  dup 0 i.> if
+    2 pick chan.receive drop
+    2 pick chan.send drop
+    1 i.- pong
+  else
+    drop drop drop
+  then
+;
+
+: ping ( Channel Channel Int -- )
+  dup 0 i.> if
+    dup 3 pick chan.send drop
+    1 pick chan.receive drop drop
+    1 i.- ping
+  else
+    drop drop drop
+  then
+;
+
+: main ( -- Int )
+  time.nanos
+
+  chan.make chan.make
+  # ( start ping-chan pong-chan )
+
+  2dup iterations [ pong ] strand.spawn drop drop drop drop
+
+  iterations ping
+
+  time.nanos swap i.subtract 1000000 i.divide drop
+
+  "BENCH:pingpong:roundtrip-100k:" io.write
+  iterations int->string io.write ":" io.write
+  int->string io.write-line
+
+  0
+;

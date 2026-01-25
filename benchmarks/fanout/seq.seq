@@ -1,0 +1,92 @@
+# Fanout Benchmark - Seq implementation
+# Output format: BENCH:fanout:<test>:<result>:<time_ms>
+#
+# 1 producer, N consumer workers.
+# Tests channel throughput with multiple receivers.
+
+: num-messages ( -- Int ) 100000 ;
+: num-workers ( -- Int ) 10 ;
+
+: worker-loop ( Channel Channel Int -- )
+  2 pick chan.receive drop
+  chan.yield
+  dup 0 i.< if
+    drop swap chan.send drop drop
+  else
+    drop 1 i.+ worker-loop
+  then
+;
+
+: worker ( Channel Channel -- )
+  0 worker-loop
+;
+
+: spawn-workers ( Channel Channel Int -- )
+  dup 0 i.> if
+    2 pick 2 pick [ worker ] strand.spawn drop drop drop
+    1 i.- spawn-workers
+  else
+    drop drop drop
+  then
+;
+
+: collect-results ( Channel Int Int -- Int )
+  dup 0 i.> if
+    2 pick chan.receive drop
+    rot i.+ swap 1 i.- collect-results
+  else
+    drop swap drop
+  then
+;
+
+: producer ( Channel Int -- )
+  dup 0 i.> if
+    dup 2 pick chan.send drop
+    1 i.- producer
+  else
+    drop drop
+  then
+;
+
+: send-sentinels ( Channel Int -- )
+  dup 0 i.> if
+    -1 2 pick chan.send drop
+    1 i.- send-sentinels
+  else
+    drop drop
+  then
+;
+
+: main ( -- Int )
+  chan.make chan.make
+  # ( work-chan done-chan )
+
+  2dup num-workers spawn-workers
+  chan.yield
+
+  swap
+  # ( done-chan work-chan )
+
+  time.nanos
+  # ( done-chan work-chan start )
+
+  over num-messages producer
+  chan.yield
+  over num-workers send-sentinels
+  chan.yield
+
+  time.nanos swap i.subtract 1000000 i.divide drop
+  # ( done-chan work-chan ms )
+
+  swap drop swap
+  # ( ms done-chan )
+
+  0 num-workers collect-results
+  # ( ms total )
+
+  "BENCH:fanout:throughput-100k:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  0
+;

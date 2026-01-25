@@ -1,0 +1,62 @@
+# Primes Benchmark - Seq implementation
+# Output format: BENCH:primes:<test>:<result>:<time_ms>
+# Counts primes up to N using trial division
+
+: is-prime-loop ( Int Int -- Bool )
+  over over dup i.* i.< if
+    drop drop true
+  else
+    over over i.% drop 0 i.= if
+      drop drop false
+    else
+      1 i.+ is-prime-loop
+    then
+  then
+;
+
+: is-prime ( Int -- Bool )
+  dup 2 i.< if
+    drop false
+  else
+    dup 2 i.= if
+      drop true
+    else
+      2 is-prime-loop
+    then
+  then
+;
+
+: count-primes-loop ( Int Int Int -- Int )
+  over over i.< if
+    drop drop
+  else
+    dup is-prime if
+      rot 1 i.+ rot rot
+    then
+    1 i.+ count-primes-loop
+  then
+;
+
+: count-primes ( Int -- Int )
+  0 swap 2 count-primes-loop
+;
+
+: main ( -- Int )
+  # count-primes-10k
+  time.nanos
+  10000 count-primes
+  time.nanos rot i.subtract 1000000 i.divide drop
+  "BENCH:primes:count-10k:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # count-primes-100k
+  time.nanos
+  100000 count-primes
+  time.nanos rot i.subtract 1000000 i.divide drop
+  "BENCH:primes:count-100k:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  0
+;

@@ -1,0 +1,1 @@
+BENCH:fanout:throughput-100k:100000:31

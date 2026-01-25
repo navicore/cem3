@@ -1,0 +1,84 @@
+# Collections Benchmark - Seq implementation
+# Output format: BENCH:collections:<test>:<result>:<time_ms>
+
+include std:list
+
+: num-elements ( -- Int ) 100000 ;
+
+# Build list iteratively to avoid stack complexity
+: build-list-loop ( Variant Int Int -- Variant )
+  # ( list current limit )
+  2dup i.>= if
+    drop drop  # return list
+  else
+    # Push current onto list
+    over 3 pick swap list.push
+    # ( list current limit new-list )
+    # Need: ( new-list current+1 limit )
+    3 roll drop     # ( current limit new-list )
+    rot             # ( limit new-list current )
+    1 i.+           # ( limit new-list current+1 )
+    rot             # ( new-list current+1 limit )
+    build-list-loop
+  then
+;
+
+: build-list ( Int -- Variant )
+  list.make 0 rot build-list-loop
+;
+
+: main ( -- Int )
+  # Build
+  time.nanos
+  num-elements build-list
+  time.nanos rot i.subtract 1000000 i.divide drop
+  # ( list ms )
+  "BENCH:collections:build-100k:" io.write
+  over list.length int->string io.write ":" io.write
+  int->string io.write-line
+  # ( list ) - ms consumed by io.write-line
+
+  # Map (double each)
+  dup
+  time.nanos swap
+  [ 2 i.* ] list.map
+  time.nanos rot i.subtract 1000000 i.divide drop
+  "BENCH:collections:map-double:" io.write
+  over list.length int->string io.write ":" io.write
+  int->string io.write-line
+  drop
+
+  # Filter (keep evens)
+  dup
+  time.nanos swap
+  [ 2 i.% drop 0 i.= ] list.filter
+  time.nanos rot i.subtract 1000000 i.divide drop
+  "BENCH:collections:filter-evens:" io.write
+  over list.length int->string io.write ":" io.write
+  int->string io.write-line
+  drop
+
+  # Fold (sum)
+  dup
+  time.nanos swap
+  0 [ i.+ ] list.fold
+  time.nanos rot i.subtract 1000000 i.divide drop
+  # ( list sum ms )
+  "BENCH:collections:fold-sum:" io.write
+  swap int->string io.write ":" io.write   # print sum
+  int->string io.write-line                 # print ms
+  # ( list )
+
+  # Chain (map -> filter -> fold)
+  time.nanos swap
+  [ 3 i.* ] list.map
+  [ 2 i.% drop 0 i.= ] list.filter
+  0 [ i.+ ] list.fold
+  time.nanos rot i.subtract 1000000 i.divide drop
+  # ( sum ms )
+  "BENCH:collections:chain:" io.write
+  swap int->string io.write ":" io.write   # print sum
+  int->string io.write-line                 # print ms
+
+  0
+;

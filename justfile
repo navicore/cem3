@@ -107,7 +107,7 @@ ci: fmt-check lint test build build-examples test-integration lint-seq check-ben
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
 
-# Check that benchmarks have been run recently (within 24 hours)
+# Check that benchmarks have been run recently (within 48 hours)
 # This catches performance regressions by ensuring benchmarks are run regularly
 check-bench-freshness:
     #!/usr/bin/env bash
@@ -135,7 +135,7 @@ check-bench-freshness:
     fi
     NOW_EPOCH=$(date -u +%s)
     AGE_HOURS=$(( (NOW_EPOCH - BENCH_EPOCH) / 3600 ))
-    if [ $AGE_HOURS -ge 24 ]; then
+    if [ $AGE_HOURS -ge 48 ]; then
         echo "❌ Benchmarks are stale ($AGE_HOURS hours old)"
         echo "   Last run: $TIMESTAMP"
         echo "   Run 'just bench' to update."

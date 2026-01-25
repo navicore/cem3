@@ -1,0 +1,60 @@
+# Skynet Benchmark - Seq implementation
+# Output format: BENCH:skynet:<test>:<result>:<time_ms>
+#
+# Spawns strands in a 10-ary tree structure.
+# 100,000 total strands (reduced from 1M for reasonable runtime)
+# Expected result: sum of 0..99999 = 4999950000
+
+: skynet ( Channel Int Int -- )
+  dup 1 i.= if
+    drop swap chan.send drop
+  else
+    chan.make
+    over 10 i.divide drop
+    # ( result-chan num size child-chan child-size )
+
+    # Spawn 10 children
+    3 pick 10 i.* 0 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 1 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 2 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 3 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 4 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 5 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 6 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 7 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 8 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+    3 pick 10 i.* 9 i.+ 2 pick swap 2 pick [ skynet ] strand.spawn drop drop drop drop
+
+    drop swap drop swap drop
+    # ( result-chan child-chan )
+
+    # Collect 10 results
+    dup chan.receive drop
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+    over chan.receive drop i.+
+
+    # ( result-chan child-chan sum )
+    swap drop swap chan.send drop
+  then
+;
+
+: main ( -- Int )
+  time.nanos
+  chan.make
+  dup 0 100000 [ skynet ] strand.spawn drop drop drop drop
+  chan.receive drop
+  time.nanos rot i.subtract 1000000 i.divide drop
+
+  "BENCH:skynet:spawn-100k:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  0
+;

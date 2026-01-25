@@ -418,18 +418,32 @@ impl CodeGen {
         Some(types)
     }
 
-    /// Check if a word body can be specialized
+    /// Check if a word body can be specialized.
+    ///
+    /// Tracks whether the previous statement was an integer literal, which is
+    /// required for `pick` and `roll` operations in specialized mode.
     fn is_body_specializable(&self, body: &[Statement], word_name: &str) -> bool {
+        let mut prev_was_int_literal = false;
         for stmt in body {
-            if !self.is_statement_specializable(stmt, word_name) {
+            if !self.is_statement_specializable(stmt, word_name, prev_was_int_literal) {
                 return false;
             }
+            // Track if this statement was an integer literal for the next iteration
+            prev_was_int_literal = matches!(stmt, Statement::IntLiteral(_));
         }
         true
     }
 
-    /// Check if a single statement can be specialized
-    fn is_statement_specializable(&self, stmt: &Statement, word_name: &str) -> bool {
+    /// Check if a single statement can be specialized.
+    ///
+    /// `prev_was_int_literal` indicates whether the preceding statement was an
+    /// IntLiteral, which is required for `pick` and `roll` to be specializable.
+    fn is_statement_specializable(
+        &self,
+        stmt: &Statement,
+        word_name: &str,
+        prev_was_int_literal: bool,
+    ) -> bool {
         match stmt {
             // Integer literals are fine
             Statement::IntLiteral(_) => true,
@@ -457,6 +471,12 @@ impl CodeGen {
                 // Recursive calls to self are OK (we'll call specialized version)
                 if name == word_name {
                     return true;
+                }
+
+                // pick and roll require a compile-time constant N (previous int literal)
+                // If N is computed at runtime, the word cannot be specialized
+                if (name == "pick" || name == "roll") && !prev_was_int_literal {
+                    return false;
                 }
 
                 // Check if it's a built-in specializable op
@@ -751,7 +771,8 @@ impl CodeGen {
                 // n=0 is a no-op (value already at top)
             }
 
-            // Integer arithmetic
+            // Integer arithmetic - uses LLVM's default wrapping behavior (no nsw/nuw flags).
+            // This matches the runtime's wrapping_add/sub/mul semantics for defined overflow.
             "i.+" | "i.add" => {
                 let (b, _) = ctx.pop().unwrap();
                 let (a, _) = ctx.pop().unwrap();

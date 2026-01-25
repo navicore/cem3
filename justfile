@@ -303,3 +303,14 @@ bench-fanout: build
     @echo "Running fanout benchmark..."
     cd benchmarks && ./run.sh fanout
 
+# Check for benchmark regressions against baseline
+bench-check:
+    @echo "Checking for benchmark regressions..."
+    ./scripts/check-bench-regression.sh
+
+# Update benchmark baseline (run after intentional performance changes)
+bench-update-baseline: bench
+    @echo "Updating benchmark baseline..."
+    cp benchmarks/results/*_seq.txt benchmarks/baseline/
+    @echo "✅ Baseline updated from current results"
+

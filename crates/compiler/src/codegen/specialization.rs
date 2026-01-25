@@ -250,14 +250,14 @@ impl CodeGen {
         let inputs = Self::extract_register_types(&effect.inputs)?;
         let outputs = Self::extract_register_types(&effect.outputs)?;
 
-        // Phase 1 POC: Only support single input, single output
-        if inputs.len() != 1 || outputs.len() != 1 {
+        // Must have at least one input or output to optimize
+        if inputs.is_empty() && outputs.is_empty() {
             return None;
         }
 
-        // Check that all inputs and outputs are primitive types
-        if inputs.is_empty() && outputs.is_empty() {
-            return None; // Nothing to optimize
+        // For now, limit to single output (multiple outputs need struct returns)
+        if outputs.len() != 1 {
+            return None;
         }
 
         // Check that the body is specializable

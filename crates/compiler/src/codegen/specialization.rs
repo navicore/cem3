@@ -203,19 +203,19 @@ impl RegisterContext {
         self.values.pop()
     }
 
-    /// Peek at the top value without removing it
+    /// Peek at the top value without removing it (for future use)
     #[allow(dead_code)]
     pub fn peek(&self) -> Option<&(String, RegisterType)> {
         self.values.last()
     }
 
     /// Get the number of values in the context
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn len(&self) -> usize {
         self.values.len()
     }
 
-    /// Check if the context is empty
+    /// Check if the context is empty (for future use)
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()

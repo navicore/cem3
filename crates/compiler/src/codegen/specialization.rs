@@ -635,7 +635,10 @@ impl CodeGen {
 
             Statement::FloatLiteral(f) => {
                 let var = self.fresh_temp();
-                // Use hexadecimal float format for exact representation
+                // Use bitcast from integer bits for exact IEEE 754 representation.
+                // This avoids precision loss from decimal string conversion (e.g., 0.1
+                // cannot be exactly represented in binary floating point). By storing
+                // the raw bit pattern and using bitcast, we preserve the exact value.
                 let bits = f.to_bits();
                 writeln!(
                     &mut self.output,

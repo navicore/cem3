@@ -111,51 +111,77 @@ impl CodeGen {
             None => return Ok(None),
         };
 
-        // Phase 1: Only handle single input, single output for now
-        if sig.inputs.len() != 1 || sig.outputs.len() != 1 {
+        // Single output only for now (multiple outputs need struct returns)
+        if sig.outputs.len() != 1 {
             return Ok(None);
         }
 
-        // Check if we have the right type on the virtual stack
-        if self.virtual_stack.is_empty() {
+        // Check if we have enough values on the virtual stack
+        let input_count = sig.inputs.len();
+        if self.virtual_stack.len() < input_count {
             return Ok(None);
         }
 
-        // For i64 input, the top of virtual stack must be an Int
-        let input_ty = sig.inputs[0];
-        let matches = match input_ty {
-            RegisterType::I64 => {
-                matches!(self.virtual_stack.last(), Some(VirtualValue::Int { .. }))
+        // Verify all inputs match expected types (check from bottom to top of what we'll pop)
+        // sig.inputs is bottom-to-top, but virtual_stack.last() is the top
+        // So sig.inputs[input_count-1] should match virtual_stack.last(), etc.
+        for (i, expected_ty) in sig.inputs.iter().enumerate() {
+            // Index into virtual stack: last element minus offset
+            let stack_idx = self.virtual_stack.len() - input_count + i;
+            let matches = match expected_ty {
+                RegisterType::I64 => {
+                    matches!(
+                        self.virtual_stack.get(stack_idx),
+                        Some(VirtualValue::Int { .. }) | Some(VirtualValue::Bool { .. })
+                    )
+                }
+                RegisterType::Double => {
+                    matches!(
+                        self.virtual_stack.get(stack_idx),
+                        Some(VirtualValue::Float { .. })
+                    )
+                }
+            };
+            if !matches {
+                return Ok(None);
             }
-            RegisterType::Double => {
-                matches!(self.virtual_stack.last(), Some(VirtualValue::Float { .. }))
-            }
-        };
-
-        if !matches {
-            return Ok(None);
         }
 
-        // Pop the argument from virtual stack
-        let arg = self.virtual_stack.pop().unwrap();
-        let arg_var = match arg {
-            VirtualValue::Int { ssa_var, .. } => ssa_var,
-            VirtualValue::Float { ssa_var } => ssa_var,
-            VirtualValue::Bool { ssa_var } => ssa_var,
-        };
+        // Pop arguments from virtual stack (top first, so reverse order)
+        let mut args = Vec::with_capacity(input_count);
+        for _ in 0..input_count {
+            let arg = self.virtual_stack.pop().unwrap();
+            let arg_var = match arg {
+                VirtualValue::Int { ssa_var, .. } => ssa_var,
+                VirtualValue::Float { ssa_var } => ssa_var,
+                VirtualValue::Bool { ssa_var } => ssa_var,
+            };
+            args.push(arg_var);
+        }
+        args.reverse(); // Now in bottom-to-top order (matches sig.inputs)
 
         // Generate specialized function name
         let spec_name = format!("seq_{}{}", mangle_name(name), sig.suffix());
 
+        // Build argument list string
+        let arg_strs: Vec<String> = sig
+            .inputs
+            .iter()
+            .zip(args.iter())
+            .map(|(ty, var)| format!("{} %{}", ty.llvm_type(), var))
+            .collect();
+
         // Emit the specialized call
         let result_var = self.fresh_temp();
         let return_type = sig.outputs[0].llvm_type();
-        let arg_type = input_ty.llvm_type();
 
         writeln!(
             &mut self.output,
-            "  %{} = call {} @{}({} %{})",
-            result_var, return_type, spec_name, arg_type, arg_var
+            "  %{} = call {} @{}({})",
+            result_var,
+            return_type,
+            spec_name,
+            arg_strs.join(", ")
         )?;
 
         // Push result back to virtual stack

@@ -1,0 +1,92 @@
+# Fibonacci Benchmark - Seq implementation
+# Output format: BENCH:fibonacci:<test>:<result>:<time_ms>
+
+: fib-naive ( Int -- Int )
+  dup 2 i.< if
+  else
+    dup 1 i.- fib-naive
+    swap 2 i.- fib-naive
+    i.+
+  then
+;
+
+: fib-loop ( Int Int Int -- Int )
+  dup 0 i.<= if
+    drop drop
+  else
+    1 i.- rot rot tuck i.+ rot fib-loop
+  then
+;
+
+: fib-fast ( Int -- Int )
+  0 1 rot fib-loop
+;
+
+: run-naive-n ( Int Int -- Int )
+  dup 0 i.<= if
+    drop fib-naive
+  else
+    1 i.- over fib-naive drop run-naive-n
+  then
+;
+
+: run-fast-n ( Int Int -- Int )
+  dup 0 i.<= if
+    drop fib-fast
+  else
+    1 i.- over fib-fast drop run-fast-n
+  then
+;
+
+: main ( -- Int )
+  # fib-naive-30
+  time.nanos 30 fib-naive time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-naive-30:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # fib-naive-35
+  time.nanos 35 fib-naive time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-naive-35:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # fib-fast-30
+  time.nanos 30 fib-fast time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-fast-30:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # fib-fast-50
+  time.nanos 50 fib-fast time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-fast-50:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # fib-fast-70
+  time.nanos 70 fib-fast time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-fast-70:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # fib-naive-20-x1000
+  time.nanos 20 1000 run-naive-n time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-naive-20-x1000:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  # fib-fast-20-x1000
+  time.nanos 20 1000 run-fast-n time.nanos
+  rot i.subtract 1000000 i.divide drop
+  "BENCH:fibonacci:fib-fast-20-x1000:" io.write
+  swap int->string io.write ":" io.write
+  int->string io.write-line
+
+  0
+;

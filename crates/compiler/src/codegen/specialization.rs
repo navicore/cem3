@@ -226,6 +226,10 @@ const SPECIALIZABLE_OPS: &[&str] = &[
     // Type conversions
     "int->float",
     "float->int",
+    // Boolean logical operations
+    "and",
+    "or",
+    "not",
     // Integer comparisons
     "i.<",
     "i.lt",
@@ -740,6 +744,29 @@ impl CodeGen {
                     "  %{} = fptosi double %{} to i64",
                     result, a
                 )?;
+                ctx.push(result, RegisterType::I64);
+            }
+
+            // Boolean logical operations (Bool is i64 0 or 1)
+            "and" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = and i64 %{}, %{}", result, a, b)?;
+                ctx.push(result, RegisterType::I64);
+            }
+            "or" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = or i64 %{}, %{}", result, a, b)?;
+                ctx.push(result, RegisterType::I64);
+            }
+            "not" => {
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                // Logical NOT: XOR with 1 flips 0<->1
+                writeln!(&mut self.output, "  %{} = xor i64 %{}, 1", result, a)?;
                 ctx.push(result, RegisterType::I64);
             }
 

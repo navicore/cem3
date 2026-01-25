@@ -1516,7 +1516,6 @@ impl CodeGen {
         if is_last && then_branch.is_empty() {
             self.emit_specialized_return(&then_ctx, sig)?;
         }
-        let then_result = then_ctx.values.last().cloned();
         // If is_last was true for the last statement (or branch is empty), a return was emitted
         let then_emitted_return = is_last;
         let then_pred = if then_emitted_return {
@@ -1548,7 +1547,6 @@ impl CodeGen {
         {
             self.emit_specialized_return(&else_ctx, sig)?;
         }
-        let else_result = else_ctx.values.last().cloned();
         // If is_last was true for the last statement (or branch is empty/None), a return was emitted
         let else_emitted_return = is_last;
         let else_pred = if else_emitted_return {
@@ -1558,41 +1556,57 @@ impl CodeGen {
             Some(else_label.clone())
         };
 
-        // Generate merge block with phi node if both branches continue
+        // Generate merge block with phi nodes if both branches continue
         if then_pred.is_some() || else_pred.is_some() {
             writeln!(&mut self.output, "{}:", merge_label)?;
 
-            // If both branches continue, we need a phi node
-            if let (
-                Some(then_p),
-                Some(else_p),
-                Some((then_var, then_ty)),
-                Some((else_var, else_ty)),
-            ) = (&then_pred, &else_pred, &then_result, &else_result)
-            {
-                if then_ty == else_ty {
-                    let phi_result = self.fresh_temp();
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = phi {} [ %{}, %{} ], [ %{}, %{} ]",
-                        phi_result,
-                        then_ty.llvm_type(),
-                        then_var,
-                        then_p,
-                        else_var,
-                        else_p
-                    )?;
-                    ctx.values.clear();
-                    ctx.push(phi_result, *then_ty);
+            // If both branches continue, we need phi nodes for ALL values that differ
+            if let (Some(then_p), Some(else_p)) = (&then_pred, &else_pred) {
+                // Both branches continue - merge all values with phi nodes
+                if then_ctx.values.len() != else_ctx.values.len() {
+                    return Err(CodeGenError::Logic(format!(
+                        "Stack depth mismatch in if branches: then has {}, else has {}",
+                        then_ctx.values.len(),
+                        else_ctx.values.len()
+                    )));
                 }
-            } else if let (Some(_), Some((then_var, then_ty))) = (&then_pred, &then_result) {
-                // Only then branch continues
+
                 ctx.values.clear();
-                ctx.push(then_var.clone(), *then_ty);
-            } else if let (Some(_), Some((else_var, else_ty))) = (&else_pred, &else_result) {
-                // Only else branch continues
-                ctx.values.clear();
-                ctx.push(else_var.clone(), *else_ty);
+                for i in 0..then_ctx.values.len() {
+                    let (then_var, then_ty) = &then_ctx.values[i];
+                    let (else_var, else_ty) = &else_ctx.values[i];
+
+                    if then_ty != else_ty {
+                        return Err(CodeGenError::Logic(format!(
+                            "Type mismatch at position {} in if branches: {:?} vs {:?}",
+                            i, then_ty, else_ty
+                        )));
+                    }
+
+                    // If values are the same SSA var, no phi needed
+                    if then_var == else_var {
+                        ctx.push(then_var.clone(), *then_ty);
+                    } else {
+                        let phi_result = self.fresh_temp();
+                        writeln!(
+                            &mut self.output,
+                            "  %{} = phi {} [ %{}, %{} ], [ %{}, %{} ]",
+                            phi_result,
+                            then_ty.llvm_type(),
+                            then_var,
+                            then_p,
+                            else_var,
+                            else_p
+                        )?;
+                        ctx.push(phi_result, *then_ty);
+                    }
+                }
+            } else if then_pred.is_some() {
+                // Only then branch continues - use then context
+                *ctx = then_ctx;
+            } else {
+                // Only else branch continues - use else context
+                *ctx = else_ctx;
             }
 
             // If this is the last statement, emit return

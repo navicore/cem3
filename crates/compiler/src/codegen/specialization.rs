@@ -1072,11 +1072,11 @@ impl CodeGen {
         };
 
         if is_tail {
-            // Tail call - use musttail and ret
+            // Tail call - use musttail for guaranteed TCO
             let result = self.fresh_temp();
             writeln!(
                 &mut self.output,
-                "  %{} = tail call {} @{}({})",
+                "  %{} = musttail call {} @{}({})",
                 result,
                 return_type,
                 spec_name,

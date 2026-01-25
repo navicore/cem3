@@ -1025,10 +1025,14 @@ impl CodeGen {
         Ok(())
     }
 
-    /// Emit a safe integer division or modulo with division-by-zero check
+    /// Emit a safe integer division or modulo with overflow protection.
     ///
     /// Returns ( Int Int -- Int Bool ) where Bool indicates success.
-    /// If divisor is 0, returns (0, false). Otherwise returns (result, true).
+    /// Division by zero returns (0, false).
+    /// INT_MIN / -1 uses wrapping semantics (returns INT_MIN, true) to match runtime.
+    ///
+    /// Note: LLVM's sdiv has undefined behavior for INT_MIN / -1, so we must
+    /// handle it explicitly. We match the runtime's wrapping_div behavior.
     fn emit_specialized_safe_div(
         &mut self,
         ctx: &mut RegisterContext,
@@ -1041,16 +1045,68 @@ impl CodeGen {
         let is_zero = self.fresh_temp();
         writeln!(&mut self.output, "  %{} = icmp eq i64 %{}, 0", is_zero, b)?;
 
+        // For sdiv: also check for INT_MIN / -1 overflow case
+        // We handle this specially to return INT_MIN (wrapping behavior)
+        let (check_overflow, is_overflow) = if op == "sdiv" {
+            let is_int_min = self.fresh_temp();
+            let is_neg_one = self.fresh_temp();
+            let is_overflow = self.fresh_temp();
+
+            // Check if dividend is INT_MIN (-9223372036854775808)
+            writeln!(
+                &mut self.output,
+                "  %{} = icmp eq i64 %{}, -9223372036854775808",
+                is_int_min, a
+            )?;
+            // Check if divisor is -1
+            writeln!(
+                &mut self.output,
+                "  %{} = icmp eq i64 %{}, -1",
+                is_neg_one, b
+            )?;
+            // Overflow if both conditions are true
+            writeln!(
+                &mut self.output,
+                "  %{} = and i1 %{}, %{}",
+                is_overflow, is_int_min, is_neg_one
+            )?;
+            (true, is_overflow)
+        } else {
+            (false, String::new())
+        };
+
         // Generate branch labels
         let ok_label = self.fresh_block("div_ok");
         let fail_label = self.fresh_block("div_fail");
         let merge_label = self.fresh_block("div_merge");
+        let overflow_label = if check_overflow {
+            self.fresh_block("div_overflow")
+        } else {
+            String::new()
+        };
 
+        // First check: division by zero
         writeln!(
             &mut self.output,
             "  br i1 %{}, label %{}, label %{}",
-            is_zero, fail_label, ok_label
+            is_zero,
+            fail_label,
+            if check_overflow {
+                &overflow_label
+            } else {
+                &ok_label
+            }
         )?;
+
+        // For sdiv: check overflow case (INT_MIN / -1)
+        if check_overflow {
+            writeln!(&mut self.output, "{}:", overflow_label)?;
+            writeln!(
+                &mut self.output,
+                "  br i1 %{}, label %{}, label %{}",
+                is_overflow, merge_label, ok_label
+            )?;
+        }
 
         // Success branch: perform the division
         writeln!(&mut self.output, "{}:", ok_label)?;
@@ -1062,7 +1118,7 @@ impl CodeGen {
         )?;
         writeln!(&mut self.output, "  br label %{}", merge_label)?;
 
-        // Failure branch: return 0
+        // Failure branch: return 0 and false
         writeln!(&mut self.output, "{}:", fail_label)?;
         writeln!(&mut self.output, "  br label %{}", merge_label)?;
 
@@ -1071,16 +1127,32 @@ impl CodeGen {
         let result_phi = self.fresh_temp();
         let success_phi = self.fresh_temp();
 
-        writeln!(
-            &mut self.output,
-            "  %{} = phi i64 [ %{}, %{} ], [ 0, %{} ]",
-            result_phi, ok_result, ok_label, fail_label
-        )?;
-        writeln!(
-            &mut self.output,
-            "  %{} = phi i64 [ 1, %{} ], [ 0, %{} ]",
-            success_phi, ok_label, fail_label
-        )?;
+        if check_overflow {
+            // For sdiv: three incoming edges (ok, fail, overflow)
+            // Overflow returns INT_MIN (wrapping behavior) with success=true
+            writeln!(
+                &mut self.output,
+                "  %{} = phi i64 [ %{}, %{} ], [ 0, %{} ], [ -9223372036854775808, %{} ]",
+                result_phi, ok_result, ok_label, fail_label, overflow_label
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %{} = phi i64 [ 1, %{} ], [ 0, %{} ], [ 1, %{} ]",
+                success_phi, ok_label, fail_label, overflow_label
+            )?;
+        } else {
+            // For srem: two incoming edges (ok, fail)
+            writeln!(
+                &mut self.output,
+                "  %{} = phi i64 [ %{}, %{} ], [ 0, %{} ]",
+                result_phi, ok_result, ok_label, fail_label
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %{} = phi i64 [ 1, %{} ], [ 0, %{} ]",
+                success_phi, ok_label, fail_label
+            )?;
+        }
 
         // Push result and success flag to context
         // Stack order: result first (deeper), then success (top)

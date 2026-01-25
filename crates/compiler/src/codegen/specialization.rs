@@ -269,6 +269,8 @@ const SPECIALIZABLE_OPS: &[&str] = &[
     "rot",
     "nip",
     "tuck",
+    "pick",
+    "roll",
 ];
 
 impl CodeGen {
@@ -458,9 +460,17 @@ impl CodeGen {
 
         // Generate code for each statement
         let body_len = word.body.len();
+        let mut prev_int_literal: Option<i64> = None;
         for (i, stmt) in word.body.iter().enumerate() {
             let is_last = i == body_len - 1;
-            self.codegen_specialized_statement(&mut ctx, stmt, &word.name, sig, is_last)?;
+            self.codegen_specialized_statement(
+                &mut ctx,
+                stmt,
+                &word.name,
+                sig,
+                is_last,
+                &mut prev_int_literal,
+            )?;
         }
 
         writeln!(&mut self.output, "}}")?;
@@ -481,12 +491,18 @@ impl CodeGen {
         word_name: &str,
         sig: &SpecSignature,
         is_last: bool,
+        prev_int_literal: &mut Option<i64>,
     ) -> Result<(), CodeGenError> {
+        // Track previous int literal for pick/roll optimization
+        let prev_int = *prev_int_literal;
+        *prev_int_literal = None; // Reset unless this is an IntLiteral
+
         match stmt {
             Statement::IntLiteral(n) => {
                 let var = self.fresh_temp();
                 writeln!(&mut self.output, "  %{} = add i64 0, {}", var, n)?;
                 ctx.push(var, RegisterType::I64);
+                *prev_int_literal = Some(*n); // Track for next statement
             }
 
             Statement::FloatLiteral(f) => {
@@ -509,7 +525,7 @@ impl CodeGen {
             }
 
             Statement::WordCall { name, .. } => {
-                self.codegen_specialized_word_call(ctx, name, word_name, sig, is_last)?;
+                self.codegen_specialized_word_call(ctx, name, word_name, sig, is_last, prev_int)?;
             }
 
             Statement::If {
@@ -560,6 +576,7 @@ impl CodeGen {
         word_name: &str,
         sig: &SpecSignature,
         is_last: bool,
+        prev_int: Option<i64>,
     ) -> Result<(), CodeGenError> {
         match name {
             // Stack operations - just manipulate the context
@@ -582,6 +599,61 @@ impl CodeGen {
                 ctx.push(b.0, b.1);
                 ctx.push(a.0, a.1);
                 ctx.push(b2.0, b2.1);
+            }
+            "pick" => {
+                // pick requires constant N from previous IntLiteral
+                // ( ... xn ... x0 n -- ... xn ... x0 xn )
+                let n = prev_int.ok_or_else(|| {
+                    CodeGenError::Logic("pick requires constant N in specialized mode".to_string())
+                })?;
+                if n < 0 {
+                    return Err(CodeGenError::Logic(format!(
+                        "pick requires non-negative N, got {}",
+                        n
+                    )));
+                }
+                let n = n as usize;
+                // Pop the N value (it was pushed by the IntLiteral)
+                ctx.pop();
+                // Now copy the value at depth n
+                let len = ctx.values.len();
+                if n >= len {
+                    return Err(CodeGenError::Logic(format!(
+                        "pick {} but only {} values in context",
+                        n, len
+                    )));
+                }
+                let (var, ty) = ctx.values[len - 1 - n].clone();
+                ctx.push(var, ty);
+            }
+            "roll" => {
+                // roll requires constant N from previous IntLiteral
+                // ( ... xn xn-1 ... x0 n -- ... xn-1 ... x0 xn )
+                let n = prev_int.ok_or_else(|| {
+                    CodeGenError::Logic("roll requires constant N in specialized mode".to_string())
+                })?;
+                if n < 0 {
+                    return Err(CodeGenError::Logic(format!(
+                        "roll requires non-negative N, got {}",
+                        n
+                    )));
+                }
+                let n = n as usize;
+                // Pop the N value (it was pushed by the IntLiteral)
+                ctx.pop();
+                // Now rotate: move value at depth n to top
+                let len = ctx.values.len();
+                if n >= len {
+                    return Err(CodeGenError::Logic(format!(
+                        "roll {} but only {} values in context",
+                        n, len
+                    )));
+                }
+                if n > 0 {
+                    let val = ctx.values.remove(len - 1 - n);
+                    ctx.values.push(val);
+                }
+                // n=0 is a no-op (value already at top)
             }
 
             // Integer arithmetic
@@ -1108,9 +1180,17 @@ impl CodeGen {
         // Generate then branch
         writeln!(&mut self.output, "{}:", then_label)?;
         let mut then_ctx = ctx.clone();
+        let mut then_prev_int: Option<i64> = None;
         for (i, stmt) in then_branch.iter().enumerate() {
             let is_stmt_last = i == then_branch.len() - 1 && is_last;
-            self.codegen_specialized_statement(&mut then_ctx, stmt, word_name, sig, is_stmt_last)?;
+            self.codegen_specialized_statement(
+                &mut then_ctx,
+                stmt,
+                word_name,
+                sig,
+                is_stmt_last,
+                &mut then_prev_int,
+            )?;
         }
         // If the then branch is empty and this is the last statement, emit return
         if is_last && then_branch.is_empty() {
@@ -1129,6 +1209,7 @@ impl CodeGen {
         // Generate else branch
         writeln!(&mut self.output, "{}:", else_label)?;
         let mut else_ctx = ctx.clone();
+        let mut else_prev_int: Option<i64> = None;
         if let Some(else_stmts) = else_branch {
             for (i, stmt) in else_stmts.iter().enumerate() {
                 let is_stmt_last = i == else_stmts.len() - 1 && is_last;
@@ -1138,6 +1219,7 @@ impl CodeGen {
                     word_name,
                     sig,
                     is_stmt_last,
+                    &mut else_prev_int,
                 )?;
             }
         }

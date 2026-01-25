@@ -111,11 +111,6 @@ impl CodeGen {
             None => return Ok(None),
         };
 
-        // Single output only for now (multiple outputs need struct returns)
-        if sig.outputs.len() != 1 {
-            return Ok(None);
-        }
-
         // Check if we have enough values on the virtual stack
         let input_count = sig.inputs.len();
         if self.virtual_stack.len() < input_count {
@@ -173,7 +168,7 @@ impl CodeGen {
 
         // Emit the specialized call
         let result_var = self.fresh_temp();
-        let return_type = sig.outputs[0].llvm_type();
+        let return_type = sig.llvm_return_type();
 
         writeln!(
             &mut self.output,
@@ -184,20 +179,44 @@ impl CodeGen {
             arg_strs.join(", ")
         )?;
 
-        // Push result back to virtual stack
-        let output_ty = sig.outputs[0];
-        let result = match output_ty {
-            RegisterType::I64 => VirtualValue::Int {
-                ssa_var: result_var.clone(),
-                value: 0, // Unknown runtime value
-            },
-            RegisterType::Double => VirtualValue::Float {
-                ssa_var: result_var.clone(),
-            },
-        };
+        // Push results back to virtual stack
+        let mut final_stack_var = stack_var.to_string();
 
-        // Return the result of pushing to virtual stack
-        Ok(Some(self.push_virtual(result, stack_var)?))
+        if sig.outputs.len() == 1 {
+            // Single output - push directly
+            let output_ty = sig.outputs[0];
+            let result = match output_ty {
+                RegisterType::I64 => VirtualValue::Int {
+                    ssa_var: result_var.clone(),
+                    value: 0, // Unknown runtime value
+                },
+                RegisterType::Double => VirtualValue::Float {
+                    ssa_var: result_var.clone(),
+                },
+            };
+            final_stack_var = self.push_virtual(result, &final_stack_var)?;
+        } else {
+            // Multi-output - extract values from struct and push each
+            for (i, output_ty) in sig.outputs.iter().enumerate() {
+                let extracted = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = extractvalue {} %{}, {}",
+                    extracted, return_type, result_var, i
+                )?;
+
+                let result = match output_ty {
+                    RegisterType::I64 => VirtualValue::Int {
+                        ssa_var: extracted,
+                        value: 0, // Unknown runtime value
+                    },
+                    RegisterType::Double => VirtualValue::Float { ssa_var: extracted },
+                };
+                final_stack_var = self.push_virtual(result, &final_stack_var)?;
+            }
+        }
+
+        Ok(Some(final_stack_var))
     }
 
     /// Generate code for pushing a quotation or closure onto the stack

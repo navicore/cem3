@@ -223,6 +223,9 @@ const SPECIALIZABLE_OPS: &[&str] = &[
     "bnot",
     "shl",
     "shr",
+    // Type conversions
+    "int->float",
+    "float->int",
     // Integer comparisons
     "i.<",
     "i.lt",
@@ -644,6 +647,28 @@ impl CodeGen {
             }
             "shr" => {
                 self.emit_specialized_safe_shift(ctx, false)?;
+            }
+
+            // Type conversions
+            "int->float" => {
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = sitofp i64 %{} to double",
+                    result, a
+                )?;
+                ctx.push(result, RegisterType::Double);
+            }
+            "float->int" => {
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = fptosi double %{} to i64",
+                    result, a
+                )?;
+                ctx.push(result, RegisterType::I64);
             }
 
             // Integer comparisons - return i64 0 or 1 (like Bool)

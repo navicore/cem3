@@ -3,7 +3,8 @@
 //! This module handles generating LLVM IR for individual statements,
 //! word calls, quotation pushes, and the main function.
 
-use super::{BUILTIN_SYMBOLS, CodeGen, CodeGenError, TailPosition, mangle_name};
+use super::specialization::RegisterType;
+use super::{BUILTIN_SYMBOLS, CodeGen, CodeGenError, TailPosition, VirtualValue, mangle_name};
 use crate::ast::Statement;
 use crate::types::Type;
 use std::fmt::Write as _;
@@ -21,6 +22,11 @@ impl CodeGen {
     ) -> Result<String, CodeGenError> {
         // Inline operations for common stack/arithmetic ops
         if let Some(result) = self.try_codegen_inline_op(stack_var, name)? {
+            return Ok(result);
+        }
+
+        // Try dispatch to specialized version if virtual stack has matching types
+        if let Some(result) = self.try_specialized_dispatch(stack_var, name)? {
             return Ok(result);
         }
 
@@ -85,6 +91,87 @@ impl CodeGen {
             )?;
         }
         Ok(result_var)
+    }
+
+    /// Try to dispatch to a specialized version of a word
+    ///
+    /// If the called word has a specialized version and the virtual stack
+    /// has values matching the specialized signature, we emit a direct call
+    /// to the specialized function instead of the stack-based version.
+    ///
+    /// Returns Some(result) if dispatch succeeded, None if fallback needed.
+    fn try_specialized_dispatch(
+        &mut self,
+        stack_var: &str,
+        name: &str,
+    ) -> Result<Option<String>, CodeGenError> {
+        // Check if this word has a specialized version
+        let sig = match self.specialized_words.get(name) {
+            Some(sig) => sig.clone(),
+            None => return Ok(None),
+        };
+
+        // Phase 1: Only handle single input, single output for now
+        if sig.inputs.len() != 1 || sig.outputs.len() != 1 {
+            return Ok(None);
+        }
+
+        // Check if we have the right type on the virtual stack
+        if self.virtual_stack.is_empty() {
+            return Ok(None);
+        }
+
+        // For i64 input, the top of virtual stack must be an Int
+        let input_ty = sig.inputs[0];
+        let matches = match input_ty {
+            RegisterType::I64 => {
+                matches!(self.virtual_stack.last(), Some(VirtualValue::Int { .. }))
+            }
+            RegisterType::Double => {
+                matches!(self.virtual_stack.last(), Some(VirtualValue::Float { .. }))
+            }
+        };
+
+        if !matches {
+            return Ok(None);
+        }
+
+        // Pop the argument from virtual stack
+        let arg = self.virtual_stack.pop().unwrap();
+        let arg_var = match arg {
+            VirtualValue::Int { ssa_var, .. } => ssa_var,
+            VirtualValue::Float { ssa_var } => ssa_var,
+            VirtualValue::Bool { ssa_var } => ssa_var,
+        };
+
+        // Generate specialized function name
+        let spec_name = format!("seq_{}{}", mangle_name(name), sig.suffix());
+
+        // Emit the specialized call
+        let result_var = self.fresh_temp();
+        let return_type = sig.outputs[0].llvm_type();
+        let arg_type = input_ty.llvm_type();
+
+        writeln!(
+            &mut self.output,
+            "  %{} = call {} @{}({} %{})",
+            result_var, return_type, spec_name, arg_type, arg_var
+        )?;
+
+        // Push result back to virtual stack
+        let output_ty = sig.outputs[0];
+        let result = match output_ty {
+            RegisterType::I64 => VirtualValue::Int {
+                ssa_var: result_var.clone(),
+                value: 0, // Unknown runtime value
+            },
+            RegisterType::Double => VirtualValue::Float {
+                ssa_var: result_var.clone(),
+            },
+        };
+
+        // Return the result of pushing to virtual stack
+        Ok(Some(self.push_virtual(result, stack_var)?))
     }
 
     /// Generate code for pushing a quotation or closure onto the stack

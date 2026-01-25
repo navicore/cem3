@@ -14,6 +14,12 @@ use std::fmt::Write as _;
 impl CodeGen {
     /// Generate code for a word definition
     pub(super) fn codegen_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
+        // Try to generate a specialized register-based version first
+        if let Some(sig) = self.can_specialize(word) {
+            self.codegen_specialized_word(word, &sig)?;
+        }
+
+        // Always generate the stack-based version for compatibility
         // Prefix word names with "seq_" to avoid conflicts with C symbols
         // Also mangle special characters that aren't valid in LLVM IR identifiers
         let function_name = format!("seq_{}", mangle_name(&word.name));

@@ -8,6 +8,8 @@ use crate::ffi::FfiBindings;
 use crate::types::Type;
 use std::collections::HashMap;
 
+use super::specialization::SpecSignature;
+
 /// Sentinel value for unreachable predecessors in phi nodes.
 /// Used when a branch ends with a tail call (which emits ret directly).
 pub(super) const UNREACHABLE_PREDECESSOR: &str = "unreachable";
@@ -182,6 +184,9 @@ pub struct CodeGen {
     /// Values here are in SSA variables, not yet written to memory.
     /// The memory stack pointer tracks where memory ends; virtual values are "above" it.
     pub(super) virtual_stack: Vec<VirtualValue>,
+    /// Specialized word signatures for register-based codegen
+    /// Maps word name -> specialized signature
+    pub(super) specialized_words: HashMap<String, SpecSignature>,
 }
 
 impl Default for CodeGen {
@@ -220,6 +225,7 @@ impl CodeGen {
             prev_stmt_is_trivial_literal: false,
             prev_stmt_int_value: None,
             virtual_stack: Vec::new(),
+            specialized_words: HashMap::new(),
         }
     }
 

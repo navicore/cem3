@@ -1,0 +1,33 @@
+#!/bin/bash
+# Pre-commit hook: reject binary executables
+# Works on macOS (Mach-O) and Linux (ELF)
+#
+# Setup: git config core.hooksPath .githooks
+
+set -e
+
+blocked=0
+
+for file in $(git diff --cached --name-only --diff-filter=ACM); do
+  # Skip if file doesn't exist (deleted) or is a symlink
+  if [ ! -f "$file" ] || [ -L "$file" ]; then
+    continue
+  fi
+
+  filetype=$(file -b "$file")
+
+  # Catch Mach-O (macOS) and ELF (Linux) executables
+  if echo "$filetype" | grep -qE 'Mach-O.*executable|ELF.*executable'; then
+    echo "BLOCKED: $file"
+    echo "  Type: $filetype"
+    echo "  Remove with: git reset HEAD \"$file\""
+    echo ""
+    blocked=1
+  fi
+done
+
+if [ $blocked -eq 1 ]; then
+  echo "Commit rejected: binary executables cannot be committed."
+  echo "Add to .gitignore or remove from staging."
+  exit 1
+fi

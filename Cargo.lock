@@ -2027,7 +2027,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-compiler"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bumpalo",
  "may",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2063,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "clap",
  "crossterm",
@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2853,9 +2853,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.19.0"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2e054861b4bd027cd373e18e8d8d8e6548085000e41290d95ce0c373a654b4a"
+checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
 dependencies = [
  "atomic",
  "getrandom 0.3.4",
@@ -2877,7 +2877,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "3.0.0"
+version = "3.0.1"
 
 [[package]]
 name = "vtparse"

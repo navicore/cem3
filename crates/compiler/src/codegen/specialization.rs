@@ -168,6 +168,19 @@ impl SpecSignature {
     pub fn is_direct_call(&self) -> bool {
         self.outputs.len() == 1
     }
+
+    /// Get the LLVM return type for this signature
+    ///
+    /// Single output: `i64` or `double`
+    /// Multiple outputs: `{ i64, i64 }` struct
+    pub fn llvm_return_type(&self) -> String {
+        if self.outputs.len() == 1 {
+            self.outputs[0].llvm_type().to_string()
+        } else {
+            let types: Vec<_> = self.outputs.iter().map(|t| t.llvm_type()).collect();
+            format!("{{ {} }}", types.join(", "))
+        }
+    }
 }
 
 /// Tracks values during specialized code generation
@@ -374,8 +387,8 @@ impl CodeGen {
             return None;
         }
 
-        // For now, limit to single output (multiple outputs need struct returns)
-        if outputs.len() != 1 {
+        // Must have at least one output (zero outputs means side-effect only)
+        if outputs.is_empty() {
             return None;
         }
 
@@ -1287,13 +1300,7 @@ impl CodeGen {
             .map(|(var, ty)| format!("{} %{}", ty.llvm_type(), var))
             .collect();
 
-        let return_type = if sig.outputs.len() == 1 {
-            sig.outputs[0].llvm_type()
-        } else {
-            return Err(CodeGenError::Logic(
-                "Multi-output recursive calls not yet supported".to_string(),
-            ));
-        };
+        let return_type = sig.llvm_return_type();
 
         if is_tail {
             // Tail call - use musttail for guaranteed TCO
@@ -1318,7 +1325,22 @@ impl CodeGen {
                 spec_name,
                 arg_strs.join(", ")
             )?;
-            ctx.push(result, sig.outputs[0]);
+
+            if sig.outputs.len() == 1 {
+                // Single output - push directly
+                ctx.push(result, sig.outputs[0]);
+            } else {
+                // Multi-output - extract values from struct and push each
+                for (i, out_ty) in sig.outputs.iter().enumerate() {
+                    let extracted = self.fresh_temp();
+                    writeln!(
+                        &mut self.output,
+                        "  %{} = extractvalue {} %{}, {}",
+                        extracted, return_type, result, i
+                    )?;
+                    ctx.push(extracted, *out_ty);
+                }
+            }
         }
 
         Ok(())
@@ -1351,13 +1373,7 @@ impl CodeGen {
             .map(|(var, ty)| format!("{} %{}", ty.llvm_type(), var))
             .collect();
 
-        let return_type = if sig.outputs.len() == 1 {
-            sig.outputs[0].llvm_type()
-        } else {
-            return Err(CodeGenError::Logic(
-                "Multi-output word calls not yet supported".to_string(),
-            ));
-        };
+        let return_type = sig.llvm_return_type();
 
         let result = self.fresh_temp();
         writeln!(
@@ -1368,7 +1384,22 @@ impl CodeGen {
             spec_name,
             arg_strs.join(", ")
         )?;
-        ctx.push(result, sig.outputs[0]);
+
+        if sig.outputs.len() == 1 {
+            // Single output - push directly
+            ctx.push(result, sig.outputs[0]);
+        } else {
+            // Multi-output - extract values from struct and push each
+            for (i, out_ty) in sig.outputs.iter().enumerate() {
+                let extracted = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = extractvalue {} %{}, {}",
+                    extracted, return_type, result, i
+                )?;
+                ctx.push(extracted, *out_ty);
+            }
+        }
 
         Ok(())
     }
@@ -1379,17 +1410,52 @@ impl CodeGen {
         ctx: &RegisterContext,
         sig: &SpecSignature,
     ) -> Result<(), CodeGenError> {
-        if sig.outputs.len() == 1 {
+        let output_count = sig.outputs.len();
+
+        if output_count == 0 {
+            writeln!(&mut self.output, "  ret void")?;
+        } else if output_count == 1 {
             let (var, ty) = ctx
                 .values
                 .last()
                 .ok_or_else(|| CodeGenError::Logic("Empty context at return".to_string()))?;
             writeln!(&mut self.output, "  ret {} %{}", ty.llvm_type(), var)?;
         } else {
-            // Struct return for multiple values
-            return Err(CodeGenError::Logic(
-                "Multi-output returns not yet supported".to_string(),
-            ));
+            // Multi-output: build struct return
+            // Values in context are bottom-to-top, matching sig.outputs order
+            if ctx.values.len() < output_count {
+                return Err(CodeGenError::Logic(format!(
+                    "Not enough values for multi-output return: need {}, have {}",
+                    output_count,
+                    ctx.values.len()
+                )));
+            }
+
+            // Get the values to return (last N values from context)
+            let start_idx = ctx.values.len() - output_count;
+            let return_values: Vec<_> = ctx.values[start_idx..].to_vec();
+
+            // Build struct type string
+            let struct_type = sig.llvm_return_type();
+
+            // Build the struct incrementally with insertvalue
+            let mut current_struct = "undef".to_string();
+            for (i, (var, ty)) in return_values.iter().enumerate() {
+                let new_struct = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = insertvalue {} {}, {} %{}, {}",
+                    new_struct,
+                    struct_type,
+                    current_struct,
+                    ty.llvm_type(),
+                    var,
+                    i
+                )?;
+                current_struct = format!("%{}", new_struct);
+            }
+
+            writeln!(&mut self.output, "  ret {} {}", struct_type, current_struct)?;
         }
         Ok(())
     }

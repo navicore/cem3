@@ -216,6 +216,13 @@ const SPECIALIZABLE_OPS: &[&str] = &[
     "i.divide",
     "i.%",
     "i.mod",
+    // Bitwise operations
+    "band",
+    "bor",
+    "bxor",
+    "bnot",
+    "shl",
+    "shr",
     // Integer comparisons
     "i.<",
     "i.lt",
@@ -603,6 +610,42 @@ impl CodeGen {
                 self.emit_specialized_safe_div(ctx, "srem")?;
             }
 
+            // Bitwise operations
+            "band" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = and i64 %{}, %{}", result, a, b)?;
+                ctx.push(result, RegisterType::I64);
+            }
+            "bor" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = or i64 %{}, %{}", result, a, b)?;
+                ctx.push(result, RegisterType::I64);
+            }
+            "bxor" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(&mut self.output, "  %{} = xor i64 %{}, %{}", result, a, b)?;
+                ctx.push(result, RegisterType::I64);
+            }
+            "bnot" => {
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                // NOT is XOR with -1 (all 1s)
+                writeln!(&mut self.output, "  %{} = xor i64 %{}, -1", result, a)?;
+                ctx.push(result, RegisterType::I64);
+            }
+            "shl" => {
+                self.emit_specialized_safe_shift(ctx, true)?;
+            }
+            "shr" => {
+                self.emit_specialized_safe_shift(ctx, false)?;
+            }
+
             // Integer comparisons - return i64 0 or 1 (like Bool)
             "i.<" | "i.lt" => self.emit_specialized_icmp(ctx, "slt")?,
             "i.>" | "i.gt" => self.emit_specialized_icmp(ctx, "sgt")?,
@@ -795,6 +838,71 @@ impl CodeGen {
         ctx.push(result_phi, RegisterType::I64);
         ctx.push(success_phi, RegisterType::I64);
 
+        Ok(())
+    }
+
+    /// Emit a safe shift operation with bounds checking
+    ///
+    /// Returns 0 for negative shift or shift >= 64, otherwise performs the shift.
+    /// Matches runtime behavior for shl/shr.
+    fn emit_specialized_safe_shift(
+        &mut self,
+        ctx: &mut RegisterContext,
+        is_left: bool, // true for shl, false for shr
+    ) -> Result<(), CodeGenError> {
+        let (b, _) = ctx.pop().unwrap(); // shift count
+        let (a, _) = ctx.pop().unwrap(); // value to shift
+
+        // Check if shift count is negative
+        let is_negative = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp slt i64 %{}, 0",
+            is_negative, b
+        )?;
+
+        // Check if shift count >= 64
+        let is_too_large = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = icmp sge i64 %{}, 64",
+            is_too_large, b
+        )?;
+
+        // Combine: invalid if negative OR >= 64
+        let is_invalid = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = or i1 %{}, %{}",
+            is_invalid, is_negative, is_too_large
+        )?;
+
+        // Use a safe shift count (0 if invalid) to avoid LLVM undefined behavior
+        let safe_count = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = select i1 %{}, i64 0, i64 %{}",
+            safe_count, is_invalid, b
+        )?;
+
+        // Perform the shift with safe count
+        let shift_result = self.fresh_temp();
+        let op = if is_left { "shl" } else { "lshr" };
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            shift_result, op, a, safe_count
+        )?;
+
+        // Select final result: 0 if invalid, otherwise shift_result
+        let result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = select i1 %{}, i64 0, i64 %{}",
+            result, is_invalid, shift_result
+        )?;
+
+        ctx.push(result, RegisterType::I64);
         Ok(())
     }
 

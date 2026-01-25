@@ -90,3 +90,36 @@
   test.assert
   2 test.assert-eq
 ;
+
+# =============================================================================
+#                         OVERFLOW EDGE CASES
+# =============================================================================
+
+# INT_MIN / -1 would mathematically overflow, but we use wrapping semantics
+# INT_MIN = -9223372036854775808, and -INT_MIN wraps back to INT_MIN
+: test-divide-int-min-by-neg-one ( -- )
+  -9223372036854775808 -1 i./
+  test.assert        # Bool should be true (wrapping is defined behavior)
+  -9223372036854775808 test.assert-eq  # wraps to INT_MIN
+;
+
+# INT_MIN % -1 = 0, which is safe (no overflow in modulo)
+: test-modulo-int-min-by-neg-one ( -- )
+  -9223372036854775808 -1 i.%
+  test.assert        # Bool should be true (no overflow for modulo)
+  0 test.assert-eq   # result should be 0
+;
+
+# INT_MIN / 1 is fine (result is INT_MIN)
+: test-divide-int-min-by-one ( -- )
+  -9223372036854775808 1 i./
+  test.assert        # Bool should be true
+  -9223372036854775808 test.assert-eq
+;
+
+# INT_MIN / -2 is fine (result fits in i64)
+: test-divide-int-min-by-neg-two ( -- )
+  -9223372036854775808 -2 i./
+  test.assert        # Bool should be true
+  4611686018427387904 test.assert-eq  # INT_MIN / -2
+;

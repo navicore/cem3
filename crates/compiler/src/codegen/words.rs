@@ -14,6 +14,12 @@ use std::fmt::Write as _;
 impl CodeGen {
     /// Generate code for a word definition
     pub(super) fn codegen_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
+        // Try to generate a specialized register-based version first
+        if let Some(sig) = self.can_specialize(word) {
+            self.codegen_specialized_word(word, &sig)?;
+        }
+
+        // Always generate the stack-based version for compatibility
         // Prefix word names with "seq_" to avoid conflicts with C symbols
         // Also mangle special characters that aren't valid in LLVM IR identifiers
         let function_name = format!("seq_{}", mangle_name(&word.name));
@@ -597,83 +603,37 @@ impl CodeGen {
         stack_var: &str,
         f: f64,
     ) -> Result<String, CodeGenError> {
-        // Spill virtual values before writing to memory (Issue #189)
-        let stack_var = self.spill_virtual_stack(stack_var)?;
-
-        // Format float bits as hex for LLVM
+        // Create an SSA variable for this float value using bitcast
+        let ssa_var = self.fresh_temp();
         let float_bits = f.to_bits();
-
-        // Inline push: Write Value directly to stack
-        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-        // Float discriminant = 1 (Int=0, Float=1, Bool=2)
-
-        // Store discriminant 1 (Float) at slot0
-        writeln!(&mut self.output, "  store i64 1, ptr %{}", stack_var)?;
-
-        // Get pointer to slot1 (offset 8 bytes = 1 i64)
-        let slot1_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, stack_var
+            "  %{} = bitcast i64 {} to double",
+            ssa_var, float_bits
         )?;
 
-        // Store float bits as i64 at slot1
-        writeln!(
-            &mut self.output,
-            "  store i64 {}, ptr %{}",
-            float_bits, slot1_ptr
-        )?;
-
-        // Return pointer to next Value slot
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 1",
-            result_var, stack_var
-        )?;
-
-        Ok(result_var)
+        // Push to virtual stack (may spill if at capacity)
+        let value = VirtualValue::Float { ssa_var };
+        self.push_virtual(value, stack_var)
     }
 
     /// Generate code for a boolean literal: ( -- b )
+    ///
+    /// Bools are stored as i64 values (0 for false, 1 for true) and pushed
+    /// to the virtual stack for potential specialized dispatch.
     pub(super) fn codegen_bool_literal(
         &mut self,
         stack_var: &str,
         b: bool,
     ) -> Result<String, CodeGenError> {
-        // Spill virtual values before writing to memory (Issue #189)
-        let stack_var = self.spill_virtual_stack(stack_var)?;
-
+        // Create an SSA variable for this bool value
+        let ssa_var = self.fresh_temp();
         let val = if b { 1 } else { 0 };
+        writeln!(&mut self.output, "  %{} = add i64 0, {}", ssa_var, val)?;
 
-        // Inline push: Write Value directly to stack
-        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-        // Bool discriminant = 2 (Int=0, Float=1, Bool=2)
-
-        // Store discriminant 2 (Bool) at slot0
-        writeln!(&mut self.output, "  store i64 2, ptr %{}", stack_var)?;
-
-        // Get pointer to slot1 (offset 8 bytes = 1 i64)
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, stack_var
-        )?;
-
-        // Store value at slot1 (1 for true, 0 for false)
-        writeln!(&mut self.output, "  store i64 {}, ptr %{}", val, slot1_ptr)?;
-
-        // Return pointer to next Value slot
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 1",
-            result_var, stack_var
-        )?;
-
-        Ok(result_var)
+        // Push to virtual stack (may spill if at capacity)
+        let value = VirtualValue::Bool { ssa_var };
+        self.push_virtual(value, stack_var)
     }
 
     /// Generate code for a string literal: ( -- s )

@@ -1,7 +1,7 @@
 BENCH:fibonacci:fib-naive-30:832040:62
-BENCH:fibonacci:fib-naive-35:9227465:691
+BENCH:fibonacci:fib-naive-35:9227465:671
 BENCH:fibonacci:fib-fast-30:832040:0
 BENCH:fibonacci:fib-fast-50:12586269025:0
 BENCH:fibonacci:fib-fast-70:190392490709135:0
-BENCH:fibonacci:fib-naive-20-x1000:6765:483
+BENCH:fibonacci:fib-naive-20-x1000:6765:479
 BENCH:fibonacci:fib-fast-20-x1000:6765:0

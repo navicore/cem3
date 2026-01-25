@@ -96,11 +96,25 @@ This document covers:
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `i.add` / `i.+` | `( Int Int -- Int )` | Add two integers |
-| `i.subtract` / `i.-` | `( Int Int -- Int )` | Subtract second from first |
-| `i.multiply` / `i.*` | `( Int Int -- Int )` | Multiply two integers |
-| `i.divide` / `i./` | `( Int Int -- Int )` | Integer division (truncates toward zero) |
-| `i.modulo` / `i.%` | `( Int Int -- Int )` | Integer modulo (remainder) |
+| `i.add` / `i.+` | `( Int Int -- Int )` | Add two integers (wrapping on overflow) |
+| `i.subtract` / `i.-` | `( Int Int -- Int )` | Subtract second from first (wrapping on overflow) |
+| `i.multiply` / `i.*` | `( Int Int -- Int )` | Multiply two integers (wrapping on overflow) |
+| `i.divide` / `i./` | `( Int Int -- Int Bool )` | Integer division with success flag |
+| `i.modulo` / `i.%` | `( Int Int -- Int Bool )` | Integer modulo with success flag |
+
+### Division and Modulo Behavior
+
+Division and modulo operations return a result and a success flag:
+- **Success** (`true`): Operation completed normally, result is valid
+- **Failure** (`false`): Division by zero, result is 0
+
+**Overflow handling**: `INT_MIN / -1` uses wrapping semantics and returns `INT_MIN` with success=`true`. This matches Forth/Factor behavior and avoids undefined behavior.
+
+```seq
+10 3 i./     # ( -- 3 true )   Normal division
+10 0 i./     # ( -- 0 false )  Division by zero
+-9223372036854775808 -1 i./  # ( -- -9223372036854775808 true )  Wrapping
+```
 
 ## Integer Comparison
 

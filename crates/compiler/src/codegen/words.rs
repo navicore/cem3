@@ -618,43 +618,22 @@ impl CodeGen {
     }
 
     /// Generate code for a boolean literal: ( -- b )
+    ///
+    /// Bools are stored as i64 values (0 for false, 1 for true) and pushed
+    /// to the virtual stack for potential specialized dispatch.
     pub(super) fn codegen_bool_literal(
         &mut self,
         stack_var: &str,
         b: bool,
     ) -> Result<String, CodeGenError> {
-        // Spill virtual values before writing to memory (Issue #189)
-        let stack_var = self.spill_virtual_stack(stack_var)?;
-
+        // Create an SSA variable for this bool value
+        let ssa_var = self.fresh_temp();
         let val = if b { 1 } else { 0 };
+        writeln!(&mut self.output, "  %{} = add i64 0, {}", ssa_var, val)?;
 
-        // Inline push: Write Value directly to stack
-        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-        // Bool discriminant = 2 (Int=0, Float=1, Bool=2)
-
-        // Store discriminant 2 (Bool) at slot0
-        writeln!(&mut self.output, "  store i64 2, ptr %{}", stack_var)?;
-
-        // Get pointer to slot1 (offset 8 bytes = 1 i64)
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, stack_var
-        )?;
-
-        // Store value at slot1 (1 for true, 0 for false)
-        writeln!(&mut self.output, "  store i64 {}, ptr %{}", val, slot1_ptr)?;
-
-        // Return pointer to next Value slot
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 1",
-            result_var, stack_var
-        )?;
-
-        Ok(result_var)
+        // Push to virtual stack (may spill if at capacity)
+        let value = VirtualValue::Bool { ssa_var };
+        self.push_virtual(value, stack_var)
     }
 
     /// Generate code for a string literal: ( -- s )

@@ -22,6 +22,10 @@ shopping-cart
 /pingpong
 !tests/
 
+# Benchmark binaries
+benchmarks/**/fib_bench
+benchmarks/**/fib_bench_no_spec
+
 # IDE
 .vscode/
 .idea/

@@ -1,2 +1,2 @@
 BENCH:primes:count-10k:1229:1
-BENCH:primes:count-100k:9592:27
+BENCH:primes:count-100k:9592:26

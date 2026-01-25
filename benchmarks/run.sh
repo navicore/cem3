@@ -146,3 +146,15 @@ print_table "fanout" "throughput-100k"
 
 echo -e "${CYAN}Note: Python concurrency uses asyncio (cooperative, single-threaded).${NC}"
 echo -e "${CYAN}      Go/Seq/Rust use lightweight threads or OS threads.${NC}"
+
+# Update LATEST_RUN.txt for CI freshness check
+cat > LATEST_RUN.txt << EOF
+# Benchmark run record - DO NOT EDIT MANUALLY
+# This file is checked by CI to ensure benchmarks are run regularly
+timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+commit: $(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+benchmarks_run: ${FILTER:-all}
+EOF
+
+echo
+echo -e "${GREEN}Updated LATEST_RUN.txt${NC}"

@@ -5,27 +5,36 @@ PRs welcome! Whether it's a bug fix, new feature, documentation improvement, or 
 ## Getting Started
 
 1. Fork and clone the repo
-2. Enable git hooks to prevent accidental binary commits:
+2. Install [just](https://github.com/casey/just) (our command runner)
+3. Enable git hooks to prevent accidental binary commits:
    ```bash
    git config core.hooksPath .githooks
    ```
-3. Build and test:
+4. Build and test:
    ```bash
-   cargo build
-   cargo test --workspace
+   just build
+   just test
+   ```
+5. See all available commands:
+   ```bash
+   just
    ```
 
 ## Submitting Changes
 
 1. Create a branch for your changes
 2. Write tests for new functionality
-3. Ensure all tests pass: `cargo test --workspace`
+3. **Before creating a PR**, run the full CI suite locally:
+   ```bash
+   just ci
+   ```
+   This runs the exact same checks as GitHub Actions - if it passes locally, CI will pass.
 4. Submit a PR with a clear description of what and why
 
 ## Code Style
 
-- Run `cargo fmt` before committing
-- Run `cargo clippy` and address warnings
+- Run `just fmt` before committing
+- Run `just lint` and address warnings
 - Keep PRs focused - one feature or fix per PR
 
 ## License

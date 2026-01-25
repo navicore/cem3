@@ -603,43 +603,18 @@ impl CodeGen {
         stack_var: &str,
         f: f64,
     ) -> Result<String, CodeGenError> {
-        // Spill virtual values before writing to memory (Issue #189)
-        let stack_var = self.spill_virtual_stack(stack_var)?;
-
-        // Format float bits as hex for LLVM
+        // Create an SSA variable for this float value using bitcast
+        let ssa_var = self.fresh_temp();
         let float_bits = f.to_bits();
-
-        // Inline push: Write Value directly to stack
-        // Value layout with #[repr(C)]: slot0=discriminant, slot1=value
-        // Float discriminant = 1 (Int=0, Float=1, Bool=2)
-
-        // Store discriminant 1 (Float) at slot0
-        writeln!(&mut self.output, "  store i64 1, ptr %{}", stack_var)?;
-
-        // Get pointer to slot1 (offset 8 bytes = 1 i64)
-        let slot1_ptr = self.fresh_temp();
         writeln!(
             &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, stack_var
+            "  %{} = bitcast i64 {} to double",
+            ssa_var, float_bits
         )?;
 
-        // Store float bits as i64 at slot1
-        writeln!(
-            &mut self.output,
-            "  store i64 {}, ptr %{}",
-            float_bits, slot1_ptr
-        )?;
-
-        // Return pointer to next Value slot
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 1",
-            result_var, stack_var
-        )?;
-
-        Ok(result_var)
+        // Push to virtual stack (may spill if at capacity)
+        let value = VirtualValue::Float { ssa_var };
+        self.push_virtual(value, stack_var)
     }
 
     /// Generate code for a boolean literal: ( -- b )

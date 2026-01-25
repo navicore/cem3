@@ -212,6 +212,10 @@ const SPECIALIZABLE_OPS: &[&str] = &[
     "i.subtract",
     "i.*",
     "i.multiply",
+    "i./",
+    "i.divide",
+    "i.%",
+    "i.mod",
     // Integer comparisons
     "i.<",
     "i.lt",
@@ -225,6 +229,28 @@ const SPECIALIZABLE_OPS: &[&str] = &[
     "i.eq",
     "i.<>",
     "i.neq",
+    // Float arithmetic
+    "f.+",
+    "f.add",
+    "f.-",
+    "f.subtract",
+    "f.*",
+    "f.multiply",
+    "f./",
+    "f.divide",
+    // Float comparisons
+    "f.<",
+    "f.lt",
+    "f.>",
+    "f.gt",
+    "f.<=",
+    "f.lte",
+    "f.>=",
+    "f.gte",
+    "f.=",
+    "f.eq",
+    "f.<>",
+    "f.neq",
     // Stack operations (handled as context shuffles)
     "dup",
     "drop",
@@ -570,6 +596,12 @@ impl CodeGen {
                 writeln!(&mut self.output, "  %{} = mul i64 %{}, %{}", result, a, b)?;
                 ctx.push(result, RegisterType::I64);
             }
+            "i./" | "i.divide" => {
+                self.emit_specialized_safe_div(ctx, "sdiv")?;
+            }
+            "i.%" | "i.mod" => {
+                self.emit_specialized_safe_div(ctx, "srem")?;
+            }
 
             // Integer comparisons - return i64 0 or 1 (like Bool)
             "i.<" | "i.lt" => self.emit_specialized_icmp(ctx, "slt")?,
@@ -578,6 +610,60 @@ impl CodeGen {
             "i.>=" | "i.gte" => self.emit_specialized_icmp(ctx, "sge")?,
             "i.=" | "i.eq" => self.emit_specialized_icmp(ctx, "eq")?,
             "i.<>" | "i.neq" => self.emit_specialized_icmp(ctx, "ne")?,
+
+            // Float arithmetic
+            "f.+" | "f.add" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = fadd double %{}, %{}",
+                    result, a, b
+                )?;
+                ctx.push(result, RegisterType::Double);
+            }
+            "f.-" | "f.subtract" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = fsub double %{}, %{}",
+                    result, a, b
+                )?;
+                ctx.push(result, RegisterType::Double);
+            }
+            "f.*" | "f.multiply" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = fmul double %{}, %{}",
+                    result, a, b
+                )?;
+                ctx.push(result, RegisterType::Double);
+            }
+            "f./" | "f.divide" => {
+                let (b, _) = ctx.pop().unwrap();
+                let (a, _) = ctx.pop().unwrap();
+                let result = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = fdiv double %{}, %{}",
+                    result, a, b
+                )?;
+                ctx.push(result, RegisterType::Double);
+            }
+
+            // Float comparisons - return i64 0 or 1 (like Bool)
+            "f.<" | "f.lt" => self.emit_specialized_fcmp(ctx, "olt")?,
+            "f.>" | "f.gt" => self.emit_specialized_fcmp(ctx, "ogt")?,
+            "f.<=" | "f.lte" => self.emit_specialized_fcmp(ctx, "ole")?,
+            "f.>=" | "f.gte" => self.emit_specialized_fcmp(ctx, "oge")?,
+            "f.=" | "f.eq" => self.emit_specialized_fcmp(ctx, "oeq")?,
+            "f.<>" | "f.neq" => self.emit_specialized_fcmp(ctx, "one")?,
 
             // Recursive call to self
             _ if name == word_name => {
@@ -623,6 +709,95 @@ impl CodeGen {
         Ok(())
     }
 
+    /// Emit a specialized float comparison
+    fn emit_specialized_fcmp(
+        &mut self,
+        ctx: &mut RegisterContext,
+        cmp_op: &str,
+    ) -> Result<(), CodeGenError> {
+        let (b, _) = ctx.pop().unwrap();
+        let (a, _) = ctx.pop().unwrap();
+        let cmp_result = self.fresh_temp();
+        let result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = fcmp {} double %{}, %{}",
+            cmp_result, cmp_op, a, b
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = zext i1 %{} to i64",
+            result, cmp_result
+        )?;
+        ctx.push(result, RegisterType::I64);
+        Ok(())
+    }
+
+    /// Emit a safe integer division or modulo with division-by-zero check
+    ///
+    /// Returns ( Int Int -- Int Bool ) where Bool indicates success.
+    /// If divisor is 0, returns (0, false). Otherwise returns (result, true).
+    fn emit_specialized_safe_div(
+        &mut self,
+        ctx: &mut RegisterContext,
+        op: &str, // "sdiv" or "srem"
+    ) -> Result<(), CodeGenError> {
+        let (b, _) = ctx.pop().unwrap(); // divisor
+        let (a, _) = ctx.pop().unwrap(); // dividend
+
+        // Check if divisor is zero
+        let is_zero = self.fresh_temp();
+        writeln!(&mut self.output, "  %{} = icmp eq i64 %{}, 0", is_zero, b)?;
+
+        // Generate branch labels
+        let ok_label = self.fresh_block("div_ok");
+        let fail_label = self.fresh_block("div_fail");
+        let merge_label = self.fresh_block("div_merge");
+
+        writeln!(
+            &mut self.output,
+            "  br i1 %{}, label %{}, label %{}",
+            is_zero, fail_label, ok_label
+        )?;
+
+        // Success branch: perform the division
+        writeln!(&mut self.output, "{}:", ok_label)?;
+        let ok_result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} i64 %{}, %{}",
+            ok_result, op, a, b
+        )?;
+        writeln!(&mut self.output, "  br label %{}", merge_label)?;
+
+        // Failure branch: return 0
+        writeln!(&mut self.output, "{}:", fail_label)?;
+        writeln!(&mut self.output, "  br label %{}", merge_label)?;
+
+        // Merge block with phi nodes
+        writeln!(&mut self.output, "{}:", merge_label)?;
+        let result_phi = self.fresh_temp();
+        let success_phi = self.fresh_temp();
+
+        writeln!(
+            &mut self.output,
+            "  %{} = phi i64 [ %{}, %{} ], [ 0, %{} ]",
+            result_phi, ok_result, ok_label, fail_label
+        )?;
+        writeln!(
+            &mut self.output,
+            "  %{} = phi i64 [ 1, %{} ], [ 0, %{} ]",
+            success_phi, ok_label, fail_label
+        )?;
+
+        // Push result and success flag to context
+        // Stack order: result first (deeper), then success (top)
+        ctx.push(result_phi, RegisterType::I64);
+        ctx.push(success_phi, RegisterType::I64);
+
+        Ok(())
+    }
+
     /// Emit a recursive call to the specialized version of the current word
     fn emit_specialized_recursive_call(
         &mut self,
@@ -632,6 +807,16 @@ impl CodeGen {
         is_tail: bool,
     ) -> Result<(), CodeGenError> {
         let spec_name = format!("seq_{}{}", mangle_name(word_name), sig.suffix());
+
+        // Check we have enough values in context
+        if ctx.values.len() < sig.inputs.len() {
+            return Err(CodeGenError::Logic(format!(
+                "Not enough values in context for recursive call to {}: need {}, have {}",
+                word_name,
+                sig.inputs.len(),
+                ctx.values.len()
+            )));
+        }
 
         // Pop arguments from context
         let mut args = Vec::new();

@@ -79,6 +79,7 @@ mod inline;
 mod platform;
 mod program;
 mod runtime;
+mod specialization;
 mod state;
 mod statements;
 mod types;

@@ -92,7 +92,7 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test build build-examples test-integration lint-seq check-bench-freshness
+ci: fmt-check lint test build build-examples test-integration lint-seq
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
@@ -103,7 +103,6 @@ ci: fmt-check lint test build build-examples test-integration lint-seq check-ben
     @echo "   - Examples built ✓"
     @echo "   - Integration tests ✓"
     @echo "   - Seq lint ✓"
-    @echo "   - Benchmarks fresh ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
 

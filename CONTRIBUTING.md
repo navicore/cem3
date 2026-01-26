@@ -37,6 +37,40 @@ PRs welcome! Whether it's a bug fix, new feature, documentation improvement, or 
 - Run `just lint` and address warnings
 - Keep PRs focused - one feature or fix per PR
 
+## What Good Code Looks Like
+
+Could a new contributor read this file and make a correct change without asking questions? That's the bar.
+
+**Structure**
+- The first 50 lines (module doc + imports) tell you what the file does
+- Functions are ordered logically (public API at top, helpers below)
+- No function requires scrolling more than a screen to understand
+
+**Naming**
+- Function names say what they do, not how (`validate_effect` not `check_and_maybe_return_error`)
+- Variable names reveal intent (`remaining_args` not `v2`)
+- Consistent conventions throughout
+
+**No Surprises**
+- Every public function is actually used externally
+- No commented-out code blocks
+- No stale TODOs or FIXMEs
+- Functions do what their names suggest
+
+**Single Responsibility**
+- Each function does one thing
+- No "utility" functions that handle 5 unrelated cases
+- Consistent error handling (`unwrap()` vs `?` used deliberately, not randomly)
+
+**Tests**
+- Complex logic has tests nearby
+- Edge cases mentioned in comments have corresponding tests
+
+**What We Don't Care About**
+- Perfect documentation on every helper function
+- Maximum DRY - some repetition is fine if it's clearer
+- Clever abstractions - straightforward beats clever
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the same terms as the project: dual-licensed under MIT and Apache 2.0 (your choice).

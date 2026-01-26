@@ -254,9 +254,6 @@ impl VariantData {
     }
 }
 
-// We'll implement proper cleanup in Drop later
-// For now, Rust's ownership handles most of it
-
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

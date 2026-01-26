@@ -383,11 +383,6 @@ impl FfiBindings {
         self.functions.contains_key(name)
     }
 
-    /// Get FFI function info
-    pub fn get_function(&self, name: &str) -> Option<&FfiFunctionInfo> {
-        self.functions.get(name)
-    }
-
     /// Get all FFI function names for AST validation
     pub fn function_names(&self) -> Vec<&str> {
         self.functions.keys().map(|s| s.as_str()).collect()

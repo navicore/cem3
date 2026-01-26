@@ -105,7 +105,6 @@ pub(super) struct QuotationFunctions {
 /// avoiding memory stores/loads for common patterns like `2 3 i.+`.
 /// Values are spilled to memory at control flow points and function calls.
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // Float and Bool variants for Phase 2
 pub(super) enum VirtualValue {
     /// Integer value in an SSA variable (i64)
     Int {
@@ -119,17 +118,7 @@ pub(super) enum VirtualValue {
     Bool { ssa_var: String },
 }
 
-#[allow(dead_code)] // ssa_var method used in spill_virtual_stack
 impl VirtualValue {
-    /// Get the SSA variable name
-    pub fn ssa_var(&self) -> &str {
-        match self {
-            VirtualValue::Int { ssa_var, .. } => ssa_var,
-            VirtualValue::Float { ssa_var } => ssa_var,
-            VirtualValue::Bool { ssa_var } => ssa_var,
-        }
-    }
-
     /// Get the discriminant for this value type
     pub fn discriminant(&self) -> i64 {
         match self {
@@ -232,7 +221,6 @@ impl CodeGen {
     /// Create a CodeGen for pure inline testing.
     /// Bypasses the scheduler, returning top of stack as exit code.
     /// Only supports operations that are fully inlined (integers, arithmetic, stack ops).
-    #[allow(dead_code)]
     pub fn new_pure_inline_test() -> Self {
         let mut cg = Self::new();
         cg.pure_inline_test = true;

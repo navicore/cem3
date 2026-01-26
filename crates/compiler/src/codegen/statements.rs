@@ -25,8 +25,23 @@ impl CodeGen {
             return Ok(result);
         }
 
-        // Try dispatch to specialized version if virtual stack has matching types
-        if let Some(result) = self.try_specialized_dispatch(stack_var, name)? {
+        // Check if this would be a tail call position for a user-defined word.
+        // If so, skip specialized dispatch - we need the tail call path to emit
+        // musttail + ret for proper TCO. Specialized dispatch returns a value
+        // without emitting a terminator, which would leave the basic block
+        // without a terminator if codegen_branch expects one (Issue #338).
+        let is_seq_word = !BUILTIN_SYMBOLS.contains_key(name)
+            && !self.external_builtins.contains_key(name)
+            && !self.ffi_bindings.is_ffi_function(name);
+        let would_tail_call = position == TailPosition::Tail
+            && !self.inside_closure
+            && !self.inside_main
+            && !self.inside_quotation
+            && is_seq_word;
+
+        // Try dispatch to specialized version if virtual stack has matching types,
+        // but only if we're NOT in tail position (tail calls need musttail + ret)
+        if !would_tail_call && let Some(result) = self.try_specialized_dispatch(stack_var, name)? {
             return Ok(result);
         }
 

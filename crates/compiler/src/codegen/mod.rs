@@ -1154,4 +1154,117 @@ mod tests {
                 .join("\n")
         );
     }
+
+    #[test]
+    fn test_issue_338_specialized_call_in_if_branch_has_terminator() {
+        // Issue #338: When a specialized function is called in an if-then branch,
+        // the generated IR was missing a terminator instruction because:
+        // 1. will_emit_tail_call returned true (expecting musttail + ret)
+        // 2. But try_specialized_dispatch took the specialized path instead
+        // 3. The specialized path doesn't emit ret, leaving the basic block unterminated
+        //
+        // The fix skips specialized dispatch in tail position for user-defined words.
+        use crate::types::{Effect, StackType, Type};
+
+        let mut codegen = CodeGen::new();
+
+        // Create a specializable word: get-value ( Int -- Int )
+        // This will get a specialized version that returns i64 directly
+        let get_value_effect = Effect {
+            inputs: StackType::Cons {
+                rest: Box::new(StackType::RowVar("S".to_string())),
+                top: Type::Int,
+            },
+            outputs: StackType::Cons {
+                rest: Box::new(StackType::RowVar("S".to_string())),
+                top: Type::Int,
+            },
+            effects: vec![],
+        };
+
+        // Create a word that calls get-value in an if-then branch
+        // This pattern triggered the bug in issue #338
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                // : get-value ( Int -- Int ) dup ;
+                WordDef {
+                    name: "get-value".to_string(),
+                    effect: Some(get_value_effect),
+                    body: vec![Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+                // : test-caller ( Bool Int -- Int )
+                //   if get-value else drop 0 then ;
+                WordDef {
+                    name: "test-caller".to_string(),
+                    effect: None,
+                    body: vec![Statement::If {
+                        then_branch: vec![Statement::WordCall {
+                            name: "get-value".to_string(),
+                            span: None,
+                        }],
+                        else_branch: Some(vec![
+                            Statement::WordCall {
+                                name: "drop".to_string(),
+                                span: None,
+                            },
+                            Statement::IntLiteral(0),
+                        ]),
+                    }],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+                // : main ( -- ) true 42 test-caller drop ;
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![
+                        Statement::BoolLiteral(true),
+                        Statement::IntLiteral(42),
+                        Statement::WordCall {
+                            name: "test-caller".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+            ],
+        };
+
+        // This should NOT panic with "basic block lacks terminator"
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .expect("Issue #338: codegen should succeed for specialized call in if branch");
+
+        // Verify the specialized version was generated
+        assert!(
+            ir.contains("@seq_get_value_i64"),
+            "Should generate specialized version of get-value"
+        );
+
+        // Verify the test-caller function has proper structure
+        // (both branches should have terminators leading to merge or return)
+        assert!(
+            ir.contains("define tailcc ptr @seq_test_caller"),
+            "Should generate test-caller function"
+        );
+
+        // The then branch should use tail call (musttail + ret) for get-value
+        // NOT the specialized dispatch (which would leave the block unterminated)
+        assert!(
+            ir.contains("musttail call tailcc ptr @seq_get_value"),
+            "Then branch should use tail call to stack-based version, not specialized dispatch"
+        );
+    }
 }

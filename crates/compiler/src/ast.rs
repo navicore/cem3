@@ -40,11 +40,6 @@ impl SourceLocation {
             end_line,
         }
     }
-
-    /// Get the line number (for backward compatibility, returns start_line)
-    pub fn line(&self) -> usize {
-        self.start_line
-    }
 }
 
 impl std::fmt::Display for SourceLocation {
@@ -288,11 +283,6 @@ impl Program {
             unions: Vec::new(),
             words: Vec::new(),
         }
-    }
-
-    /// Find a union definition by name
-    pub fn find_union(&self, name: &str) -> Option<&UnionDef> {
-        self.unions.iter().find(|u| u.name == name)
     }
 
     pub fn find_word(&self, name: &str) -> Option<&WordDef> {

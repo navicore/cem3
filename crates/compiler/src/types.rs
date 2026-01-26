@@ -267,16 +267,6 @@ impl Effect {
             .iter()
             .any(|e| matches!(e, SideEffect::Yield(_)))
     }
-
-    /// Get the yield type if this effect has one
-    pub fn yield_type(&self) -> Option<&Type> {
-        self.effects
-            .iter()
-            .map(|e| match e {
-                SideEffect::Yield(ty) => ty.as_ref(),
-            })
-            .next()
-    }
 }
 
 impl std::fmt::Display for Type {

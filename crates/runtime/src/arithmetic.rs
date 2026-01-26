@@ -162,8 +162,8 @@ pub unsafe extern "C" fn patch_seq_modulo(stack: Stack) -> Stack {
 
 /// Integer equality: =
 ///
-/// Returns 1 if equal, 0 if not (Forth-style boolean)
-/// Stack effect: ( a b -- flag )
+/// Returns Bool (true if equal, false if not)
+/// Stack effect: ( a b -- Bool )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -180,8 +180,8 @@ pub unsafe extern "C" fn patch_seq_eq(stack: Stack) -> Stack {
 
 /// Less than: <
 ///
-/// Returns 1 if a < b, 0 otherwise (Forth-style boolean)
-/// Stack effect: ( a b -- flag )
+/// Returns Bool (true if a < b, false otherwise)
+/// Stack effect: ( a b -- Bool )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -196,8 +196,8 @@ pub unsafe extern "C" fn patch_seq_lt(stack: Stack) -> Stack {
 
 /// Greater than: >
 ///
-/// Returns 1 if a > b, 0 otherwise (Forth-style boolean)
-/// Stack effect: ( a b -- flag )
+/// Returns Bool (true if a > b, false otherwise)
+/// Stack effect: ( a b -- Bool )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -212,8 +212,8 @@ pub unsafe extern "C" fn patch_seq_gt(stack: Stack) -> Stack {
 
 /// Less than or equal: <=
 ///
-/// Returns 1 if a <= b, 0 otherwise (Forth-style boolean)
-/// Stack effect: ( a b -- flag )
+/// Returns Bool (true if a <= b, false otherwise)
+/// Stack effect: ( a b -- Bool )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -230,8 +230,8 @@ pub unsafe extern "C" fn patch_seq_lte(stack: Stack) -> Stack {
 
 /// Greater than or equal: >=
 ///
-/// Returns 1 if a >= b, 0 otherwise (Forth-style boolean)
-/// Stack effect: ( a b -- flag )
+/// Returns Bool (true if a >= b, false otherwise)
+/// Stack effect: ( a b -- Bool )
 ///
 /// # Safety
 /// Stack must have two Int values on top
@@ -248,8 +248,8 @@ pub unsafe extern "C" fn patch_seq_gte(stack: Stack) -> Stack {
 
 /// Not equal: <>
 ///
-/// Returns 1 if a != b, 0 otherwise (Forth-style boolean)
-/// Stack effect: ( a b -- flag )
+/// Returns Bool (true if a != b, false otherwise)
+/// Stack effect: ( a b -- Bool )
 ///
 /// # Safety
 /// Stack must have two Int values on top

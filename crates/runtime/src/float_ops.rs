@@ -81,6 +81,10 @@ pub unsafe extern "C" fn patch_seq_f_divide(stack: Stack) -> Stack {
 // =============================================================================
 // Comparison Operations (return Int 0 or 1)
 // =============================================================================
+//
+// Note: Float comparisons return Int (0/1) for Forth-style boolean semantics,
+// while integer comparisons in arithmetic.rs return Bool. Both work with
+// conditionals and test.assert since they accept both Int and Bool.
 
 /// Float equality: ( Float Float -- Int )
 ///

@@ -87,11 +87,6 @@ impl CallGraph {
             .any(|scc| scc.contains(word1) && scc.contains(word2))
     }
 
-    /// Get the recursive cycle containing a word, if any.
-    pub fn get_cycle(&self, word: &str) -> Option<&HashSet<String>> {
-        self.recursive_sccs.iter().find(|scc| scc.contains(word))
-    }
-
     /// Get all recursive cycles (SCCs with recursion).
     pub fn recursive_cycles(&self) -> &[HashSet<String>] {
         &self.recursive_sccs
@@ -274,49 +269,6 @@ fn extract_calls_from_statement(
     }
 }
 
-/// Information about tail calls for mutual TCO optimization.
-///
-/// # Current Status
-///
-/// This struct is currently **infrastructure for future use**. The existing codegen
-/// already emits `musttail` for all tail calls to user-defined words, so mutual TCO
-/// works without explicit call graph checks.
-///
-/// Potential future uses:
-/// - Selective TCO (only optimize detected recursive cycles)
-/// - Diagnostic tools (show which words are mutually recursive)
-/// - Dead code detection (unreachable words in non-recursive paths)
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // Infrastructure for future optimizations
-pub struct TailCallInfo {
-    /// Words that are in a recursive cycle and should get mutual TCO
-    pub recursive_words: HashSet<String>,
-}
-
-impl TailCallInfo {
-    /// Build tail call info from a call graph.
-    pub fn from_call_graph(graph: &CallGraph) -> Self {
-        let mut recursive_words = HashSet::new();
-        for scc in graph.recursive_cycles() {
-            recursive_words.extend(scc.iter().cloned());
-        }
-        TailCallInfo { recursive_words }
-    }
-
-    /// Check if a call from `caller` to `callee` is between mutually recursive words.
-    ///
-    /// Returns true if both are in the same recursive cycle.
-    ///
-    /// # Note
-    ///
-    /// Currently unused in codegen since all user-word tail calls get `musttail`.
-    /// Kept as infrastructure for potential future selective optimization.
-    #[allow(dead_code)] // Infrastructure for future optimizations
-    pub fn should_use_musttail(&self, caller: &str, callee: &str) -> bool {
-        self.recursive_words.contains(caller) && self.recursive_words.contains(callee)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,27 +413,6 @@ mod tests {
         assert!(!graph.is_recursive("foo"));
         // Callees should only include known words
         assert!(graph.callees("foo").unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_tail_call_info() {
-        let program = Program {
-            includes: vec![],
-            unions: vec![],
-            words: vec![
-                make_word("ping", vec!["pong"]),
-                make_word("pong", vec!["ping"]),
-                make_word("helper", vec![]),
-            ],
-        };
-
-        let graph = CallGraph::build(&program);
-        let info = TailCallInfo::from_call_graph(&graph);
-
-        assert!(info.should_use_musttail("ping", "pong"));
-        assert!(info.should_use_musttail("pong", "ping"));
-        assert!(!info.should_use_musttail("helper", "ping"));
-        assert!(!info.should_use_musttail("ping", "helper"));
     }
 
     #[test]

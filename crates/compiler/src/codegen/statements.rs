@@ -41,10 +41,8 @@ impl CodeGen {
 
         // Try dispatch to specialized version if virtual stack has matching types,
         // but only if we're NOT in tail position (tail calls need musttail + ret)
-        if !would_tail_call {
-            if let Some(result) = self.try_specialized_dispatch(stack_var, name)? {
-                return Ok(result);
-            }
+        if !would_tail_call && let Some(result) = self.try_specialized_dispatch(stack_var, name)? {
+            return Ok(result);
         }
 
         // Spill virtual registers before function call (Issue #189)

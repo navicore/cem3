@@ -93,7 +93,7 @@ pub fn calculate_captures(body_effect: &Effect, call_effect: &Effect) -> Result<
 ///
 /// Uses recursion to build the vector in the correct order without needing
 /// to clone the entire stack structure or reverse the result.
-pub fn extract_concrete_types(stack: &StackType) -> Vec<Type> {
+pub(crate) fn extract_concrete_types(stack: &StackType) -> Vec<Type> {
     // Use recursion to build the vector in bottom-to-top order
     fn collect(stack: &StackType, result: &mut Vec<Type>) {
         match stack {

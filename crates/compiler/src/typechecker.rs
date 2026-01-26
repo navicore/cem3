@@ -2590,32 +2590,6 @@ mod tests {
         assert!(checker.check_program(&program).is_ok());
     }
 
-    // TODO: Re-enable once write_line is properly row-polymorphic
-    // #[test]
-    // fn test_quotation_with_string() {
-    //     // : test ( -- Quot )
-    //     //   [ "hello" write_line ] ;
-    //     let program = Program { includes: vec![],
-    //         words: vec![WordDef {
-    //             name: "test".to_string(),
-    //             effect: Some(Effect::new(
-    //                 StackType::Empty,
-    //                 StackType::singleton(Type::Quotation(Box::new(Effect::new(
-    //                     StackType::RowVar("input".to_string()),
-    //                     StackType::RowVar("input".to_string()),
-    //                 )))),
-    //             )),
-    //             body: vec![Statement::Quotation(vec![
-    //                 Statement::StringLiteral("hello".to_string()),
-    //                 Statement::WordCall { name: "write_line".to_string(), span: None },
-    //             ])],
-    //         }],
-    //     };
-    //
-    //     let mut checker = TypeChecker::new();
-    //     assert!(checker.check_program(&program).is_ok());
-    // }
-
     #[test]
     fn test_nested_quotation() {
         // : test ( -- Quot )

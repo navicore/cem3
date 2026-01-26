@@ -69,10 +69,10 @@ Stable as of 1.1.0. The language and standard library are stable and used by the
 *Install from crates.io:*
 
 ```bash
-cargo install seq-compiler  # installs seqc (compiler)
-cargo install seq-repl      # installs seqr (interactive REPL)
-cargo install seq-lsp       # installs seq-lsp (optional, for editor support)
+cargo install seq-compiler seq-repl seq-lsp
 ```
+
+This installs `seqc` (compiler), `seqr` (REPL), and `seq-lsp` (language server).
 
 *Build from source:*
 

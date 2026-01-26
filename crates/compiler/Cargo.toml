@@ -25,7 +25,7 @@ hex.workspace = true
 
 [build-dependencies]
 # Version must EXACTLY match workspace version - enforced by build.rs and CI
-seq-runtime = { path = "../runtime", version = "=3.0.2", optional = true }
+seq-runtime = { path = "../runtime", version = "=3.0.3", optional = true }
 toml.workspace = true
 
 [lib]

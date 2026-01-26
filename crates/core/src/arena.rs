@@ -22,10 +22,10 @@
 //! - Arena A still contains the strings from earlier allocation
 //!
 //! **Why this is safe:**
-//! - Arena reset only happens on strand exit (see `scheduler.rs:203`)
+//! - Arena reset only happens on strand exit (see `scheduler.rs:512-525`)
 //! - A migrated strand continues executing, doesn't trigger reset of Arena A
 //! - Arena A will be reset when the *next* strand on Thread A exits
-//! - Channel sends clone to global allocator (see `cemstring.rs:73-76`)
+//! - Channel sends clone to global allocator (see `seqstring.rs:123-132`)
 //!
 //! **Performance impact:**
 //! - Minimal in practice - May rarely migrates strands
@@ -118,7 +118,6 @@ fn should_reset() -> bool {
 }
 
 /// Get current arena statistics
-#[allow(dead_code)]
 pub fn arena_stats() -> ArenaStats {
     // Read from our tracked bytes instead of Bump's internal state
     // This ensures consistency with arena_reset() which sets ARENA_BYTES_ALLOCATED to 0

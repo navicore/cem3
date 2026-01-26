@@ -60,17 +60,6 @@ pub fn clear_runtime_error() {
     ERROR_CSTRING.with(|e| *e.borrow_mut() = None);
 }
 
-/// Format a panic payload into an error message
-pub fn format_panic_payload(payload: &Box<dyn std::any::Any + Send>) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        s.to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "unknown panic".to_string()
-    }
-}
-
 // FFI-safe error access functions
 
 /// Check if there's a pending runtime error (FFI-safe)
@@ -166,14 +155,5 @@ mod tests {
         clear_runtime_error();
         assert!(!has_runtime_error());
         assert!(take_runtime_error().is_none());
-    }
-
-    #[test]
-    fn test_format_panic_payload() {
-        let payload: Box<dyn std::any::Any + Send> = Box::new("panic message");
-        assert_eq!(format_panic_payload(&payload), "panic message");
-
-        let payload: Box<dyn std::any::Any + Send> = Box::new("owned panic".to_string());
-        assert_eq!(format_panic_payload(&payload), "owned panic");
     }
 }

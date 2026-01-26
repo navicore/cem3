@@ -129,21 +129,6 @@ impl MemoryStatsRegistry {
         }
     }
 
-    /// Iterate over per-thread statistics (for detailed diagnostics)
-    pub fn per_thread_stats(&self) -> impl Iterator<Item = ThreadMemoryStats> + '_ {
-        self.slots.iter().filter_map(|slot| {
-            let thread_id = slot.thread_id.load(Ordering::Acquire);
-            if thread_id > 0 {
-                Some(ThreadMemoryStats {
-                    thread_id,
-                    arena_bytes: slot.arena_bytes.load(Ordering::Relaxed),
-                })
-            } else {
-                None
-            }
-        })
-    }
-
     /// Get registry capacity
     pub fn capacity(&self) -> usize {
         self.slots.len()
@@ -156,13 +141,6 @@ pub struct AggregateMemoryStats {
     pub active_threads: usize,
     pub total_arena_bytes: u64,
     pub overflow_count: u64,
-}
-
-/// Memory statistics for a single thread
-#[derive(Debug, Clone, Copy)]
-pub struct ThreadMemoryStats {
-    pub thread_id: u64,
-    pub arena_bytes: u64,
 }
 
 /// Global counter for generating unique thread IDs
@@ -284,29 +262,6 @@ mod tests {
             // Verify via aggregate
             let stats = memory_registry().aggregate_stats();
             assert!(stats.total_arena_bytes >= 2048); // May have other test data
-        }
-        // If slot is None, registry was full - that's OK for this test
-    }
-
-    #[test]
-    fn test_per_thread_stats() {
-        // Try to register
-        let slot = get_or_register_slot();
-
-        if slot.is_some() {
-            // Use a unique value to identify our thread's stats
-            let unique_arena_bytes: usize = 999_777_555;
-            update_arena_stats(unique_arena_bytes);
-
-            // Should be able to iterate per-thread stats
-            let per_thread: Vec<_> = memory_registry().per_thread_stats().collect();
-            assert!(!per_thread.is_empty());
-
-            // Find our thread's stats
-            let our_stats = per_thread
-                .iter()
-                .find(|s| s.arena_bytes == unique_arena_bytes as u64);
-            assert!(our_stats.is_some());
         }
         // If slot is None, registry was full - that's OK for this test
     }

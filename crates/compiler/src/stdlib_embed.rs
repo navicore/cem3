@@ -33,11 +33,6 @@ pub fn has_stdlib(name: &str) -> bool {
     STDLIB.contains_key(name)
 }
 
-/// List all available embedded stdlib modules
-pub fn list_stdlib() -> Vec<&'static str> {
-    STDLIB.keys().copied().collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -599,15 +599,6 @@ pub unsafe fn peek_sv(stack: Stack) -> StackValue {
     unsafe { *stack.sub(1) }
 }
 
-/// Check if stack is empty (at base pointer)
-/// Note: With tagged stack, we need to compare against base, not null
-#[inline]
-pub fn is_empty(_stack: Stack) -> bool {
-    // For now, assume stack is never truly empty in valid programs
-    // The caller should track base pointer if needed
-    false
-}
-
 // ============================================================================
 // FFI Stack Operations
 // ============================================================================

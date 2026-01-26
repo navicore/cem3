@@ -37,17 +37,6 @@ pub enum Severity {
     Hint,
 }
 
-impl Severity {
-    /// Convert to LSP DiagnosticSeverity number
-    pub fn to_lsp_severity(&self) -> u32 {
-        match self {
-            Severity::Error => 1,
-            Severity::Warning => 2,
-            Severity::Hint => 4,
-        }
-    }
-}
-
 /// A single lint rule from configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct LintRule {

@@ -40,7 +40,7 @@ use std::path::Path;
 
 /// Identifies a resource type for tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ResourceKind {
+pub(crate) enum ResourceKind {
     /// Weave handle from `strand.weave`
     WeaveHandle,
     /// Channel from `chan.make`
@@ -65,22 +65,20 @@ impl ResourceKind {
 
 /// A tracked resource with its origin
 #[derive(Debug, Clone)]
-pub struct TrackedResource {
+pub(crate) struct TrackedResource {
     /// What kind of resource this is
     pub kind: ResourceKind,
     /// Unique ID for this resource instance
     pub id: usize,
     /// Line where the resource was created (0-indexed)
     pub created_line: usize,
-    /// Column where the resource was created (0-indexed)
-    pub created_column: usize,
     /// The word that created this resource
     pub created_by: String,
 }
 
 /// A value on the abstract stack - either a resource or unknown
 #[derive(Debug, Clone)]
-pub enum StackValue {
+pub(crate) enum StackValue {
     /// A tracked resource
     Resource(TrackedResource),
     /// An unknown value (literal, result of non-resource operation)
@@ -89,7 +87,7 @@ pub enum StackValue {
 
 /// State of the abstract stack during analysis
 #[derive(Debug, Clone)]
-pub struct StackState {
+pub(crate) struct StackState {
     /// The stack contents (top is last element)
     stack: Vec<StackValue>,
     /// Resources that have been properly consumed
@@ -119,12 +117,11 @@ impl StackState {
     }
 
     /// Push a new tracked resource onto the stack
-    pub fn push_resource(&mut self, kind: ResourceKind, line: usize, column: usize, word: &str) {
+    pub fn push_resource(&mut self, kind: ResourceKind, line: usize, word: &str) {
         let resource = TrackedResource {
             kind,
             id: self.next_id,
             created_line: line,
-            created_column: column,
             created_by: word.to_string(),
         };
         self.next_id += 1;
@@ -292,14 +289,14 @@ impl StackState {
 
 /// Result of merging two branch states
 #[derive(Debug)]
-pub struct BranchMergeResult {
+pub(crate) struct BranchMergeResult {
     /// Resources handled inconsistently between branches
     pub inconsistent: Vec<InconsistentResource>,
 }
 
 /// A resource handled differently in different branches
 #[derive(Debug)]
-pub struct InconsistentResource {
+pub(crate) struct InconsistentResource {
     pub resource: TrackedResource,
     /// True if consumed in else branch but not then branch
     pub consumed_in_else: bool,
@@ -311,7 +308,7 @@ pub struct InconsistentResource {
 
 /// Information about a word's resource behavior
 #[derive(Debug, Clone, Default)]
-pub struct WordResourceInfo {
+pub(crate) struct WordResourceInfo {
     /// Resource kinds this word returns (resources on stack at word end)
     pub returns: Vec<ResourceKind>,
 }
@@ -448,16 +445,15 @@ impl ProgramResourceAnalyzer {
         F: FnMut(&TrackedResource),
     {
         let line = span.map(|s| s.line).unwrap_or(0);
-        let column = span.map(|s| s.column).unwrap_or(0);
 
         match name {
             // Resource-creating builtins
             "strand.weave" => {
                 state.pop();
-                state.push_resource(ResourceKind::WeaveHandle, line, column, name);
+                state.push_resource(ResourceKind::WeaveHandle, line, name);
             }
             "chan.make" => {
-                state.push_resource(ResourceKind::Channel, line, column, name);
+                state.push_resource(ResourceKind::Channel, line, name);
             }
 
             // Resource-consuming builtins
@@ -601,7 +597,7 @@ impl ProgramResourceAnalyzer {
                 if let Some(info) = word_info.get(name) {
                     // Push resources that this word returns
                     for kind in &info.returns {
-                        state.push_resource(*kind, line, column, name);
+                        state.push_resource(*kind, line, name);
                     }
                     return true;
                 }
@@ -966,19 +962,18 @@ impl ResourceAnalyzer {
         word: &WordDef,
     ) {
         let line = span.map(|s| s.line).unwrap_or(0);
-        let column = span.map(|s| s.column).unwrap_or(0);
 
         match name {
             // Resource-creating words
             "strand.weave" => {
                 // Pops quotation, pushes WeaveHandle
                 state.pop(); // quotation
-                state.push_resource(ResourceKind::WeaveHandle, line, column, name);
+                state.push_resource(ResourceKind::WeaveHandle, line, name);
             }
 
             "chan.make" => {
                 // Pushes a new channel
-                state.push_resource(ResourceKind::Channel, line, column, name);
+                state.push_resource(ResourceKind::Channel, line, name);
             }
 
             // Resource-consuming words

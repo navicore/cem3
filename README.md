@@ -1,5 +1,6 @@
 [![CI - macOS](https://github.com/navicore/patch-seq/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/ci-macos.yml)
 [![CI - Linux](https://github.com/navicore/patch-seq/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/ci-linux.yml)
+[![Benchmarks](https://github.com/navicore/patch-seq/actions/workflows/bench.yml/badge.svg)](https://github.com/navicore/patch-seq/actions/workflows/bench.yml)
 
 [![seq-compiler](https://img.shields.io/crates/v/seq-compiler.svg?label=seq-compiler)](https://crates.io/crates/seq-compiler)
 [![seq-repl](https://img.shields.io/crates/v/seq-repl.svg?label=seq-repl)](https://crates.io/crates/seq-repl)

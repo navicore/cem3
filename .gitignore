@@ -47,3 +47,6 @@ libseq_runtime.a
 # But keep integration test expected outputs
 !tests/integration/expected/*.txt
 book/
+
+# Generated docs (created from root README.md by scripts/generate-examples-docs.sh)
+docs/README.md

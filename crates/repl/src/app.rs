@@ -177,6 +177,16 @@ pub struct App {
     _temp_file: Option<NamedTempFile>,
     /// Completion manager (handles LSP and builtin completions)
     completions: CompletionManager,
+    /// Whether in search mode (vim `/` search)
+    search_mode: bool,
+    /// Current search pattern
+    search_pattern: String,
+    /// Indices of history entries matching search pattern
+    search_matches: Vec<usize>,
+    /// Current match index (into search_matches)
+    search_match_index: usize,
+    /// Original input before search started (for cancellation)
+    search_original_input: String,
 }
 
 // Note: App intentionally does not implement Default because App::new() can fail
@@ -232,6 +242,11 @@ impl App {
             session_path,
             _temp_file: Some(temp_file),
             completions,
+            search_mode: false,
+            search_pattern: String::new(),
+            search_matches: Vec::new(),
+            search_match_index: 0,
+            search_original_input: String::new(),
         };
         app.load_history();
         Ok(app)
@@ -278,6 +293,11 @@ impl App {
             session_path: path,
             _temp_file: None,
             completions,
+            search_mode: false,
+            search_pattern: String::new(),
+            search_matches: Vec::new(),
+            search_match_index: 0,
+            search_original_input: String::new(),
         };
         app.load_history();
         Ok(app)
@@ -387,6 +407,91 @@ impl App {
                     self.completions.hide();
                 }
             }
+        }
+
+        // Handle search mode (vim `/` search)
+        if self.search_mode {
+            match key.code {
+                KeyCode::Esc => {
+                    // Cancel search - restore original input
+                    self.repl_state.input = self.search_original_input.clone();
+                    self.editor.reset();
+                    self.editor
+                        .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+                    self.repl_state.cursor = self.editor.cursor();
+                    self.search_mode = false;
+                    self.search_pattern.clear();
+                    self.search_matches.clear();
+                    self.status_message = None;
+                    return;
+                }
+                KeyCode::Enter => {
+                    // Accept current match (input already shows preview)
+                    self.search_mode = false;
+                    self.search_pattern.clear();
+                    self.search_matches.clear();
+                    return;
+                }
+                KeyCode::Backspace => {
+                    // Delete from search pattern
+                    self.search_pattern.pop();
+                    self.update_search_matches();
+                    self.preview_current_match();
+                    self.update_search_status();
+                    return;
+                }
+                KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    // Previous match (Shift+Tab)
+                    if !self.search_matches.is_empty() {
+                        self.search_match_index = if self.search_match_index == 0 {
+                            self.search_matches.len() - 1
+                        } else {
+                            self.search_match_index - 1
+                        };
+                        self.preview_current_match();
+                        self.update_search_status();
+                    }
+                    return;
+                }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    // Next match (Tab) or previous (BackTab for terminals that send it)
+                    if !self.search_matches.is_empty() {
+                        if key.code == KeyCode::BackTab {
+                            self.search_match_index = if self.search_match_index == 0 {
+                                self.search_matches.len() - 1
+                            } else {
+                                self.search_match_index - 1
+                            };
+                        } else {
+                            self.search_match_index =
+                                (self.search_match_index + 1) % self.search_matches.len();
+                        }
+                        self.preview_current_match();
+                        self.update_search_status();
+                    }
+                    return;
+                }
+                KeyCode::Char(c) => {
+                    // Add to search pattern
+                    self.search_pattern.push(c);
+                    self.update_search_matches();
+                    self.preview_current_match();
+                    self.update_search_status();
+                    return;
+                }
+                _ => return,
+            }
+        }
+
+        // Enter search mode with `/` in normal mode
+        if key.code == KeyCode::Char('/') && self.is_normal_mode() {
+            self.search_mode = true;
+            self.search_original_input = self.repl_state.input.clone();
+            self.search_pattern.clear();
+            self.search_matches.clear();
+            self.search_match_index = 0;
+            self.update_search_status();
+            return;
         }
 
         // Global shortcuts (work in any mode)
@@ -909,6 +1014,12 @@ impl App {
             ":q" | ":quit" => {
                 self.should_quit = true;
             }
+            ":version" | ":v" => {
+                let version = env!("CARGO_PKG_VERSION");
+                self.repl_state
+                    .add_entry(HistoryEntry::new(cmd).with_output(format!("seqr {version}")));
+                self.status_message = Some(format!("seqr {}", version));
+            }
             ":clear" => {
                 self.clear_session();
                 self.repl_state.add_entry(HistoryEntry::new(":clear"));
@@ -987,6 +1098,7 @@ impl App {
                         String::new(),
                         "COMMANDS".to_string(),
                         "  :q, :quit     Exit the REPL".to_string(),
+                        "  :version, :v  Show version".to_string(),
                         "  :clear        Clear session and history".to_string(),
                         "  :pop          Remove last expression".to_string(),
                         "  :stack, :s    Show current stack".to_string(),
@@ -1008,6 +1120,7 @@ impl App {
                         "  0, $          Line start/end".to_string(),
                         "  x             Delete character".to_string(),
                         "  d             Clear line".to_string(),
+                        "  /             Search history".to_string(),
                         String::new(),
                         "KEYS".to_string(),
                         "  F1            Toggle Stack Effects".to_string(),
@@ -1018,6 +1131,12 @@ impl App {
                         "  Ctrl+D        Exit REPL".to_string(),
                         "  Enter         Execute expression".to_string(),
                         "  Up/Down       History navigation".to_string(),
+                        String::new(),
+                        "SEARCH MODE (after /)".to_string(),
+                        "  Type          Filter history".to_string(),
+                        "  Tab/Shift+Tab Cycle matches".to_string(),
+                        "  Enter         Accept match".to_string(),
+                        "  Esc           Cancel search".to_string(),
                     ],
                     typed_ast: vec![],
                     llvm_ir: vec![],
@@ -1116,6 +1235,60 @@ impl App {
             Err(_) => {
                 // Compile error - ignore for display
             }
+        }
+    }
+
+    /// Update search matches based on current search pattern
+    fn update_search_matches(&mut self) {
+        self.search_matches.clear();
+        self.search_match_index = 0;
+
+        if self.search_pattern.is_empty() {
+            return;
+        }
+
+        let pattern = self.search_pattern.to_lowercase();
+        // Search in reverse order (most recent first)
+        for (i, entry) in self.repl_state.history.iter().enumerate().rev() {
+            if entry.input.to_lowercase().contains(&pattern) {
+                self.search_matches.push(i);
+            }
+        }
+    }
+
+    /// Preview the current search match in the input line
+    fn preview_current_match(&mut self) {
+        if self.search_matches.is_empty() {
+            // No matches - show original input
+            self.repl_state.input = self.search_original_input.clone();
+        } else {
+            // Show current match
+            let idx = self.search_matches[self.search_match_index];
+            if let Some(entry) = self.repl_state.history.get(idx) {
+                self.repl_state.input = entry.input.clone();
+            }
+        }
+        self.editor.reset();
+        self.editor
+            .set_cursor(self.repl_state.input.len(), &self.repl_state.input);
+        self.repl_state.cursor = self.editor.cursor();
+    }
+
+    /// Update status message to show search state
+    fn update_search_status(&mut self) {
+        if self.search_matches.is_empty() {
+            if self.search_pattern.is_empty() {
+                self.status_message = Some("/".to_string());
+            } else {
+                self.status_message = Some(format!("/{} (no matches)", self.search_pattern));
+            }
+        } else {
+            let match_num = self.search_match_index + 1;
+            let total = self.search_matches.len();
+            self.status_message = Some(format!(
+                "/{} ({}/{})",
+                self.search_pattern, match_num, total
+            ));
         }
     }
 
@@ -1700,6 +1873,244 @@ mod tests {
                 .is_some_and(|m| m.contains("type a prefix")),
             "Should show 'type a prefix' message"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_enter_and_exit() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history
+        app.repl_state
+            .add_entry(HistoryEntry::new("first entry").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("second entry").with_output("2"));
+
+        // In normal mode, '/' enters search mode
+        assert!(!app.search_mode);
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        assert!(app.search_mode);
+        assert!(
+            app.status_message
+                .as_ref()
+                .is_some_and(|m| m.starts_with("/")),
+            "Status should show search prompt"
+        );
+
+        // Esc exits search mode
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert!(!app.search_mode);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_filtering() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history with different content
+        app.repl_state
+            .add_entry(HistoryEntry::new("dup swap").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("drop").with_output("2"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("dup dup").with_output("3"));
+
+        // Enter search mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        assert!(app.search_mode);
+
+        // Type "dup" to search
+        app.handle_key(KeyEvent::from(KeyCode::Char('d')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('u')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('p')));
+
+        // Should have 2 matches (entries containing "dup")
+        assert_eq!(app.search_matches.len(), 2);
+        // Preview shows most recent match
+        assert_eq!(app.repl_state.input, "dup dup");
+        assert!(
+            app.status_message
+                .as_ref()
+                .is_some_and(|m| m.contains("/dup") && m.contains("(1/2)")),
+            "Status should show search pattern and match count"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_accept() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history
+        app.repl_state
+            .add_entry(HistoryEntry::new("first").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("second").with_output("2"));
+
+        // Enter search mode and search for "first"
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        for c in "first".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+
+        // Preview should already show the match
+        assert_eq!(app.repl_state.input, "first");
+
+        // Press Enter to accept
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        // Should be out of search mode with input kept
+        assert!(!app.search_mode);
+        assert_eq!(app.repl_state.input, "first");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_cancel_restores_input() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history
+        app.repl_state
+            .add_entry(HistoryEntry::new("history entry").with_output("1"));
+
+        // Type something first
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        for c in "my input".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.repl_state.input, "my input");
+
+        // Enter search mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        for c in "history".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+
+        // Preview shows match
+        assert_eq!(app.repl_state.input, "history entry");
+
+        // Cancel with Esc - should restore original
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert!(!app.search_mode);
+        assert_eq!(app.repl_state.input, "my input");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_navigate_matches() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history with same prefix
+        app.repl_state
+            .add_entry(HistoryEntry::new("test1").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("test2").with_output("2"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("test3").with_output("3"));
+
+        // Enter search mode and search for "test"
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        for c in "test".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+
+        // Should have 3 matches, starting at index 0 (most recent first: test3)
+        assert_eq!(app.search_matches.len(), 3);
+        assert_eq!(app.search_match_index, 0);
+        // Preview shows first match
+        assert_eq!(app.repl_state.input, "test3");
+
+        // Tab goes to next match
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        assert_eq!(app.search_match_index, 1);
+        assert_eq!(app.repl_state.input, "test2");
+
+        // Shift+Tab goes to previous match
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
+        assert_eq!(app.search_match_index, 0);
+        assert_eq!(app.repl_state.input, "test3");
+
+        // Shift+Tab wraps around to last match
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
+        assert_eq!(app.search_match_index, 2);
+        assert_eq!(app.repl_state.input, "test1");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_backspace() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history
+        app.repl_state
+            .add_entry(HistoryEntry::new("dup").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("drop").with_output("2"));
+
+        // Enter search mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+
+        // Type "dup"
+        for c in "dup".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        assert_eq!(app.search_pattern, "dup");
+        assert_eq!(app.search_matches.len(), 1);
+
+        // Backspace removes last char
+        app.handle_key(KeyEvent::from(KeyCode::Backspace));
+        assert_eq!(app.search_pattern, "du");
+
+        // With "du", should match both "dup" (d-u-p) - wait, "drop" doesn't match "du"
+        // Actually only "dup" matches "du"
+        assert_eq!(app.search_matches.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_mode_case_insensitive() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Add history with mixed case
+        app.repl_state
+            .add_entry(HistoryEntry::new("DUP").with_output("1"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("Dup").with_output("2"));
+        app.repl_state
+            .add_entry(HistoryEntry::new("dup").with_output("3"));
+
+        // Enter search mode and search for lowercase "dup"
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        for c in "dup".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+
+        // Should match all 3 (case insensitive)
+        assert_eq!(app.search_matches.len(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_not_in_insert_mode() -> Result<(), String> {
+        let mut app = App::new()?;
+
+        // Enter insert mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        assert_eq!(app.editor.status(), "INSERT");
+
+        // '/' in insert mode should insert '/', not enter search mode
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        assert!(!app.search_mode);
+        assert_eq!(app.repl_state.input, "/");
 
         Ok(())
     }

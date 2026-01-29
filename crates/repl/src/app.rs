@@ -1017,7 +1017,7 @@ impl App {
             ":version" | ":v" => {
                 let version = env!("CARGO_PKG_VERSION");
                 self.repl_state
-                    .add_entry(HistoryEntry::new(cmd).with_output(&format!("seqr {}", version)));
+                    .add_entry(HistoryEntry::new(cmd).with_output(format!("seqr {version}")));
                 self.status_message = Some(format!("seqr {}", version));
             }
             ":clear" => {

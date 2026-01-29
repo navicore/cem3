@@ -588,16 +588,22 @@ then
 For multiple fallible operations, check each result:
 
 ```seq
-: load-and-parse ( String -- Int Bool )
-  file.slurp if           # read file
-    string->int if        # parse content
-      true                # both succeeded
+: get-port ( -- Int Bool )
+    # Get PORT from environment, parse it, validate range
+    # Demonstrates chaining: getenv -> parse -> validate
+    "PORT" os.getenv if                     # Check env var exists
+      string->int if                        # Parse as integer
+        dup 1024 i.>= over 65535 i.<= and if
+          true                              # Valid port in range
+        else
+          drop 8080 false                   # Port out of range
+        then
+      else
+        drop 8080 false                     # PORT is not a number
+      then
     else
-      drop false          # parse failed
+      drop 8080 false                       # PORT not set
     then
-  else
-    drop false            # read failed
-  then
 ;
 ```
 

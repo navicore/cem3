@@ -911,12 +911,15 @@ impl App {
             }
             ":clear" => {
                 self.clear_session();
+                self.repl_state.add_entry(HistoryEntry::new(":clear"));
                 self.status_message = Some("Session cleared.".to_string());
             }
             ":pop" => {
                 if self.pop_last_expression() {
-                    // Recompile and show new stack state
-                    self.compile_and_show_stack("(after pop)");
+                    // Add :pop to history
+                    self.repl_state.add_entry(HistoryEntry::new(":pop"));
+                    // Show new stack state in IR pane (informational, not in history)
+                    self.show_stack_in_ir_pane();
                     self.status_message = Some("Popped last expression.".to_string());
                 } else {
                     self.status_message = Some("Nothing to pop.".to_string());
@@ -924,10 +927,11 @@ impl App {
             }
             ":stack" | ":s" => {
                 // Show current stack state
-                self.compile_and_show_stack("Stack:");
+                self.compile_and_show_stack(":stack");
             }
             ":show" => {
                 // Show session file contents in IR pane
+                self.repl_state.add_entry(HistoryEntry::new(":show"));
                 if let Ok(content) = fs::read_to_string(&self.session_path) {
                     self.ir_content = IrContent {
                         stack_art: content.lines().map(String::from).collect(),
@@ -940,6 +944,7 @@ impl App {
             }
             ":ir" => {
                 // Toggle IR pane visibility
+                self.repl_state.add_entry(HistoryEntry::new(":ir"));
                 self.show_ir_pane = !self.show_ir_pane;
                 if self.show_ir_pane {
                     self.status_message =
@@ -949,26 +954,31 @@ impl App {
                 }
             }
             ":ir stack" => {
+                self.repl_state.add_entry(HistoryEntry::new(":ir stack"));
                 self.show_ir_pane = true;
                 self.ir_mode = IrViewMode::StackArt;
                 self.status_message = Some("IR: Stack Effects".to_string());
             }
             ":ir ast" => {
+                self.repl_state.add_entry(HistoryEntry::new(":ir ast"));
                 self.show_ir_pane = true;
                 self.ir_mode = IrViewMode::TypedAst;
                 self.status_message = Some("IR: Typed AST".to_string());
             }
             ":ir llvm" => {
+                self.repl_state.add_entry(HistoryEntry::new(":ir llvm"));
                 self.show_ir_pane = true;
                 self.ir_mode = IrViewMode::LlvmIr;
                 self.status_message = Some("IR: LLVM IR".to_string());
             }
             ":edit" | ":e" => {
                 // Signal that we need to open editor (handled by run loop)
+                self.repl_state.add_entry(HistoryEntry::new(cmd));
                 self.should_edit = true;
             }
             ":help" | ":h" => {
                 // Show help in the IR pane
+                self.repl_state.add_entry(HistoryEntry::new(cmd));
                 self.ir_content = IrContent {
                     stack_art: vec![
                         "╭─────────────────────────────────────╮".to_string(),
@@ -1022,6 +1032,7 @@ impl App {
                 if module.is_empty() {
                     self.status_message = Some("Usage: :include <module>".to_string());
                 } else {
+                    self.repl_state.add_entry(HistoryEntry::new(cmd));
                     self.try_include(module);
                     return; // try_include clears input
                 }
@@ -1033,8 +1044,9 @@ impl App {
         self.repl_state.clear_input();
     }
 
-    /// Compile session and show current stack (used after :pop)
-    fn compile_and_show_stack(&mut self, label: &str) {
+    /// Compile session and show current stack (used by :stack command)
+    /// The command parameter is the actual command string (e.g., ":stack") for history
+    fn compile_and_show_stack(&mut self, command: &str) {
         let output_path = self.session_path.with_extension("");
         match seqc::compile_file(&self.session_path, &output_path, false) {
             Ok(_) => {
@@ -1044,12 +1056,13 @@ impl App {
                 match result {
                     RunResult::Success { stdout, stderr: _ } => {
                         let output_text = stdout.trim();
+                        // Add command to history with stack output
                         if !output_text.is_empty() {
                             self.repl_state
-                                .add_entry(HistoryEntry::new(label).with_output(output_text));
+                                .add_entry(HistoryEntry::new(command).with_output(output_text));
                         } else {
                             self.repl_state
-                                .add_entry(HistoryEntry::new(label).with_output("(empty)"));
+                                .add_entry(HistoryEntry::new(command).with_output("(empty)"));
                         }
                     }
                     RunResult::Timeout { timeout_secs } => {
@@ -1065,6 +1078,43 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Compile error: {}", e));
+            }
+        }
+    }
+
+    /// Show current stack in IR pane without adding to history (for informational display)
+    fn show_stack_in_ir_pane(&mut self) {
+        let output_path = self.session_path.with_extension("");
+        match seqc::compile_file(&self.session_path, &output_path, false) {
+            Ok(_) => {
+                let result = run_with_timeout(&output_path);
+                let _ = fs::remove_file(&output_path);
+
+                match result {
+                    RunResult::Success { stdout, stderr: _ } => {
+                        let output_text = stdout.trim();
+                        let mut lines = vec!["Stack:".to_string()];
+                        if !output_text.is_empty() {
+                            lines.extend(output_text.lines().map(String::from));
+                        } else {
+                            lines.push("(empty)".to_string());
+                        }
+                        self.ir_content = IrContent {
+                            stack_art: lines,
+                            typed_ast: vec![],
+                            llvm_ir: vec![],
+                            errors: vec![],
+                        };
+                        self.ir_mode = IrViewMode::StackArt;
+                        self.show_ir_pane = true;
+                    }
+                    _ => {
+                        // Timeout or error - ignore for display
+                    }
+                }
+            }
+            Err(_) => {
+                // Compile error - ignore for display
             }
         }
     }

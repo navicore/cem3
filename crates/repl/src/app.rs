@@ -1892,7 +1892,9 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Char('/')));
         assert!(app.search_mode);
         assert!(
-            app.status_message.as_ref().is_some_and(|m| m.starts_with("/")),
+            app.status_message
+                .as_ref()
+                .is_some_and(|m| m.starts_with("/")),
             "Status should show search prompt"
         );
 

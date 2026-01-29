@@ -66,13 +66,14 @@ fn collect_quotations_from_statements(
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 collect_quotations_from_statements(then_branch, spans);
                 if let Some(else_stmts) = else_branch {
                     collect_quotations_from_statements(else_stmts, spans);
                 }
             }
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 for arm in arms {
                     collect_quotations_from_statements(&arm.body, spans);
                 }
@@ -630,6 +631,108 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             diagnostics.is_empty(),
             "Shebang should be tolerated, got: {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_if_else_branch_mismatch_reports_correct_line() {
+        // If/else with incompatible branch types should report error on the if line
+        let source = r#": test ( Bool -- Int )
+  if
+    42
+  else
+    "string"
+  then
+;
+
+: main ( -- )
+  true test drop
+;
+"#;
+        let diagnostics = check_document(source);
+        assert!(!diagnostics.is_empty(), "Expected type error");
+        let diag = &diagnostics[0];
+        assert!(
+            diag.message.contains("if/else branches have incompatible"),
+            "Expected if/else branch mismatch error, got: {}",
+            diag.message
+        );
+        // The 'if' is on line 2 (1-indexed), which is line 1 in 0-indexed LSP coordinates
+        assert_eq!(
+            diag.range.start.line, 1,
+            "Expected error on line 1 (0-indexed), got line {}. Message: {}",
+            diag.range.start.line, diag.message
+        );
+    }
+
+    #[test]
+    fn test_stack_type_mismatch_reports_correct_line() {
+        // Stack type mismatch should report error on the word call that caused it
+        let source = r#"union IntResult {
+  Ok { value: Int }
+  Err { message: String }
+}
+
+: safe-divide ( Int Int -- IntResult )
+    dup 0 i.= if
+      drop "division by zero" Make-Err
+    else
+      i./ Make-Ok
+    then
+;
+
+: main ( -- )
+  10 2 safe-divide drop
+;
+"#;
+        let diagnostics = check_document(source);
+        assert!(!diagnostics.is_empty(), "Expected type error");
+        let diag = &diagnostics[0];
+        assert!(
+            diag.message.contains("stack type mismatch") || diag.message.contains("Make-Ok"),
+            "Expected stack type mismatch error, got: {}",
+            diag.message
+        );
+        // The 'Make-Ok' is on line 10 (1-indexed), which is line 9 in 0-indexed LSP coordinates
+        assert_eq!(
+            diag.range.start.line, 9,
+            "Expected error on line 9 (0-indexed), got line {}. Message: {}",
+            diag.range.start.line, diag.message
+        );
+    }
+
+    #[test]
+    fn test_match_arm_mismatch_reports_correct_line() {
+        // Match with incompatible arm types should report error on the match line
+        let source = r#"union Message {
+  Get { value: Int }
+  Set { key: Int, value: Int }
+}
+
+: handle ( Message -- Int )
+  match
+    Get -> 42
+    Set -> "string"
+  end
+;
+
+: main ( -- )
+  1 Make-Get handle drop
+;
+"#;
+        let diagnostics = check_document(source);
+        assert!(!diagnostics.is_empty(), "Expected type error");
+        let diag = &diagnostics[0];
+        assert!(
+            diag.message.contains("match arms have incompatible"),
+            "Expected match arms mismatch error, got: {}",
+            diag.message
+        );
+        // The 'match' is on line 7 (1-indexed), which is line 6 in 0-indexed LSP coordinates
+        assert_eq!(
+            diag.range.start.line, 6,
+            "Expected error on line 6 (0-indexed), got line {}. Message: {}",
+            diag.range.start.line, diag.message
         );
     }
 }

@@ -709,6 +709,7 @@ impl TypeChecker {
     fn infer_match(
         &self,
         arms: &[crate::ast::MatchArm],
+        match_span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         if arms.is_empty() {
@@ -763,15 +764,31 @@ impl TypeChecker {
         // Unify all arm results to ensure they're compatible
         let mut final_result = arm_results[0].clone();
         for (i, arm_result) in arm_results.iter().enumerate().skip(1) {
+            // Get line info for error reporting
+            let match_line = match_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+            let arm0_line = arms[0].span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+            let arm_i_line = arms[i].span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+
             let arm_subst = unify_stacks(&final_result, arm_result).map_err(|e| {
-                format!(
-                    "match arms have incompatible stack effects:\n\
-                     \x20 arm 0 produces: {}\n\
-                     \x20 arm {} produces: {}\n\
-                     \x20 All match arms must produce the same stack shape.\n\
-                     \x20 Error: {}",
-                    final_result, i, arm_result, e
-                )
+                if match_line > 0 && arm0_line > 0 && arm_i_line > 0 {
+                    format!(
+                        "at line {}: match arms have incompatible stack effects:\n\
+                         \x20 arm 0 (line {}) produces: {}\n\
+                         \x20 arm {} (line {}) produces: {}\n\
+                         \x20 All match arms must produce the same stack shape.\n\
+                         \x20 Error: {}",
+                        match_line, arm0_line, final_result, i, arm_i_line, arm_result, e
+                    )
+                } else {
+                    format!(
+                        "match arms have incompatible stack effects:\n\
+                         \x20 arm 0 produces: {}\n\
+                         \x20 arm {} produces: {}\n\
+                         \x20 All match arms must produce the same stack shape.\n\
+                         \x20 Error: {}",
+                        final_result, i, arm_result, e
+                    )
+                }
             })?;
             combined_subst = combined_subst.compose(&arm_subst);
             final_result = arm_subst.apply_stack(&final_result);
@@ -872,6 +889,7 @@ impl TypeChecker {
         &self,
         then_branch: &[Statement],
         else_branch: &Option<Vec<Statement>>,
+        if_span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Pop condition (must be Bool)
@@ -926,16 +944,29 @@ impl TypeChecker {
             (then_result, Subst::empty())
         } else {
             // Both branches must produce compatible stacks (normal case)
+            let if_line = if_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
             let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
-                format!(
-                    "if/else branches have incompatible stack effects:\n\
-                     \x20 then branch produces: {}\n\
-                     \x20 else branch produces: {}\n\
-                     \x20 Both branches of an if/else must produce the same stack shape.\n\
-                     \x20 Hint: Make sure both branches push/pop the same number of values.\n\
-                     \x20 Error: {}",
-                    then_result, else_result, e
-                )
+                if if_line > 0 {
+                    format!(
+                        "at line {}: if/else branches have incompatible stack effects:\n\
+                         \x20 then branch produces: {}\n\
+                         \x20 else branch produces: {}\n\
+                         \x20 Both branches of an if/else must produce the same stack shape.\n\
+                         \x20 Hint: Make sure both branches push/pop the same number of values.\n\
+                         \x20 Error: {}",
+                        if_line, then_result, else_result, e
+                    )
+                } else {
+                    format!(
+                        "if/else branches have incompatible stack effects:\n\
+                         \x20 then branch produces: {}\n\
+                         \x20 else branch produces: {}\n\
+                         \x20 Both branches of an if/else must produce the same stack shape.\n\
+                         \x20 Hint: Make sure both branches push/pop the same number of values.\n\
+                         \x20 Error: {}",
+                        then_result, else_result, e
+                    )
+                }
             })?;
             (branch_subst.apply_stack(&then_result), branch_subst)
         };
@@ -1003,12 +1034,13 @@ impl TypeChecker {
     fn infer_word_call(
         &self,
         name: &str,
+        span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Special handling for `call`: extract and apply the quotation's actual effect
         // This ensures stack pollution through quotations is caught (Issue #228)
         if name == "call" {
-            return self.infer_call(current_stack);
+            return self.infer_call(span, current_stack);
         }
 
         // Look up word's effect
@@ -1027,7 +1059,7 @@ impl TypeChecker {
         };
 
         // Apply the freshened effect to current stack
-        let (result_stack, subst) = self.apply_effect(&fresh_effect, adjusted_stack, name)?;
+        let (result_stack, subst) = self.apply_effect(&fresh_effect, adjusted_stack, name, span)?;
 
         // Propagate side effects from the called word
         // Note: strand.weave "handles" Yield effects (consumes them from the quotation)
@@ -1044,6 +1076,7 @@ impl TypeChecker {
     /// This function extracts the quotation's effect and applies it properly.
     fn infer_call(
         &self,
+        span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Pop the quotation from the stack
@@ -1067,7 +1100,7 @@ impl TypeChecker {
                     .ok_or_else(|| "Unknown word: 'call'".to_string())?;
                 let fresh_effect = self.freshen_effect(&effect);
                 let (result_stack, subst) =
-                    self.apply_effect(&fresh_effect, current_stack, "call")?;
+                    self.apply_effect(&fresh_effect, current_stack, "call", span)?;
                 return Ok((result_stack, subst, vec![]));
             }
             _ => {
@@ -1090,7 +1123,7 @@ impl TypeChecker {
         let fresh_effect = self.freshen_effect(&quot_effect);
 
         // Apply the quotation's effect to the remaining stack
-        let (result_stack, subst) = self.apply_effect(&fresh_effect, remaining_stack, "call")?;
+        let (result_stack, subst) = self.apply_effect(&fresh_effect, remaining_stack, "call", span)?;
 
         // Propagate side effects from the quotation
         let propagated_effects = fresh_effect.effects.clone();
@@ -1117,12 +1150,13 @@ impl TypeChecker {
                 Ok((current_stack.push(Type::Float), Subst::empty(), vec![]))
             }
             Statement::Symbol(_) => Ok((current_stack.push(Type::Symbol), Subst::empty(), vec![])),
-            Statement::Match { arms } => self.infer_match(arms, current_stack),
-            Statement::WordCall { name, .. } => self.infer_word_call(name, current_stack),
+            Statement::Match { arms, span } => self.infer_match(arms, span, current_stack),
+            Statement::WordCall { name, span } => self.infer_word_call(name, span, current_stack),
             Statement::If {
                 then_branch,
                 else_branch,
-            } => self.infer_if(then_branch, else_branch, current_stack),
+                span,
+            } => self.infer_if(then_branch, else_branch, span, current_stack),
             Statement::Quotation { id, body, .. } => self.infer_quotation(*id, body, current_stack),
         }
     }
@@ -1147,6 +1181,7 @@ impl TypeChecker {
         effect: &Effect,
         current_stack: StackType,
         operation: &str,
+        span: &Option<crate::ast::Span>,
     ) -> Result<(StackType, Subst), String> {
         // Check for stack underflow: if the effect needs more concrete values than
         // the current stack provides, and the stack has a "rigid" row variable at its base,
@@ -1193,9 +1228,10 @@ impl TypeChecker {
 
         // Unify current stack with effect's input
         let subst = unify_stacks(&effect.inputs, &current_stack).map_err(|e| {
+            let line_info = span.as_ref().map(|s| format!("at line {}: ", s.line + 1)).unwrap_or_default();
             format!(
-                "{}: stack type mismatch. Expected {}, got {}: {}",
-                operation, effect.inputs, current_stack, e
+                "{}{}: stack type mismatch. Expected {}, got {}: {}",
+                line_info, operation, effect.inputs, current_stack, e
             )
         })?;
 
@@ -1543,6 +1579,7 @@ mod tests {
                         else_branch: Some(vec![Statement::StringLiteral(
                             "not greater".to_string(),
                         )]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -1572,6 +1609,7 @@ mod tests {
                     Statement::If {
                         then_branch: vec![Statement::IntLiteral(42)],
                         else_branch: Some(vec![Statement::StringLiteral("string".to_string())]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -1943,6 +1981,7 @@ mod tests {
                                 else_branch: Some(vec![Statement::StringLiteral(
                                     "first true".to_string(),
                                 )]),
+                                span: None,
                             },
                         ],
                         else_branch: Some(vec![
@@ -1956,6 +1995,7 @@ mod tests {
                             },
                             Statement::StringLiteral("first false".to_string()),
                         ]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -1992,6 +2032,7 @@ mod tests {
                     Statement::If {
                         then_branch: vec![Statement::IntLiteral(100)],
                         else_branch: None, // No else - should leave stack unchanged
+                        span: None,
                     },
                 ],
                 source: None,
@@ -2144,6 +2185,7 @@ mod tests {
                             name: "io.write-line".to_string(),
                             span: None,
                         }]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -2236,6 +2278,7 @@ mod tests {
                                 span: None,
                             },
                         ]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -2349,6 +2392,7 @@ mod tests {
                                     span: None,
                                 },
                             ]),
+                            span: None,
                         },
                     ],
                     source: None,
@@ -2389,6 +2433,7 @@ mod tests {
                                     span: None,
                                 },
                             ]),
+                            span: None,
                         },
                     ],
                     source: None,
@@ -2723,6 +2768,7 @@ mod tests {
                                 span: None,
                             },
                         ]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -2796,6 +2842,7 @@ mod tests {
                                     span: None,
                                 },
                             ],
+                            span: None,
                         },
                         MatchArm {
                             pattern: Pattern::Variant("Err".to_string()),
@@ -2809,8 +2856,10 @@ mod tests {
                                     span: None,
                                 },
                             ],
+                            span: None,
                         },
                     ],
+                    span: None,
                 }],
                 source: None,
                 allowed_lints: vec![],
@@ -3005,6 +3054,7 @@ mod tests {
                             },
                         ],
                         else_branch: None, // implicit else continues with ( chan value )
+                        span: None,
                     },
                     // After if: ( chan value ) - drop both
                     Statement::WordCall {
@@ -3085,6 +3135,7 @@ mod tests {
                                 span: None,
                             },
                         ]),
+                        span: None,
                     },
                 ],
                 source: None,
@@ -3156,6 +3207,7 @@ mod tests {
                             },
                         ],
                         else_branch: None,
+                        span: None,
                     },
                 ],
                 source: None,
@@ -3433,6 +3485,7 @@ mod tests {
                         Statement::IntLiteral(2), // Extra value!
                     ],
                     else_branch: Some(vec![Statement::IntLiteral(3)]),
+                    span: None,
                 }],
                 source: None,
                 allowed_lints: vec![],
@@ -3467,6 +3520,7 @@ mod tests {
                         Statement::IntLiteral(2),
                         Statement::IntLiteral(3), // Extra value!
                     ]),
+                    span: None,
                 }],
                 source: None,
                 allowed_lints: vec![],
@@ -3498,6 +3552,7 @@ mod tests {
                 body: vec![Statement::If {
                     then_branch: vec![Statement::IntLiteral(1), Statement::IntLiteral(2)],
                     else_branch: Some(vec![Statement::IntLiteral(3), Statement::IntLiteral(4)]),
+                    span: None,
                 }],
                 source: None,
                 allowed_lints: vec![],
@@ -3539,6 +3594,7 @@ mod tests {
                         Statement::IntLiteral(1),
                     ],
                     else_branch: Some(vec![]),
+                    span: None,
                 }],
                 source: None,
                 allowed_lints: vec![],

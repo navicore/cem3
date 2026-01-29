@@ -125,6 +125,8 @@ pub enum Pattern {
 pub struct MatchArm {
     pub pattern: Pattern,
     pub body: Vec<Statement>,
+    /// Source span for error reporting (points to variant name)
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,6 +242,8 @@ pub enum Statement {
         then_branch: Vec<Statement>,
         /// Optional statements to execute when condition is zero (the 'else' clause)
         else_branch: Option<Vec<Statement>>,
+        /// Source span for error reporting (points to 'if' keyword)
+        span: Option<Span>,
     },
 
     /// Quotation: [ ... ]
@@ -273,6 +277,8 @@ pub enum Statement {
     Match {
         /// The match arms in order
         arms: Vec<MatchArm>,
+        /// Source span for error reporting (points to 'match' keyword)
+        span: Option<Span>,
     },
 }
 
@@ -622,6 +628,7 @@ impl Program {
                 Statement::If {
                     then_branch,
                     else_branch,
+                    span: _,
                 } => {
                     // Recursively validate both branches
                     self.validate_statements(then_branch, word_name, builtins, external_words)?;
@@ -633,7 +640,7 @@ impl Program {
                     // Recursively validate quotation body
                     self.validate_statements(body, word_name, builtins, external_words)?;
                 }
-                Statement::Match { arms } => {
+                Statement::Match { arms, span: _ } => {
                     // Recursively validate each match arm's body
                     for arm in arms {
                         self.validate_statements(&arm.body, word_name, builtins, external_words)?;

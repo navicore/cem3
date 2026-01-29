@@ -408,11 +408,14 @@ impl CodeGen {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => self.codegen_if_statement(stack_var, then_branch, else_branch.as_ref(), position),
             Statement::Quotation { id, body, .. } => {
                 self.codegen_quotation_push(stack_var, *id, body)
             }
-            Statement::Match { arms } => self.codegen_match_statement(stack_var, arms, position),
+            Statement::Match { arms, span: _ } => {
+                self.codegen_match_statement(stack_var, arms, position)
+            }
         }
     }
 

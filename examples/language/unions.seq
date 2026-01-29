@@ -1,0 +1,211 @@
+# Union Types (Algebraic Data Types) in Seq
+#
+# Unions define sum types - a value that can be ONE of several variants.
+# Each variant can carry different data. Pattern matching extracts the data.
+#
+# This example covers:
+#   1. Defining union types
+#   2. Auto-generated constructors (Make-VariantName)
+#   3. Pattern matching with `match`
+#   4. Real-world patterns: Option, Result, Messages
+
+# ============================================================================
+#                           OPTION TYPE
+# ============================================================================
+#
+# Option represents a value that may or may not exist.
+# - Some: contains a value
+# - None: no value
+#
+# The union keyword auto-generates:
+#   Make-Some ( Int -- Option )
+#   Make-None ( -- Option )
+
+union Option {
+  Some { value: Int }
+  None
+}
+
+# Unwrap with a default value using pattern matching
+: unwrap-or ( Option Int -- Int )
+  swap match                  # ( default Option ) -> match consumes Option
+    Some { >value } -> nip    # ( default value ) -> nip default -> ( value )
+    None ->                   # ( default ) -> just return the default
+  end
+;
+
+# Check if Option has a value
+: is-some? ( Option -- Bool )
+  match
+    Some { >value } -> drop true   # ( value ) -> drop value, push true
+    None -> false
+  end
+;
+
+# Map a function over an Option (only applies if Some)
+: option-map ( Option [Int -- Int] -- Option )
+  swap match
+    Some { >value } ->        # ( quotation value )
+      swap call Make-Some     # apply function, wrap result
+    None ->
+      drop Make-None          # no value, return None
+  end
+;
+
+# ============================================================================
+#                           RESULT TYPE
+# ============================================================================
+#
+# Result represents success or failure with error info.
+# Auto-generates: Make-Ok, Make-Err
+
+union Result {
+  Ok { value: Int }
+  Err { message: String }
+}
+
+# Safe division that returns a Result
+: safe-divide ( Int Int -- Result )
+  dup 0 i.= if
+    drop drop
+    "division by zero" Make-Err
+  else
+    i./ drop    # i./ returns (result success), we checked already
+    Make-Ok
+  then
+;
+
+# Unwrap Result or return default on error
+: result-unwrap-or ( Result Int -- Int )
+  swap match                  # ( default Result ) -> match consumes Result
+    Ok { >value } -> nip      # ( default value ) -> nip default -> ( value )
+    Err { >message } -> drop  # ( default message ) -> drop message -> ( default )
+  end
+;
+
+# ============================================================================
+#                         MESSAGE PASSING
+# ============================================================================
+#
+# Messages are perfect for actor/CSP patterns - different operations
+# in a single type that actors can receive and dispatch.
+# Auto-generates: Make-Ping, Make-Increment, Make-GetCount, Make-Shutdown
+
+union Message {
+  Ping { sender: Channel }
+  Increment { amount: Int }
+  GetCount { reply-to: Channel }
+  Shutdown
+}
+
+# Example message handler (just prints what it would do)
+: describe-message ( Message -- )
+  match
+    Ping { >sender } ->
+      drop "Received ping, would reply to sender" io.write-line
+    Increment { >amount } ->
+      "Incrementing by " swap int->string string.concat io.write-line
+    GetCount { >reply-to } ->
+      drop "Would send count to reply channel" io.write-line
+    Shutdown ->
+      "Shutting down!" io.write-line
+  end
+;
+
+# ============================================================================
+#                         TREE STRUCTURE
+# ============================================================================
+#
+# Unions enable recursive data structures like trees.
+# Auto-generates: Make-Leaf, Make-Node
+
+union IntTree {
+  Leaf { value: Int }
+  Node { left: IntTree, right: IntTree }
+}
+
+# Sum all values in the tree
+: tree-sum ( IntTree -- Int )
+  match
+    Leaf { >value } ->        # ( value ) - just return it
+    Node { >left >right } ->  # ( left right )
+      tree-sum swap tree-sum i.+
+  end
+;
+
+# ============================================================================
+#                              DEMO
+# ============================================================================
+
+: demo-option ( -- )
+  "=== Option Type ===" io.write-line
+
+  # Create Some and None
+  42 Make-Some
+  "Some(42) unwrap-or 0 = " io.write
+  0 unwrap-or int->string io.write-line
+
+  Make-None
+  "None unwrap-or 99 = " io.write
+  99 unwrap-or int->string io.write-line
+
+  # Map over Option
+  10 Make-Some [ 2 i.* ] option-map
+  "Some(10) map (*2) = " io.write
+  0 unwrap-or int->string io.write-line
+  "" io.write-line
+;
+
+: demo-result ( -- )
+  "=== Result Type ===" io.write-line
+
+  10 2 safe-divide
+  "10 / 2 = " io.write
+  0 result-unwrap-or int->string io.write-line
+
+  10 0 safe-divide
+  match
+    Ok { >value } -> drop "10 / 0 = unexpected success"
+    Err { >message } -> "10 / 0 = " swap string.concat
+  end
+  io.write-line
+  "" io.write-line
+;
+
+: demo-messages ( -- )
+  "=== Message Types ===" io.write-line
+
+  5 Make-Increment describe-message
+  Make-Shutdown describe-message
+  "" io.write-line
+;
+
+: demo-tree ( -- )
+  "=== Tree Structure ===" io.write-line
+
+  # Build:     Node
+  #           /    \
+  #        Leaf(1)  Node
+  #                /    \
+  #             Leaf(2)  Leaf(3)
+
+  1 Make-Leaf
+  2 Make-Leaf 3 Make-Leaf Make-Node
+  Make-Node
+
+  "Tree sum (1 + 2 + 3) = " io.write
+  tree-sum int->string io.write-line
+;
+
+: main ( -- Int )
+  "Union Types in Seq" io.write-line
+  "==================" io.write-line
+  "" io.write-line
+
+  demo-option
+  demo-result
+  demo-messages
+  demo-tree
+
+  0
+;

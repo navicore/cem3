@@ -401,6 +401,7 @@ impl ProgramResourceAnalyzer {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 state.pop(); // condition
                 let mut then_state = state.clone();
@@ -412,7 +413,7 @@ impl ProgramResourceAnalyzer {
                 *state = then_state.join(&else_state);
             }
 
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 state.pop();
                 let mut arm_states: Vec<StackState> = Vec::new();
                 for arm in arms {
@@ -662,6 +663,7 @@ impl ProgramResourceAnalyzer {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 state.pop();
                 let mut then_state = state.clone();
@@ -681,7 +683,7 @@ impl ProgramResourceAnalyzer {
                 *state = then_state.join(&else_state);
             }
 
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 state.pop();
                 let mut arm_states: Vec<StackState> = Vec::new();
 
@@ -943,11 +945,12 @@ impl ResourceAnalyzer {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 self.analyze_if(then_branch, else_branch.as_ref(), state, word);
             }
 
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 self.analyze_match(arms, state, word);
             }
         }
@@ -1427,6 +1430,7 @@ mod tests {
                 Statement::If {
                     then_branch: vec![make_word_call("strand.weave-cancel")],
                     else_branch: Some(vec![make_word_call("drop")]),
+                    span: None,
                 },
             ],
             source: None,
@@ -1459,6 +1463,7 @@ mod tests {
                 Statement::If {
                     then_branch: vec![make_word_call("strand.weave-cancel")],
                     else_branch: Some(vec![make_word_call("strand.weave-cancel")]),
+                    span: None,
                 },
             ],
             source: None,
@@ -1632,6 +1637,7 @@ mod tests {
                 Statement::If {
                     then_branch: vec![make_word_call("chan.close")],
                     else_branch: Some(vec![make_word_call("drop")]),
+                    span: None,
                 },
             ],
             source: None,
@@ -1664,6 +1670,7 @@ mod tests {
                 Statement::If {
                     then_branch: vec![make_word_call("chan.close")],
                     else_branch: Some(vec![make_word_call("chan.close")]),
+                    span: None,
                 },
             ],
             source: None,
@@ -1695,6 +1702,7 @@ mod tests {
                 Statement::If {
                     then_branch: vec![],
                     else_branch: Some(vec![]),
+                    span: None,
                 },
                 make_word_call("drop"), // drops the channel
             ],

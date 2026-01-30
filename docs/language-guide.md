@@ -138,7 +138,7 @@ The condition is popped from the stack. Non-zero means true:
 ```seq
 : abs ( Int -- Int )
   dup 0 i.< if
-    0 1 i.- i.*
+    0 swap i.-    # negate: 0 - n
   then
 ;
 ```
@@ -335,7 +335,7 @@ Use `match` to destructure variants. The compiler requires **exhaustive** matchi
 ```seq
 : describe ( Option -- String )
   match
-    Some -> "has value"
+    Some { >value } -> drop "has value"   # drop the extracted value
     None -> "empty"
   end
 ;
@@ -515,7 +515,7 @@ If a function returns a union type, the compiler requires callers to handle all 
 : use-it ( String -- Int )
   maybe-parse match
     None -> 0                    # must handle this
-    Some { >value } ->           # value is now on stack
+    Some { >value } ->           # value extracted to stack, returned as result
   end
 ;
 ```

@@ -181,13 +181,13 @@ The fundamental stack manipulators:
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `dup` | `( a -- a a )` | Duplicate top |
-| `drop` | `( a -- )` | Discard top |
-| `swap` | `( a b -- b a )` | Exchange top two |
-| `over` | `( a b -- a b a )` | Copy second to top |
-| `rot` | `( a b c -- b c a )` | Rotate third to top |
-| `nip` | `( a b -- b )` | Drop second |
-| `tuck` | `( a b -- b a b )` | Copy top below second |
+| `dup` | `( ..a T -- ..a T T )` | Duplicate top |
+| `drop` | `( ..a T -- ..a )` | Discard top |
+| `swap` | `( ..a T U -- ..a U T )` | Exchange top two |
+| `over` | `( ..a T U -- ..a T U T )` | Copy second to top |
+| `rot` | `( ..a T U V -- ..a U V T )` | Rotate third to top |
+| `nip` | `( ..a T U -- ..a U )` | Drop second |
+| `tuck` | `( ..a T U -- ..a U T U )` | Copy top below second |
 
 Master these and you can express any data flow without variables.
 
@@ -419,8 +419,8 @@ The `variant.make-N` words take N values from the stack plus a symbol tag:
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `variant.make-0` | `( Symbol -- Variant )` | Tag only, no fields |
-| `variant.make-1` | `( val Symbol -- Variant )` | One field + tag |
-| `variant.make-2` | `( val1 val2 Symbol -- Variant )` | Two fields + tag |
+| `variant.make-1` | `( T Symbol -- Variant )` | One field + tag |
+| `variant.make-2` | `( T U Symbol -- Variant )` | Two fields + tag |
 
 The tag is always the **last** argument (top of stack):
 
@@ -435,7 +435,7 @@ The tag is always the **last** argument (top of stack):
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `variant.tag` | `( Variant -- Symbol )` | Get the tag symbol |
-| `variant.field-at` | `( Variant Int -- value )` | Get field by index (0-based) |
+| `variant.field-at` | `( Variant Int -- T )` | Get field by index (0-based) |
 
 ```seq
 "x" 10 :Point variant.make-2    # ( Point )
@@ -459,13 +459,13 @@ Here's the complete pattern:
 ```seq
 # Constructors
 : nil ( -- List )  :Nil variant.make-0 ;
-: cons ( element List -- List )  :Cons variant.make-2 ;
+: cons ( T List -- List )  :Cons variant.make-2 ;
 
 # Predicates
 : nil? ( List -- Bool )  variant.tag :Nil symbol.= ;
 
 # Accessors
-: car ( List -- element )  0 variant.field-at ;
+: car ( List -- T )  0 variant.field-at ;
 : cdr ( List -- List )  1 variant.field-at ;
 ```
 
@@ -478,7 +478,7 @@ nil                   # ()           - empty list
 1 swap cons           # (1 2 3)      - prepend 1
 ```
 
-The `swap` is needed because `cons` expects `( element List )` but we have `( List element )`.
+The `swap` is needed because `cons` expects `( T List )` but we have `( List T )`.
 
 See `examples/data/cons-list.seq` for a complete example with length, reverse, and printing.
 
@@ -661,17 +661,17 @@ If you need functional composition patterns (map, bind), you can define your own
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `string.concat` | `( a b -- ab )` | Concatenate |
-| `string.length` | `( s -- Int )` | Character count |
-| `string.empty?` | `( s -- Int )` | True if empty |
-| `string.equal?` | `( a b -- Int )` | Compare |
-| `string.char-at` | `( s i -- Int )` | Char code at index |
-| `string.substring` | `( s start len -- s )` | Extract substring |
-| `string.split` | `( s delim -- Variant )` | Split into list |
-| `string.chomp` | `( s -- s )` | Remove trailing newline |
-| `string.trim` | `( s -- s )` | Remove whitespace |
-| `string->int` | `( s -- Int Int )` | Parse integer (value, success flag) |
-| `int->string` | `( Int -- s )` | Format integer |
+| `string.concat` | `( String String -- String )` | Concatenate |
+| `string.length` | `( String -- Int )` | Character count |
+| `string.empty?` | `( String -- Bool )` | True if empty |
+| `string.equal?` | `( String String -- Bool )` | Compare |
+| `string.char-at` | `( String Int -- Int )` | Char code at index |
+| `string.substring` | `( String Int Int -- String )` | Extract substring |
+| `string.split` | `( String String -- List )` | Split into list |
+| `string.chomp` | `( String -- String )` | Remove trailing newline |
+| `string.trim` | `( String -- String )` | Remove whitespace |
+| `string->int` | `( String -- Int Bool )` | Parse integer (value, success flag) |
+| `int->string` | `( Int -- String )` | Format integer |
 
 ## Bitwise Operations
 
@@ -842,9 +842,9 @@ Script mode trades runtime optimization (`-O0`) for faster compilation. For prod
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `file.slurp` | `( path -- String )` | Read entire file |
-| `file.exists?` | `( path -- Int )` | Check if file exists |
-| `file.for-each-line+` | `( path quot -- String Int )` | Process file line by line |
+| `file.slurp` | `( String -- String Bool )` | Read entire file (content, success) |
+| `file.exists?` | `( String -- Bool )` | Check if file exists |
+| `file.for-each-line+` | `( String [String --] -- String Bool )` | Process file line by line |
 
 ### Line-by-Line File Processing
 
@@ -1001,11 +1001,11 @@ Key-value dictionaries with O(1) lookup:
 
 ```seq
 map.make                    # ( -- Map )
-"name" "Alice" map.set      # ( Map -- Map )
+"name" "Alice" map.set      # ( Map K V -- Map )
 "age" 30 map.set
-"name" map.get              # ( Map key -- Map value )
-"name" map.has?             # ( Map key -- Map Int )
-map.keys                    # ( Map -- Variant ) list of keys
+"name" map.get              # ( Map K -- V Bool )
+"name" map.has?             # ( Map K -- Map Bool )
+map.keys                    # ( Map -- List )
 ```
 
 ## SON (Seq Object Notation)
@@ -1172,8 +1172,8 @@ Processes) model - similar to Go channels or Erlang message passing.
 | Word | Effect | Description |
 |------|--------|-------------|
 | `chan.make` | `( -- Channel )` | Create channel |
-| `chan.send` | `( value Channel -- Bool )` | Send value, returns true on success |
-| `chan.receive` | `( Channel -- value Bool )` | Receive value, returns (value, success) |
+| `chan.send` | `( T Channel -- Bool )` | Send value, returns true on success |
+| `chan.receive` | `( Channel -- T Bool )` | Receive value, returns (value, success) |
 | `chan.close` | `( Channel -- )` | Close the channel |
 
 Channel operations return status flags rather than panicking. Always check the boolean result:

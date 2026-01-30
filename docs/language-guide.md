@@ -515,7 +515,7 @@ If a function returns a union type, the compiler requires callers to handle all 
 : use-it ( String -- Int )
   maybe-parse match
     None -> 0                    # must handle this
-    Some { >value } -> value
+    Some { >value } ->           # value is now on stack
   end
 ;
 ```

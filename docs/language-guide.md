@@ -399,9 +399,9 @@ union Option { Some { value: Int }, None }
 
 # Row polymorphic - extra stack values pass through
 : unwrap-or ( ..a Option Int -- ..a Int )
-  match
-    Some { >value } -> drop value
-    None ->          # use default already on stack
+  swap match                    # swap so Option is on top for match
+    Some { >value } -> nip      # remove default, keep extracted value
+    None ->                     # keep default
   end
 ;
 

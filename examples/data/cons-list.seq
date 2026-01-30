@@ -1,0 +1,165 @@
+# Cons Lists in Seq
+#
+# A cons list is a classic functional data structure built from pairs.
+# Each cell is either:
+#   - Nil: empty list
+#   - Cons: a pair of (head, tail) where tail is another list
+#
+# This example shows how to build cons lists using low-level variant primitives.
+
+# ============================================================================
+#                         LIST CONSTRUCTORS
+# ============================================================================
+
+# Create an empty list
+: nil ( -- List )
+  :Nil variant.make-0
+;
+
+# Prepend an element to a list
+: cons ( T List -- List )
+  :Cons variant.make-2
+;
+
+# ============================================================================
+#                         LIST PREDICATES
+# ============================================================================
+
+# Check if a list is empty
+: nil? ( List -- Bool )
+  variant.tag :Nil symbol.=
+;
+
+# Check if a list is non-empty
+: cons? ( List -- Bool )
+  variant.tag :Cons symbol.=
+;
+
+# ============================================================================
+#                         LIST ACCESSORS
+# ============================================================================
+
+# Get the first element (head)
+: car ( List -- T )
+  0 variant.field-at
+;
+
+# Get the rest of the list (tail)
+: cdr ( List -- List )
+  1 variant.field-at
+;
+
+# ============================================================================
+#                         LIST OPERATIONS
+# ============================================================================
+
+# Get the length of a list (recursive helper with accumulator)
+: length-acc ( List Int -- Int )
+  swap                        # ( acc list )
+  dup nil? if
+    drop                      # ( acc ) return accumulator
+  else
+    cdr swap 1 i.+ length-acc # ( tail acc+1 ) recurse on tail
+  then
+;
+
+# Get the length of a list
+: length ( List -- Int )
+  0 length-acc
+;
+
+# Reverse helper with accumulator
+: reverse-acc ( List List -- List )
+  swap                        # ( acc list )
+  dup nil? if
+    drop                      # ( acc ) return accumulator
+  else
+    dup car                   # ( acc list head )
+    rot                       # ( list head acc )
+    cons                      # ( list new-acc )
+    swap cdr swap             # ( tail new-acc )
+    reverse-acc               # recurse
+  then
+;
+
+# Reverse a list
+: reverse ( List -- List )
+  nil reverse-acc
+;
+
+# ============================================================================
+#                         PRINTING HELPERS
+# ============================================================================
+
+# Print a list element by element (recursive)
+: print-list-items ( List -- )
+  dup nil? if
+    drop
+  else
+    dup car int->string io.write
+    cdr
+    dup nil? if
+      drop
+    else
+      " " io.write
+      print-list-items
+    then
+  then
+;
+
+# Print a list in parentheses
+: print-list ( List -- )
+  "(" io.write
+  print-list-items
+  ")" io.write-line
+;
+
+# ============================================================================
+#                         DEMONSTRATION
+# ============================================================================
+
+: main ( -- Int )
+  "Cons Lists in Seq" io.write-line
+  "=================" io.write-line
+  "" io.write-line
+
+  # Build a list: (1 2 3)
+  "Building list (1 2 3)..." io.write-line
+  nil
+  3 swap cons
+  2 swap cons
+  1 swap cons
+
+  "List: " io.write
+  dup print-list
+
+  # Show length
+  "Length: " io.write
+  dup length int->string io.write-line
+
+  # Show car (first element)
+  "First element (car): " io.write
+  dup car int->string io.write-line
+
+  # Show cdr (rest of list)
+  "Rest of list (cdr): " io.write
+  dup cdr print-list
+
+  # Show reverse
+  "Reversed: " io.write
+  dup reverse print-list
+
+  "" io.write-line
+
+  # Verify operations return expected values
+  "Verifying operations..." io.write-line
+
+  dup length 3 i.= if "  length = 3: PASS" else "  length = 3: FAIL" then io.write-line
+  dup car 1 i.= if "  car = 1: PASS" else "  car = 1: FAIL" then io.write-line
+  dup cdr length 2 i.= if "  cdr length = 2: PASS" else "  cdr length = 2: FAIL" then io.write-line
+  dup reverse car 3 i.= if "  reverse car = 3: PASS" else "  reverse car = 3: FAIL" then io.write-line
+
+  drop
+  0
+;
+

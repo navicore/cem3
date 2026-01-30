@@ -410,35 +410,77 @@ union Option { Some { value: Int }, None }
 
 ## Low-Level Variants
 
-For dynamic use cases, low-level primitives are still available:
+For dynamic use cases, low-level primitives create tagged values at runtime. A variant is a value with a **symbol tag** (like `:Some` or `:Nil`) and zero or more **fields**.
+
+### Creating Variants
+
+The `variant.make-N` words take N values from the stack plus a symbol tag:
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `variant.make-0` | `( Symbol -- Variant )` | Tag only, no fields |
+| `variant.make-1` | `( val Symbol -- Variant )` | One field + tag |
+| `variant.make-2` | `( val1 val2 Symbol -- Variant )` | Two fields + tag |
+
+The tag is always the **last** argument (top of stack):
 
 ```seq
-# Create a variant with a symbol tag and one field
-42 :MyTag variant.make-1     # (MyTag 42)
-
-# Create with two fields
-"key" 100 :Pair variant.make-2   # (Pair "key" 100)
-
-# Inspect variants
-variant.tag             # Get the tag symbol
-0 variant.field-at      # Get field 0
-1 variant.field-at      # Get field 1
+:None variant.make-0              # Creates: (None)
+42 :Some variant.make-1           # Creates: (Some 42)
+"x" 10 :Point variant.make-2      # Creates: (Point "x" 10)
 ```
 
-### Cons Lists
+### Inspecting Variants
 
-The standard pattern for lists using low-level variants:
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `variant.tag` | `( Variant -- Symbol )` | Get the tag symbol |
+| `variant.field-at` | `( Variant Int -- value )` | Get field by index (0-based) |
 
 ```seq
-: nil ( -- Variant )  :Nil variant.make-0 ;
-: cons ( head tail -- Variant )  :Cons variant.make-2 ;
-: nil? ( Variant -- Bool )  variant.tag :Nil symbol.= ;
-: car ( Variant -- head )  0 variant.field-at ;
-: cdr ( Variant -- tail )  1 variant.field-at ;
-
-# Build a list: (1 2 3)
-1  2  3 nil cons cons cons
+"x" 10 :Point variant.make-2    # ( Point )
+dup variant.tag                 # ( Point :Point )
+drop 0 variant.field-at         # ( "x" )
 ```
+
+### Cons Lists (Lisp-Style Linked Lists)
+
+A **cons list** is a classic linked list from Lisp. Each node is either:
+- **Nil**: empty list (no fields)
+- **Cons**: a pair of (first-element, rest-of-list)
+
+The names come from Lisp heritage:
+- `cons` = "construct" a pair
+- `car` = "contents of address register" = first element
+- `cdr` = "contents of decrement register" = rest of list
+
+Here's the complete pattern:
+
+```seq
+# Constructors
+: nil ( -- List )  :Nil variant.make-0 ;
+: cons ( element List -- List )  :Cons variant.make-2 ;
+
+# Predicates
+: nil? ( List -- Bool )  variant.tag :Nil symbol.= ;
+
+# Accessors
+: car ( List -- element )  0 variant.field-at ;
+: cdr ( List -- List )  1 variant.field-at ;
+```
+
+Building a list works from right to left - start with `nil`, then prepend each element:
+
+```seq
+nil                   # ()           - empty list
+3 swap cons           # (3)          - prepend 3
+2 swap cons           # (2 3)        - prepend 2
+1 swap cons           # (1 2 3)      - prepend 1
+```
+
+The `swap` is needed because `cons` expects `( element List )` but we have `( List element )`.
+
+See `examples/data/cons-list.seq` for a complete example with length, reverse, and printing.
 
 ## Safety Philosophy
 

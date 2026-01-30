@@ -396,9 +396,11 @@ fn error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
             },
         },
         severity: Some(DiagnosticSeverity::ERROR),
-        code: None,
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            "type-error".to_string(),
+        )),
         code_description: None,
-        source: Some("seq".to_string()),
+        source: Some("seqc".to_string()),
         message: message.to_string(),
         related_information: None,
         tags: None,
@@ -663,6 +665,36 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             "Expected error on line 1 (0-indexed), got line {}. Message: {}",
             diag.range.start.line, diag.message
         );
+    }
+
+    #[test]
+    fn test_diagnostic_structure() {
+        // Verify the diagnostic has all required fields for neovim
+        let source = r#": test ( Bool -- Int )
+  if 42 else "string" then
+;
+: main ( -- ) true test drop ;
+"#;
+        let diagnostics = check_document(source);
+        assert!(!diagnostics.is_empty(), "Expected diagnostic");
+        let diag = &diagnostics[0];
+
+        // These fields must be present for neovim to show file-level diagnostics
+        assert!(diag.severity.is_some(), "severity must be set");
+        assert!(diag.source.is_some(), "source must be set");
+
+        // Print the diagnostic for debugging
+        println!("Diagnostic: {:?}", diag);
+        println!("  severity: {:?}", diag.severity);
+        println!("  source: {:?}", diag.source);
+        println!("  code: {:?}", diag.code);
+        println!("  range: {:?}", diag.range);
+        println!("  message: {}", diag.message);
+
+        // Verify JSON serialization
+        let json = serde_json::to_string_pretty(diag).unwrap();
+        println!("JSON:\n{}", json);
+        assert!(json.contains("\"severity\":"), "JSON must contain severity field");
     }
 
     #[test]

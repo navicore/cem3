@@ -13,6 +13,12 @@ use crate::types::{
 use crate::unification::{Subst, unify_stacks, unify_types};
 use std::collections::HashMap;
 
+/// Format a line number as an error message prefix (e.g., "at line 42: ").
+/// Line numbers are 0-indexed internally, so we add 1 for display.
+fn format_line_prefix(line: usize) -> String {
+    format!("at line {}: ", line + 1)
+}
+
 pub struct TypeChecker {
     /// Environment mapping word names to their effects
     env: HashMap<String, Effect>,
@@ -68,7 +74,7 @@ impl TypeChecker {
         self.current_word
             .borrow()
             .as_ref()
-            .and_then(|(_, line)| line.map(|l| format!("at line {}: ", l + 1)))
+            .and_then(|(_, line)| line.map(format_line_prefix))
             .unwrap_or_default()
     }
 
@@ -384,9 +390,7 @@ impl TypeChecker {
         *self.expected_quotation_type.borrow_mut() = None;
 
         // Verify result matches declared output
-        let line_info = line
-            .map(|l| format!("at line {}: ", l + 1))
-            .unwrap_or_default();
+        let line_info = line.map(format_line_prefix).unwrap_or_default();
         unify_stacks(&declared_effect.outputs, &result_stack).map_err(|e| {
             format!(
                 "{}Word '{}': declared output stack ({}) doesn't match inferred ({}): {}",
@@ -1231,7 +1235,7 @@ impl TypeChecker {
         let subst = unify_stacks(&effect.inputs, &current_stack).map_err(|e| {
             let line_info = span
                 .as_ref()
-                .map(|s| format!("at line {}: ", s.line + 1))
+                .map(|s| format_line_prefix(s.line))
                 .unwrap_or_default();
             format!(
                 "{}{}: stack type mismatch. Expected {}, got {}: {}",

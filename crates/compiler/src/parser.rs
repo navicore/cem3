@@ -542,7 +542,7 @@ impl Parser {
                 return Ok(Statement::If {
                     then_branch,
                     else_branch: None,
-                    span: Some(Span::new(start_line, start_column, 2)), // "if" is 2 chars
+                    span: Some(Span::new(start_line, start_column, "if".len())),
                 });
             }
 
@@ -564,7 +564,7 @@ impl Parser {
                 return Ok(Statement::If {
                     then_branch,
                     else_branch: Some(else_branch),
-                    span: Some(Span::new(start_line, start_column, 2)), // "if" is 2 chars
+                    span: Some(Span::new(start_line, start_column, "if".len())),
                 });
             }
 
@@ -639,7 +639,7 @@ impl Parser {
 
         Ok(Statement::Match {
             arms,
-            span: Some(Span::new(start_line, start_column, 5)), // "match" is 5 chars
+            span: Some(Span::new(start_line, start_column, "match".len())),
         })
     }
 

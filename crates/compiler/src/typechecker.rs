@@ -1123,7 +1123,8 @@ impl TypeChecker {
         let fresh_effect = self.freshen_effect(&quot_effect);
 
         // Apply the quotation's effect to the remaining stack
-        let (result_stack, subst) = self.apply_effect(&fresh_effect, remaining_stack, "call", span)?;
+        let (result_stack, subst) =
+            self.apply_effect(&fresh_effect, remaining_stack, "call", span)?;
 
         // Propagate side effects from the quotation
         let propagated_effects = fresh_effect.effects.clone();
@@ -1228,7 +1229,10 @@ impl TypeChecker {
 
         // Unify current stack with effect's input
         let subst = unify_stacks(&effect.inputs, &current_stack).map_err(|e| {
-            let line_info = span.as_ref().map(|s| format!("at line {}: ", s.line + 1)).unwrap_or_default();
+            let line_info = span
+                .as_ref()
+                .map(|s| format!("at line {}: ", s.line + 1))
+                .unwrap_or_default();
             format!(
                 "{}{}: stack type mismatch. Expected {}, got {}: {}",
                 line_info, operation, effect.inputs, current_stack, e

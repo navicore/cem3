@@ -694,7 +694,10 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
         // Verify JSON serialization
         let json = serde_json::to_string_pretty(diag).unwrap();
         println!("JSON:\n{}", json);
-        assert!(json.contains("\"severity\":"), "JSON must contain severity field");
+        assert!(
+            json.contains("\"severity\":"),
+            "JSON must contain severity field"
+        );
     }
 
     #[test]

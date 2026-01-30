@@ -363,7 +363,7 @@ All fields are pushed to stack in declaration order:
     Increment ->        # ( amount )
       do-increment
     Report ->           # ( op delta total )
-      drop swap drop    # extract delta
+      drop nip          # extract delta
       process
   end
 ;

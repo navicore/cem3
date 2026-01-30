@@ -238,6 +238,7 @@ fn extract_calls_from_statement(
         Statement::If {
             then_branch,
             else_branch,
+            span: _,
         } => {
             for s in then_branch {
                 extract_calls_from_statement(s, known_words, calls);
@@ -253,7 +254,7 @@ fn extract_calls_from_statement(
                 extract_calls_from_statement(s, known_words, calls);
             }
         }
-        Statement::Match { arms } => {
+        Statement::Match { arms, span: _ } => {
             for arm in arms {
                 for s in &arm.body {
                     extract_calls_from_statement(s, known_words, calls);
@@ -500,6 +501,7 @@ mod tests {
                             name: "odd".to_string(),
                             span: None,
                         }]),
+                        span: None,
                     }],
                     source: None,
                     allowed_lints: vec![],
@@ -513,6 +515,7 @@ mod tests {
                             name: "even".to_string(),
                             span: None,
                         }]),
+                        span: None,
                     }],
                     source: None,
                     allowed_lints: vec![],

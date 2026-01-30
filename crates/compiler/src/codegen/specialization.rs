@@ -498,6 +498,7 @@ impl CodeGen {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 if !self.is_body_specializable(then_branch, word_name) {
                     return false;
@@ -650,6 +651,7 @@ impl CodeGen {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 self.codegen_specialized_if(
                     ctx,

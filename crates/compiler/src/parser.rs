@@ -9,7 +9,7 @@
 //! ```
 
 use crate::ast::{
-    Include, MatchArm, Pattern, Program, SourceLocation, Statement, UnionDef, UnionField,
+    Include, MatchArm, Pattern, Program, SourceLocation, Span, Statement, UnionDef, UnionField,
     UnionVariant, WordDef,
 };
 use crate::types::{Effect, SideEffect, StackType, Type};
@@ -498,7 +498,7 @@ impl Parser {
 
         // Check for conditional
         if token == "if" {
-            return self.parse_if();
+            return self.parse_if(tok_line, tok_column);
         }
 
         // Check for quotation
@@ -508,7 +508,7 @@ impl Parser {
 
         // Check for match expression
         if token == "match" {
-            return self.parse_match();
+            return self.parse_match(tok_line, tok_column);
         }
 
         // Otherwise it's a word call - preserve source span for precise diagnostics
@@ -518,7 +518,7 @@ impl Parser {
         })
     }
 
-    fn parse_if(&mut self) -> Result<Statement, String> {
+    fn parse_if(&mut self, start_line: usize, start_column: usize) -> Result<Statement, String> {
         let mut then_branch = Vec::new();
 
         // Parse then branch until 'else' or 'then'
@@ -542,6 +542,7 @@ impl Parser {
                 return Ok(Statement::If {
                     then_branch,
                     else_branch: None,
+                    span: Some(Span::new(start_line, start_column, "if".len())),
                 });
             }
 
@@ -563,6 +564,7 @@ impl Parser {
                 return Ok(Statement::If {
                     then_branch,
                     else_branch: Some(else_branch),
+                    span: Some(Span::new(start_line, start_column, "if".len())),
                 });
             }
 
@@ -612,7 +614,7 @@ impl Parser {
     ///     Increment -> do-increment send-response
     ///     Report -> aggregate-add
     ///   end
-    fn parse_match(&mut self) -> Result<Statement, String> {
+    fn parse_match(&mut self, start_line: usize, start_column: usize) -> Result<Statement, String> {
         let mut arms = Vec::new();
 
         loop {
@@ -635,7 +637,10 @@ impl Parser {
             return Err("Match expression must have at least one arm".to_string());
         }
 
-        Ok(Statement::Match { arms })
+        Ok(Statement::Match {
+            arms,
+            span: Some(Span::new(start_line, start_column, "match".len())),
+        })
     }
 
     /// Parse a single match arm:
@@ -643,11 +648,14 @@ impl Parser {
     ///   or with bindings:
     ///   Get { chan } -> chan send-response
     fn parse_match_arm(&mut self) -> Result<MatchArm, String> {
-        // Get variant name
-        let variant_name = self
-            .advance()
-            .ok_or("Expected variant name in match arm")?
-            .clone();
+        // Get variant name with position info
+        let variant_token = self
+            .advance_token()
+            .ok_or("Expected variant name in match arm")?;
+        let variant_name = variant_token.text.clone();
+        let arm_line = variant_token.line;
+        let arm_column = variant_token.column;
+        let arm_length = variant_name.len();
 
         self.skip_comments();
 
@@ -747,7 +755,11 @@ impl Parser {
             body.push(self.parse_statement()?);
         }
 
-        Ok(MatchArm { pattern, body })
+        Ok(MatchArm {
+            pattern,
+            body,
+            span: Some(Span::new(arm_line, arm_column, arm_length)),
+        })
     }
 
     /// Parse a stack effect declaration: ( ..a Int -- ..a Bool )
@@ -2701,7 +2713,7 @@ union Data {
         assert_eq!(program.words[0].body.len(), 1);
 
         match &program.words[0].body[0] {
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 assert_eq!(arms.len(), 2);
 
                 // First arm: Get ->
@@ -2739,7 +2751,7 @@ union Data {
         assert_eq!(program.words.len(), 1);
 
         match &program.words[0].body[0] {
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 assert_eq!(arms.len(), 2);
 
                 // First arm: Get { chan } ->
@@ -2801,7 +2813,7 @@ union Data {
         let program = parser.parse().unwrap();
 
         match &program.words[0].body[0] {
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 // Get arm has 4 statements: 1, 2, add, send-response
                 assert_eq!(arms[0].body.len(), 4);
                 assert_eq!(arms[0].body[0], Statement::IntLiteral(1));

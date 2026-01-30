@@ -67,6 +67,29 @@ Lightweight concurrent execution:
 [ "Hello from strand!" io.write-line ] strand.spawn
 ```
 
+## Union Types (unions.seq)
+
+Algebraic data types (sum types) with pattern matching:
+
+```seq
+union Option {
+  Some { value: Int }
+  None
+}
+
+: unwrap-or ( Option Int -- Int )
+  swap match
+    Some { >value } -> nip    # return the value
+    None ->                   # return the default
+  end
+;
+
+42 Make-Some 0 unwrap-or   # Result: 42
+Make-None 99 unwrap-or     # Result: 99
+```
+
+Covers Option, Result, Message passing, and recursive tree structures.
+
 ## Include Demo (main.seq, http_simple.seq)
 
 Demonstrates the module include system for code organization.

@@ -451,6 +451,7 @@ impl CodeGen {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 // An if statement emits a terminator (no merge block) if BOTH branches
                 // end with terminators. Empty branches don't terminate.
@@ -729,6 +730,7 @@ impl CodeGen {
                 Statement::If {
                     then_branch,
                     else_branch,
+                    span: _,
                 } => {
                     if !Self::check_statements_inlineable(then_branch, word_name) {
                         return false;
@@ -740,7 +742,7 @@ impl CodeGen {
                     }
                 }
                 // Check inside match arms for recursive calls
-                Statement::Match { arms } => {
+                Statement::Match { arms, span: _ } => {
                     for arm in arms {
                         if !Self::check_statements_inlineable(&arm.body, word_name) {
                             return false;

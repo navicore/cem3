@@ -284,6 +284,7 @@ impl Linter {
             Statement::If {
                 then_branch,
                 else_branch,
+                span: _,
             } => {
                 // This if adds one level of nesting
                 let new_depth = current_depth + 1;
@@ -316,7 +317,7 @@ impl Linter {
                     .max()
                     .unwrap_or(0)
             }
-            Statement::Match { arms } => {
+            Statement::Match { arms, span: _ } => {
                 // Match arms don't count as if nesting, but check for ifs inside
                 arms.iter()
                     .flat_map(|arm| arm.body.iter())
@@ -497,6 +498,7 @@ impl Linter {
                 Statement::If {
                     then_branch,
                     else_branch,
+                    span: _,
                 } => {
                     // Lint both branches
                     let word_infos = self.extract_word_sequence(then_branch);
@@ -527,7 +529,7 @@ impl Linter {
                         self.lint_nested(else_stmts, word, file, diagnostics);
                     }
                 }
-                Statement::Match { arms } => {
+                Statement::Match { arms, span: _ } => {
                     for arm in arms {
                         let word_infos = self.extract_word_sequence(&arm.body);
                         for pattern in &self.patterns {

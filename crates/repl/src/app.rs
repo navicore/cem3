@@ -1908,6 +1908,7 @@ mod tests {
     #[test]
     fn test_search_mode_filtering() -> Result<(), String> {
         let mut app = App::new()?;
+        app.repl_state.history.clear(); // Clear any loaded history
 
         // Add history with different content
         app.repl_state
@@ -2005,6 +2006,7 @@ mod tests {
     #[test]
     fn test_search_mode_navigate_matches() -> Result<(), String> {
         let mut app = App::new()?;
+        app.repl_state.history.clear(); // Clear any loaded history
 
         // Add history with same prefix
         app.repl_state
@@ -2047,6 +2049,7 @@ mod tests {
     #[test]
     fn test_search_mode_backspace() -> Result<(), String> {
         let mut app = App::new()?;
+        app.repl_state.history.clear(); // Clear any loaded history
 
         // Add history
         app.repl_state
@@ -2078,6 +2081,7 @@ mod tests {
     #[test]
     fn test_search_mode_case_insensitive() -> Result<(), String> {
         let mut app = App::new()?;
+        app.repl_state.history.clear(); // Clear any loaded history
 
         // Add history with mixed case
         app.repl_state

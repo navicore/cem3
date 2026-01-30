@@ -413,14 +413,14 @@ union Option { Some { value: Int }, None }
 For dynamic use cases, low-level primitives are still available:
 
 ```seq
-# Create a variant with tag 1 and one field
-42 1 variant.make-1     # (Tag1 42)
+# Create a variant with a symbol tag and one field
+42 :MyTag variant.make-1     # (MyTag 42)
 
 # Create with two fields
-"key" 100 2 variant.make-2   # (Tag2 "key" 100)
+"key" 100 :Pair variant.make-2   # (Pair "key" 100)
 
 # Inspect variants
-variant.tag             # Get the tag number
+variant.tag             # Get the tag symbol
 0 variant.field-at      # Get field 0
 1 variant.field-at      # Get field 1
 ```

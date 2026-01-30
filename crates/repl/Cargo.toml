@@ -16,10 +16,10 @@ path = "src/main.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
-seq-compiler = { path = "../compiler", version = "=3.0.5" }
+seq-compiler = { path = "../compiler", version = "=3.0.6" }
 
 # Vim-style line editing - version must EXACTLY match workspace version (enforced by CI)
-vim-line = { path = "../vim-line", version = "=3.0.5" }
+vim-line = { path = "../vim-line", version = "=3.0.6" }
 
 # CLI
 clap.workspace = true

@@ -480,6 +480,14 @@ nil                   # ()           - empty list
 
 The `swap` is needed because `cons` expects `( T List )` but we have `( List T )`.
 
+In the REPL, the raw stack output for nested variants looks cryptic. Peek at elements without destroying the list:
+
+```seq
+dup car           # 1 - first element
+dup cdr car       # 2 - second element
+dup cdr cdr car   # 3 - third element
+```
+
 See `examples/data/cons-list.seq` for a complete example with length, reverse, and printing.
 
 ## Safety Philosophy

@@ -950,7 +950,8 @@ Operations are grouped by functionality:
 | `os.` | Operating system | `os.getenv`, `os.home-dir` |
 | `args.` | Command-line args | `args.count`, `args.at` |
 | `variant.` | Variant introspection | `variant.tag`, `variant.field-at` |
-| `f.` | Float operations | `f.add`, `f.<`, `f.>=` |
+| `i.` | Integer operations | `i.+`, `i.-`, `i.*`, `i./`, `i.=`, `i.<` |
+| `f.` | Float operations | `f.+`, `f.-`, `f.*`, `f./`, `f.=`, `f.<` |
 
 ### Suffixes
 

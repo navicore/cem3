@@ -75,8 +75,21 @@ This document covers:
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `file.slurp` | `( String -- String Bool )` | Read entire file. Returns (content, success) |
+| `file.spit` | `( String String -- Bool )` | Write content to file. Args: (content, path). Returns success |
+| `file.append` | `( String String -- Bool )` | Append content to file. Args: (content, path). Returns success |
 | `file.exists?` | `( String -- Bool )` | Check if file exists at path |
+| `file.delete` | `( String -- Bool )` | Delete a file. Returns success |
+| `file.size` | `( String -- Int Bool )` | Get file size in bytes. Returns (size, success) |
 | `file.for-each-line+` | `( String [String --] -- String Bool )` | Execute quotation for each line in file |
+
+## Directory Operations
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `dir.exists?` | `( String -- Bool )` | Check if directory exists at path |
+| `dir.make` | `( String -- Bool )` | Create a directory. Returns success |
+| `dir.delete` | `( String -- Bool )` | Delete an empty directory. Returns success |
+| `dir.list` | `( String -- List Bool )` | List directory contents. Returns (filenames, success) |
 
 ## Type Conversions
 

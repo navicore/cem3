@@ -297,6 +297,16 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
     builtin!(sigs, "file.slurp", (a String -- a String Bool)); // returns (content success) - errors are values
     builtin!(sigs, "file.exists?", (a String -- a Bool));
+    builtin!(sigs, "file.spit", (a String String -- a Bool)); // (content path -- success)
+    builtin!(sigs, "file.append", (a String String -- a Bool)); // (content path -- success)
+    builtin!(sigs, "file.delete", (a String -- a Bool));
+    builtin!(sigs, "file.size", (a String -- a Int Bool)); // (path -- size success)
+
+    // Directory operations
+    builtin!(sigs, "dir.exists?", (a String -- a Bool));
+    builtin!(sigs, "dir.make", (a String -- a Bool));
+    builtin!(sigs, "dir.delete", (a String -- a Bool));
+    builtin!(sigs, "dir.list", (a String -- a V Bool)); // V = List variant
 
     // file.for-each-line+: Complex quotation type - defined manually
     sigs.insert(
@@ -870,8 +880,36 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     );
     docs.insert("file.exists?", "Check if a file exists at the given path.");
     docs.insert(
+        "file.spit",
+        "Write string to file (creates or overwrites). Returns success.",
+    );
+    docs.insert(
+        "file.append",
+        "Append string to file (creates if needed). Returns success.",
+    );
+    docs.insert("file.delete", "Delete a file. Returns success.");
+    docs.insert(
+        "file.size",
+        "Get file size in bytes. Returns (size, success).",
+    );
+    docs.insert(
         "file.for-each-line+",
         "Execute a quotation for each line in a file.",
+    );
+
+    // Directory Operations
+    docs.insert(
+        "dir.exists?",
+        "Check if a directory exists at the given path.",
+    );
+    docs.insert(
+        "dir.make",
+        "Create a directory (and parent directories if needed). Returns success.",
+    );
+    docs.insert("dir.delete", "Delete an empty directory. Returns success.");
+    docs.insert(
+        "dir.list",
+        "List directory contents. Returns (list-of-names, success).",
     );
 
     // Type Conversions

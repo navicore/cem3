@@ -851,8 +851,21 @@ Script mode trades runtime optimization (`-O0`) for faster compilation. For prod
 | Word | Effect | Description |
 |------|--------|-------------|
 | `file.slurp` | `( String -- String Bool )` | Read entire file (content, success) |
+| `file.spit` | `( String String -- Bool )` | Write content to file (content, path, success) |
+| `file.append` | `( String String -- Bool )` | Append content to file (content, path, success) |
 | `file.exists?` | `( String -- Bool )` | Check if file exists |
+| `file.delete` | `( String -- Bool )` | Delete a file (path, success) |
+| `file.size` | `( String -- Int Bool )` | Get file size in bytes (path, size, success) |
 | `file.for-each-line+` | `( String [String --] -- String Bool )` | Process file line by line |
+
+## Directory Operations
+
+| Word | Effect | Description |
+|------|--------|-------------|
+| `dir.exists?` | `( String -- Bool )` | Check if directory exists |
+| `dir.make` | `( String -- Bool )` | Create a directory (path, success) |
+| `dir.delete` | `( String -- Bool )` | Delete an empty directory (path, success) |
+| `dir.list` | `( String -- List Bool )` | List directory contents (path, filenames, success) |
 
 ### Line-by-Line File Processing
 
@@ -941,7 +954,8 @@ Operations are grouped by functionality:
 | Prefix | Domain | Examples |
 |--------|--------|----------|
 | `io.` | Console I/O | `io.write-line`, `io.read-line` |
-| `file.` | File operations | `file.slurp`, `file.exists?` |
+| `file.` | File operations | `file.slurp`, `file.spit`, `file.exists?` |
+| `dir.` | Directory operations | `dir.list`, `dir.make`, `dir.exists?` |
 | `string.` | String manipulation | `string.concat`, `string.trim` |
 | `list.` | List operations | `list.map`, `list.filter` |
 | `map.` | Hash maps | `map.make`, `map.get`, `map.set` |

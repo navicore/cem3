@@ -327,6 +327,15 @@ impl Program {
             "file.slurp",
             "file.exists?",
             "file.for-each-line+",
+            "file.spit",
+            "file.append",
+            "file.delete",
+            "file.size",
+            // Directory operations
+            "dir.exists?",
+            "dir.make",
+            "dir.delete",
+            "dir.list",
             // String operations
             "string.concat",
             "string.length",

@@ -396,6 +396,39 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare ptr @patch_seq_file_for_each_line_plus(ptr)",
             category: None,
         },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_spit(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_append(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_delete(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_file_size(ptr)",
+            category: None,
+        },
+        // Directory operations
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_dir_exists(ptr)",
+            category: Some("; Directory operations"),
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_dir_make(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_dir_delete(ptr)",
+            category: None,
+        },
+        RuntimeDecl {
+            decl: "declare ptr @patch_seq_dir_list(ptr)",
+            category: None,
+        },
         // List operations
         RuntimeDecl {
             decl: "declare ptr @patch_seq_list_make(ptr)",
@@ -1313,6 +1346,15 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         ("file.slurp", "patch_seq_file_slurp"),
         ("file.exists?", "patch_seq_file_exists"),
         ("file.for-each-line+", "patch_seq_file_for_each_line_plus"),
+        ("file.spit", "patch_seq_file_spit"),
+        ("file.append", "patch_seq_file_append"),
+        ("file.delete", "patch_seq_file_delete"),
+        ("file.size", "patch_seq_file_size"),
+        // Directory operations
+        ("dir.exists?", "patch_seq_dir_exists"),
+        ("dir.make", "patch_seq_dir_make"),
+        ("dir.delete", "patch_seq_dir_delete"),
+        ("dir.list", "patch_seq_dir_list"),
         // List operations
         ("list.make", "patch_seq_list_make"),
         ("list.push", "patch_seq_list_push"),

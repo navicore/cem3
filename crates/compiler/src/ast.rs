@@ -666,13 +666,16 @@ impl Program {
     /// Maximum number of fields a variant can have (limited by runtime support)
     pub const MAX_VARIANT_FIELDS: usize = 12;
 
-    /// For each union variant, generates a `Make-VariantName` word that:
-    /// 1. Takes the variant's field values from the stack
-    /// 2. Pushes the variant tag (index)
-    /// 3. Calls the appropriate `variant.make-N` builtin
+    /// Generate helper words for union types:
+    /// 1. Constructors: `Make-VariantName` - creates variant instances
+    /// 2. Predicates: `is-VariantName?` - tests if value is a specific variant
+    /// 3. Accessors: `VariantName-fieldname` - extracts field values (RFC #345)
     ///
     /// Example: For `union Message { Get { chan: Int } }`
-    /// Generates: `: Make-Get ( Int -- Message ) 0 variant.make-1 ;`
+    /// Generates:
+    ///   `: Make-Get ( Int -- Message ) :Get variant.make-1 ;`
+    ///   `: is-Get? ( Message -- Bool ) variant.tag :Get symbol.= ;`
+    ///   `: Get-chan ( Message -- Int ) 0 variant.field-at ;`
     ///
     /// Returns an error if any variant exceeds the maximum field count.
     pub fn generate_constructors(&mut self) -> Result<(), String> {
@@ -680,7 +683,6 @@ impl Program {
 
         for union_def in &self.unions {
             for variant in &union_def.variants {
-                let constructor_name = format!("Make-{}", variant.name);
                 let field_count = variant.fields.len();
 
                 // Check field count limit before generating constructor
@@ -695,31 +697,23 @@ impl Program {
                     ));
                 }
 
-                // Build the stack effect: ( field_types... -- UnionType )
-                // Input stack has fields in declaration order
+                // 1. Generate constructor: Make-VariantName
+                let constructor_name = format!("Make-{}", variant.name);
                 let mut input_stack = StackType::RowVar("a".to_string());
                 for field in &variant.fields {
                     let field_type = parse_type_name(&field.type_name);
                     input_stack = input_stack.push(field_type);
                 }
-
-                // Output stack has the union type
                 let output_stack =
                     StackType::RowVar("a".to_string()).push(Type::Union(union_def.name.clone()));
-
                 let effect = Effect::new(input_stack, output_stack);
-
-                // Build the body:
-                // 1. Push the variant name as a symbol (for dynamic matching)
-                // 2. Call variant.make-N which now accepts Symbol tags
                 let body = vec![
                     Statement::Symbol(variant.name.clone()),
                     Statement::WordCall {
                         name: format!("variant.make-{}", field_count),
-                        span: None, // Generated code, no source span
+                        span: None,
                     },
                 ];
-
                 new_words.push(WordDef {
                     name: constructor_name,
                     effect: Some(effect),
@@ -727,11 +721,118 @@ impl Program {
                     source: variant.source.clone(),
                     allowed_lints: vec![],
                 });
+
+                // 2. Generate predicate: is-VariantName?
+                // Effect: ( UnionType -- Bool )
+                // Body: variant.tag :VariantName symbol.=
+                let predicate_name = format!("is-{}?", variant.name);
+                let predicate_input =
+                    StackType::RowVar("a".to_string()).push(Type::Union(union_def.name.clone()));
+                let predicate_output = StackType::RowVar("a".to_string()).push(Type::Bool);
+                let predicate_effect = Effect::new(predicate_input, predicate_output);
+                let predicate_body = vec![
+                    Statement::WordCall {
+                        name: "variant.tag".to_string(),
+                        span: None,
+                    },
+                    Statement::Symbol(variant.name.clone()),
+                    Statement::WordCall {
+                        name: "symbol.=".to_string(),
+                        span: None,
+                    },
+                ];
+                new_words.push(WordDef {
+                    name: predicate_name,
+                    effect: Some(predicate_effect),
+                    body: predicate_body,
+                    source: variant.source.clone(),
+                    allowed_lints: vec![],
+                });
+
+                // 3. Generate field accessors: VariantName-fieldname
+                // Effect: ( UnionType -- FieldType )
+                // Body: N variant.field-at
+                for (index, field) in variant.fields.iter().enumerate() {
+                    let accessor_name = format!("{}-{}", variant.name, field.name);
+                    let field_type = parse_type_name(&field.type_name);
+                    let accessor_input = StackType::RowVar("a".to_string())
+                        .push(Type::Union(union_def.name.clone()));
+                    let accessor_output = StackType::RowVar("a".to_string()).push(field_type);
+                    let accessor_effect = Effect::new(accessor_input, accessor_output);
+                    let accessor_body = vec![
+                        Statement::IntLiteral(index as i64),
+                        Statement::WordCall {
+                            name: "variant.field-at".to_string(),
+                            span: None,
+                        },
+                    ];
+                    new_words.push(WordDef {
+                        name: accessor_name,
+                        effect: Some(accessor_effect),
+                        body: accessor_body,
+                        source: variant.source.clone(), // Use variant's source for field accessors
+                        allowed_lints: vec![],
+                    });
+                }
             }
         }
 
         self.words.extend(new_words);
         Ok(())
+    }
+
+    /// RFC #345: Fix up type variables in stack effects that should be union types
+    ///
+    /// When parsing files with includes, type variables like "Message" in
+    /// `( Message -- Int )` may be parsed as `Type::Var("Message")` if the
+    /// union definition is in an included file. After resolving includes,
+    /// we know all union names and can convert these to `Type::Union("Message")`.
+    ///
+    /// This ensures proper nominal type checking for union types across files.
+    pub fn fixup_union_types(&mut self) {
+        // Collect all union names from the program
+        let union_names: std::collections::HashSet<String> =
+            self.unions.iter().map(|u| u.name.clone()).collect();
+
+        // Fix up types in all word effects
+        for word in &mut self.words {
+            if let Some(ref mut effect) = word.effect {
+                Self::fixup_stack_type(&mut effect.inputs, &union_names);
+                Self::fixup_stack_type(&mut effect.outputs, &union_names);
+            }
+        }
+    }
+
+    /// Recursively fix up types in a stack type
+    fn fixup_stack_type(stack: &mut StackType, union_names: &std::collections::HashSet<String>) {
+        match stack {
+            StackType::Empty | StackType::RowVar(_) => {}
+            StackType::Cons { rest, top } => {
+                Self::fixup_type(top, union_names);
+                Self::fixup_stack_type(rest, union_names);
+            }
+        }
+    }
+
+    /// Fix up a single type, converting Type::Var to Type::Union if it matches a union name
+    fn fixup_type(ty: &mut Type, union_names: &std::collections::HashSet<String>) {
+        match ty {
+            Type::Var(name) if union_names.contains(name) => {
+                *ty = Type::Union(name.clone());
+            }
+            Type::Quotation(effect) => {
+                Self::fixup_stack_type(&mut effect.inputs, union_names);
+                Self::fixup_stack_type(&mut effect.outputs, union_names);
+            }
+            Type::Closure { effect, captures } => {
+                Self::fixup_stack_type(&mut effect.inputs, union_names);
+                Self::fixup_stack_type(&mut effect.outputs, union_names);
+                for cap in captures {
+                    Self::fixup_type(cap, union_names);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -902,11 +1003,13 @@ mod tests {
             words: vec![],
         };
 
-        // Generate constructors
+        // Generate constructors, predicates, and accessors
         program.generate_constructors().unwrap();
 
-        // Should have 2 constructor words
-        assert_eq!(program.words.len(), 2);
+        // Should have 7 words:
+        // - Get variant: Make-Get, is-Get?, Get-response-chan (1 field)
+        // - Put variant: Make-Put, is-Put?, Put-value, Put-response-chan (2 fields)
+        assert_eq!(program.words.len(), 7);
 
         // Check Make-Get constructor
         let make_get = program
@@ -951,5 +1054,31 @@ mod tests {
             Statement::WordCall { name, span: None } if name == "variant.make-2" => {}
             _ => panic!("Expected WordCall(variant.make-2)"),
         }
+
+        // Check is-Get? predicate
+        let is_get = program.find_word("is-Get?").expect("is-Get? should exist");
+        assert_eq!(is_get.name, "is-Get?");
+        assert!(is_get.effect.is_some());
+        let effect = is_get.effect.as_ref().unwrap();
+        // Input: ( ..a Message -- )
+        // Output: ( ..a Bool -- )
+        assert_eq!(
+            format!("{:?}", effect.outputs),
+            "Cons { rest: RowVar(\"a\"), top: Bool }"
+        );
+
+        // Check Get-response-chan accessor
+        let get_chan = program
+            .find_word("Get-response-chan")
+            .expect("Get-response-chan should exist");
+        assert_eq!(get_chan.name, "Get-response-chan");
+        assert!(get_chan.effect.is_some());
+        let effect = get_chan.effect.as_ref().unwrap();
+        // Input: ( ..a Message -- )
+        // Output: ( ..a Int -- )
+        assert_eq!(
+            format!("{:?}", effect.outputs),
+            "Cons { rest: RowVar(\"a\"), top: Int }"
+        );
     }
 }

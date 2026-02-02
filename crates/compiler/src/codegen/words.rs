@@ -171,6 +171,8 @@ impl CodeGen {
                 if body.is_empty()
                     || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail)
                 {
+                    // Spill any remaining virtual registers before return (Issue #189)
+                    let stack_var = self.spill_virtual_stack(&stack_var)?;
                     writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
                 }
                 writeln!(&mut self.output, "}}")?;
@@ -241,6 +243,8 @@ impl CodeGen {
                 if body.is_empty()
                     || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail)
                 {
+                    // Spill any remaining virtual registers before return (Issue #189)
+                    let stack_var = self.spill_virtual_stack(&stack_var)?;
                     writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
                 }
                 writeln!(&mut self.output, "}}")?;

@@ -50,6 +50,9 @@ pub struct Parser {
     next_quotation_id: usize,
     /// Pending lint annotations collected from `# seq:allow(lint-id)` comments
     pending_allowed_lints: Vec<String>,
+    /// Known union type names - used to distinguish union types from type variables
+    /// RFC #345: Union types in stack effects must be recognized as concrete types
+    known_unions: std::collections::HashSet<String>,
 }
 
 impl Parser {
@@ -60,6 +63,15 @@ impl Parser {
             pos: 0,
             next_quotation_id: 0,
             pending_allowed_lints: Vec::new(),
+            known_unions: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Register external union names (e.g., from included modules)
+    /// These union types will be recognized in stack effect declarations.
+    pub fn register_external_unions(&mut self, union_names: &[&str]) {
+        for name in union_names {
+            self.known_unions.insert(name.to_string());
         }
     }
 
@@ -184,6 +196,10 @@ impl Parser {
                 name
             ));
         }
+
+        // RFC #345: Register this union name so it can be recognized in stack effects
+        // This allows ( UnionName -- ) to parse as Union type, not a type variable
+        self.known_unions.insert(name.clone());
 
         // Skip comments and newlines
         self.skip_comments();
@@ -860,7 +876,14 @@ impl Parser {
                 // Check if it's a type variable (starts with uppercase)
                 if let Some(first_char) = token.text.chars().next() {
                     if first_char.is_uppercase() {
-                        Ok(Type::Var(token.text.to_string()))
+                        // RFC #345: Check if this is a known union type name
+                        // Union types are nominal and should NOT unify with each other
+                        if self.known_unions.contains(&token.text) {
+                            Ok(Type::Union(token.text.to_string()))
+                        } else {
+                            // Unknown uppercase identifier - treat as type variable
+                            Ok(Type::Var(token.text.to_string()))
+                        }
                     } else {
                         Err(format!(
                             "Unknown type: '{}' at line {}, column {}. Expected Int, Bool, String, Closure, or a type variable (uppercase)",

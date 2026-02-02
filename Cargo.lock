@@ -2027,7 +2027,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "seq-compiler"
-version = "3.1.0"
+version = "4.0.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "3.1.0"
+version = "4.0.0"
 dependencies = [
  "bumpalo",
  "may",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "3.1.0"
+version = "4.0.0"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2063,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "3.1.0"
+version = "4.0.0"
 dependencies = [
  "clap",
  "crossterm",
@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "3.1.0"
+version = "4.0.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2877,7 +2877,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "3.1.0"
+version = "4.0.0"
 
 [[package]]
 name = "vtparse"
@@ -3366,9 +3366,9 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.18"
+version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1966f8ac2c1f76987d69a74d0e0f929241c10e78136434e3be70ff7f58f64214"
+checksum = "3ff05f8caa9038894637571ae6b9e29466c1f4f829d26c9b28f869a29cbe3445"
 
 [[package]]
 name = "zstd"

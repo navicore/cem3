@@ -213,6 +213,41 @@ variant.tag :Expected symbol.=
 
 These bypass the type-safe accessors when you need maximum flexibility.
 
+### Polymorphic Accessors
+
+Auto-generated accessors are **variant-specific**. If you have a field that
+exists on multiple variants within the same union, you should keep using
+`variant.field-at` for polymorphic access:
+
+```seq
+union Sexpr {
+  SNum  { value: Int,    span: Span }
+  SSym  { name: String,  span: Span }
+  SList { items: List,   span: Span }
+}
+
+# Auto-generated: SNum-span, SSym-span, SList-span
+# These only work on their specific variant
+
+# For polymorphic access across all variants, keep using:
+: sexpr-span ( Sexpr -- Span )
+  1 variant.field-at ;  # Works on any Sexpr variant
+```
+
+Similarly for unions with shared structure across variants:
+
+```seq
+union Closure {
+  Clos      { params: List, body: Sexpr, env: Env }
+  NamedClos { params: List, body: Sexpr, env: Env, name: String }
+}
+
+# These work on BOTH Clos and NamedClos:
+: closure-params ( Closure -- List )  0 variant.field-at ;
+: closure-body   ( Closure -- Sexpr ) 1 variant.field-at ;
+: closure-env    ( Closure -- Env )   2 variant.field-at ;
+```
+
 ## Example: Updating a Lisp Interpreter
 
 Here's a real example from updating the lisp project:
@@ -248,6 +283,21 @@ After migration, you get:
 2. **Better documentation**: Type signatures show actual types, not generic `Variant`
 3. **Less boilerplate**: No need to write accessors and predicates manually
 4. **IDE support**: LSP can provide better completions for generated words
+
+### Expect to Find Latent Bugs
+
+The stricter type checking in Seq 4.0 often exposes pre-existing bugs that the
+3.x compiler never caught. During the Seq-lisp migration, 7 latent bugs were
+discovered:
+
+- **Type confusion**: Passing `snil` (SexprList) where `Sexpr` was expected
+- **Wrong stack indices**: `2 pick` vs `3 pick` errors
+- **Stack order bugs**: Cleanup code leaving items in wrong order
+
+These bugs likely "worked" at runtime due to Seq's dynamic stack operations,
+but would have caused subtle issues. The 4.0 error messages show expected vs
+actual stack types, making fixes straightforward once you trace through the
+stack operations.
 
 ## Questions?
 

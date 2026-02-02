@@ -311,6 +311,67 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Validate that all types in a stack effect are known types
+    ///
+    /// RFC #345: This catches cases where an uppercase identifier was parsed as a type
+    /// variable but should have been a union type (e.g., from an include that wasn't
+    /// available when parsing). Type variables should be single uppercase letters (T, U, V).
+    fn validate_effect_types(&self, effect: &Effect, word_name: &str) -> Result<(), String> {
+        self.validate_stack_types(&effect.inputs, word_name)?;
+        self.validate_stack_types(&effect.outputs, word_name)?;
+        Ok(())
+    }
+
+    /// Validate types in a stack type
+    fn validate_stack_types(&self, stack: &StackType, word_name: &str) -> Result<(), String> {
+        match stack {
+            StackType::Empty | StackType::RowVar(_) => Ok(()),
+            StackType::Cons { rest, top } => {
+                self.validate_type(top, word_name)?;
+                self.validate_stack_types(rest, word_name)
+            }
+        }
+    }
+
+    /// Validate a single type
+    ///
+    /// Type variables are allowed - they're used for polymorphism.
+    /// Only Type::Union types are validated to ensure they're registered.
+    fn validate_type(&self, ty: &Type, word_name: &str) -> Result<(), String> {
+        match ty {
+            Type::Var(_) => {
+                // Type variables are always valid - they represent polymorphic types
+                // Examples: T, U, V, Ctx, Handle, Acc, etc.
+                // After fixup_union_types(), any union name that was mistakenly parsed
+                // as a type variable will have been converted to Type::Union
+                Ok(())
+            }
+            Type::Quotation(effect) => self.validate_effect_types(effect, word_name),
+            Type::Closure { effect, captures } => {
+                self.validate_effect_types(effect, word_name)?;
+                for cap in captures {
+                    self.validate_type(cap, word_name)?;
+                }
+                Ok(())
+            }
+            // Concrete types are always valid
+            Type::Int | Type::Float | Type::Bool | Type::String | Type::Symbol | Type::Channel => {
+                Ok(())
+            }
+            // Union types are valid if they're registered
+            Type::Union(name) => {
+                if !self.unions.contains_key(name) {
+                    return Err(format!(
+                        "In word '{}': Unknown union type '{}' in stack effect.\n\
+                         Make sure this union is defined before the word that uses it.",
+                        word_name, name
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Type check a complete program
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // First pass: register all union definitions
@@ -347,6 +408,10 @@ impl TypeChecker {
         // All words must have explicit stack effect declarations (v2.0 requirement)
         for word in &program.words {
             if let Some(effect) = &word.effect {
+                // RFC #345: Validate that all types in the effect are known
+                // This catches cases where an uppercase identifier was parsed as a type variable
+                // but should have been a union type (e.g., from an include)
+                self.validate_effect_types(effect, &word.name)?;
                 self.env.insert(word.name.clone(), effect.clone());
             } else {
                 return Err(format!(
@@ -4221,6 +4286,98 @@ mod tests {
             result.is_ok(),
             "Closure with capture for inner work should pass: {:?}",
             result.err()
+        );
+    }
+
+    #[test]
+    fn test_union_type_mismatch_should_fail() {
+        // RFC #345: Different union types should not unify
+        // This tests that passing union B to a function expecting union A fails
+        use crate::ast::{UnionDef, UnionField, UnionVariant};
+
+        let mut program = Program {
+            includes: vec![],
+            unions: vec![
+                UnionDef {
+                    name: "UnionA".to_string(),
+                    variants: vec![UnionVariant {
+                        name: "AVal".to_string(),
+                        fields: vec![UnionField {
+                            name: "x".to_string(),
+                            type_name: "Int".to_string(),
+                        }],
+                        source: None,
+                    }],
+                    source: None,
+                },
+                UnionDef {
+                    name: "UnionB".to_string(),
+                    variants: vec![UnionVariant {
+                        name: "BVal".to_string(),
+                        fields: vec![UnionField {
+                            name: "y".to_string(),
+                            type_name: "Int".to_string(),
+                        }],
+                        source: None,
+                    }],
+                    source: None,
+                },
+            ],
+            words: vec![
+                // : takes-a ( UnionA -- ) drop ;
+                WordDef {
+                    name: "takes-a".to_string(),
+                    effect: Some(Effect::new(
+                        StackType::RowVar("rest".to_string())
+                            .push(Type::Union("UnionA".to_string())),
+                        StackType::RowVar("rest".to_string()),
+                    )),
+                    body: vec![Statement::WordCall {
+                        name: "drop".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+                // : main ( -- ) 99 Make-BVal takes-a ;
+                // This should FAIL: Make-BVal returns UnionB, takes-a expects UnionA
+                WordDef {
+                    name: "main".to_string(),
+                    effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
+                    body: vec![
+                        Statement::IntLiteral(99),
+                        Statement::WordCall {
+                            name: "Make-BVal".to_string(),
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "takes-a".to_string(),
+                            span: None,
+                        },
+                    ],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+            ],
+        };
+
+        // Generate constructors (Make-AVal, Make-BVal)
+        program.generate_constructors().unwrap();
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+
+        // This SHOULD fail because UnionB != UnionA
+        assert!(
+            result.is_err(),
+            "Passing UnionB to function expecting UnionA should fail, but got: {:?}",
+            result
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Union") || err.contains("mismatch"),
+            "Error should mention union type mismatch, got: {}",
+            err
         );
     }
 }

@@ -225,6 +225,11 @@ pub fn compile_file_with_config(
         ffi_bindings.add_manifest(&manifest)?;
     }
 
+    // RFC #345: Fix up type variables that should be union types
+    // After resolving includes, we know all union names and can convert
+    // Type::Var("UnionName") to Type::Union("UnionName") for proper nominal typing
+    program.fixup_union_types();
+
     // Generate constructor words for all union types (Make-VariantName)
     // Always done here to consolidate constructor generation in one place
     program.generate_constructors()?;

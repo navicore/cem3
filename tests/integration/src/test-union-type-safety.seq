@@ -1,0 +1,47 @@
+# RFC #345: Test compile-time safety for union types
+# This file tests the type-safe accessor and predicate generation
+
+union Point { XY { x: Int, y: Int } }
+union Color { RGB { r: Int, g: Int, b: Int } }
+
+# Test: Constructors return correct union types and accessors work
+: test-constructor-and-accessors ( -- )
+  10 20 Make-XY
+  dup XY-x 10 test.assert-eq
+  XY-y 20 test.assert-eq
+
+  255 128 64 Make-RGB
+  dup RGB-r 255 test.assert-eq
+  dup RGB-g 128 test.assert-eq
+  RGB-b 64 test.assert-eq
+;
+
+# Test: Type predicates work correctly
+: test-type-predicates ( -- )
+  10 20 Make-XY
+  is-XY? test.assert
+
+  255 128 64 Make-RGB
+  is-RGB? test.assert
+;
+
+# Test: Multiple field access
+: test-multi-field-access ( -- )
+  1 2 3 Make-RGB
+  dup RGB-r swap
+  dup RGB-g swap
+  RGB-b
+  # Stack: 1 2 3
+  3 test.assert-eq
+  2 test.assert-eq
+  1 test.assert-eq
+;
+
+# Test: Field accessors with different types
+union Record { Data { id: Int, name: String } }
+
+: test-mixed-type-accessors ( -- )
+  42 "hello" Make-Data
+  dup Data-id 42 test.assert-eq
+  Data-name "hello" string.equal? test.assert
+;

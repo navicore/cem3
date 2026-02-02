@@ -14,24 +14,42 @@ include "parser"
 # Environment (Association List)
 #
 # Env is a list of (String, Value) bindings
-# Bindings use :Binding tag, closures use :Closure tag
+# Bindings use :Binding tag, env lists use :EnvCons/:EnvNil
+# Note: We use raw variant operations for env lists to keep them
+# separate from the typed Sexpr/SexprList unions.
 # ============================================
 
-: make-binding ( String Variant -- Variant )
+: make-binding ( Name Val -- Binding )
   :Binding variant.make-2 ;
 
-: binding-name ( Variant -- String )
+: binding-name ( Binding -- Name )
   0 variant.field-at ;
 
-: binding-value ( Variant -- Variant )
+: binding-value ( Binding -- Val )
   1 variant.field-at ;
 
-: env-empty ( -- Variant )
-  snil ;
+# Environment list operations (dynamic, not using typed SexprList)
+: env-nil ( -- EnvList )
+  :EnvNil variant.make-0 ;
 
-: env-extend ( String Variant Variant -- Variant )
+: env-nil? ( EnvList -- Bool )
+  variant.tag :EnvNil symbol.= ;
+
+: env-cons ( Binding EnvList -- EnvList2 )
+  :EnvCons variant.make-2 ;
+
+: env-car ( EnvList -- Binding )
+  0 variant.field-at ;
+
+: env-cdr ( EnvList -- EnvList2 )
+  1 variant.field-at ;
+
+: env-empty ( -- EnvList )
+  env-nil ;
+
+: env-extend ( Name Val EnvList -- EnvList2 )
   # Stack: Name Value Env
-  rot rot make-binding swap scons ;
+  rot rot make-binding swap env-cons ;
 
 # ============================================
 # Closure (Lambda Value)
@@ -42,35 +60,35 @@ include "parser"
 # - Field 2: Captured environment
 # ============================================
 
-: make-closure ( Variant Variant Variant -- Variant )
+: make-closure ( Params Body Env -- Clos )
   :Closure variant.make-3 ;
 
-: closure? ( Variant -- Bool )
+: closure? ( Clos -- Bool )
   variant.tag :Closure symbol.= ;
 
-: closure-params ( Variant -- Variant )
+: closure-params ( Clos -- Params )
   0 variant.field-at ;
 
-: closure-body ( Variant -- Variant )
+: closure-body ( Clos -- Body )
   1 variant.field-at ;
 
-: closure-env ( Variant -- Variant )
+: closure-env ( Clos -- Env )
   2 variant.field-at ;
 
-: env-lookup ( String Variant -- Variant )
+: env-lookup ( Name EnvList -- Result )
   # Stack: Name Env
   # Returns the value or snil wrapped as empty SList if not found
-  dup snil? if
+  dup env-nil? if
     # Not found - return empty list as error marker
     drop drop snil slist
   else
-    dup scar binding-name
+    dup env-car binding-name
     2 pick string.equal? if
       # Found it
-      nip scar binding-value
+      nip env-car binding-value
     else
       # Keep looking
-      scdr env-lookup
+      env-cdr env-lookup
     then
   then ;
 
@@ -79,11 +97,11 @@ include "parser"
 # ============================================
 
 # Simple eval without environment (for backward compatibility)
-: eval ( Variant -- Variant )
+: eval ( Expr -- Result )
   env-empty eval-with-env ;
 
 # Eval with explicit environment
-: eval-with-env ( Variant Variant -- Variant )
+: eval-with-env ( Expr Env -- Result )
   # Stack: Expr Env
   over
   match
@@ -108,13 +126,13 @@ include "parser"
 # ============================================
 
 # Evaluate a symbol in function position (builtin dispatch)
-: eval-sym-call ( Variant Variant Variant -- Variant )
+: eval-sym-call ( Env List Head -- Result )
   # Stack: Env List Head
   ssym-val swap rot eval-builtin-with-env
 ;
 
 # Evaluate a list in function position (lambda call)
-: eval-list-call ( Variant Variant Variant -- Variant )
+: eval-list-call ( Env List Head -- Result )
   # Stack: Env List Head
   2 pick eval-with-env  # -> Env List EvaledHead
   dup closure? if
@@ -127,7 +145,7 @@ include "parser"
 ;
 
 # Dispatch on function type
-: eval-func-call ( Variant Variant Variant -- Variant )
+: eval-func-call ( Env List Head -- Result )
   # Stack: Env List Head
   [ dup ssym? ]  [ eval-sym-call ]
   [ dup slist? ] [ eval-list-call ]
@@ -135,7 +153,7 @@ include "parser"
   3 cond
 ;
 
-: eval-list-with-env ( Variant Variant -- Variant )
+: eval-list-with-env ( Expr Env -- Result )
   # Stack: Expr Env
   swap slist-val
   dup snil? if
@@ -151,7 +169,7 @@ include "parser"
 # Built-in Function Dispatch
 # ============================================
 
-: eval-builtin-with-env ( String Variant Variant -- Variant )
+: eval-builtin-with-env ( FnName List Env -- Result )
   # Stack: FuncName List Env
   rot
   [ dup "+" string.equal? ]      [ drop eval-add-with-env ]
@@ -169,13 +187,13 @@ include "parser"
 # Arithmetic Operations
 # ============================================
 
-: eval-add-with-env ( Variant Variant -- Variant )
+: eval-add-with-env ( List Env -- Result )
   # Stack: List Env
   swap scdr swap  # Skip the + -> RestList Env
   0 swap eval-fold-add-with-env snum
 ;
 
-: eval-fold-add-with-env ( Variant Int Variant -- Int )
+: eval-fold-add-with-env ( List Acc Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -192,7 +210,7 @@ include "parser"
   then
 ;
 
-: eval-sub-with-env ( Variant Variant -- Variant )
+: eval-sub-with-env ( List Env -- Result )
   # Stack: List Env
   swap scdr
   dup snil? if
@@ -211,7 +229,7 @@ include "parser"
   then
 ;
 
-: eval-fold-sub-with-env ( Variant Int Variant -- Int )
+: eval-fold-sub-with-env ( List Acc Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -228,13 +246,13 @@ include "parser"
   then
 ;
 
-: eval-mul-with-env ( Variant Variant -- Variant )
+: eval-mul-with-env ( List Env -- Result )
   # Stack: List Env
   swap scdr swap  # Skip the * -> RestList Env
   1 swap eval-fold-mul-with-env snum
 ;
 
-: eval-fold-mul-with-env ( Variant Int Variant -- Int )
+: eval-fold-mul-with-env ( List Acc Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -251,7 +269,7 @@ include "parser"
   then
 ;
 
-: eval-div-with-env ( Variant Variant -- Variant )
+: eval-div-with-env ( List Env -- Result )
   # Stack: List Env
   swap scdr
   dup snil? if
@@ -268,7 +286,7 @@ include "parser"
   then
 ;
 
-: eval-fold-div-with-env ( Variant Int Variant -- Int )
+: eval-fold-div-with-env ( List Acc Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -289,7 +307,7 @@ include "parser"
 # Conditional (if)
 # ============================================
 
-: eval-if-with-env ( Variant Variant -- Variant )
+: eval-if-with-env ( List Env -- Result )
   # Stack: List Env
   # List is (if cond then-expr else-expr)
   swap scdr  # Skip the if -> Env Args
@@ -319,7 +337,7 @@ include "parser"
 # Let Binding
 # ============================================
 
-: eval-let-with-env ( Variant Variant -- Variant )
+: eval-let-with-env ( List Env -- Result )
   # Stack: List Env
   # List is (let name value body)
   swap scdr  # Skip the 'let' -> Env Args
@@ -341,7 +359,7 @@ include "parser"
 # Lambda
 # ============================================
 
-: eval-lambda-with-env ( Variant Variant -- Variant )
+: eval-lambda-with-env ( List Env -- Result )
   # Stack: List Env
   # List is (lambda (params) body)
   swap scdr  # Skip 'lambda' -> Env Args
@@ -356,7 +374,7 @@ include "parser"
 # Closure Application
 # ============================================
 
-: apply-closure ( Variant Variant Variant -- Variant )
+: apply-closure ( Clos Args CallerEnv -- Result )
   # Stack: Closure Args CallerEnv
   # For simplicity, support single-parameter lambdas
   # 1. Evaluate the single argument

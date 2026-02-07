@@ -78,6 +78,16 @@ impl CodeGen {
         // Clear virtual stack at word boundary (Issue #189)
         self.virtual_stack.clear();
 
+        // Allocate aux stack slots if this word uses >aux/aux> (Issue #350)
+        self.current_aux_slots.clear();
+        self.current_aux_sp = 0;
+        let aux_slot_count = self.aux_slot_counts.get(&word.name).copied().unwrap_or(0);
+        for i in 0..aux_slot_count {
+            let slot_name = format!("aux_slot_{}", i);
+            writeln!(&mut self.output, "  %{} = alloca %Value", slot_name)?;
+            self.current_aux_slots.push(slot_name);
+        }
+
         // Set current word for type-specialized optimizations (Issue #186)
         self.current_word_name = Some(word.name.clone());
         self.current_stmt_index = 0;
@@ -136,6 +146,14 @@ impl CodeGen {
         // Clear word context during quotation codegen to prevent
         // incorrect type lookups (quotations don't have their own type info)
         let saved_word_name = self.current_word_name.take();
+
+        // Save and clear aux state (Issue #350)
+        // Quotations are separate LLVM functions; the typechecker rejects aux
+        // ops inside quotations, but we clear defensively to avoid generating
+        // references to the enclosing word's aux allocas.
+        let saved_aux_slots = std::mem::take(&mut self.current_aux_slots);
+        let saved_aux_sp = self.current_aux_sp;
+        self.current_aux_sp = 0;
 
         // Generate function signature based on type
         match quot_type {
@@ -198,10 +216,12 @@ impl CodeGen {
                 // Move generated functions to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output, word context, and virtual stack (Issue #189)
+                // Restore original output, word context, virtual stack, and aux state (Issue #189, #350)
                 self.output = saved_output;
                 self.current_word_name = saved_word_name;
                 self.virtual_stack = saved_virtual_stack;
+                self.current_aux_slots = saved_aux_slots;
+                self.current_aux_sp = saved_aux_sp;
 
                 Ok(QuotationFunctions {
                     wrapper: wrapper_name,
@@ -253,10 +273,12 @@ impl CodeGen {
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output, word context, virtual stack, and reset closure flag (Issue #189)
+                // Restore original output, word context, virtual stack, aux state, and reset closure flag (Issue #189, #350)
                 self.output = saved_output;
                 self.current_word_name = saved_word_name;
                 self.virtual_stack = saved_virtual_stack;
+                self.current_aux_slots = saved_aux_slots;
+                self.current_aux_sp = saved_aux_sp;
                 self.inside_closure = false;
 
                 // For closures, both wrapper and impl are the same (no TCO yet)
@@ -379,6 +401,9 @@ impl CodeGen {
         // Each branch starts fresh; values must be in memory for phi merge
         let saved_virtual_stack = std::mem::take(&mut self.virtual_stack);
 
+        // Save aux stack pointer for this branch (Issue #350)
+        let saved_aux_sp = self.current_aux_sp;
+
         let mut stack_var = initial_stack.to_string();
         let len = statements.len();
         let mut emitted_tail_call = false;
@@ -411,8 +436,9 @@ impl CodeGen {
             pred
         };
 
-        // Restore virtual stack and depth (Issue #189)
+        // Restore virtual stack, depth, and aux stack pointer (Issue #189, #350)
         self.virtual_stack = saved_virtual_stack;
+        self.current_aux_sp = saved_aux_sp;
         self.codegen_depth -= 1;
 
         Ok(BranchResult {

@@ -45,6 +45,15 @@ pub struct TypeChecker {
     /// Call graph for detecting mutual recursion (Issue #229)
     /// Used to improve divergent branch detection beyond direct recursion
     call_graph: Option<CallGraph>,
+    /// Current aux stack type during word body checking (Issue #350)
+    /// Tracked per-word; reset to Empty at each word boundary.
+    current_aux_stack: std::cell::RefCell<StackType>,
+    /// Maximum aux stack depth per word, for codegen alloca sizing (Issue #350)
+    /// Maps word_name -> max_depth (number of %Value allocas needed)
+    aux_max_depths: std::cell::RefCell<HashMap<String, usize>>,
+    /// True when type-checking inside a quotation body (Issue #350)
+    /// Aux operations are not supported in quotations (codegen limitation).
+    in_quotation_scope: std::cell::Cell<bool>,
 }
 
 impl TypeChecker {
@@ -58,6 +67,9 @@ impl TypeChecker {
             current_word: std::cell::RefCell::new(None),
             statement_top_types: std::cell::RefCell::new(HashMap::new()),
             call_graph: None,
+            current_aux_stack: std::cell::RefCell::new(StackType::Empty),
+            aux_max_depths: std::cell::RefCell::new(HashMap::new()),
+            in_quotation_scope: std::cell::Cell::new(false),
         }
     }
 
@@ -143,6 +155,22 @@ impl TypeChecker {
     /// Returns map of (word_name, statement_index) -> top-of-stack type
     pub fn take_statement_top_types(&self) -> HashMap<(String, usize), Type> {
         self.statement_top_types.replace(HashMap::new())
+    }
+
+    /// Extract per-word aux stack max depths for codegen alloca sizing (Issue #350)
+    pub fn take_aux_max_depths(&self) -> HashMap<String, usize> {
+        self.aux_max_depths.replace(HashMap::new())
+    }
+
+    /// Count the number of concrete types in a StackType (for aux depth tracking)
+    fn stack_depth(stack: &StackType) -> usize {
+        let mut depth = 0;
+        let mut current = stack;
+        while let StackType::Cons { rest, .. } = current {
+            depth += 1;
+            current = rest;
+        }
+        depth
     }
 
     /// Check if the top of the stack is a trivially-copyable type (Int, Float, Bool)
@@ -436,6 +464,9 @@ impl TypeChecker {
         let line = word.source.as_ref().map(|s| s.start_line);
         *self.current_word.borrow_mut() = Some((word.name.clone(), line));
 
+        // Reset aux stack for this word (Issue #350)
+        *self.current_aux_stack.borrow_mut() = StackType::Empty;
+
         // All words must have declared effects (enforced in check_program)
         let declared_effect = word.effect.as_ref().expect("word must have effect");
 
@@ -486,6 +517,17 @@ impl TypeChecker {
                     line_info, word.name, declared
                 ));
             }
+        }
+
+        // Verify aux stack is empty at word boundary (Issue #350)
+        let aux_stack = self.current_aux_stack.borrow().clone();
+        if aux_stack != StackType::Empty {
+            return Err(format!(
+                "{}Word '{}': aux stack is not empty at word return.\n\
+                 Remaining aux stack: {}\n\
+                 Every >aux must be matched by a corresponding aux> before the word returns.",
+                line_info, word.name, aux_stack
+            ));
         }
 
         // Clear current word
@@ -794,7 +836,14 @@ impl TypeChecker {
         let mut combined_subst = Subst::empty();
         let mut merged_effects: Vec<SideEffect> = Vec::new();
 
+        // Save aux stack before match arms (Issue #350)
+        let aux_before_match = self.current_aux_stack.borrow().clone();
+        let mut aux_after_arms: Vec<StackType> = Vec::new();
+
         for arm in arms {
+            // Restore aux stack before each arm (Issue #350)
+            *self.current_aux_stack.borrow_mut() = aux_before_match.clone();
+
             // Get variant name from pattern
             let variant_name = match &arm.pattern {
                 crate::ast::Pattern::Variant(name) => name.as_str(),
@@ -821,6 +870,7 @@ impl TypeChecker {
 
             combined_subst = combined_subst.compose(&arm_subst);
             arm_results.push(arm_result);
+            aux_after_arms.push(self.current_aux_stack.borrow().clone());
 
             // Merge effects from this arm
             for effect in arm_effects {
@@ -828,6 +878,27 @@ impl TypeChecker {
                     merged_effects.push(effect);
                 }
             }
+        }
+
+        // Verify all arms produce the same aux stack (Issue #350)
+        if aux_after_arms.len() > 1 {
+            let first_aux = &aux_after_arms[0];
+            for (i, arm_aux) in aux_after_arms.iter().enumerate().skip(1) {
+                if arm_aux != first_aux {
+                    let match_line = match_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+                    return Err(format!(
+                        "at line {}: match arms have incompatible aux stack effects:\n\
+                         \x20 arm 0 aux: {}\n\
+                         \x20 arm {} aux: {}\n\
+                         \x20 All match arms must leave the aux stack in the same state.",
+                        match_line, first_aux, i, arm_aux
+                    ));
+                }
+            }
+        }
+        // Set aux to the first arm's result (all are verified equal)
+        if let Some(aux) = aux_after_arms.into_iter().next() {
+            *self.current_aux_stack.borrow_mut() = aux;
         }
 
         // Unify all arm results to ensure they're compatible
@@ -980,10 +1051,17 @@ impl TypeChecker {
             .map(|stmts| self.is_divergent_branch(stmts))
             .unwrap_or(false);
 
+        // Save aux stack before branching (Issue #350)
+        let aux_before_branches = self.current_aux_stack.borrow().clone();
+
         // Infer branches directly from the actual stack
         // Don't capture statement types for if branches - only top-level word bodies
         let (then_result, then_subst, then_effects) =
             self.infer_statements_from(then_branch, &stack_after_cond, false)?;
+        let aux_after_then = self.current_aux_stack.borrow().clone();
+
+        // Restore aux stack before checking else branch (Issue #350)
+        *self.current_aux_stack.borrow_mut() = aux_before_branches.clone();
 
         // Infer else branch (or use stack_after_cond if no else)
         let (else_result, else_subst, else_effects) = if let Some(else_stmts) = else_branch {
@@ -991,6 +1069,27 @@ impl TypeChecker {
         } else {
             (stack_after_cond.clone(), Subst::empty(), vec![])
         };
+        let aux_after_else = self.current_aux_stack.borrow().clone();
+
+        // Verify aux stacks match between branches (Issue #350)
+        // Skip check if one branch diverges (never returns)
+        if !then_diverges && !else_diverges && aux_after_then != aux_after_else {
+            let if_line = if_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+            return Err(format!(
+                "at line {}: if/else branches have incompatible aux stack effects:\n\
+                 \x20 then branch aux: {}\n\
+                 \x20 else branch aux: {}\n\
+                 \x20 Both branches must leave the aux stack in the same state.",
+                if_line, aux_after_then, aux_after_else
+            ));
+        }
+
+        // Set aux to the non-divergent branch's result (or then if neither diverges)
+        if then_diverges && !else_diverges {
+            *self.current_aux_stack.borrow_mut() = aux_after_else;
+        } else {
+            *self.current_aux_stack.borrow_mut() = aux_after_then;
+        }
 
         // Merge effects from both branches (if either yields, the whole if yields)
         let mut merged_effects = then_effects;
@@ -1061,8 +1160,32 @@ impl TypeChecker {
         let expected_for_this_quotation = self.expected_quotation_type.borrow().clone();
         *self.expected_quotation_type.borrow_mut() = None;
 
+        // Save enclosing aux stack and mark quotation scope (Issue #350)
+        // Aux operations are rejected inside quotations because quotations are
+        // compiled as separate LLVM functions without their own aux slot allocas.
+        // Users should extract quotation bodies into named words if they need aux.
+        let saved_aux = self.current_aux_stack.borrow().clone();
+        *self.current_aux_stack.borrow_mut() = StackType::Empty;
+        let saved_in_quotation = self.in_quotation_scope.get();
+        self.in_quotation_scope.set(true);
+
         // Infer the effect of the quotation body (includes computational effects)
         let body_effect = self.infer_statements(body)?;
+
+        // Verify quotation's aux stack is balanced (Issue #350)
+        let quot_aux = self.current_aux_stack.borrow().clone();
+        if quot_aux != StackType::Empty {
+            return Err(format!(
+                "Quotation has unbalanced aux stack.\n\
+                 Remaining aux stack: {}\n\
+                 Every >aux must be matched by a corresponding aux> within the quotation.",
+                quot_aux
+            ));
+        }
+
+        // Restore enclosing aux stack and quotation scope flag
+        *self.current_aux_stack.borrow_mut() = saved_aux;
+        self.in_quotation_scope.set(saved_in_quotation);
 
         // Restore expected type for capture analysis of THIS quotation
         *self.expected_quotation_type.borrow_mut() = expected_for_this_quotation;
@@ -1106,6 +1229,14 @@ impl TypeChecker {
         span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        // Special handling for aux stack operations (Issue #350)
+        if name == ">aux" {
+            return self.infer_to_aux(span, current_stack);
+        }
+        if name == "aux>" {
+            return self.infer_from_aux(span, current_stack);
+        }
+
         // Special handling for `call`: extract and apply the quotation's actual effect
         // This ensures stack pollution through quotations is caught (Issue #228)
         if name == "call" {
@@ -1136,6 +1267,65 @@ impl TypeChecker {
         let propagated_effects = fresh_effect.effects.clone();
 
         Ok((result_stack, subst, propagated_effects))
+    }
+
+    /// Handle >aux: pop from main stack, push onto word-local aux stack (Issue #350)
+    fn infer_to_aux(
+        &self,
+        _span: &Option<crate::ast::Span>,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        if self.in_quotation_scope.get() {
+            return Err(">aux is not supported inside quotations.\n\
+                 Quotations are compiled as separate functions without aux stack slots.\n\
+                 Extract the quotation body into a named word if you need aux."
+                .to_string());
+        }
+        let (rest, top_type) = self.pop_type(&current_stack, ">aux")?;
+
+        // Push onto aux stack
+        let mut aux = self.current_aux_stack.borrow_mut();
+        *aux = aux.clone().push(top_type);
+
+        // Track max depth for codegen alloca sizing
+        let depth = Self::stack_depth(&aux);
+        if let Some((word_name, _)) = self.current_word.borrow().as_ref() {
+            let mut depths = self.aux_max_depths.borrow_mut();
+            let entry = depths.entry(word_name.clone()).or_insert(0);
+            if depth > *entry {
+                *entry = depth;
+            }
+        }
+
+        Ok((rest, Subst::empty(), vec![]))
+    }
+
+    /// Handle aux>: pop from aux stack, push onto main stack (Issue #350)
+    fn infer_from_aux(
+        &self,
+        _span: &Option<crate::ast::Span>,
+        current_stack: StackType,
+    ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        if self.in_quotation_scope.get() {
+            return Err("aux> is not supported inside quotations.\n\
+                 Quotations are compiled as separate functions without aux stack slots.\n\
+                 Extract the quotation body into a named word if you need aux."
+                .to_string());
+        }
+        let mut aux = self.current_aux_stack.borrow_mut();
+        match aux.clone().pop() {
+            Some((rest, top_type)) => {
+                *aux = rest;
+                Ok((current_stack.push(top_type), Subst::empty(), vec![]))
+            }
+            None => {
+                let line_info = self.line_prefix();
+                Err(format!(
+                    "{}aux>: aux stack is empty. Every aux> must be paired with a preceding >aux.",
+                    line_info
+                ))
+            }
+        }
     }
 
     /// Special handling for `call` to properly propagate quotation effects (Issue #228)
@@ -4377,6 +4567,341 @@ mod tests {
         assert!(
             err.contains("Union") || err.contains("mismatch"),
             "Error should mention union type mismatch, got: {}",
+            err
+        );
+    }
+
+    // =========================================================================
+    // Aux stack tests (Issue #350)
+    // =========================================================================
+
+    fn make_word_call(name: &str) -> Statement {
+        Statement::WordCall {
+            name: name.to_string(),
+            span: None,
+        }
+    }
+
+    #[test]
+    fn test_aux_basic_round_trip() {
+        // : test ( Int -- Int ) >aux aux> ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![make_word_call(">aux"), make_word_call("aux>")],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_aux_preserves_type() {
+        // : test ( String -- String ) >aux aux> ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::String),
+                    StackType::singleton(Type::String),
+                )),
+                body: vec![make_word_call(">aux"), make_word_call("aux>")],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_aux_unbalanced_error() {
+        // : test ( Int -- ) >aux ;  -- ERROR: aux not empty at return
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::Empty,
+                )),
+                body: vec![make_word_call(">aux")],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("aux stack is not empty"),
+            "Expected aux stack balance error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_aux_pop_empty_error() {
+        // : test ( -- Int ) aux> ;  -- ERROR: aux is empty
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty,
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![make_word_call("aux>")],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("aux stack is empty"),
+            "Expected aux empty error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_aux_multiple_values() {
+        // >aux >aux aux> aux> is identity (LIFO preserves order)
+        // Input: ( Int String ), >aux pops String, >aux pops Int
+        // aux> pushes Int, aux> pushes String → output: ( Int String )
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty.push(Type::Int).push(Type::String),
+                    StackType::Empty.push(Type::Int).push(Type::String),
+                )),
+                body: vec![
+                    make_word_call(">aux"),
+                    make_word_call(">aux"),
+                    make_word_call("aux>"),
+                    make_word_call("aux>"),
+                ],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_aux_max_depths_tracked() {
+        // : test ( Int -- Int ) >aux aux> ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![make_word_call(">aux"), make_word_call("aux>")],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        checker.check_program(&program).unwrap();
+        let depths = checker.take_aux_max_depths();
+        assert_eq!(depths.get("test"), Some(&1));
+    }
+
+    #[test]
+    fn test_aux_in_match_balanced() {
+        // Aux used symmetrically in match arms: each arm does >aux aux>
+        use crate::ast::{MatchArm, Pattern, UnionDef, UnionVariant};
+
+        let union_def = UnionDef {
+            name: "Choice".to_string(),
+            variants: vec![
+                UnionVariant {
+                    name: "Left".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+                UnionVariant {
+                    name: "Right".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+            ],
+            source: None,
+        };
+
+        // : test ( Int Choice -- Int )
+        //   swap >aux match Left => aux> end Right => aux> end ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![union_def],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Union("Choice".to_string())),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    make_word_call("swap"),
+                    make_word_call(">aux"),
+                    Statement::Match {
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Variant("Left".to_string()),
+                                body: vec![make_word_call("aux>")],
+                                span: None,
+                            },
+                            MatchArm {
+                                pattern: Pattern::Variant("Right".to_string()),
+                                body: vec![make_word_call("aux>")],
+                                span: None,
+                            },
+                        ],
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_aux_in_match_unbalanced_error() {
+        // Match arms with different aux states should error
+        use crate::ast::{MatchArm, Pattern, UnionDef, UnionVariant};
+
+        let union_def = UnionDef {
+            name: "Choice".to_string(),
+            variants: vec![
+                UnionVariant {
+                    name: "Left".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+                UnionVariant {
+                    name: "Right".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+            ],
+            source: None,
+        };
+
+        // : test ( Int Choice -- Int )
+        //   swap >aux match Left => aux> end Right => end ;  -- ERROR: unbalanced
+        let program = Program {
+            includes: vec![],
+            unions: vec![union_def],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Union("Choice".to_string())),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    make_word_call("swap"),
+                    make_word_call(">aux"),
+                    Statement::Match {
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Variant("Left".to_string()),
+                                body: vec![make_word_call("aux>")],
+                                span: None,
+                            },
+                            MatchArm {
+                                pattern: Pattern::Variant("Right".to_string()),
+                                body: vec![],
+                                span: None,
+                            },
+                        ],
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("aux stack"),
+            "Expected aux stack mismatch error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_aux_in_quotation_rejected() {
+        // >aux inside a quotation should be rejected (codegen limitation)
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Quotation(Box::new(Effect::new(
+                        StackType::singleton(Type::Int),
+                        StackType::singleton(Type::Int),
+                    )))),
+                )),
+                body: vec![Statement::Quotation {
+                    span: None,
+                    id: 0,
+                    body: vec![make_word_call(">aux"), make_word_call("aux>")],
+                }],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("not supported inside quotations"),
+            "Expected quotation rejection error, got: {}",
             err
         );
     }

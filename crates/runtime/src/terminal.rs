@@ -213,7 +213,7 @@ extern "C" fn signal_handler(sig: libc::c_int) {
 fn install_signal_handlers() {
     unsafe {
         let mut new_action: libc::sigaction = std::mem::zeroed();
-        new_action.sa_sigaction = signal_handler as usize;
+        new_action.sa_sigaction = signal_handler as *const () as usize;
         libc::sigemptyset(&mut new_action.sa_mask);
         new_action.sa_flags = 0;
 

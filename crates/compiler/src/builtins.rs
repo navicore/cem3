@@ -394,6 +394,15 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
     builtin!(sigs, "roll", (a T Int -- a T));
 
     // =========================================================================
+    // Aux Stack Operations (word-local temporary storage)
+    // Note: actual aux stack effects are handled specially by the typechecker.
+    // These signatures describe only the main stack effects.
+    // =========================================================================
+
+    builtin!(sigs, ">aux", (a T -- a));
+    builtin!(sigs, "aux>", (a -- a T));
+
+    // =========================================================================
     // Channel Operations (CSP-style concurrency)
     // Errors are values, not crashes - all ops return success flags
     // =========================================================================
@@ -1011,6 +1020,16 @@ static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
     docs.insert("3drop", "Remove the top three values.");
     docs.insert("pick", "Copy the value at depth N to the top.");
     docs.insert("roll", "Rotate N+1 items, bringing depth N to top.");
+
+    // Aux Stack Operations
+    docs.insert(
+        ">aux",
+        "Move top of stack to word-local aux stack. Must be balanced with aux> before word returns.",
+    );
+    docs.insert(
+        "aux>",
+        "Move top of aux stack back to main stack. Requires a matching >aux.",
+    );
 
     // Channel Operations
     docs.insert(

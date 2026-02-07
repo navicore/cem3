@@ -459,6 +459,9 @@ impl Program {
             "3drop",
             "pick",
             "roll",
+            // Aux stack operations
+            ">aux",
+            "aux>",
             // Boolean operations
             "and",
             "or",

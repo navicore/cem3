@@ -1,0 +1,65 @@
+# Test: Auxiliary stash stack (>aux / aux>)
+
+# Basic round-trip: value is preserved
+: test-basic ( -- )
+  42 >aux aux> int->string io.write-line ;
+
+# Multiple values: LIFO preserves original order
+# Stack 1 2 3 -> stash all -> restore all -> Stack 1 2 3
+: test-lifo ( -- )
+  1 2 3
+  >aux >aux >aux
+  aux> aux> aux>
+  # Stack is back to: 1 2 3 (3 on top)
+  int->string io.write-line  # prints 3
+  int->string io.write-line  # prints 2
+  int->string io.write-line  # prints 1
+;
+
+# Mixed types on aux
+: test-mixed-types ( -- )
+  "hello" >aux
+  99 >aux
+  aux> int->string io.write-line   # prints 99
+  aux> io.write-line               # prints hello
+;
+
+# Aux inside if/else (balanced in both branches)
+: test-if-else ( Int -- )
+  >aux
+  true if
+    aux> 10 i.+ int->string io.write-line
+  else
+    aux> 20 i.+ int->string io.write-line
+  then ;
+
+# Nested word calls: inner word uses aux independently
+: inner-aux ( Int -- Int )
+  >aux
+  100
+  aux> i.+ ;
+
+: test-nested ( -- )
+  5 >aux
+  10 inner-aux int->string io.write-line  # inner uses its own aux, prints 110
+  aux> int->string io.write-line          # outer's aux preserved, prints 5
+;
+
+# Aux used alongside normal stack ops
+: test-with-stack-ops ( -- )
+  1 2 3
+  >aux       # stash 3
+  swap       # swap 1 and 2: stack is now 2 1
+  aux>       # restore 3: stack is now 2 1 3
+  int->string io.write-line  # prints 3
+  int->string io.write-line  # prints 1
+  int->string io.write-line  # prints 2
+;
+
+: main ( -- )
+  test-basic
+  test-lifo
+  test-mixed-types
+  7 test-if-else
+  test-nested
+  test-with-stack-ops ;

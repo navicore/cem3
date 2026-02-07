@@ -473,7 +473,7 @@ mod tests {
             let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push a quotation (for tests, wrapper and impl are the same C function)
-            let fn_ptr = add_one_quot as usize;
+            let fn_ptr = add_one_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Verify it's on the stack
@@ -489,7 +489,7 @@ mod tests {
 
             // Push 5, then a quotation that adds 1
             let stack = push_int(stack, 5);
-            let fn_ptr = add_one_quot as usize;
+            let fn_ptr = add_one_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Call the quotation
@@ -515,7 +515,7 @@ mod tests {
             let stack: Stack = crate::stack::alloc_test_stack();
 
             // Push a quotation
-            let fn_ptr = noop_quot as usize;
+            let fn_ptr = noop_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Spawn it

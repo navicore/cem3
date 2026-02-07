@@ -317,7 +317,7 @@ fn install_signal_handler(sig_num: libc::c_int) -> Result<(), std::io::Error> {
     unsafe {
         let mut action: libc::sigaction = MaybeUninit::zeroed().assume_init();
         // Use sa_handler (not sa_sigaction) since we're not using SA_SIGINFO
-        action.sa_sigaction = flag_signal_handler as libc::sighandler_t;
+        action.sa_sigaction = flag_signal_handler as *const () as libc::sighandler_t;
         action.sa_flags = libc::SA_RESTART;
         libc::sigemptyset(&mut action.sa_mask);
 

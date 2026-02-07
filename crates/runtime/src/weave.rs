@@ -752,7 +752,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_once_quot as usize;
+            let fn_ptr = yield_once_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -774,7 +774,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_once_quot as usize;
+            let fn_ptr = yield_once_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -802,7 +802,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_once_quot as usize;
+            let fn_ptr = yield_once_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -833,7 +833,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = no_yield_quot as usize;
+            let fn_ptr = no_yield_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -862,7 +862,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_three_times_quot as usize;
+            let fn_ptr = yield_three_times_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -909,7 +909,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = echo_quot as usize;
+            let fn_ptr = echo_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -952,7 +952,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_three_times_quot as usize;
+            let fn_ptr = yield_three_times_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave but don't resume
@@ -972,7 +972,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_three_times_quot as usize;
+            let fn_ptr = yield_three_times_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave
@@ -1003,7 +1003,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_three_times_quot as usize;
+            let fn_ptr = yield_three_times_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             // Create weave but never resume it
@@ -1025,7 +1025,7 @@ mod tests {
             // Create multiple weaves without resuming any
             for _ in 0..10 {
                 let stack = alloc_test_stack();
-                let fn_ptr = yield_three_times_quot as usize;
+                let fn_ptr = yield_three_times_quot as *const () as usize;
                 let stack = push_quotation(stack, fn_ptr, fn_ptr);
                 let _stack = weave(stack);
             }
@@ -1075,7 +1075,7 @@ mod tests {
 
             // Create and use a weave
             let stack = alloc_test_stack();
-            let fn_ptr = yield_once_quot as usize;
+            let fn_ptr = yield_once_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
             let stack = weave(stack);
 
@@ -1107,7 +1107,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_three_times_quot as usize;
+            let fn_ptr = yield_three_times_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             let stack = weave(stack);
@@ -1157,7 +1157,7 @@ mod tests {
 
             // Use echo_quot which echoes whatever we send
             let stack = alloc_test_stack();
-            let fn_ptr = echo_quot as usize;
+            let fn_ptr = echo_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             let stack = weave(stack);
@@ -1189,7 +1189,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = yield_once_quot as usize;
+            let fn_ptr = yield_once_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             let stack = weave(stack);
@@ -1220,7 +1220,7 @@ mod tests {
             scheduler_init();
 
             let stack = alloc_test_stack();
-            let fn_ptr = echo_quot as usize;
+            let fn_ptr = echo_quot as *const () as usize;
             let stack = push_quotation(stack, fn_ptr, fn_ptr);
 
             let stack = weave(stack);

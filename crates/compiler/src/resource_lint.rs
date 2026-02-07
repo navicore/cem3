@@ -90,6 +90,8 @@ pub(crate) enum StackValue {
 pub(crate) struct StackState {
     /// The stack contents (top is last element)
     stack: Vec<StackValue>,
+    /// Aux stack contents for >aux/aux> simulation (Issue #350)
+    aux_stack: Vec<StackValue>,
     /// Resources that have been properly consumed
     consumed: Vec<TrackedResource>,
     /// Next resource ID to assign
@@ -106,6 +108,7 @@ impl StackState {
     pub fn new() -> Self {
         StackState {
             stack: Vec::new(),
+            aux_stack: Vec::new(),
             consumed: Vec::new(),
             next_id: 0,
         }
@@ -279,8 +282,16 @@ impl StackState {
             }
         }
 
+        // Join aux stacks conservatively (take the longer one to avoid false negatives)
+        let joined_aux = if self.aux_stack.len() >= other.aux_stack.len() {
+            self.aux_stack.clone()
+        } else {
+            other.aux_stack.clone()
+        };
+
         StackState {
             stack: joined_stack,
+            aux_stack: joined_aux,
             consumed: definitely_consumed,
             next_id: self.next_id.max(other.next_id),
         }
@@ -535,6 +546,18 @@ impl ProgramResourceAnalyzer {
                 }
                 if let Some(bv) = b {
                     state.stack.push(bv);
+                }
+            }
+            ">aux" => {
+                // Move top of main stack to aux stack (Issue #350)
+                if let Some(val) = state.pop() {
+                    state.aux_stack.push(val);
+                }
+            }
+            "aux>" => {
+                // Move top of aux stack back to main stack (Issue #350)
+                if let Some(val) = state.aux_stack.pop() {
+                    state.stack.push(val);
                 }
             }
             "tuck" => {
@@ -1091,6 +1114,20 @@ impl ResourceAnalyzer {
                 }
                 if let Some(bv) = b {
                     state.stack.push(bv);
+                }
+            }
+
+            ">aux" => {
+                // Move top of main stack to aux stack (Issue #350)
+                if let Some(val) = state.pop() {
+                    state.aux_stack.push(val);
+                }
+            }
+
+            "aux>" => {
+                // Move top of aux stack back to main stack (Issue #350)
+                if let Some(val) = state.aux_stack.pop() {
+                    state.stack.push(val);
                 }
             }
 

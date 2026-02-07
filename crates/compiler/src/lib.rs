@@ -294,6 +294,8 @@ pub fn compile_file_with_config(
     let quotation_types = type_checker.take_quotation_types();
     // Extract per-statement type info for optimization (Issue #186)
     let statement_types = type_checker.take_statement_top_types();
+    // Extract per-word aux stack max depths for codegen (Issue #350)
+    let aux_max_depths = type_checker.take_aux_max_depths();
 
     // Generate LLVM IR with type information and external builtins
     // Note: Mutual TCO already works via existing musttail emission for all
@@ -304,6 +306,7 @@ pub fn compile_file_with_config(
     } else {
         CodeGen::new()
     };
+    codegen.set_aux_slot_counts(aux_max_depths);
     let ir = codegen
         .codegen_program_with_ffi(
             &program,
@@ -426,8 +429,10 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
 
     let quotation_types = type_checker.take_quotation_types();
     let statement_types = type_checker.take_statement_top_types();
+    let aux_max_depths = type_checker.take_aux_max_depths();
 
     let mut codegen = CodeGen::new();
+    codegen.set_aux_slot_counts(aux_max_depths);
     codegen
         .codegen_program_with_config(&program, quotation_types, statement_types, config)
         .map_err(|e| e.to_string())

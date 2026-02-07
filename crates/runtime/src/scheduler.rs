@@ -324,7 +324,10 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
             }
 
             unsafe {
-                libc::signal(libc::SIGINT, sigint_handler as libc::sighandler_t);
+                libc::signal(
+                    libc::SIGINT,
+                    sigint_handler as *const () as libc::sighandler_t,
+                );
             }
         }
 

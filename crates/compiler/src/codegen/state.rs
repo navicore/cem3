@@ -176,6 +176,13 @@ pub struct CodeGen {
     /// Specialized word signatures for register-based codegen
     /// Maps word name -> specialized signature
     pub(super) specialized_words: HashMap<String, SpecSignature>,
+    /// Per-word aux stack slot counts from typechecker (Issue #350)
+    /// Maps word_name -> number of %Value allocas needed
+    pub(super) aux_slot_counts: HashMap<String, usize>,
+    /// LLVM alloca names for current word's aux slots (Issue #350)
+    pub(super) current_aux_slots: Vec<String>,
+    /// Compile-time index into aux slots (Issue #350)
+    pub(super) current_aux_sp: usize,
 }
 
 impl Default for CodeGen {
@@ -215,6 +222,9 @@ impl CodeGen {
             prev_stmt_int_value: None,
             virtual_stack: Vec::new(),
             specialized_words: HashMap::new(),
+            aux_slot_counts: HashMap::new(),
+            current_aux_slots: Vec::new(),
+            current_aux_sp: 0,
         }
     }
 
@@ -225,5 +235,10 @@ impl CodeGen {
         let mut cg = Self::new();
         cg.pure_inline_test = true;
         cg
+    }
+
+    /// Set per-word aux stack slot counts from typechecker (Issue #350)
+    pub fn set_aux_slot_counts(&mut self, counts: HashMap<String, usize>) {
+        self.aux_slot_counts = counts;
     }
 }

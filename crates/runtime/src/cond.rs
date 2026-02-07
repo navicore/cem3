@@ -247,7 +247,7 @@ mod tests {
 
     // Helper to create a quotation value from a function pointer
     fn make_quotation(f: unsafe extern "C" fn(Stack) -> Stack) -> Value {
-        let ptr = f as usize;
+        let ptr = f as *const () as usize;
         Value::Quotation {
             wrapper: ptr,
             impl_: ptr,

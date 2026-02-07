@@ -883,6 +883,83 @@ impl CodeGen {
                 Ok(Some(popped_sp))
             }
 
+            // >aux: ( T -- ) move top of main stack to aux slot (Issue #350)
+            ">aux" => {
+                // Spill virtual registers before aux access
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
+                let slot_idx = self.current_aux_sp;
+                let slot_name = &self.current_aux_slots[slot_idx].clone();
+
+                // Load top value from main stack (SP - 1)
+                let top_ptr = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    top_ptr, stack_var
+                )?;
+                let val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val, top_ptr
+                )?;
+
+                // Store to aux slot
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val, slot_name
+                )?;
+
+                self.current_aux_sp += 1;
+
+                // Decrement main stack SP (return pointer to top, which is now SP - 1)
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 -1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
+            // aux>: ( -- T ) move top of aux stack to main stack (Issue #350)
+            "aux>" => {
+                // Spill virtual registers before aux access
+                let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
+
+                self.current_aux_sp -= 1;
+                let slot_idx = self.current_aux_sp;
+                let slot_name = &self.current_aux_slots[slot_idx].clone();
+
+                // Load from aux slot
+                let val = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = load %Value, ptr %{}",
+                    val, slot_name
+                )?;
+
+                // Store to main stack at current SP
+                writeln!(
+                    &mut self.output,
+                    "  store %Value %{}, ptr %{}",
+                    val, stack_var
+                )?;
+
+                // Increment main stack SP
+                let result_var = self.fresh_temp();
+                writeln!(
+                    &mut self.output,
+                    "  %{} = getelementptr %Value, ptr %{}, i64 1",
+                    result_var, stack_var
+                )?;
+                Ok(Some(result_var))
+            }
+
             // Not an inline-able operation
             _ => Ok(None),
         }

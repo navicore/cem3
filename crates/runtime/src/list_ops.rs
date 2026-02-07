@@ -612,7 +612,7 @@ mod tests {
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
-            let fn_ptr = double_quot as usize;
+            let fn_ptr = double_quot as *const () as usize;
             let stack = push(
                 stack,
                 Value::Quotation {
@@ -652,7 +652,7 @@ mod tests {
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
-            let fn_ptr = is_positive_quot as usize;
+            let fn_ptr = is_positive_quot as *const () as usize;
             let stack = push(
                 stack,
                 Value::Quotation {
@@ -692,7 +692,7 @@ mod tests {
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(0)); // initial accumulator
-            let fn_ptr = add_quot as usize;
+            let fn_ptr = add_quot as *const () as usize;
             let stack = push(
                 stack,
                 Value::Quotation {
@@ -719,7 +719,7 @@ mod tests {
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
             let stack = push(stack, Value::Int(42)); // initial accumulator
-            let fn_ptr = add_quot as usize;
+            let fn_ptr = add_quot as *const () as usize;
             let stack = push(
                 stack,
                 Value::Quotation {
@@ -795,7 +795,7 @@ mod tests {
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
-            let fn_ptr = double_quot as usize;
+            let fn_ptr = double_quot as *const () as usize;
             let stack = push(
                 stack,
                 Value::Quotation {
@@ -826,7 +826,7 @@ mod tests {
 
             let stack = crate::stack::alloc_test_stack();
             let stack = push(stack, list);
-            let fn_ptr = double_quot as usize;
+            let fn_ptr = double_quot as *const () as usize;
             let stack = push(
                 stack,
                 Value::Quotation {
@@ -878,7 +878,7 @@ mod tests {
             let env: std::sync::Arc<[Value]> =
                 std::sync::Arc::from(vec![Value::Int(10)].into_boxed_slice());
             let closure = Value::Closure {
-                fn_ptr: add_captured_closure as usize,
+                fn_ptr: add_captured_closure as *const () as usize,
                 env,
             };
 

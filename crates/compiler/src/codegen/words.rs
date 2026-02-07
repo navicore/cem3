@@ -147,6 +147,14 @@ impl CodeGen {
         // incorrect type lookups (quotations don't have their own type info)
         let saved_word_name = self.current_word_name.take();
 
+        // Save and clear aux state (Issue #350)
+        // Quotations are separate LLVM functions; the typechecker rejects aux
+        // ops inside quotations, but we clear defensively to avoid generating
+        // references to the enclosing word's aux allocas.
+        let saved_aux_slots = std::mem::take(&mut self.current_aux_slots);
+        let saved_aux_sp = self.current_aux_sp;
+        self.current_aux_sp = 0;
+
         // Generate function signature based on type
         match quot_type {
             Type::Quotation(_) => {
@@ -208,10 +216,12 @@ impl CodeGen {
                 // Move generated functions to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output, word context, and virtual stack (Issue #189)
+                // Restore original output, word context, virtual stack, and aux state (Issue #189, #350)
                 self.output = saved_output;
                 self.current_word_name = saved_word_name;
                 self.virtual_stack = saved_virtual_stack;
+                self.current_aux_slots = saved_aux_slots;
+                self.current_aux_sp = saved_aux_sp;
 
                 Ok(QuotationFunctions {
                     wrapper: wrapper_name,
@@ -263,10 +273,12 @@ impl CodeGen {
                 // Move generated function to quotation_functions
                 self.quotation_functions.push_str(&self.output);
 
-                // Restore original output, word context, virtual stack, and reset closure flag (Issue #189)
+                // Restore original output, word context, virtual stack, aux state, and reset closure flag (Issue #189, #350)
                 self.output = saved_output;
                 self.current_word_name = saved_word_name;
                 self.virtual_stack = saved_virtual_stack;
+                self.current_aux_slots = saved_aux_slots;
+                self.current_aux_sp = saved_aux_sp;
                 self.inside_closure = false;
 
                 // For closures, both wrapper and impl are the same (no TCO yet)

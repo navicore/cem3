@@ -51,6 +51,9 @@ pub struct TypeChecker {
     /// Maximum aux stack depth per word, for codegen alloca sizing (Issue #350)
     /// Maps word_name -> max_depth (number of %Value allocas needed)
     aux_max_depths: std::cell::RefCell<HashMap<String, usize>>,
+    /// True when type-checking inside a quotation body (Issue #350)
+    /// Aux operations are not supported in quotations (codegen limitation).
+    in_quotation_scope: std::cell::Cell<bool>,
 }
 
 impl TypeChecker {
@@ -66,6 +69,7 @@ impl TypeChecker {
             call_graph: None,
             current_aux_stack: std::cell::RefCell::new(StackType::Empty),
             aux_max_depths: std::cell::RefCell::new(HashMap::new()),
+            in_quotation_scope: std::cell::Cell::new(false),
         }
     }
 
@@ -1156,10 +1160,14 @@ impl TypeChecker {
         let expected_for_this_quotation = self.expected_quotation_type.borrow().clone();
         *self.expected_quotation_type.borrow_mut() = None;
 
-        // Save enclosing aux stack and start quotation with empty aux (Issue #350)
-        // Quotations cannot access the enclosing word's aux stack
+        // Save enclosing aux stack and mark quotation scope (Issue #350)
+        // Aux operations are rejected inside quotations because quotations are
+        // compiled as separate LLVM functions without their own aux slot allocas.
+        // Users should extract quotation bodies into named words if they need aux.
         let saved_aux = self.current_aux_stack.borrow().clone();
         *self.current_aux_stack.borrow_mut() = StackType::Empty;
+        let saved_in_quotation = self.in_quotation_scope.get();
+        self.in_quotation_scope.set(true);
 
         // Infer the effect of the quotation body (includes computational effects)
         let body_effect = self.infer_statements(body)?;
@@ -1175,8 +1183,9 @@ impl TypeChecker {
             ));
         }
 
-        // Restore enclosing aux stack
+        // Restore enclosing aux stack and quotation scope flag
         *self.current_aux_stack.borrow_mut() = saved_aux;
+        self.in_quotation_scope.set(saved_in_quotation);
 
         // Restore expected type for capture analysis of THIS quotation
         *self.expected_quotation_type.borrow_mut() = expected_for_this_quotation;
@@ -1266,6 +1275,12 @@ impl TypeChecker {
         _span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        if self.in_quotation_scope.get() {
+            return Err(">aux is not supported inside quotations.\n\
+                 Quotations are compiled as separate functions without aux stack slots.\n\
+                 Extract the quotation body into a named word if you need aux."
+                .to_string());
+        }
         let (rest, top_type) = self.pop_type(&current_stack, ">aux")?;
 
         // Push onto aux stack
@@ -1291,6 +1306,12 @@ impl TypeChecker {
         _span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
+        if self.in_quotation_scope.get() {
+            return Err("aux> is not supported inside quotations.\n\
+                 Quotations are compiled as separate functions without aux stack slots.\n\
+                 Extract the quotation body into a named word if you need aux."
+                .to_string());
+        }
         let mut aux = self.current_aux_stack.borrow_mut();
         match aux.clone().pop() {
             Some((rest, top_type)) => {
@@ -4714,5 +4735,174 @@ mod tests {
         checker.check_program(&program).unwrap();
         let depths = checker.take_aux_max_depths();
         assert_eq!(depths.get("test"), Some(&1));
+    }
+
+    #[test]
+    fn test_aux_in_match_balanced() {
+        // Aux used symmetrically in match arms: each arm does >aux aux>
+        use crate::ast::{MatchArm, Pattern, UnionDef, UnionVariant};
+
+        let union_def = UnionDef {
+            name: "Choice".to_string(),
+            variants: vec![
+                UnionVariant {
+                    name: "Left".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+                UnionVariant {
+                    name: "Right".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+            ],
+            source: None,
+        };
+
+        // : test ( Int Choice -- Int )
+        //   swap >aux match Left => aux> end Right => aux> end ;
+        let program = Program {
+            includes: vec![],
+            unions: vec![union_def],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Union("Choice".to_string())),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    make_word_call("swap"),
+                    make_word_call(">aux"),
+                    Statement::Match {
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Variant("Left".to_string()),
+                                body: vec![make_word_call("aux>")],
+                                span: None,
+                            },
+                            MatchArm {
+                                pattern: Pattern::Variant("Right".to_string()),
+                                body: vec![make_word_call("aux>")],
+                                span: None,
+                            },
+                        ],
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        assert!(checker.check_program(&program).is_ok());
+    }
+
+    #[test]
+    fn test_aux_in_match_unbalanced_error() {
+        // Match arms with different aux states should error
+        use crate::ast::{MatchArm, Pattern, UnionDef, UnionVariant};
+
+        let union_def = UnionDef {
+            name: "Choice".to_string(),
+            variants: vec![
+                UnionVariant {
+                    name: "Left".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+                UnionVariant {
+                    name: "Right".to_string(),
+                    fields: vec![],
+                    source: None,
+                },
+            ],
+            source: None,
+        };
+
+        // : test ( Int Choice -- Int )
+        //   swap >aux match Left => aux> end Right => end ;  -- ERROR: unbalanced
+        let program = Program {
+            includes: vec![],
+            unions: vec![union_def],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::Empty
+                        .push(Type::Int)
+                        .push(Type::Union("Choice".to_string())),
+                    StackType::singleton(Type::Int),
+                )),
+                body: vec![
+                    make_word_call("swap"),
+                    make_word_call(">aux"),
+                    Statement::Match {
+                        arms: vec![
+                            MatchArm {
+                                pattern: Pattern::Variant("Left".to_string()),
+                                body: vec![make_word_call("aux>")],
+                                span: None,
+                            },
+                            MatchArm {
+                                pattern: Pattern::Variant("Right".to_string()),
+                                body: vec![],
+                                span: None,
+                            },
+                        ],
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("aux stack"),
+            "Expected aux stack mismatch error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_aux_in_quotation_rejected() {
+        // >aux inside a quotation should be rejected (codegen limitation)
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "test".to_string(),
+                effect: Some(Effect::new(
+                    StackType::singleton(Type::Int),
+                    StackType::singleton(Type::Quotation(Box::new(Effect::new(
+                        StackType::singleton(Type::Int),
+                        StackType::singleton(Type::Int),
+                    )))),
+                )),
+                body: vec![Statement::Quotation {
+                    span: None,
+                    id: 0,
+                    body: vec![make_word_call(">aux"), make_word_call("aux>")],
+                }],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let mut checker = TypeChecker::new();
+        let result = checker.check_program(&program);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("not supported inside quotations"),
+            "Expected quotation rejection error, got: {}",
+            err
+        );
     }
 }

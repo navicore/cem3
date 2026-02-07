@@ -931,6 +931,11 @@ impl CodeGen {
                 let stack_var = self.spill_virtual_stack(stack_var)?;
                 let stack_var = stack_var.as_str();
 
+                // Typechecker guarantees aux_sp > 0 here (paired >aux precedes)
+                debug_assert!(
+                    self.current_aux_sp > 0,
+                    "aux>: aux stack underflow (typechecker should have caught this)"
+                );
                 self.current_aux_sp -= 1;
                 let slot_idx = self.current_aux_sp;
                 let slot_name = &self.current_aux_slots[slot_idx].clone();

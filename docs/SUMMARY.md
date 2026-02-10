@@ -20,6 +20,7 @@
 - [Weaves (Generators)](WEAVES_GUIDE.md)
 - [Tail Call Optimization](TCO_GUIDE.md)
 - [FFI Guide](FFI_GUIDE.md)
+- [Observability](OBSERVABILITY_GUIDE.md)
 - [Architecture](ARCHITECTURE.md)
 
 # Appendix

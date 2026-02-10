@@ -261,11 +261,19 @@ Environment Variables:
 | `SEQ_STACK_SIZE` | 1048576 (1MB) | Coroutine stack size in bytes |
 | `SEQ_YIELD_INTERVAL` | 0 (disabled) | Yield to scheduler every N tail calls |
 | `SEQ_WATCHDOG_SECS` | 0 (disabled) | Detect strands running longer than N seconds |
+| `SEQ_REPORT` | unset (disabled) | At-exit KPI report: `1` (human to stderr), `json` (JSON to stderr), `json:/path` (JSON to file) |
 
 ```bash
 SEQ_STACK_SIZE=2097152 ./my-program      # 2MB stacks
 SEQ_YIELD_INTERVAL=10000 ./my-program    # Yield every 10K tail calls
 SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
+SEQ_REPORT=1 ./my-program                # Print KPI report on exit
+```
+
+Compile with `--instrument` for per-word call counts in the report:
+```bash
+seqc build --instrument my-program.seq
+SEQ_REPORT=1 ./my-program                # Report includes word call counts
 ```
 
 ---

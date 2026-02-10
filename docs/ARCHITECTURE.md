@@ -296,6 +296,7 @@ The scheduler can be tuned via environment variables:
 | `SEQ_WATCHDOG_SECS` | 0 (disabled) | Threshold for "stuck strand" detection |
 | `SEQ_WATCHDOG_INTERVAL` | 5 | Watchdog check frequency (seconds) |
 | `SEQ_WATCHDOG_ACTION` | warn | Action on stuck strand: `warn` or `exit` |
+| `SEQ_REPORT` | unset (disabled) | At-exit KPI report: `1` (human/stderr), `json` (JSON/stderr), `json:/path` (JSON to file), `words` (human + per-word counts) |
 
 ### Diagnostics Feature
 
@@ -304,6 +305,7 @@ The runtime includes optional diagnostics for production debugging:
 - **Strand registry** - Tracks active strands with spawn timestamps
 - **SIGQUIT handler** - Dumps runtime stats on `kill -3 <pid>`
 - **Watchdog** - Detects strands running longer than threshold
+- **At-exit report** - `SEQ_REPORT` env var dumps KPIs (wall clock, strands, memory, channels) when the program exits. Compile with `seqc build --instrument` to include per-word call counts
 
 These are controlled by the `diagnostics` Cargo feature (enabled by default):
 

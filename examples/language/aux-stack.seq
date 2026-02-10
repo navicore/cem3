@@ -1,0 +1,102 @@
+# Aux Stack - word-local temporary storage
+#
+# >aux moves the top of the stack to a hidden auxiliary stack.
+# aux> moves it back. The aux stack is:
+#   - word-local (each word gets its own, each call starts fresh)
+#   - must be empty when the word returns (compiler-enforced)
+#   - LIFO (last >aux is first aux>)
+#
+# Use aux when you need a value later but don't want to juggle
+# the stack with swap/rot/over to keep it accessible.
+
+# ============================================================================
+#                     EXAMPLE 1: Formatting with buried values
+# ============================================================================
+#
+# Format a coordinate pair as "Point(x, y)".
+# Without aux, the y value is buried under string-building work.
+
+# Without aux: swap and rot to retrieve y after building the first half
+: format-point-ugly ( Int Int -- String )
+  swap int->string
+  "Point(" swap string.concat
+  ", " string.concat
+  swap int->string string.concat
+  ")" string.concat
+;
+
+# With aux: stash y, build linearly, retrieve when needed
+: format-point ( Int Int -- String )
+  >aux
+  int->string
+  "Point(" swap string.concat
+  ", " string.concat
+  aux> int->string string.concat
+  ")" string.concat
+;
+
+# ============================================================================
+#                     EXAMPLE 2: Preserving context across match
+# ============================================================================
+#
+# This is where aux really shines. When you need a value from before
+# a match but the match destructures something else, aux avoids
+# having to thread that context through every arm.
+
+union Shape {
+  Circle { radius: Int }
+  Rect { width: Int height: Int }
+}
+
+# Compute area, with a label carried across the match
+: labeled-area ( String Shape -- String )
+  swap >aux
+  match
+    Circle { >radius } ->
+      dup i.* 3 i.*
+    Rect { >width >height } ->
+      i.*
+  end
+  int->string
+  aux> ": area = " string.concat
+  swap string.concat
+;
+
+# ============================================================================
+#                     EXAMPLE 3: Multiple stashes
+# ============================================================================
+#
+# >aux >aux stashes two values. aux> aux> retrieves them in reverse
+# (LIFO). This is useful when you need to set aside several values,
+# do some work, then bring them back.
+
+: sum-and-product ( Int Int -- String )
+  2dup >aux >aux
+  i.+ int->string
+  " sum, " string.concat
+  aux> aux> i.* int->string string.concat
+  " product" string.concat
+;
+
+# ============================================================================
+#                              DEMO
+# ============================================================================
+
+: main ( -- )
+  "Aux Stack Examples" io.write-line
+  "==================" io.write-line
+  "" io.write-line
+
+  "--- Format Point ---" io.write-line
+  3 7 format-point io.write-line
+  3 7 format-point-ugly io.write-line
+  "" io.write-line
+
+  "--- Labeled Area ---" io.write-line
+  "garden" 5 Make-Circle labeled-area io.write-line
+  "patio" 4 3 Make-Rect labeled-area io.write-line
+  "" io.write-line
+
+  "--- Sum and Product ---" io.write-line
+  3 7 sum-and-product io.write-line
+;

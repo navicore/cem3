@@ -20,8 +20,10 @@ use crate::tagged_stack::StackValue;
 use may::coroutine;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, Once};
+use std::time::{Duration, Instant};
 
 static SCHEDULER_INIT: Once = Once::new();
+static SCHEDULER_START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
 // Strand lifecycle tracking
 //
@@ -240,6 +242,11 @@ pub fn strand_registry() -> &'static StrandRegistry {
     })
 }
 
+/// Get elapsed time since scheduler was initialized
+pub fn scheduler_elapsed() -> Option<Duration> {
+    SCHEDULER_START_TIME.get().map(|start| start.elapsed())
+}
+
 /// Default coroutine stack size: 128KB (0x20000 bytes)
 /// Reduced from 1MB for better spawn performance (~16% faster in benchmarks).
 /// Can be overridden via SEQ_STACK_SIZE environment variable.
@@ -304,6 +311,9 @@ pub unsafe extern "C" fn patch_seq_scheduler_init() {
         may::config()
             .set_stack_size(stack_size)
             .set_pool_capacity(pool_capacity);
+
+        // Record scheduler start time (for at-exit reporting)
+        SCHEDULER_START_TIME.get_or_init(Instant::now);
 
         // Install SIGINT handler for Ctrl-C (unconditional - basic expected behavior)
         // Without this, tight loops won't respond to Ctrl-C because signals

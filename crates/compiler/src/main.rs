@@ -42,6 +42,11 @@ enum Commands {
         /// Only supports inline operations (integers, arithmetic, stack ops).
         #[arg(long)]
         pure_inline: bool,
+
+        /// Bake per-word atomic call counters into the binary.
+        /// Use with SEQ_REPORT=words to see call counts at exit.
+        #[arg(long)]
+        instrument: bool,
     },
 
     /// Run lint checks on .seq files
@@ -123,13 +128,21 @@ fn main() {
             keep_ir,
             ffi_manifests,
             pure_inline,
+            instrument,
         } => {
             let output = output.unwrap_or_else(|| {
                 // Default: input filename without .seq extension
                 let stem = input.file_stem().unwrap_or_default();
                 PathBuf::from(stem)
             });
-            run_build(&input, &output, keep_ir, &ffi_manifests, pure_inline);
+            run_build(
+                &input,
+                &output,
+                keep_ir,
+                &ffi_manifests,
+                pure_inline,
+                instrument,
+            );
         }
         Commands::Lint {
             paths,
@@ -166,6 +179,7 @@ fn run_build(
     keep_ir: bool,
     ffi_manifests: &[PathBuf],
     pure_inline: bool,
+    instrument: bool,
 ) {
     // Build config with external FFI manifests
     let mut config = if ffi_manifests.is_empty() {
@@ -176,6 +190,9 @@ fn run_build(
 
     // Enable pure inline test mode if requested
     config.pure_inline_test = pure_inline;
+
+    // Enable per-word instrumentation if requested
+    config.instrument = instrument;
 
     match seqc::compile_file_with_config(input, output, keep_ir, &config) {
         Ok(_) => {

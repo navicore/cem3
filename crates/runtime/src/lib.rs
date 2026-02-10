@@ -30,6 +30,7 @@ pub mod list_ops;
 pub mod map_ops;
 pub mod os;
 pub mod quotations;
+pub mod report;
 pub mod scheduler;
 pub mod serialize;
 pub mod signal;
@@ -42,6 +43,9 @@ pub mod time_ops;
 pub mod variant_ops;
 pub mod watchdog;
 pub mod weave;
+
+#[cfg(not(feature = "diagnostics"))]
+pub mod report_stub;
 
 // Optional modules - gated by feature flags
 #[cfg(feature = "crypto")]

@@ -102,6 +102,7 @@ use state::{
 mod tests {
     use super::*;
     use crate::ast::{Program, Statement, WordDef};
+    use crate::config::CompilerConfig;
     use std::collections::HashMap;
 
     #[test]
@@ -1270,6 +1271,172 @@ mod tests {
         assert!(
             ir.contains("musttail call tailcc ptr @seq_get_value"),
             "Then branch should use tail call to stack-based version, not specialized dispatch"
+        );
+    }
+
+    #[test]
+    fn test_report_call_in_normal_mode() {
+        let mut codegen = CodeGen::new();
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::IntLiteral(42),
+                    Statement::WordCall {
+                        name: "io.write-line".to_string(),
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Normal mode should call patch_seq_report after scheduler_run
+        assert!(
+            ir.contains("call void @patch_seq_report()"),
+            "Normal mode should emit report call"
+        );
+    }
+
+    #[test]
+    fn test_report_call_absent_in_pure_inline() {
+        let mut codegen = CodeGen::new_pure_inline_test();
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::IntLiteral(42)],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let ir = codegen
+            .codegen_program(&program, HashMap::new(), HashMap::new())
+            .unwrap();
+
+        // Pure inline test mode should NOT call patch_seq_report
+        assert!(
+            !ir.contains("call void @patch_seq_report()"),
+            "Pure inline mode should not emit report call"
+        );
+    }
+
+    #[test]
+    fn test_instrument_emits_counters_and_atomicrmw() {
+        let mut codegen = CodeGen::new();
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![
+                WordDef {
+                    name: "helper".to_string(),
+                    effect: None,
+                    body: vec![Statement::IntLiteral(1)],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+                WordDef {
+                    name: "main".to_string(),
+                    effect: None,
+                    body: vec![Statement::WordCall {
+                        name: "helper".to_string(),
+                        span: None,
+                    }],
+                    source: None,
+                    allowed_lints: vec![],
+                },
+            ],
+        };
+
+        let config = CompilerConfig {
+            instrument: true,
+            ..CompilerConfig::default()
+        };
+
+        let ir = codegen
+            .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
+            .unwrap();
+
+        // Should emit counter array
+        assert!(
+            ir.contains("@seq_word_counters = global [2 x i64] zeroinitializer"),
+            "Should emit counter array for 2 words"
+        );
+
+        // Should emit word name strings
+        assert!(
+            ir.contains("@seq_word_name_"),
+            "Should emit word name constants"
+        );
+
+        // Should emit name pointer table
+        assert!(
+            ir.contains("@seq_word_names = private constant [2 x ptr]"),
+            "Should emit name pointer table"
+        );
+
+        // Should emit atomicrmw in each word
+        assert!(
+            ir.contains("atomicrmw add ptr %instr_ptr_"),
+            "Should emit atomicrmw add for word counters"
+        );
+
+        // Should emit report_init call
+        assert!(
+            ir.contains("call void @patch_seq_report_init(ptr @seq_word_counters, ptr @seq_word_names, i64 2)"),
+            "Should emit report_init call with correct count"
+        );
+    }
+
+    #[test]
+    fn test_no_instrument_no_counters() {
+        let mut codegen = CodeGen::new();
+        let program = Program {
+            includes: vec![],
+            unions: vec![],
+            words: vec![WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::IntLiteral(42)],
+                source: None,
+                allowed_lints: vec![],
+            }],
+        };
+
+        let config = CompilerConfig::default();
+        assert!(!config.instrument);
+
+        let ir = codegen
+            .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
+            .unwrap();
+
+        // Should NOT emit counter array
+        assert!(
+            !ir.contains("@seq_word_counters"),
+            "Should not emit counters when instrument=false"
+        );
+
+        // Should NOT emit atomicrmw
+        assert!(
+            !ir.contains("atomicrmw"),
+            "Should not emit atomicrmw when instrument=false"
+        );
+
+        // Should NOT emit report_init call
+        assert!(
+            !ir.contains("call void @patch_seq_report_init"),
+            "Should not emit report_init when instrument=false"
         );
     }
 }

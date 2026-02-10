@@ -45,6 +45,8 @@ pub struct MemorySlot {
     pub thread_id: AtomicU64,
     /// Arena allocated bytes
     pub arena_bytes: AtomicU64,
+    /// Peak arena allocated bytes (high-water mark)
+    pub peak_arena_bytes: AtomicU64,
 }
 
 impl MemorySlot {
@@ -52,6 +54,7 @@ impl MemorySlot {
         Self {
             thread_id: AtomicU64::new(0),
             arena_bytes: AtomicU64::new(0),
+            peak_arena_bytes: AtomicU64::new(0),
         }
     }
 }
@@ -104,14 +107,29 @@ impl MemoryStatsRegistry {
     #[inline]
     pub fn update_arena(&self, slot_idx: usize, arena_bytes: usize) {
         if let Some(slot) = self.slots.get(slot_idx) {
-            slot.arena_bytes
-                .store(arena_bytes as u64, Ordering::Relaxed);
+            let bytes = arena_bytes as u64;
+            slot.arena_bytes.store(bytes, Ordering::Relaxed);
+
+            // Update peak via CAS loop (same pattern as PEAK_STRANDS in scheduler.rs)
+            let mut peak = slot.peak_arena_bytes.load(Ordering::Relaxed);
+            while bytes > peak {
+                match slot.peak_arena_bytes.compare_exchange_weak(
+                    peak,
+                    bytes,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(current) => peak = current,
+                }
+            }
         }
     }
 
     /// Get aggregated memory statistics across all threads
     pub fn aggregate_stats(&self) -> AggregateMemoryStats {
         let mut total_arena_bytes: u64 = 0;
+        let mut total_peak_arena_bytes: u64 = 0;
         let mut active_threads: usize = 0;
 
         for slot in self.slots.iter() {
@@ -119,12 +137,14 @@ impl MemoryStatsRegistry {
             if thread_id > 0 {
                 active_threads += 1;
                 total_arena_bytes += slot.arena_bytes.load(Ordering::Relaxed);
+                total_peak_arena_bytes += slot.peak_arena_bytes.load(Ordering::Relaxed);
             }
         }
 
         AggregateMemoryStats {
             active_threads,
             total_arena_bytes,
+            total_peak_arena_bytes,
             overflow_count: self.overflow_count.load(Ordering::Relaxed),
         }
     }
@@ -140,6 +160,7 @@ impl MemoryStatsRegistry {
 pub struct AggregateMemoryStats {
     pub active_threads: usize,
     pub total_arena_bytes: u64,
+    pub total_peak_arena_bytes: u64,
     pub overflow_count: u64,
 }
 

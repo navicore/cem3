@@ -38,6 +38,14 @@ use crate::value::{ChannelData, Value};
 use may::sync::mpmc;
 use std::sync::Arc;
 
+#[cfg(feature = "diagnostics")]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(feature = "diagnostics")]
+pub static TOTAL_MESSAGES_SENT: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "diagnostics")]
+pub static TOTAL_MESSAGES_RECEIVED: AtomicU64 = AtomicU64::new(0);
+
 /// Create a new channel
 ///
 /// Stack effect: ( -- Channel )
@@ -126,7 +134,11 @@ pub unsafe extern "C" fn patch_seq_chan_send(stack: Stack) -> Stack {
 
     // Send the value
     match channel.sender.send(global_value) {
-        Ok(()) => unsafe { push(rest, Value::Bool(true)) },
+        Ok(()) => {
+            #[cfg(feature = "diagnostics")]
+            TOTAL_MESSAGES_SENT.fetch_add(1, Ordering::Relaxed);
+            unsafe { push(rest, Value::Bool(true)) }
+        }
         Err(_) => unsafe { push(rest, Value::Bool(false)) },
     }
 }
@@ -163,6 +175,8 @@ pub unsafe extern "C" fn patch_seq_chan_receive(stack: Stack) -> Stack {
     // Receive a value
     match channel.receiver.recv() {
         Ok(value) => {
+            #[cfg(feature = "diagnostics")]
+            TOTAL_MESSAGES_RECEIVED.fetch_add(1, Ordering::Relaxed);
             let stack = unsafe { push(rest, value) };
             unsafe { push(stack, Value::Bool(true)) }
         }

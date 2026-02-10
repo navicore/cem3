@@ -166,6 +166,11 @@ pub struct CompilerConfig {
 
     /// Optimization level for clang compilation
     pub optimization_level: OptimizationLevel,
+
+    /// Bake per-word atomic call counters into the binary.
+    /// When true, each word entry point gets an `atomicrmw add` counter.
+    /// Use with `SEQ_REPORT=words` to see call counts at exit.
+    pub instrument: bool,
 }
 
 impl CompilerConfig {

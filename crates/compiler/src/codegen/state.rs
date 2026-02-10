@@ -183,6 +183,10 @@ pub struct CodeGen {
     pub(super) current_aux_slots: Vec<String>,
     /// Compile-time index into aux slots (Issue #350)
     pub(super) current_aux_sp: usize,
+    /// Whether to emit per-word atomic call counters (--instrument)
+    pub(super) instrument: bool,
+    /// Maps word name -> sequential ID for instrumentation counters
+    pub(super) word_instrument_ids: HashMap<String, usize>,
 }
 
 impl Default for CodeGen {
@@ -225,6 +229,8 @@ impl CodeGen {
             aux_slot_counts: HashMap::new(),
             current_aux_slots: Vec::new(),
             current_aux_sp: 0,
+            instrument: false,
+            word_instrument_ids: HashMap::new(),
         }
     }
 

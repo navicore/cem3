@@ -14,13 +14,16 @@ categories = ["compilers", "development-tools"]
 crate-type = ["staticlib", "rlib"]  # staticlib for LLVM linking, rlib for testing
 
 [features]
-default = ["full", "diagnostics"]
+default = ["full", "diagnostics", "report-json"]
 
 # Full batteries - enable all optional modules
 full = ["crypto", "http", "regex", "compression"]
 
 # Diagnostics - strand registry + SIGQUIT handler for production debugging
 diagnostics = ["signal-hook"]
+
+# JSON report output (for SEQ_REPORT=json)
+report-json = ["dep:serde_json"]
 
 # Optional modules - enable individually for smaller binaries
 crypto = [
@@ -50,6 +53,9 @@ libc.workspace = true
 # Serialization (for Value persistence/exchange with external systems)
 serde.workspace = true
 bincode.workspace = true
+
+# JSON serialization for report output (optional via "report-json" feature)
+serde_json = { workspace = true, optional = true }
 
 # Encoding (Base64, Hex) - always available as core utilities
 base64.workspace = true

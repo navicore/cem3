@@ -54,6 +54,14 @@ impl CodeGen {
             .map(|b| (b.seq_name.clone(), b.symbol.clone()))
             .collect();
 
+        // Flow instrumentation config
+        self.instrument = config.instrument;
+        if self.instrument {
+            for (id, word) in program.words.iter().enumerate() {
+                self.word_instrument_ids.insert(word.name.clone(), id);
+            }
+        }
+
         // Verify we have a main word
         if program.find_word("main").is_none() {
             return Err(CodeGenError::Logic("No main word defined".to_string()));
@@ -82,6 +90,11 @@ impl CodeGen {
 
         // String and symbol constants
         self.emit_string_and_symbol_globals(&mut ir)?;
+
+        // Instrumentation globals (when --instrument)
+        if self.instrument {
+            self.emit_instrumentation_globals(&mut ir)?;
+        }
 
         // Runtime function declarations
         emit_runtime_decls(&mut ir)?;
@@ -140,6 +153,14 @@ impl CodeGen {
             .map(|b| (b.seq_name.clone(), b.symbol.clone()))
             .collect();
 
+        // Flow instrumentation config
+        self.instrument = config.instrument;
+        if self.instrument {
+            for (id, word) in program.words.iter().enumerate() {
+                self.word_instrument_ids.insert(word.name.clone(), id);
+            }
+        }
+
         // Verify we have a main word
         if program.find_word("main").is_none() {
             return Err(CodeGenError::Logic("No main word defined".to_string()));
@@ -168,6 +189,11 @@ impl CodeGen {
 
         // String and symbol constants
         self.emit_string_and_symbol_globals(&mut ir)?;
+
+        // Instrumentation globals (when --instrument)
+        if self.instrument {
+            self.emit_instrumentation_globals(&mut ir)?;
+        }
 
         // Runtime function declarations (same as codegen_program_with_config)
         self.emit_runtime_declarations(&mut ir)?;
@@ -232,5 +258,65 @@ impl CodeGen {
     /// Emit runtime function declarations
     pub(super) fn emit_runtime_declarations(&self, ir: &mut String) -> Result<(), CodeGenError> {
         emit_runtime_decls(ir)
+    }
+
+    /// Emit instrumentation globals for --instrument mode
+    ///
+    /// Generates:
+    /// - @seq_word_counters: array of i64 counters (one per word)
+    /// - @seq_word_name_K: per-word C string constants
+    /// - @seq_word_names: array of pointers to name strings
+    fn emit_instrumentation_globals(&self, ir: &mut String) -> Result<(), CodeGenError> {
+        let n = self.word_instrument_ids.len();
+        if n == 0 {
+            return Ok(());
+        }
+
+        writeln!(ir, "; Instrumentation globals (--instrument)")?;
+
+        // Counter array: [N x i64] zeroinitializer
+        writeln!(
+            ir,
+            "@seq_word_counters = global [{} x i64] zeroinitializer",
+            n
+        )?;
+
+        // Build sorted list of (id, name) for deterministic output
+        let mut words: Vec<(usize, &str)> = self
+            .word_instrument_ids
+            .iter()
+            .map(|(name, &id)| (id, name.as_str()))
+            .collect();
+        words.sort_by_key(|&(id, _)| id);
+
+        // Per-word name string constants
+        for &(id, name) in &words {
+            let name_bytes = name.as_bytes();
+            let len = name_bytes.len() + 1; // +1 for null terminator
+            let escaped: String = name_bytes
+                .iter()
+                .map(|&b| format!("\\{:02X}", b))
+                .collect::<String>();
+            writeln!(
+                ir,
+                "@seq_word_name_{} = private constant [{} x i8] c\"{}\\00\"",
+                id, len, escaped
+            )?;
+        }
+
+        // Name pointer table
+        let ptrs: Vec<String> = words
+            .iter()
+            .map(|&(id, _name)| format!("ptr @seq_word_name_{}", id))
+            .collect();
+        writeln!(
+            ir,
+            "@seq_word_names = private constant [{} x ptr] [{}]",
+            n,
+            ptrs.join(", ")
+        )?;
+
+        writeln!(ir)?;
+        Ok(())
     }
 }

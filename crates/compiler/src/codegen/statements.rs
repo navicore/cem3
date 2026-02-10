@@ -482,6 +482,16 @@ impl CodeGen {
             // Initialize scheduler
             writeln!(&mut self.output, "  call void @patch_seq_scheduler_init()")?;
 
+            // Register instrumentation data with report system (--instrument)
+            if self.instrument {
+                let n = self.word_instrument_ids.len();
+                writeln!(
+                    &mut self.output,
+                    "  call void @patch_seq_report_init(ptr @seq_word_counters, ptr @seq_word_names, i64 {})",
+                    n
+                )?;
+            }
+
             // Spawn user's main function as the first strand
             // This ensures all code runs in coroutine context for non-blocking I/O
             writeln!(
@@ -494,6 +504,9 @@ impl CodeGen {
                 &mut self.output,
                 "  %1 = call ptr @patch_seq_scheduler_run()"
             )?;
+
+            // Emit at-exit report (no-op unless SEQ_REPORT is set at runtime)
+            writeln!(&mut self.output, "  call void @patch_seq_report()")?;
 
             writeln!(&mut self.output, "  ret i32 0")?;
         }

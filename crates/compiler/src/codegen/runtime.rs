@@ -1146,6 +1146,15 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<RuntimeDecl>> = LazyLock::new(|| {
             decl: "declare void @patch_seq_set_stack_base(ptr)",
             category: None,
         },
+        // Report operations
+        RuntimeDecl {
+            decl: "declare void @patch_seq_report()",
+            category: Some("; Report operations"),
+        },
+        RuntimeDecl {
+            decl: "declare void @patch_seq_report_init(ptr, ptr, i64)",
+            category: None,
+        },
     ]
 });
 

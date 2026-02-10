@@ -88,6 +88,21 @@ impl CodeGen {
             self.current_aux_slots.push(slot_name);
         }
 
+        // Emit instrumentation counter increment (--instrument)
+        if let Some(&word_id) = self.word_instrument_ids.get(&word.name) {
+            let n = self.word_instrument_ids.len();
+            writeln!(
+                &mut self.output,
+                "  %instr_ptr_{0} = getelementptr [{1} x i64], ptr @seq_word_counters, i64 0, i64 {0}",
+                word_id, n
+            )?;
+            writeln!(
+                &mut self.output,
+                "  %instr_old_{0} = atomicrmw add ptr %instr_ptr_{0}, i64 1 monotonic",
+                word_id
+            )?;
+        }
+
         // Set current word for type-specialized optimizations (Issue #186)
         self.current_word_name = Some(word.name.clone());
         self.current_stmt_index = 0;

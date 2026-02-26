@@ -186,6 +186,31 @@ union SensorReading {
 | Cancellation | `strand.weave-cancel` | Close iterator | `return()` |
 | Type system | Yield effect tracked | Untyped | Untyped |
 
+## Backpressure
+
+Weaves provide backpressure through the pull model: a producer cannot advance past `yield` until the consumer explicitly calls `strand.resume`. The producer is suspended at `yield`, not running ahead buffering values — it is physically blocked waiting for a resume signal.
+
+This means the consumer controls the production rate with no additional coordination needed:
+
+```seq
+# Infinite data source - but only computes on demand
+: data-source ( Ctx Int -- | Yield Int )
+  tuck yield        # Block here until consumer is ready
+  rot 1 i.+
+  data-source
+;
+
+: slow-consumer ( WeaveCtx -- )
+  # Only pulls the next item when ready to process it
+  0 strand.resume   # Producer runs exactly one step
+  drop              # Process the value
+  # ... do slow work ...
+  slow-consumer
+;
+```
+
+This is not buffered backpressure (as in Reactive Streams or Akka Streams, where a downstream signals demand counts). It is stricter: one `resume` produces exactly one yielded value. The producer cannot run ahead at all.
+
 ## When to Use Weaves vs Strands
 
 | Use Case | Mechanism |

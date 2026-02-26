@@ -233,7 +233,7 @@ initial-value strand.resume   # Yields values back and forth
 
 ## Sample Programs
 
-See the [Examples](EXAMPLES.md) chapter for complete programs organized by category (basics, language features, paradigms, data formats, I/O, projects, FFI).
+See the [Examples](docs/EXAMPLES.md) chapter for complete programs organized by category (basics, language features, paradigms, data formats, I/O, projects, FFI).
 
 ---
 

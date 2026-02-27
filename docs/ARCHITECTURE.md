@@ -164,9 +164,9 @@ The JSON library uses these variant tags:
 - Tag :JsonNull (0 fields)
 - Tag :JsonBool (1 field: Bool)
 - Tag :JsonNumber (1 field: Float)
-- Tag 3: JsonString (1 field: String)
-- Tag 4: JsonArray (N fields: elements)
-- Tag 5: JsonObject (2N fields: key1 val1 key2 val2 ...)
+- Tag :JsonString (1 field: String)
+- Tag :JsonArray (N fields: elements)
+- Tag :JsonObject (2N fields: key1 val1 key2 val2 ...)
 
 ## Control Flow
 

@@ -184,7 +184,7 @@ Division and modulo operations return a result and a success flag:
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `call` | `( Quotation -- ... )` | Call a quotation or closure |
-| `cond` | `( T [T--T Bool] [T--T] ... N -- T )` | Multi-way conditional: N predicate/body pairs. Each predicate receives the value and returns `Bool`; first match wins. Panics if no predicate matches. |
+| `cond` | `( T [T -- T Bool] [T -- T] ... N -- T )` | Multi-way conditional: N predicate/body pairs. Each predicate receives the value and returns `Bool`; first match wins. Panics if no predicate matches. |
 
 ## Concurrency
 

@@ -1,7 +1,7 @@
 # Seq Standard Library Reference
 
 This document covers:
-- **Built-in Operations** - 152 primitives implemented in the runtime
+- **Built-in Operations** - primitives implemented in the runtime
 - **Standard Library Modules** - Seq code included via `include std:<module>`
 
 ## Table of Contents
@@ -184,7 +184,7 @@ Division and modulo operations return a result and a success flag:
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `call` | `( Quotation -- ... )` | Call a quotation or closure |
-| `cond` | `( ... Int -- ... )` | Multi-way conditional |
+| `cond` | `( T [T -- T Bool] [T -- T] ... N -- T )` | Multi-way conditional: N predicate/body pairs. Each predicate receives the value and returns `Bool`; first match wins. Panics if no predicate matches. |
 
 ## Concurrency
 
@@ -456,7 +456,7 @@ include std:json
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `json-null` | `( -- JsonValue )` | Create null |
-| `json-bool` | `( Int -- JsonValue )` | Create boolean (0=false) |
+| `json-bool` | `( Bool -- JsonValue )` | Create boolean |
 | `json-true` | `( -- JsonValue )` | Create true |
 | `json-false` | `( -- JsonValue )` | Create false |
 | `json-number` | `( Float -- JsonValue )` | Create number |
@@ -487,7 +487,7 @@ include std:json
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `json-unwrap-bool` | `( JsonValue -- Int )` | Extract boolean as 0/1 |
+| `json-unwrap-bool` | `( JsonValue -- Bool )` | Extract boolean |
 | `json-unwrap-number` | `( JsonValue -- Float )` | Extract number |
 | `json-unwrap-string` | `( JsonValue -- String )` | Extract string |
 
@@ -517,7 +517,7 @@ Supports: key-value pairs, nested objects (indentation), strings, numbers, boole
 | `yaml-parse` | `( String -- YamlValue Bool )` | Parse YAML string |
 | `yaml-serialize` | `( YamlValue -- String )` | Serialize to JSON-like string |
 | `yaml-null` | `( -- YamlValue )` | Create null |
-| `yaml-bool` | `( Int -- YamlValue )` | Create boolean |
+| `yaml-bool` | `( Bool -- YamlValue )` | Create boolean |
 | `yaml-number` | `( Float -- YamlValue )` | Create number |
 | `yaml-string` | `( String -- YamlValue )` | Create string |
 | `yaml-empty-object` | `( -- YamlObject )` | Create empty object |
@@ -579,7 +579,7 @@ list-of 1 lv 2 lv 3 lv  # Build [1, 2, 3]
 
 ### std:map - Map Utilities
 
-*(Currently empty - placeholder for future map utilities)*
+No additional utilities beyond the built-in [Map Operations](#map-operations).
 
 ---
 

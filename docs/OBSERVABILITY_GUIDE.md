@@ -162,8 +162,8 @@ The `--instrument` compiler flag bakes per-word atomic counters into the binary.
 # Compile with instrumentation
 seqc build --instrument my-program.seq
 
-# Run with report to see word counts
-SEQ_REPORT=1 ./my-program
+# Run with word-count report
+SEQ_REPORT=words ./my-program
 ```
 
 ### How It Works
@@ -181,7 +181,7 @@ When `--instrument` is passed:
 
 ### Example Output
 
-With `SEQ_REPORT=1` or `SEQ_REPORT=words`:
+With `SEQ_REPORT=words`:
 
 ```
 === SEQ REPORT ===
@@ -214,7 +214,6 @@ When disabled:
 - `kill -3` has no effect (no signal handler installed)
 - Watchdog is not compiled
 - `SEQ_REPORT` still works for basic metrics (wall clock, memory) but strand registry data is unavailable
-- `patch_seq_report()` and `patch_seq_report_init()` link to no-op stubs
 
 In practice, benchmarking shows the diagnostics overhead is negligible compared to May's coroutine spawn syscalls. The feature is primarily useful for production deployments where live debugging capability is needed.
 

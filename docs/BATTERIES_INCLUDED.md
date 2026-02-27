@@ -1,4 +1,4 @@
-# Batteries Included: Seq Standard Library Vision
+# Batteries Included: Seq Standard Library
 
 ## Philosophy
 
@@ -19,19 +19,19 @@ Seq's runtime is implemented in Rust, which provides a massive architectural adv
 
 Seq can leverage Rust's ecosystem directly:
 
-| Capability | Rust Crate | Quality | FFI Effort |
-|------------|------------|---------|------------|
-| **Crypto hashing** | `sha2` | RustCrypto, audited | ~1 day |
-| **HMAC** | `hmac` | RustCrypto, audited | ~1 day |
-| **Encryption** | `aes-gcm` | RustCrypto, audited | ~1 day |
-| **Signatures** | `ed25519-dalek` | Audited, widely used | ~1 day |
-| **HTTP client** | `ureq` | Pure Rust, minimal | 2-3 days |
-| **TLS** | `rustls` | Memory-safe, modern | Comes with ureq |
-| **Regex** | `regex` | Fastest in class | 1-2 days |
-| **Compression** | `flate2`, `zstd` | Fast, well-maintained | 1 day each |
-| **Random** | `rand` | Industry standard | Few hours |
-| **UUID** | `uuid` | Complete implementation | Few hours |
-| **Database** | `rusqlite` | Mature, stable | 2-3 days |
+| Capability | Rust Crate | Quality |
+|------------|------------|---------|
+| **Crypto hashing** | `sha2` | RustCrypto, audited |
+| **HMAC** | `hmac` | RustCrypto, audited |
+| **Encryption** | `aes-gcm` | RustCrypto, audited |
+| **Signatures** | `ed25519-dalek` | Audited, widely used |
+| **HTTP client** | `ureq` | Pure Rust, minimal |
+| **TLS** | `rustls` | Memory-safe, modern |
+| **Regex** | `regex` | Fastest in class |
+| **Compression** | `flate2`, `zstd` | Fast, well-maintained |
+| **Random** | `rand` | Industry standard |
+| **UUID** | `uuid` | Complete implementation |
+| **Database** | `rusqlite` | Mature, stable |
 
 ### Pattern Already Proven
 
@@ -65,7 +65,7 @@ This is Seq's unfair advantage: a concatenative language with the full power of 
 
 ---
 
-## Feature Flags & Binary Size (Implemented)
+## Feature Flags & Binary Size
 
 The runtime uses Cargo feature flags to allow opt-in compilation of optional modules. This keeps the core runtime smaller while allowing full batteries for apps that need them.
 
@@ -146,13 +146,6 @@ cargo build --release --no-default-features --features crypto
 | `compression` | gzip, zstd | `compress.*` |
 | `diagnostics` | SIGQUIT strand dump | (debugging) |
 | `full` | All of the above | Everything |
-
-### Future: Compiler Integration
-
-Eventually the compiler could:
-- Detect which features a program needs at compile time
-- Error with helpful message: "Enable --features crypto for crypto.sha256"
-- Auto-generate feature requirements in `seq.toml`
 
 ---
 
@@ -255,71 +248,9 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 
 ---
 
-## Standard Library Structure
+## Priority 1: HTTP Client
 
-### Proposed Module Organization
-
-```
-stdlib/
-├── core/           # Prelude, always loaded
-│   ├── prelude.seq     # Common combinators, utilities
-│   └── option.seq      # Option type and operations
-│
-├── text/           # Text processing
-│   ├── json.seq        # JSON encode/decode
-│   ├── regex.seq       # Regular expressions
-│   └── template.seq    # String templating
-│
-├── net/            # Networking
-│   ├── http.seq        # HTTP client and server
-│   ├── url.seq         # URL parsing
-│   └── tcp.seq         # Low-level TCP (wraps builtins)
-│
-├── crypto/         # Cryptography
-│   ├── hash.seq        # SHA256, MD5, etc.
-│   ├── hmac.seq        # HMAC
-│   └── rand.seq        # Cryptographic random
-│
-├── io/             # I/O utilities
-│   ├── file.seq        # File operations (wraps builtins)
-│   ├── path.seq        # Path manipulation
-│   └── buffer.seq      # Buffered I/O
-│
-├── time/           # Time and dates
-│   ├── time.seq        # Timestamps, durations
-│   └── format.seq      # Date/time formatting
-│
-├── encoding/       # Data formats (builtins available)
-│   ├── base64          # encoding.base64-encode/decode (builtin)
-│   ├── base64url       # encoding.base64url-encode/decode (builtin)
-│   ├── hex             # encoding.hex-encode/decode (builtin)
-│   └── son.seq         # SON format (wraps builtins)
-│
-├── testing/        # Testing framework
-│   └── test.seq        # Test runner, assertions
-│
-└── ui/             # UI framework (future)
-    ├── html.seq        # HTML generation
-    ├── css.seq         # CSS utilities
-    └── component.seq   # Component model
-```
-
-### Module Loading
-
-```seq
-// Import entire module
-include "stdlib/net/http"
-
-// Use qualified names
-"https://api.example.com" http.get
-response http.body
-```
-
----
-
-## Priority 1: HTTP Client (COMPLETE)
-
-The HTTP client is now fully implemented using the `ureq` Rust crate.
+The HTTP client is implemented using the `ureq` Rust crate.
 
 ### API
 
@@ -385,106 +316,11 @@ Blocked requests return an error response with `ok=false`.
 - Use domain allowlists for sensitive applications
 - Apply network-level egress filtering
 
-### HTTP Server Improvements
-
-The existing server works but could use:
-- **Path parameters**: `/users/:id` → extract `id`
-- **Query string parsing**: `/search?q=foo` → extract `q`
-- **Request body access**: For POST/PUT handlers
-- **Content-Type helpers**: `http-json-ok`, `http-html-ok`
-
-```seq
-# Proposed additions to stdlib/http.seq
-
-: http-json-ok ( String -- String )
-  dup string.byte-length int->string
-  "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
-  swap string.concat "\r\n\r\n" string.concat swap string.concat ;
-
-: http-param ( String String -- String )
-  # Extract path parameter: "/users/123" ":id" -> "123"
-  ... ;
-
-: http-query ( String String -- String )
-  # Extract query param: "?q=foo&n=10" "q" -> "foo"
-  ... ;
-```
-
 ---
 
-## Priority 2: Developer Experience
+## Priority 2: Regular Expressions
 
-### Package Management
-
-**Goals:**
-- Single canonical source (like Go modules)
-- Reproducible builds (lockfile)
-- No central registry required (git-based)
-
-**Proposed `seq.toml`:**
-```toml
-[package]
-name = "my-app"
-version = "0.1.0"
-seq-version = "0.20"
-
-[dependencies]
-"github.com/example/utils" = "v1.2.0"
-"github.com/example/http-middleware" = "v0.5.0"
-
-[dev-dependencies]
-"github.com/example/test-helpers" = "v1.0.0"
-```
-
-**Commands:**
-```bash
-seq init           # Create new project
-seq build          # Compile
-seq run            # Build and run
-seq test           # Run tests
-seq fmt            # Format code
-seq get            # Add dependency
-seq mod tidy       # Clean up dependencies
-```
-
-### Code Formatter (`seq fmt`)
-
-**Opinionated rules:**
-- 2-space indentation
-- Spaces around operators in effect declarations
-- One word per line in long definitions
-- Consistent brace style for quotations
-
-```seq
-// Before
-: process-data (Int String--String)
-dup 0 i.> if swap string.concat process-data else nip then ;
-
-// After
-: process-data ( Int String -- String )
-  dup 0 i.> if
-    swap string.concat process-data
-  else
-    nip
-  then ;
-```
-
-### Language Server Protocol (LSP)
-
-Essential for IDE adoption:
-- Go-to-definition for words
-- Hover for stack effects and docs
-- Autocomplete for builtins and user words
-- Error diagnostics as you type
-- Find references
-
----
-
-## Priority 3: Regex & Templates
-
-### Regular Expressions (Complete)
-
-Regex support is now complete via the Rust `regex` crate (v1.11). Fast, safe, and no catastrophic backtracking.
+Regex support is implemented via the Rust `regex` crate (v1.11). Fast, safe, and no catastrophic backtracking.
 
 ```seq
 # Check if pattern matches anywhere in string
@@ -494,20 +330,20 @@ Regex support is now complete via the Rust `regex` crate (v1.11). Fast, safe, an
 "a1 b2 c3" "[a-z][0-9]" regex.find      # ( String String -- String Bool )
 
 # Find all matches
-"a1 b2 c3" "[a-z][0-9]" regex.find-all  # ( String String -- List )
+"a1 b2 c3" "[a-z][0-9]" regex.find-all  # ( String String -- List Bool )
 
 # Replace first occurrence
-"hello world" "world" "Seq" regex.replace  # ( String String String -- String )
+"hello world" "world" "Seq" regex.replace  # ( String String String -- String Bool )
 
 # Replace all occurrences
-"a1 b2 c3" "[0-9]" "X" regex.replace-all   # ( String String String -- String )
+"a1 b2 c3" "[0-9]" "X" regex.replace-all   # ( String String String -- String Bool )
 
 # Extract capture groups
 "2024-01-15" "(\\d+)-(\\d+)-(\\d+)" regex.captures
 # ( String String -- List Bool ) returns ["2024", "01", "15"] true
 
 # Split by pattern
-"a1b2c3" "[0-9]" regex.split            # ( String String -- List )
+"a1b2c3" "[0-9]" regex.split            # ( String String -- List Bool )
 
 # Check if pattern is valid
 "[a-z]+" regex.valid?                   # ( String -- Bool )
@@ -517,80 +353,60 @@ Regex support is now complete via the Rust `regex` crate (v1.11). Fast, safe, an
 - `examples/text/regex-demo.seq` - Demonstrates all regex operations
 - `examples/text/log-parser.seq` - Practical log parsing with regex
 
-### String Templates
-
-```seq
-// Simple interpolation
-{ "name": "Alice", "count": 42 }
-"Hello {{name}}, you have {{count}} messages."
-template.render
-// ( Map String -- String )
-
-// HTML templates (auto-escaping)
-{ "user": "<script>alert('xss')</script>" }
-"<p>Welcome, {{user}}</p>"
-template.render-html
-// Output: <p>Welcome, &lt;script&gt;alert('xss')&lt;/script&gt;</p>
-
-// Template files
-"templates/email.html" template.load
-data swap template.render
-```
-
 ---
 
-## Priority 4: Cryptography
+## Priority 3: Cryptography
 
 Crypto is essential for real-world applications but often requires hunting through external packages. A batteries-included approach means shipping these out of the box.
 
-### Tier 1: Essential (Implemented)
+### Tier 1: Essential
 
-| API | Rust Crate | Use Cases | Status |
-|-----|------------|-----------|--------|
-| `crypto.sha256` | `sha2` | Checksums, content addressing, password hashing input | **Done** |
-| `crypto.hmac-sha256` | `hmac` + `sha2` | Webhook verification, JWT signing, API auth | **Done** |
-| `crypto.random-bytes` | `rand` | Tokens, nonces, salts, session IDs | **Done** |
-| `crypto.uuid4` | `uuid` | Unique identifiers | **Done** |
-| `crypto.constant-time-eq` | custom | Timing-safe comparison for signatures | **Done** |
+| API | Rust Crate | Use Cases |
+|-----|------------|-----------|
+| `crypto.sha256` | `sha2` | Checksums, content addressing, password hashing input |
+| `crypto.hmac-sha256` | `hmac` + `sha2` | Webhook verification, JWT signing, API auth |
+| `crypto.random-bytes` | `rand` | Tokens, nonces, salts, session IDs |
+| `crypto.uuid4` | `uuid` | Unique identifiers |
+| `crypto.constant-time-eq` | custom | Timing-safe comparison for signatures |
 
 ```seq
-// Hashing
-"hello world" crypto.sha256          // ( String -- String ) hex-encoded
+# Hashing
+"hello world" crypto.sha256          # ( String -- String ) hex-encoded
 
-// HMAC for API authentication
+# HMAC for API authentication
 "webhook-payload" "secret-key" crypto.hmac-sha256
-// ( message key -- signature )
+# ( message key -- signature )
 
-// Verify webhook signature
+# Verify webhook signature
 received-sig computed-sig crypto.constant-time-eq
-// ( String String -- Bool ) timing-safe comparison
+# ( String String -- Bool ) timing-safe comparison
 
-// Generate secure random token
-32 crypto.random-bytes    // ( n -- String ) 32 random bytes as 64-char hex string
+# Generate secure random token
+32 crypto.random-bytes    # ( n -- String ) 32 random bytes as 64-char hex string
 
-// Generate UUID v4
-crypto.uuid4    // ( -- String ) "550e8400-e29b-41d4-a716-446655440000"
+# Generate UUID v4
+crypto.uuid4    # ( -- String ) "550e8400-e29b-41d4-a716-446655440000"
 ```
 
-### Tier 2: Encryption (Implemented)
+### Tier 2: Encryption
 
-| API | Rust Crate | Use Cases | Status |
-|-----|------------|-----------|--------|
-| `crypto.aes-gcm-encrypt` | `aes-gcm` | Encrypting data at rest, secure storage | **Done** |
-| `crypto.aes-gcm-decrypt` | `aes-gcm` | Decrypting data | **Done** |
-| `crypto.pbkdf2-sha256` | `pbkdf2` | Password-based key derivation | **Done** |
+| API | Rust Crate | Use Cases |
+|-----|------------|-----------|
+| `crypto.aes-gcm-encrypt` | `aes-gcm` | Encrypting data at rest, secure storage |
+| `crypto.aes-gcm-decrypt` | `aes-gcm` | Decrypting data |
+| `crypto.pbkdf2-sha256` | `pbkdf2` | Password-based key derivation |
 
 ```seq
-// Symmetric encryption (AES-256-GCM)
-// Key must be 64 hex chars (32 bytes = 256 bits)
-plaintext hex-key crypto.aes-gcm-encrypt   // ( String String -- String Bool )
-ciphertext hex-key crypto.aes-gcm-decrypt  // ( String String -- String Bool )
+# Symmetric encryption (AES-256-GCM)
+# Key must be 64 hex chars (32 bytes = 256 bits)
+plaintext hex-key crypto.aes-gcm-encrypt   # ( String String -- String Bool )
+ciphertext hex-key crypto.aes-gcm-decrypt  # ( String String -- String Bool )
 
-// Key derivation from password
+# Key derivation from password
 "user-password" "salt" 100000 crypto.pbkdf2-sha256
-// ( password salt iterations -- hex-key Bool )
+# ( password salt iterations -- hex-key Bool )
 
-// Full example: derive key and encrypt
+# Full example: derive key and encrypt
 "user-password" "unique-salt" 100000 crypto.pbkdf2-sha256
 if
   "secret data" swap crypto.aes-gcm-encrypt
@@ -604,25 +420,25 @@ else
 then
 ```
 
-### Tier 3: Signatures & Key Exchange (Implemented)
+### Tier 3: Signatures
 
-| API | Rust Crate | Use Cases | Status |
-|-----|------------|-----------|--------|
-| `crypto.ed25519-keypair` | `ed25519-dalek` | Generate signing keys | **Done** |
-| `crypto.ed25519-sign` | `ed25519-dalek` | Digital signatures | **Done** |
-| `crypto.ed25519-verify` | `ed25519-dalek` | Signature verification | **Done** |
+| API | Rust Crate | Use Cases |
+|-----|------------|-----------|
+| `crypto.ed25519-keypair` | `ed25519-dalek` | Generate signing keys |
+| `crypto.ed25519-sign` | `ed25519-dalek` | Digital signatures |
+| `crypto.ed25519-verify` | `ed25519-dalek` | Signature verification |
 
 ```seq
-// Generate keypair
-crypto.ed25519-keypair    // ( -- public-key private-key ) both as 64-char hex
+# Generate keypair
+crypto.ed25519-keypair    # ( -- public-key private-key ) both as 64-char hex
 
-// Sign a message
-message private-key crypto.ed25519-sign    // ( String String -- String Bool )
+# Sign a message
+message private-key crypto.ed25519-sign    # ( String String -- String Bool )
 
-// Verify signature
-message signature public-key crypto.ed25519-verify  // ( String String String -- Bool )
+# Verify signature
+message signature public-key crypto.ed25519-verify  # ( String String String -- Bool )
 
-// Full example
+# Full example
 crypto.ed25519-keypair
 "Important document" swap crypto.ed25519-sign
 if
@@ -633,38 +449,27 @@ else
 then
 ```
 
-### Encoding Helpers (Implemented)
+### Encoding Helpers
 
-Available now as `encoding.*` builtins:
+Available as `encoding.*` builtins:
 
 ```seq
-// Base64 (standard with padding)
-"hello" encoding.base64-encode    // ( String -- String ) "aGVsbG8="
-"aGVsbG8=" encoding.base64-decode // ( String -- String Bool )
+# Base64 (standard with padding)
+"hello" encoding.base64-encode    # ( String -- String ) "aGVsbG8="
+"aGVsbG8=" encoding.base64-decode # ( String -- String Bool )
 
-// URL-safe Base64 (no padding, for JWTs/URLs)
-data encoding.base64url-encode    // ( String -- String )
-encoded encoding.base64url-decode // ( String -- String Bool )
+# URL-safe Base64 (no padding, for JWTs/URLs)
+data encoding.base64url-encode    # ( String -- String )
+encoded encoding.base64url-decode # ( String -- String Bool )
 
-// Hex (lowercase output, case-insensitive decode)
-"hello" encoding.hex-encode       // ( String -- String ) "68656c6c6f"
-"68656c6c6f" encoding.hex-decode  // ( String -- String Bool )
+# Hex (lowercase output, case-insensitive decode)
+"hello" encoding.hex-encode       # ( String -- String ) "68656c6c6f"
+"68656c6c6f" encoding.hex-decode  # ( String -- String Bool )
 ```
-
-### Implementation Priority
-
-| Phase | APIs | Status |
-|-------|------|--------|
-| **Phase 1** | sha256, hmac-sha256, random-bytes, uuid4, constant-time-eq | **Complete** |
-| **Phase 2** | base64, hex | **Complete** |
-| **Phase 3** | aes-gcm-encrypt, aes-gcm-decrypt, pbkdf2-sha256 | **Complete** |
-| **Phase 4** | ed25519-keypair, ed25519-sign, ed25519-verify | **Complete** |
-
-All crypto phases complete: JWT verification, webhook handling, secure tokens, API authentication, encrypted storage, password-based key derivation, digital signatures all available.
 
 ---
 
-## Priority 5: Compression (Complete)
+## Priority 4: Compression
 
 Data compression via gzip and Zstandard (zstd). All operations use base64 encoding for string-safe output.
 
@@ -743,124 +548,12 @@ swap compress.zstd if string.length else drop 0 then
 
 ---
 
-## Future: UI Framework
-
-### Philosophy
-
-Not React-for-Seq. Instead:
-- **Server-rendered HTML** with minimal client JS
-- **HTMX-style interactions** for dynamic updates
-- **Component model** for reusable pieces
-- **CSS utilities** or integration with Tailwind
-
-### Vision
-
-```seq
-// Define a component
-: user-card ( User -- Html )
-  [ user |
-    <div class="card">
-      <h2>{{ user "name" @ }}</h2>
-      <p>{{ user "email" @ }}</p>
-      <button hx-get="/users/{{ user "id" @ }}/details">
-        View Details
-      </button>
-    </div>
-  ] html.component ;
-
-// Page composition
-: users-page ( List -- Html )
-  [ users |
-    <html>
-      <head>
-        <title>Users</title>
-        {{ "styles.css" css.link }}
-      </head>
-      <body>
-        <h1>All Users</h1>
-        {{ users [ user-card ] list.map html.join }}
-      </body>
-    </html>
-  ] html.page ;
-
-// Serve it
-8080 http.listen [ request |
-  get-all-users users-page http.html-respond
-]
-```
-
-### Alternative: Immediate-Mode UI (for CLI/TUI)
-
-```seq
-// Terminal UI framework
-ui.screen [
-  "Welcome to Seq" ui.title
-
-  ui.row [
-    "Name: " ui.label
-    name ui.input name!
-  ]
-
-  ui.row [
-    "Submit" [ handle-submit ] ui.button
-    "Cancel" [ ui.exit ] ui.button
-  ]
-] ui.render
-```
-
----
-
-## Implementation Roadmap
-
-### Already Complete
-- [x] JSON parser/encoder (1234 lines)
-- [x] YAML parser (750 lines)
-- [x] Result/Option types (268 lines)
-- [x] HTTP server response/request helpers
-- [x] Concurrent HTTP server example
-- [x] Math utilities (imath, fmath)
-- [x] Testing framework
-- [x] LSP server (2200+ lines) - diagnostics, completions, include resolution
-- [x] REPL with LSP integration and vim keybindings
-- [x] Base64/Hex encoding (builtin) - standard, URL-safe, hex
-- [x] Crypto Phase 1 (builtin) - SHA-256, HMAC-SHA256, random bytes, UUID v4
-- [x] Crypto Phase 2 (builtin) - AES-256-GCM encryption/decryption, PBKDF2 key derivation
-- [x] Crypto Phase 3 (builtin) - Ed25519 digital signatures
-- [x] HTTP client (builtin) - GET, POST, PUT, DELETE with TLS via ureq
-- [x] Regex (builtin) - match, find, replace, captures, split via regex crate
-- [x] Compression (builtin) - gzip, zstd with levels via flate2/zstd crates
-
-### Phase 1: Tooling
-- [ ] `seq fmt` basic formatter
-- [ ] `seq.toml` project file
-- [ ] HTTP server improvements (path params, query strings)
-
-### Phase 2: Text Processing
-- [x] Regex (FFI to regex crate)
-- [ ] String templates
-- [ ] URL parsing (pure Seq or FFI)
-- [ ] `seq get` package fetching
-
-### Phase 3: Docs & Crypto Phase 2
-- [ ] `seq doc` documentation generator
-- [x] AES-GCM encryption
-- [x] PBKDF2 key derivation
-- [x] Ed25519 signatures
-
-### Phase 4: Advanced
-- [ ] Database connectivity
-- [ ] HTML templating
-- [x] Compression
-- [ ] UI framework exploration
-
----
-
 ## Design Principles
 
 ### 1. Composition Over Configuration
 
 ```seq
-// Good: Composable pieces
+# Good: Composable pieces
 request
   auth-middleware
   logging-middleware
@@ -868,32 +561,32 @@ request
   handler
 http.handle
 
-// Avoid: Giant config objects
+# Avoid: Giant config objects
 ```
 
 ### 2. Stack-Friendly APIs
 
 ```seq
-// Good: Works naturally on stack
+# Good: Works naturally on stack
 users [ "active" @ ] list.filter
 
-// Avoid: Deeply nested structures that fight the stack
+# Avoid: Deeply nested structures that fight the stack
 ```
 
 ### 3. Explicit Over Magic
 
 ```seq
-// Good: Clear what happens
+# Good: Clear what happens
 response http.body json.decode "users" json.get
 
-// Avoid: Hidden transformations
+# Avoid: Hidden transformations
 ```
 
 ### 4. Errors as Values
 
 ```seq
-// Use Result/Option patterns
-file.read-text  // ( Path -- String Bool )
+# Use Result/Option patterns
+file.read-text  # ( Path -- String Bool )
 [ process-content ] [ "File not found" error ] if-else
 ```
 
@@ -910,26 +603,15 @@ file.read-text  // ( Path -- String Bool )
 
 ## Comparison: Seq vs Go
 
-| Aspect | Go | Seq (Planned) |
-|--------|-----|---------------|
+| Aspect | Go | Seq |
+|--------|-----|-----|
 | Paradigm | Imperative, structural | Stack-based, functional |
 | Concurrency | Goroutines + channels | Strands + channels |
 | Error handling | `error` return value | Result types on stack |
 | Generics | Type parameters | Row polymorphism |
-| Build | `go build` | `seq build` |
-| Format | `gofmt` | `seq fmt` |
-| Packages | Module path | Module path |
+| Build | `go build` | `seqc build` |
+| Packages | Module path | `include std:module` |
 | Std library | ~150 packages | ~15 modules (focused) |
-
----
-
-## Next Steps
-
-1. **Create `stdlib/` directory structure**
-2. **Design HTTP client API in detail**
-3. **Implement JSON as first stdlib module**
-4. **Draft `seq.toml` specification**
-5. **Prototype `seq fmt` basic rules**
 
 ---
 

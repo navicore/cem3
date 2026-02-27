@@ -42,7 +42,8 @@ field           = IDENT ":" type_name ;
 ```ebnf
 word_def        = ":" IDENT stack_effect { statement } ";" ;
 
-stack_effect    = "(" type_list "--" type_list ")" ;
+stack_effect    = "(" type_list "--" type_list [ "|" effect_annotation { effect_annotation } ] ")" ;
+effect_annotation = "Yield" type ;
 type_list       = [ row_var ] { type } ;
 row_var         = ".." LOWER_IDENT ;
 
@@ -157,7 +158,7 @@ This means `( -- )` preserves the stack (it's `( ..rest -- ..rest )`), not that 
 | `.` (dot) | Module/namespace prefix | `io.write-line`, `tcp.listen` |
 | `-` (hyphen) | Compound words | `home-dir`, `write-line` |
 | `->` (arrow) | Type conversions | `int->string`, `float->int` |
-| `?` (question) | Predicates | `path-exists?`, `empty?` |
+| `?` (question) | Predicates | `list.empty?`, `map.has?` |
 
 ### Reserved Words
 
@@ -189,7 +190,7 @@ union Result {
   dup 0 i.= if
     drop drop "Division by zero" Make-Error
   else
-    i.divide Make-Ok
+    i.divide drop Make-Ok
   then
 ;
 

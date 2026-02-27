@@ -30,7 +30,7 @@ A concatenative, stack-based programming language that compiles to native execut
 
 ## Project Status
 
-Stable as of 1.1.0. The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
+Stable as of 4.0. The language and standard library are stable and used by the creators for their own projects. That said, Seq is a niche experimental language - adopt it with eyes open. Future versions follow strict semantic versioning: major version increments indicate breaking changes to the language or standard library. Minor and patch versions add features and fixes without breaking existing code.
 
 ---
 
@@ -41,9 +41,9 @@ Stable as of 1.1.0. The language and standard library are stable and used by the
 *Strongly typed with effect tracking.* Stack effects aren't just comments - they're enforced by the compiler. The type system tracks not only what goes on and off the stack, but also side effects like yielding from generators:
 
 ```seq
-: counter ( Ctx Int -- Ctx | Yield Int )   # Yields integers, takes a context
-  dup yield drop
-  1 i.+ counter
+: counter ( Ctx Int -- | Yield Int )   # Yields integers, takes a context
+  tuck yield        # yield current count, receive resume value
+  drop swap 1 i.+ counter
 ;
 ```
 
@@ -101,13 +101,13 @@ Supports bash, zsh, fish (`activate.fish`), and csh/tcsh (`activate.csh`).
 
 Compile and run a program:
 ```bash
-seqc build examples/hello-world.seq
+seqc build examples/basics/hello-world.seq
 ./hello-world
 ```
 
 Script mode (run directly):
 ```bash
-seqc examples/hello-world.seq          # Compile and run in one step
+seqc examples/basics/hello-world.seq          # Compile and run in one step
 ```
 
 Scripts can use shebangs for direct execution:
@@ -137,7 +137,7 @@ cargo test --all
 
 ## Learn Seq
 
-New to concatenative programming? Start with the [Glossary](GLOSSARY.md) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms.
+New to concatenative programming? Start with the [Glossary](docs/GLOSSARY.md) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms.
 
 Learn by doing: Work through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
 
@@ -207,9 +207,9 @@ my-list [ 2 i.* ] list.map # Double each element
 *Concurrency* — Strands (green threads) communicate through channels:
 
 ```seq
-make-channel
-[ 42 swap chan.send ] strand.spawn
-chan.receive    # Receives 42
+chan.make
+dup [ 42 swap chan.send drop ] strand.spawn drop
+chan.receive drop    # Receives 42
 ```
 
 Weaves provide generator-style coroutines with bidirectional communication:
@@ -258,13 +258,13 @@ Environment Variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SEQ_STACK_SIZE` | 1048576 (1MB) | Coroutine stack size in bytes |
+| `SEQ_STACK_SIZE` | 131072 (128KB) | Coroutine stack size in bytes |
 | `SEQ_YIELD_INTERVAL` | 0 (disabled) | Yield to scheduler every N tail calls |
 | `SEQ_WATCHDOG_SECS` | 0 (disabled) | Detect strands running longer than N seconds |
 | `SEQ_REPORT` | unset (disabled) | At-exit KPI report: `1` (human to stderr), `json` (JSON to stderr), `json:/path` (JSON to file) |
 
 ```bash
-SEQ_STACK_SIZE=2097152 ./my-program      # 2MB stacks
+SEQ_STACK_SIZE=262144 ./my-program       # 256KB stacks
 SEQ_YIELD_INTERVAL=10000 ./my-program    # Yield every 10K tail calls
 SEQ_WATCHDOG_SECS=30 ./my-program        # Warn if strand runs >30s
 SEQ_REPORT=1 ./my-program                # Print KPI report on exit

@@ -206,7 +206,7 @@ include ffi:libedit
 
 : repl ( -- )
   "seq> " readline
-  dup string-length 0 > if
+  dup string.length 0 i.> if
     dup add-history
     process-input      # Your processing here
     repl
@@ -229,7 +229,7 @@ include ffi:libedit
 
 : repl ( -- )
   "seq> " readline
-  dup string-length 0 > if
+  dup string.length 0 i.> if
     dup add-history
     process-input
     repl
@@ -252,9 +252,8 @@ include ffi:libedit
 ```
 
 **Note:** File paths are passed directly to the C library. Shell expansions
-like `~` are not performed - path resolution is your application's responsibility.
-A future `std:os` module could provide environment variable access for building
-paths like `$HOME/.myapp_history`.
+like `~` are not performed. Use `os.home-dir` and `os.path-join` to build
+paths from the home directory rather than hardcoding `/tmp` paths.
 
 ### Example: SQLite Database
 
@@ -286,10 +285,7 @@ Link names can only contain: `a-z`, `A-Z`, `0-9`, `-`, `_`, `.`
 
 This prevents command injection attacks via malicious manifests.
 
-## Future Work
-
-- **Struct passing**: Pass and return C structs
-- **Platform-specific bindings**: Conditional compilation per target
+## Design Notes
 
 ### Callbacks (Shelved)
 

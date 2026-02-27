@@ -132,10 +132,10 @@ Built-in operations also use row polymorphism:
 
 ```seq
 # Add: works at any stack depth
-: add ( ..a Int Int -- ..a Int )
+: i.+ ( ..a Int Int -- ..a Int )
 
 # Print: works at any stack depth
-: write_line ( ..a String -- ..a )
+: io.write-line ( ..a String -- ..a )
 ```
 
 ### Implicit Row Polymorphism
@@ -145,11 +145,11 @@ Built-in operations also use row polymorphism:
 ```seq
 # What you write:
 : double ( Int -- Int )
-  dup add ;
+  dup i.+ ;
 
 # What the compiler understands:
 : double ( ..rest Int -- ..rest Int )
-  dup add ;
+  dup i.+ ;
 ```
 
 This means:
@@ -179,13 +179,13 @@ The values 10 and 20 are untouched—`double` only operates on the top. Without 
 Row polymorphism enables **stack operation composition**:
 
 ```seq
-: swap-and-add ( Int Int Int -- Int )
-  swap add ;
+: swap-and-add ( Int Int Int -- Int Int )
+  swap i.+ ;
 
 # Type checker verifies:
 # 1. swap: ( ..a Int Int -- ..a Int Int )
 #    With ..a = Int, we get: ( Int Int Int -- Int Int Int )
-# 2. add: ( ..a Int Int -- ..a Int )
+# 2. i.+: ( ..a Int Int -- ..a Int )
 #    With ..a = Int, we get: ( Int Int Int -- Int Int )
 # Result: ( Int Int Int -- Int Int ) ✓
 ```
@@ -256,7 +256,7 @@ The `..a` means "whatever else is on the stack stays unchanged." You can't expre
 - **Int**: Integer numbers (64-bit signed)
 - **Float**: Floating-point numbers (64-bit)
 - **String**: Text strings
-- **Bool**: Not a separate type - represented as Int (0 = false, non-zero = true)
+- **Bool**: A distinct type tracked by the type checker. Literals are `true` and `false`. Comparison and logical operations produce `Bool`; `if` requires `Bool`.
 
 ### Type Variables
 
@@ -278,20 +278,19 @@ The `..a` means "whatever else is on the stack stays unchanged." You can't expre
 
 ```seq
 : bad ( Int -- )
-  write_line ;  # ERROR: write_line expects String, got Int
+  io.write-line ;  # ERROR: io.write-line expects String, got Int
 ```
 
 **Error message:**
 ```
-write_line: stack type mismatch.
-Expected Cons { rest: RowVar("a"), top: String },
-got Cons { rest: RowVar("a"), top: Int }
+io.write-line: stack type mismatch.
+Expected (..a String), got (..a Int): Type mismatch: cannot unify String with Int
 ```
 
 **Fix:** Convert Int to String first:
 ```seq
 : good ( Int -- )
-  int->string write_line ;
+  int->string io.write-line ;
 ```
 
 ### Stack Underflow
@@ -304,8 +303,7 @@ got Cons { rest: RowVar("a"), top: Int }
 **Error message:**
 ```
 drop: stack type mismatch.
-Expected Cons { rest: RowVar("a"), top: Var("T") },
-got Empty
+Expected (..a T), got (): stack underflow
 ```
 
 **Fix:** Ensure stack has a value first:
@@ -328,8 +326,7 @@ got Empty
 **Error message:**
 ```
 if branches have incompatible stack effects:
-then=Cons { rest: RowVar("a"), top: Int },
-else=Cons { rest: RowVar("a"), top: String }
+then=(..a Int), else=(..a String): Type mismatch: cannot unify Int with String
 ```
 
 **Fix:** Both branches must produce the same types:
@@ -354,8 +351,7 @@ else=Cons { rest: RowVar("a"), top: String }
 **Error message:**
 ```
 if branches have incompatible stack effects:
-then=Cons { rest: RowVar("a"), top: Int },
-else=RowVar("a")
+then=(..a Int), else=(..a): branches must produce identical stack effects
 ```
 
 **Fix:** Provide else branch OR don't push in then:
@@ -378,7 +374,7 @@ The type checker works in two passes:
 
 ```seq
 : helper ( Int -- String ) int->string ;
-: main ( -- ) 42 helper write_line ;
+: main ( -- ) 42 helper io.write-line ;
 ```
 
 First, the checker collects all word signatures:
@@ -399,7 +395,7 @@ Example for `main`:
 Start:        ( -- )                    # Empty stack
 After 42:     ( Int )                   # Pushed Int
 After helper: ( String )                # Applied helper's effect
-After write_line: ( )                   # Applied write_line's effect
+After io.write-line: ( )                   # Applied io.write-line's effect
 Result:       ( )                       # Matches declared output ✓
 ```
 
@@ -430,11 +426,11 @@ Even though the checker can infer types, **always declare effects** for clarity:
 ```seq
 # Good - clear intent
 : double ( Int -- Int )
-  2 multiply ;
+  2 i.* ;
 
 # Discouraged - unclear what it does
 : double
-  2 multiply ;
+  2 i.* ;
 ```
 
 ### 2. Use Descriptive Row Variable Names
@@ -454,7 +450,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 ```seq
 : abs ( Int -- Int )
   dup 0 < if
-    -1 multiply    # Negate
+    -1 i.*    # Negate
   else
     # Leave unchanged - implicit "do nothing"
   then ;
@@ -464,7 +460,7 @@ When using conditionals, ensure **both branches** produce the same effect:
 
 ```seq
 : print-number ( Int -- )
-  int->string write_line ;
+  int->string io.write-line ;
 ```
 
 ---

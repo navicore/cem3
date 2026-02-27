@@ -133,7 +133,7 @@ else
 then
 ```
 
-The condition is popped from the stack. Non-zero means true:
+The condition is popped from the stack and must be a `Bool` (produced by comparisons, `true`/`false` literals, or logical operations):
 
 ```seq
 : abs ( Int -- Int )
@@ -890,7 +890,7 @@ For processing files line by line, use `file.for-each-line+`:
 ```
 
 The quotation receives each line (including trailing newline) and must consume it.
-Returns `("" 1)` on success, `("error message" 0)` on failure. Empty files succeed
+Returns `("" true)` on success, `("error message" false)` on failure. Empty files succeed
 without calling the quotation.
 
 Line endings are normalized to `\n` regardless of platform - Windows-style `\r\n`
@@ -1178,8 +1178,7 @@ cooperatively yielding during I/O operations.
 Spawn a quotation as a new strand:
 
 ```seq
-[ "Hello from strand!" io.write-line ] spawn
-# Returns strand ID (Int)
+[ "Hello from strand!" io.write-line ] strand.spawn drop   # drop strand ID
 ```
 
 Strands are cheap - spawn thousands of them. They're ideal for:
@@ -1228,7 +1227,7 @@ Channel operations return status flags rather than panicking. Always check the b
 
 : main ( -- )
     chan.make
-    dup [ producer ] spawn drop
+    dup [ producer ] strand.spawn drop
     consumer
 ;
 ```
@@ -1257,7 +1256,7 @@ Build network servers with strand-per-connection:
 
 : accept-loop ( Int -- )
     dup tcp.accept                    # ( listener client )
-    [ handle-client ] spawn drop      # spawn handler
+    [ handle-client ] strand.spawn drop      # spawn handler
     accept-loop                       # tail call - runs forever, no stack growth
 ;
 
@@ -1280,7 +1279,7 @@ Traditional threading has problems:
 - Shared memory requires careful locking
 
 Strands solve these:
-- Lightweight (~4KB stack, grows as needed)
+- Lightweight (128KB coroutine stack per strand, fixed, configurable via `SEQ_STACK_SIZE`)
 - Cooperative scheduling (fast context switch)
 - Message passing via channels (no shared state)
 

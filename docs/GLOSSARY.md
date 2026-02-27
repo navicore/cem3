@@ -106,10 +106,9 @@ See also: [Generator](#generator-weave), [Yield](#yield), [Strand](#strand-green
 A concurrency model where independent processes communicate by sending messages through channels, rather than sharing memory.
 
 ```seq
-make-channel           # Create a channel
-[ 42 swap chan.send ]  # Sender process
-strand.spawn
-chan.receive           # Receiver gets 42
+chan.make
+dup [ 42 swap chan.send drop ] strand.spawn drop
+chan.receive drop    # Receives 42
 ```
 
 The key insight: instead of multiple threads reading/writing shared variables (and needing locks), each process has its own state and communicates through explicit message passing.
@@ -229,15 +228,14 @@ Used for conditional branching based on boolean tests:
 
 ```seq
 : classify ( Int -- String )
-  cond
-    [ dup 0 i.< ] -> drop "negative"
-    [ dup 0 i.= ] -> drop "zero"
-    [ true ]      -> drop "positive"
-  end
+  [ dup 0 i.< ] [ drop "negative" ]
+  [ dup 0 i.= ] [ drop "zero"     ]
+  [ true ]       [ drop "positive" ]
+  3 cond
 ;
 ```
 
-Each branch has a quotation that produces a Bool. The first true branch executes. This is closer to Lisp's `cond` than structural pattern matching.
+Each predicate quotation produces a Bool. The body quotation of the first true predicate executes. This is closer to Lisp's `cond` than structural pattern matching.
 
 **Why it matters:** Pattern matching replaces chains of if/else with declarative structure. The compiler can check exhaustiveness, catching bugs when data structures change.
 

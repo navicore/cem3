@@ -146,13 +146,13 @@ Features:
 **lists.seq** - Higher-order functions and list processing:
 
 ```seq
-## Built-in higher-order functions
+# Built-in higher-order functions
 list-of 1 lv 2 lv 3 lv 4 lv 5 lv
   [ 2 i.* ] list.map       # (2 4 6 8 10)
-  [ 2 mod 0 i.= ] list.filter  # keep evens
+  [ 2 i.mod 0 i.= ] list.filter  # keep evens
   0 [ i.+ ] list.fold      # sum
 
-## Functional pipelines
+# Functional pipelines
 list-of 1 lv 2 lv 3 lv 4 lv 5 lv 6 lv 7 lv 8 lv 9 lv 10 lv
   keep-odds      # filter to 1,3,5,7,9
   square-each    # map to 1,9,25,49,81
@@ -186,7 +186,7 @@ Working with structured data in Seq.
 include std:json
 
 : main ( -- Int )
-  "{\"name\": \"Alice\", \"age\": 30}" json.parse
+  "{\"name\": \"Alice\", \"age\": 30}" json-parse
   "name" json.get json.as-string io.write-line
   0 ;
 ```
@@ -233,7 +233,7 @@ An interactive tool that reads JSON from files, command-line, or stdin, parses i
 ```bash
 ### Build
 cargo build --release
-./target/release/seqc --output json_tree examples/json/json_tree.seq
+./target/release/seqc build examples/json/json_tree.seq -o json_tree
 
 ### Read from a JSON file (preferred)
 ./json_tree config.json
@@ -267,69 +267,12 @@ Value:
 
 Type codes: 0=null, 1=bool, 2=number, 3=string, 4=array, 5=object
 
-#### What This Example Reveals We Need
-
-Building this practical example highlighted several missing features that would make Seq more useful for real-world JSON processing:
-
-##### Implemented
-
-1. **Command-line arguments** (`arg-count`, `arg`) ✓
-   - `arg-count` returns number of arguments (including program name)
-   - `arg` takes an index and returns the argument string
-   - Example: `./json_tree '[42]'` now works!
-
-2. **File I/O** (`file-slurp`, `file-exists?`) ✓
-   - `file-slurp` reads entire file contents as a string
-   - `file-exists?` checks if a file exists (returns 1 or 0)
-   - Example: `./json_tree config.json` now works!
-
-3. **Multi-element arrays (up to 2 elements)** ✓
-   - `[1]`, `[1, 2]`, `["a", "b"]`, `[42, "mixed"]`
-   - Strings, numbers, booleans all work inside arrays
-
-4. **Strings at any position** ✓
-   - Strings now parse correctly whether top-level or inside arrays
-   - `"hello"`, `["hello"]`, `["a", "b"]` all work
-
-5. **Multi-element arrays** ✓
-   - Arrays with any number of elements: `[1, 2, 3, ...]`
-   - Nested arrays: `[[1, 2], [3, 4]]`
-   - Mixed content: `[1, "hello", true, null]`
-
-6. **Multi-pair objects** ✓
-   - Objects with any number of key-value pairs
-   - Nested objects: `{"person": {"name": "John", "age": 30}}`
-   - Complex structures: `[{"name": "John"}, {"name": "Jane"}]`
-
-7. **Functional collection builders** ✓
-   - `array-with`: `( arr val -- arr' )` - append to array
-   - `obj-with`: `( obj key val -- obj' )` - add key-value pair
-   - `variant-append`: low-level primitive for building variants
-
-##### High Priority
-
-1. **Write without newline** (`write` vs `write_line`)
-   - Would allow proper indentation output
-   - Currently can only output complete lines
-
-##### Medium Priority
-
-2. **Pattern matching / case statement**
-   - Would simplify tag-based dispatch
-   - Currently requires nested if/else chains
-
-##### Nice to Have
-
-5. **String escape sequences** (`\"`, `\\`, `\n`)
-6. **Pretty-print with indentation levels**
-7. **JSON path queries** (`$.foo.bar`)
-
 #### Current JSON Support
 
 Works:
 - Primitives: `null`, `true`, `false`
 - Numbers: `42`, `-3.14`, `1e10`
-- Strings: `"hello"`, `"hello world"` (no escapes)
+- Strings: `"hello"`, `"hello world"`, `"say \"hi\""` (with escape sequences)
 - Arrays: `[]`, `[1]`, `[1, 2]`, `[1, 2, 3]`, nested arrays, any length
 - Objects: `{}`, `{"a": 1}`, `{"a": 1, "b": 2}`, nested objects, any number of pairs
 - Complex nested structures: `[{"name": "John", "age": 30}, {"name": "Jane"}]`
@@ -337,9 +280,6 @@ Works:
 Serialization limits (parsing works for any size):
 - Arrays: up to 3 elements display fully, 4+ show as `[...]`
 - Objects: up to 2 pairs display fully, 3+ show as `{...}`
-
-Limitations:
-- String escapes: `"say \"hi\""` - not supported
 
 #### Technical Notes
 
@@ -350,13 +290,11 @@ chains to handle different sizes (0, 1, 2, 3 elements). This is because Seq curr
 lacks:
 
 1. **Loops** - No `for i in 0..count` construct
-2. **Tail-call optimization** - Recursion would blow the stack for large collections
-3. **Variant fold/map** - No way to iterate over variant fields from Seq
+2. **Variant fold/map** - No way to iterate over variant fields from Seq
 
 Possible solutions:
 - Add a `variant-fold` runtime primitive: `( variant init quot -- result )`
 - Add counted loops to the language
-- Implement TCO for recursive serialization
 
 ##### Why Parsing Has No Size Limits
 
@@ -379,11 +317,11 @@ allows building complex parsers without language changes.
 #### Primitives Used
 
 The YAML parser uses these existing primitives:
-- String operations: `string-find`, `string-substring`, `string-trim`, `string-empty`, `string-length`, `string-char-at`, `string-concat`, `string->float`
+- String operations: `string.find`, `string.substring`, `string.trim`, `string.empty?`, `string.length`, `string.char-at`, `string.concat`, `string->float`
 - Character conversion: `char->string`
-- Variant operations: `make-variant-0`, `make-variant-1`, `variant-tag`, `variant-field-at`, `variant-field-count`, `variant-append`
+- Variant operations: `variant.make-0`, `variant.make-1`, `variant.tag`, `variant.field-at`, `variant.field-count`, `variant.append`
 - Standard stack operations: `dup`, `drop`, `swap`, `over`, `rot`
-- Arithmetic and comparison: `add`, `subtract`, `<`, `>`, `=`, `<>`
+- Arithmetic and comparison: `i.+`, `i.-`, `i.<`, `i.>`, `i.=`, `i.<>`
 - Control flow: `if/else/then`
 
 No new primitives were required.
@@ -406,10 +344,10 @@ Tests for multi-line YAML documents:
 #### Running
 
 ```bash
-cargo run --release -- examples/yaml/yaml_test.seq -o /tmp/yaml_test
+cargo run --release -- build examples/yaml/yaml_test.seq -o /tmp/yaml_test
 /tmp/yaml_test
 
-cargo run --release -- examples/yaml/yaml_multiline.seq -o /tmp/yaml_multi
+cargo run --release -- build examples/yaml/yaml_multiline.seq -o /tmp/yaml_multi
 /tmp/yaml_multi
 ```
 
@@ -504,7 +442,7 @@ cargo build --release
 #### Running the Server
 
 ```bash
-./target/release/seqc --output /tmp/http_server examples/http/http_server.seq
+./target/release/seqc build examples/http/http_server.seq -o /tmp/http_server
 /tmp/http_server
 ```
 
@@ -549,12 +487,12 @@ main
   ├─ tcp-listen (creates listener socket)
   └─ accept-loop (infinite)
        ├─ tcp-accept (waits for connection)
-       ├─ make-channel (creates communication channel)
-       ├─ spawn [ worker ] (launches handler strand with channel)
-       └─ send (passes socket ID to worker via channel)
+       ├─ chan.make (creates communication channel)
+       ├─ strand.spawn [ worker ] (launches handler strand with channel)
+       └─ chan.send (passes socket ID to worker via channel)
 
 worker strand
-  ├─ receive (gets socket ID from channel)
+  ├─ chan.receive (gets socket ID from channel)
   └─ handle-connection
        ├─ tcp-read (reads HTTP request)
        ├─ route (pattern matches to response)
@@ -653,7 +591,7 @@ Bit manipulation puzzles inspired by the classic techniques in low-level program
 #### Running
 
 ```bash
-seqc examples/hackers-delight/01-rightmost-bits.seq -o /tmp/demo && /tmp/demo
+seqc build examples/hackers-delight/01-rightmost-bits.seq -o /tmp/demo && /tmp/demo
 ```
 
 #### Bitwise Operations Used
@@ -693,7 +631,7 @@ A complete example demonstrating:
 #### Build
 
 ```bash
-seqc --ffi-manifest examples/shopping-cart/sqlite.toml \
+seqc build --ffi-manifest examples/shopping-cart/sqlite.toml \
      examples/shopping-cart/shopping-cart.seq -o shopping-cart
 ```
 
@@ -813,7 +751,7 @@ for out parameters (used by `sqlite3_open` to return the database handle).
 #### Building
 
 ```bash
-seqc --ffi-manifest examples/ffi/sqlite/sqlite.toml \
+seqc build --ffi-manifest examples/ffi/sqlite/sqlite.toml \
      examples/ffi/sqlite/sqlite-demo.seq \
      -o sqlite-demo
 ./sqlite-demo

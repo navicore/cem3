@@ -10,7 +10,7 @@ row polymorphism, and green-thread concurrency.
    40-byte tagged values.
 
 2. **Functional style** - Operations produce new values rather than mutating.
-   `array-with` returns a new array, it doesn't modify the original.
+   `list.push` returns a new list, it doesn't modify the original.
 
 3. **Static typing with inference** - Stack effects are checked at compile time.
    Row polymorphism (`..rest`) allows generic stack-polymorphic functions.
@@ -21,42 +21,28 @@ row polymorphism, and green-thread concurrency.
 ## Project Structure
 
 ```
-seq/
-├── compiler/           # Rust - seqc compiler
-│   ├── src/
-│   │   ├── ast.rs          # AST and builtin definitions
-│   │   ├── parser.rs       # Forth-style parser
-│   │   ├── typechecker.rs  # Row-polymorphic type inference
-│   │   ├── builtins.rs     # Type signatures for builtins
-│   │   ├── codegen.rs      # LLVM IR generation
-│   │   └── unification.rs  # Type unification
-│   └── tests/
-├── runtime/            # Rust - libseq_runtime.a
-│   ├── src/
-│   │   ├── stack.rs        # Stack operations (push, pop, dup, swap, rot, etc.)
-│   │   ├── value.rs        # Value types (Int, Float, String, Variant)
-│   │   ├── arithmetic.rs   # Math operations
-│   │   ├── comparison.rs   # Comparison operations
-│   │   ├── strings.rs      # String operations
-│   │   ├── variant_ops.rs  # Variant creation and field access
-│   │   ├── io.rs           # I/O operations
-│   │   ├── file.rs         # File operations
-│   │   ├── args.rs         # Command-line argument access
-│   │   ├── scheduler.rs    # May coroutine scheduler
-│   │   ├── arena.rs        # Arena allocation for temporaries
-│   │   └── tagged_stack.rs # Contiguous 40-byte tagged value stack
-│   └── tests/
-├── lsp/                # Rust - seq-lsp language server
-│   └── src/
-│       ├── main.rs         # LSP server entry point (tower-lsp)
-│       └── diagnostics.rs  # Document analysis and error reporting
-├── stdlib/             # Seq standard library
-│   ├── json.seq            # JSON parsing and serialization
-│   └── yaml.seq            # YAML parsing and serialization
+patch-seq/
+├── crates/
+│   ├── compiler/       # Rust - seqc compiler
+│   │   ├── src/
+│   │   │   ├── ast.rs          # AST and builtin definitions
+│   │   │   ├── parser.rs       # Forth-style parser
+│   │   │   ├── typechecker.rs  # Row-polymorphic type inference
+│   │   │   ├── builtins.rs     # Type signatures for builtins
+│   │   │   ├── codegen/        # LLVM IR generation
+│   │   │   └── unification.rs  # Type unification
+│   │   └── stdlib/             # Seq standard library (.seq files)
+│   ├── runtime/        # Rust - libseq_runtime.a
+│   │   └── src/
+│   │       ├── tagged_stack.rs # Contiguous 40-byte tagged value stack
+│   │       ├── value.rs        # Value types (Int, Float, String, Variant)
+│   │       ├── arithmetic.rs   # Math operations
+│   │       ├── io.rs           # I/O operations
+│   │       ├── scheduler.rs    # May coroutine scheduler
+│   │       └── arena.rs        # Arena allocation for temporaries
+│   ├── lsp/            # Rust - seq-lsp language server
+│   └── repl/           # Rust - seqr interactive REPL
 ├── examples/           # Example programs
-│   └── json/
-│       ├── json_tree.seq   # JSON viewer tool
-│       └── README.md
 └── docs/               # Documentation
 ```
 
@@ -155,25 +141,29 @@ Types are inferred at compile time. The type checker:
 Variants are tagged unions with N fields:
 
 ```seq
-# Create using typed constructors (0-12 fields)
-42 "hello" 1 make-variant-2    # Tag 1 with fields [42, "hello"]
-5 make-variant-0               # Tag 5 with no fields
+# Create using low-level constructors (Symbol tag + N fields)
+42 "hello" :MyTag variant.make-2    # Tag :MyTag with fields [42, "hello"]
+:Empty variant.make-0               # Tag :Empty with no fields
 
 # Access
-variant-tag           # ( Variant -- Int )
-variant-field-count   # ( Variant -- Int )
-0 variant-field-at    # ( Variant Int -- Value )
+variant.tag           # ( Variant -- Symbol )
+variant.field-count   # ( Variant -- Int )
+0 variant.field-at    # ( Variant Int -- Value )
 
 # Functional append (for building dynamic collections)
-value variant-append  # ( Variant Value -- Variant' )
+value variant.append  # ( Variant Value -- Variant' )
 ```
+
+In practice, `union` definitions generate typed `Make-VariantName` constructors
+and `match` expressions for safe, named field access. The low-level
+`variant.make-N` API is used by the stdlib for dynamic variant construction.
 
 ### JSON Tags
 
 The JSON library uses these variant tags:
-- Tag 0: JsonNull (0 fields)
-- Tag 1: JsonBool (1 field: Int 0/1)
-- Tag 2: JsonNumber (1 field: Float)
+- Tag :JsonNull (0 fields)
+- Tag :JsonBool (1 field: Bool)
+- Tag :JsonNumber (1 field: Float)
 - Tag 3: JsonString (1 field: String)
 - Tag 4: JsonArray (N fields: elements)
 - Tag 5: JsonObject (2N fields: key1 val1 key2 val2 ...)
@@ -190,7 +180,7 @@ else
 then
 ```
 
-Conditions are integers: 0 = false, non-zero = true.
+The condition must be a `Bool` value (produced by comparisons, logical operations, or `true`/`false` literals). The type checker enforces this — passing an `Int` where a `Bool` is expected is a compile error.
 
 Both branches must have the same stack effect.
 
@@ -200,16 +190,16 @@ Words can call themselves:
 
 ```seq
 : factorial ( Int -- Int )
-  dup 1 <= if
+  dup 1 i.<= if
     drop 1
   else
-    dup 1 - factorial *
+    dup 1 i.- factorial i.*
   then
 ;
 ```
 
 Tail calls are optimized via LLVM's `musttail` - deep recursion won't overflow.
-See `docs/TCO_DESIGN.md` for details.
+See `docs/TCO_GUIDE.md` for details.
 
 ## Concurrency (Strands)
 
@@ -217,15 +207,15 @@ Seq uses May coroutines for cooperative concurrency:
 
 ```seq
 # Spawn a strand (green thread)
-[ ... code ... ] spawn    # ( Quotation -- Int ) returns strand ID
+[ ... code ... ] strand.spawn    # ( Quotation -- Int ) returns strand ID
 
 # Channels for communication
-make-channel              # ( -- Int ) returns channel ID
-value channel-id send     # ( Value Int -- )
-channel-id receive        # ( Int -- Value )
+chan.make                         # ( -- Int ) returns channel ID
+value chan-id chan.send            # ( Value Int -- )
+chan-id chan.receive               # ( Int -- Value )
 
 # Cooperative yield
-yield                     # Let other strands run
+chan.yield                        # Let other strands run
 ```
 
 **Note:** Current implementation has known issues with heavy concurrent workloads.
@@ -235,12 +225,12 @@ yield                     # Let other strands run
 Seq uses the `may` crate for stackful coroutines (fibers) rather than Rust's
 async/await ecosystem (Tokio, async-std). Key reasons:
 
-1. **No async coloring** - With may, a Seq `spawn` creates a fiber that can
+1. **No async coloring** - With may, a Seq `strand.spawn` creates a fiber that can
    call blocking operations (channel send/receive, I/O) and implicitly yield.
    No `async`/`await` syntax pollution spreading through the call stack.
 
 2. **Erlang/Go mental model** - Fits Seq's concatenative style naturally.
-   `[ code ] spawn` creates a lightweight fiber. Thousands can run concurrently
+   `[ code ] strand.spawn` creates a lightweight fiber. Thousands can run concurrently
    with message passing via channels. This matches how Go goroutines and Erlang
    processes work - simple synchronous-looking code that yields cooperatively.
 
@@ -262,7 +252,7 @@ Early concurrency implementations had to choose between two models:
 May provides **M:N scheduling** - many lightweight coroutines distributed across
 all CPU cores:
 
-- **Lightweight** - Strands use ~4KB stack (grows as needed), not 1MB
+- **Lightweight** - Strands use a fixed 128KB stack (configurable via `SEQ_STACK_SIZE`), not 1MB
 - **Multi-core** - Work-stealing scheduler spreads load across all CPUs
 - **Fast context switch** - Cooperative yield, no kernel involvement
 - **No blocking** - When one strand waits on I/O, others run on that core
@@ -405,7 +395,7 @@ include foo         # Loads ./foo.seq
 
 Parsing:
 ```seq
-"[1, 2, 3]" json-parse    # ( String -- JsonValue Int )
+"[1, 2, 3]" json-parse    # ( String -- JsonValue Bool )
 ```
 
 Serialization:
@@ -426,8 +416,7 @@ json-empty-object "name" json-string "John" json-string obj-with
 
 1. **No loop keywords** - Use recursion with TCO (tail call optimization is guaranteed)
 2. **Serialization size limits** - Arrays > 3 elements, objects > 2 pairs show as `[...]`/`{...}`
-3. **No string escapes** - `\"` not supported in strings
-4. **roll type checking** - `3 roll` works at runtime but type checker can't fully verify
+3. **roll type checking** - `3 roll` works at runtime but type checker can't fully verify
 
 ## Building
 

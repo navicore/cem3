@@ -64,12 +64,6 @@ All definitions are still global (no namespaces), but collisions are caught at c
 
 ## Implementation Notes
 
-### Parser Changes
-
-1. Add `include` as keyword
-2. Parse `include std:name` and `include "path"` forms
-3. Return include statements as part of AST
-
 ### Compilation Pipeline
 
 1. **Resolve includes** - Before parsing main file:
@@ -89,12 +83,11 @@ All definitions are still global (no namespaces), but collisions are caught at c
 
 ### Stdlib Location
 
-The compiler needs to know where stdlib lives. Options:
-- Compiled-in path (simplest)
-- Environment variable `SEQ_STDLIB`
-- Relative to compiler binary
+The compiler locates the stdlib in this order:
 
-For now: **compiled-in path** or path relative to compiler binary.
+1. `SEQ_STDLIB` environment variable (if set to a valid directory)
+2. `stdlib/` directory relative to the compiler binary (for installed builds)
+3. Embedded stdlib compiled into the binary (fallback)
 
 ### Path Validation
 
@@ -104,26 +97,6 @@ Include paths are validated:
 2. **Empty Path Validation** - Empty include paths are rejected
 3. **Canonicalization** - Paths are canonicalized to resolve symlinks and normalize `..` segments
 4. **File Must Exist** - The target `.seq` file must exist
-
-## Future Extensions
-
-### User Library Paths
-
-Could add compiler flag: `seqc --lib ./my-libs ...`
-
-Then: `include lib:utils` would search `./my-libs/utils.seq`
-
-### Package System
-
-Could add: `include pkg:json`
-
-Would search `~/.seq/packages/json/` or similar.
-
-### Selective Imports
-
-Could add: `include std:http { http-ok, http-not-found }`
-
-Only imports specified words (helps with collisions).
 
 ---
 
@@ -135,7 +108,7 @@ Only imports specified words (helps with collisions).
 include std:http
 
 : main ( -- Int )
-  "Hello" http-ok write_line
+  "Hello" http-ok io.write-line
   0
 ;
 ```
@@ -147,7 +120,7 @@ include std:http
 include "utils"
 
 : main ( -- Int )
-  get-greeting http-ok write_line
+  get-greeting http-ok io.write-line
   0
 ;
 ```

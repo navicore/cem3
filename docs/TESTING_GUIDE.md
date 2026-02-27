@@ -9,7 +9,7 @@ Create a file named `test-math.seq`:
 ```seq
 : test-addition ( -- )
   "Addition" test.init
-  1 2 i.add 3 test.assert-eq
+  1 2 i.+ 3 test.assert-eq
   test.finish
 ;
 
@@ -124,7 +124,7 @@ For tests needing setup, extract helpers:
 
 : test-list-sum ( -- )
   "List sum" test.init
-  make-test-list 0 [ i.add ] list.fold
+  make-test-list 0 [ i.+ ] list.fold
   6 test.assert-eq
   test.finish
 ;
@@ -283,9 +283,9 @@ Cover boundaries and special cases:
 ```seq
 : test-division-edge-cases ( -- )
   "Division edge cases" test.init
-  0 5 i./ 0 test.assert-eq        # 0 / n = 0
-  5 1 i./ 5 test.assert-eq        # n / 1 = n
-  0 7 i.- 3 i./ 0 2 i.- test.assert-eq  # negative division
+  0 5 i./ drop 0 test.assert-eq        # 0 / n = 0
+  5 1 i./ drop 5 test.assert-eq        # n / 1 = n
+  0 7 i.- 3 i./ drop 0 2 i.- test.assert-eq  # negative division
   test.finish
 ;
 ```

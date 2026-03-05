@@ -50,7 +50,7 @@ true            # Bool
 
 ```seq
 # Using builder pattern (recommended)
-include "map"
+include std:map
 [ map-of "name" "Alice" kv "age" 30 kv ]
 
 # Or using builtins directly
@@ -61,7 +61,7 @@ include "map"
 
 ```seq
 # Using builder pattern (recommended)
-include "list"
+include std:list
 [ list-of 1 lv 2 lv 3 lv ]
 
 # Or using builtins directly
@@ -71,8 +71,8 @@ include "list"
 ### Nested Structures
 
 ```seq
-include "map"
-include "list"
+include std:map
+include std:list
 
 [
   map-of
@@ -98,8 +98,8 @@ include "list"
 
 ```seq
 # Loading SON data
-include "map"
-include "config.son"
+include std:map
+include config.son
 
 : load-config ( -- config )
   config-data call ;
@@ -224,7 +224,7 @@ The current approach is trust-based:
 
 ```seq
 # SAFE: Loading from your own project
-include "config.son"
+include config.son
 
 # DANGEROUS: Never do this!
 # include "https://untrusted-source.com/data.son"

@@ -1,5 +1,9 @@
 # FFI Callbacks Design
 
+> **Status: Shelved.** This design was not implemented. Most useful callback
+> patterns require low-level memory operations, and many C APIs have
+> non-callback alternatives. See `docs/ROADMAP.md` for current FFI status.
+
 ## Overview
 
 FFI callbacks enable C libraries to call back into Seq code. This is required for:

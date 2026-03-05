@@ -8,18 +8,19 @@ Inspired by the Tokio ecosystem (tokio-console, tracing, metrics, tower), we asp
 
 ---
 
-## Recent (v0.14)
+## Current (v4.0)
 
-### TUI REPL (now default)
+### Union Type Safety
 
-Split-pane terminal interface for interactive development:
-- Vi mode editing with syntax highlighting
-- Real-time IR visualization (stack effects, typed AST, LLVM IR)
-- ASCII art stack effect diagrams
-- LSP-powered tab completion
-- Session file management with `:edit` to open in $EDITOR
+Compile-time safety for union types (RFC #345). The compiler auto-generates
+type-safe constructors, predicates (`is-Get?`), and field accessors
+(`Get-response_chan`) for all union variants. See [MIGRATION_4.0.md](/MIGRATION_4.0.md).
 
-Launch with `seqr` or `seqr myfile.seq`.
+### Error Handling Standardization (v3.0)
+
+All fallible operations return `(value Bool)` instead of panicking.
+Division, TCP, regex, and other operations now consistently use this pattern.
+See [MIGRATION_3.0.md](/MIGRATION_3.0.md).
 
 ---
 
@@ -27,33 +28,33 @@ Launch with `seqr` or `seqr myfile.seq`.
 
 These features are stable and documented:
 
-| Feature | Version | Details |
-|---------|---------|---------|
-| **Naming conventions** | v0.9 | Dot for namespaces, hyphen for compounds, arrow for conversions. See [MIGRATION-0.9.md](/MIGRATION-0.9.md) |
-| **OS module** | v0.10 | `os.getenv`, `os.home-dir`, `os.path-*`, `args.count`, `args.at`, `os.exit`, `os.name`, `os.arch` |
-| **FFI** | v0.11 | Manifest-based C bindings, string marshalling, out parameters. Examples: libedit, SQLite |
-| **Runtime observability** | v0.12 | SIGQUIT diagnostics, watchdog timer, strand/channel/memory stats |
-| **Yield safety valve** | v0.13 | Automatic yields in tight loops to prevent strand starvation |
-| **LSP server** | v0.12 | Language server with completions, hover, diagnostics. Powers TUI and editor integrations |
-| **TUI REPL** | v0.14 | Default REPL with split-pane IR visualization, Vi editing, tab completion |
-
----
-
-## In Progress
-
-### Strand Visibility
-
-**Strand lifecycle events** (opt-in):
-- Spawn/exit tracing with strand IDs
-- Parent-child relationships for debugging actor hierarchies
-- Optional compile-time flag to enable
-
-**Advanced channel diagnostics**:
-- Blocked strand detection (who's waiting on what)
+| Feature | Details |
+|---------|---------|
+| **Naming conventions** | Dot for namespaces, hyphen for compounds, arrow for conversions |
+| **OS module** | `os.getenv`, `os.home-dir`, `os.path-*`, `args.count`, `args.at`, `os.exit`, `os.name`, `os.arch` |
+| **FFI** | Manifest-based C bindings, string marshalling, out parameters. Examples: libedit, SQLite |
+| **Runtime observability** | SIGQUIT diagnostics, watchdog timer, strand/channel/memory stats |
+| **Yield safety valve** | Automatic yields in tight loops to prevent strand starvation |
+| **LSP server** | Language server with completions, hover, diagnostics. Powers TUI and editor integrations |
+| **TUI REPL** | Default REPL with split-pane IR visualization, Vi editing, tab completion |
+| **Union types & match** | `union` definitions, `match` expressions, exhaustiveness checking, named bindings |
+| **Closures** | Lexical capture with Arc-shared environments, TCO-compatible |
+| **Channels as values** | First-class `Channel` type on the stack (no ID-based lookup) |
+| **Weaves** | Generator/coroutine pattern with bidirectional communication |
+| **Lists & Maps** | First-class collection types with `list.map`, `list.filter`, `list.fold`, `map.*` |
+| **Symbols** | `:foo` syntax for lightweight identifiers, used for variant tags |
+| **Lint tool** | `seqc lint` with TOML-based syntactic pattern matching |
 
 ---
 
 ## Future
+
+### Strand Visibility
+
+**Strand lifecycle events** (opt-in):
+- Parent-child relationships for debugging actor hierarchies
+- Blocked strand detection (who's waiting on what)
+- Optional compile-time flag to enable
 
 ### Metrics & Tracing
 
@@ -94,8 +95,8 @@ Seq's philosophy: type safety through inference, not annotation.
 
 **Current state**:
 - Row-polymorphic stack effects provide implicit type threading
-- Result/Option helpers use duck typing on variant tags
-- Users define concrete unions (`IntResult`, `StringResult`) for their use cases
+- Union types with nominal typing and auto-generated accessors (v4.0)
+- `(value Bool)` error handling pattern (v3.0)
 
 **Research directions**:
 
@@ -113,3 +114,8 @@ Seq's philosophy: type safety through inference, not annotation.
 ## Design Documents
 
 - [FFI Design](design/ffi.md)
+- [FFI Callbacks](design/ffi-callbacks.md) *(shelved)*
+- [ADT Design](design/ADT_DESIGN.md)
+- [Lint Design](design/LINT_DESIGN.md)
+- [SON Design](design/SON_DESIGN.md)
+- [Tagged Stack Codegen](design/tagged-stack-codegen.md) *(historical - superseded by current 40-byte StackValue design)*

@@ -138,7 +138,7 @@ The safety boundary is the `include` statement. Users who don't use FFI get full
 
 ## Implementation Phases
 
-### Phase 1: Readline Support
+### Phase 1: libedit Support (Complete)
 
 Minimal implementation to prove the design:
 
@@ -148,9 +148,9 @@ Minimal implementation to prove the design:
 4. Memory management codegen (`caller_frees`)
 5. Linker flag injection
 
-Deliverable: `include ffi:readline` works
+Deliverable: `include ffi:libedit` works (BSD-licensed readline alternative)
 
-### Phase 2: Generalization
+### Phase 2: Generalization (Complete)
 
 1. Full type mapping support
 2. User manifest discovery (`--ffi-manifest`)
@@ -158,19 +158,19 @@ Deliverable: `include ffi:readline` works
 4. Error handling conventions
 5. Documentation and examples
 
-### Phase 3: Advanced Features
+### Phase 3: Advanced Features (Future/Shelved)
 
-1. Struct support (pass/return C structs)
-2. Callback support (C calling into Seq)
-3. Conditional compilation (platform-specific bindings)
-4. Package manager integration (download bindings)
+1. Struct support (pass/return C structs) - future
+2. Callback support (C calling into Seq) - *shelved* (see `design/ffi-callbacks.md`)
+3. Conditional compilation (platform-specific bindings) - future
+4. Package manager integration (download bindings) - future
 
 ## Examples
 
-### Readline
+### libedit
 
 ```seq
-include ffi:readline
+include ffi:libedit
 
 : repl ( -- )
   "seqlisp> " readline

@@ -23,32 +23,51 @@ row polymorphism, and green-thread concurrency.
 ```
 patch-seq/
 ├── crates/
+│   ├── core/           # Rust - seq-core foundational types
+│   │   └── src/
+│   │       ├── value.rs        # Value enum (Int, Float, String, Variant, Channel, etc.)
+│   │       ├── tagged_stack.rs # Contiguous 40-byte tagged value stack
+│   │       ├── arena.rs        # Thread-local bump allocator (bumpalo)
+│   │       ├── seqstring.rs    # Reference-counted string type
+│   │       └── memory_stats.rs # Memory tracking
 │   ├── compiler/       # Rust - seqc compiler
 │   │   ├── src/
-│   │   │   ├── ast.rs          # AST and builtin definitions
+│   │   │   ├── ast.rs          # AST, union definitions, match expressions
 │   │   │   ├── parser.rs       # Forth-style parser
 │   │   │   ├── typechecker.rs  # Row-polymorphic type inference
 │   │   │   ├── builtins.rs     # Type signatures for builtins
-│   │   │   ├── codegen/        # LLVM IR generation
-│   │   │   └── unification.rs  # Type unification
+│   │   │   ├── codegen/        # LLVM IR generation (inline ops, control flow, FFI)
+│   │   │   ├── unification.rs  # Type unification
+│   │   │   ├── ffi.rs          # FFI manifest parser and codegen
+│   │   │   ├── lint.rs         # Syntactic lint engine
+│   │   │   └── capture_analysis.rs  # Closure capture analysis
 │   │   └── stdlib/             # Seq standard library (.seq files)
 │   ├── runtime/        # Rust - libseq_runtime.a
 │   │   └── src/
-│   │       ├── tagged_stack.rs # Contiguous 40-byte tagged value stack
-│   │       ├── value.rs        # Value types (Int, Float, String, Variant)
 │   │       ├── arithmetic.rs   # Math operations
 │   │       ├── io.rs           # I/O operations
 │   │       ├── scheduler.rs    # May coroutine scheduler
-│   │       └── arena.rs        # Arena allocation for temporaries
+│   │       ├── channel.rs      # CSP-style channels
+│   │       ├── weave.rs        # Generator/coroutine weaves
+│   │       ├── closures.rs     # Closure invocation
+│   │       ├── string_ops.rs   # String operations
+│   │       ├── variant_ops.rs  # Variant operations
+│   │       ├── list_ops.rs     # List operations
+│   │       ├── map_ops.rs      # Map operations
+│   │       ├── file.rs         # File I/O
+│   │       ├── tcp.rs          # TCP networking
+│   │       ├── http_client.rs  # HTTP client
+│   │       └── ...             # + diagnostics, watchdog, signal, etc.
 │   ├── lsp/            # Rust - seq-lsp language server
-│   └── repl/           # Rust - seqr interactive REPL
+│   ├── repl/           # Rust - seqr TUI REPL (ratatui-based)
+│   └── vim-line/       # Rust - vim-motion line editor library
 ├── examples/           # Example programs
 └── docs/               # Documentation
 ```
 
 ## Value Types
 
-Values are defined in `runtime/src/value.rs`:
+Values are defined in `core/src/value.rs`:
 
 ```rust
 #[repr(C)]
@@ -57,11 +76,13 @@ pub enum Value {
     Float(f64),                  // Discriminant 1
     Bool(bool),                  // Discriminant 2
     String(SeqString),           // Discriminant 3 - reference-counted
-    Variant(Arc<VariantData>),   // Discriminant 4 - Arc for O(1) cloning
-    Map(Box<HashMap<...>>),      // Discriminant 5 - key-value dictionary
-    Quotation { wrapper, impl_ },// Discriminant 6 - function pointers
-    Closure { fn_ptr, env },     // Discriminant 7 - function + captured values
-    Symbol(SeqString),           // Discriminant 8 - symbolic identifiers (:foo)
+    Symbol(SeqString),           // Discriminant 4 - symbolic identifiers (:foo)
+    Variant(Arc<VariantData>),   // Discriminant 5 - Arc for O(1) cloning
+    Map(Box<HashMap<...>>),      // Discriminant 6 - key-value dictionary
+    Quotation { wrapper, impl_ },// Discriminant 7 - function pointers (dual calling conventions)
+    Closure { fn_ptr, env },     // Discriminant 8 - function + Arc-shared captured values
+    Channel(Arc<ChannelData>),   // Discriminant 9 - MPMC sender/receiver pair
+    WeaveCtx { yield_chan, resume_chan }, // Discriminant 10 - generator coroutine context
 }
 
 pub struct VariantData {
@@ -74,7 +95,8 @@ Value is exactly 40 bytes with 8-byte alignment, matching the stack entry size.
 
 ## Stack Model
 
-The stack is a contiguous array of 40-byte tagged values (`StackValue`):
+The stack is a contiguous array of 40-byte tagged values (`StackValue`),
+defined in `core/src/tagged_stack.rs`:
 
 ```rust
 #[repr(C)]
@@ -87,9 +109,9 @@ pub struct StackValue {
 }
 
 pub struct TaggedStack {
-    base: *mut StackValue,  // Heap-allocated array
-    sp: usize,              // Stack pointer (next free slot)
-    capacity: usize,        // Current allocation size
+    pub base: *mut StackValue,  // Heap-allocated array
+    pub sp: usize,              // Stack pointer (next free slot)
+    pub capacity: usize,        // Current allocation size
 }
 ```
 
@@ -160,13 +182,13 @@ and `match` expressions for safe, named field access. The low-level
 
 ### JSON Tags
 
-The JSON library uses these variant tags:
-- Tag :JsonNull (0 fields)
-- Tag :JsonBool (1 field: Bool)
-- Tag :JsonNumber (1 field: Float)
-- Tag :JsonString (1 field: String)
-- Tag :JsonArray (N fields: elements)
-- Tag :JsonObject (2N fields: key1 val1 key2 val2 ...)
+The JSON library (`stdlib/json.seq`) uses Symbol-based variant tags:
+- `:JsonNull` (0 fields)
+- `:JsonBool` (1 field: Int, 0 or 1)
+- `:JsonNumber` (1 field: Float)
+- `:JsonString` (1 field: String)
+- `:JsonArray` (N fields: elements)
+- `:JsonObject` (2N fields: key1 val1 key2 val2 ...)
 
 ## Control Flow
 
@@ -335,7 +357,7 @@ arena until another strand on that thread exits. This is acceptable - the
 common case (strand stays on one thread) is fast, and the 10MB auto-reset
 prevents unbounded growth in the rare migration case.
 
-See `runtime/src/arena.rs` for implementation.
+See `core/src/arena.rs` for implementation.
 
 ### Reference Counting
 
@@ -395,6 +417,8 @@ include foo         # Loads ./foo.seq
 
 Parsing:
 ```seq
+include std:json
+
 "[1, 2, 3]" json-parse    # ( String -- JsonValue Bool )
 ```
 
@@ -405,7 +429,7 @@ json-value json-serialize  # ( JsonValue -- String )
 
 Functional builders:
 ```seq
-json-empty-array 1 json-number array-with 2 json-number array-with
+json-empty-array 1 int->float json-number array-with 2 int->float json-number array-with
 # Result: [1, 2]
 
 json-empty-object "name" json-string "John" json-string obj-with

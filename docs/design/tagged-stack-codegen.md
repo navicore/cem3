@@ -1,5 +1,10 @@
 # Tagged Stack Codegen Design
 
+> **Note:** This design document is historical. The 64-bit pointer-tagging
+> scheme described here was not adopted. The implemented design uses a 40-byte
+> `StackValue` with 5 x u64 slots and an explicit discriminant. See
+> `docs/ARCHITECTURE.md` for the current stack model.
+
 ## Overview
 
 Replace heap-allocated linked-list stack with contiguous array of tagged 64-bit values.

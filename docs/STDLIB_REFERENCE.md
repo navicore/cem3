@@ -41,7 +41,6 @@ This document covers:
 
 ### Standard Library Modules
 
-- [std:result](#stdresult---resultoption-helpers)
 - [std:json](#stdjson---json-parsing)
 - [std:yaml](#stdyaml---yaml-parsing)
 - [std:http](#stdhttp---http-response-helpers)
@@ -51,6 +50,8 @@ This document covers:
 - [std:fmath](#stdfmath---float-math)
 - [std:zipper](#stdzipper---functional-list-zipper)
 - [std:signal](#stdsignal---signal-handling)
+- [std:son](#stdson---seq-object-notation-helpers)
+- [std:stack-utils](#stdstack-utils---stack-utilities)
 
 ---
 
@@ -726,6 +727,39 @@ signal.trap-shutdown  # Trap SIGINT and SIGTERM
 | `signal.shutdown-requested?` | `( -- Bool )` | Check for SIGINT or SIGTERM |
 | `signal.trap-shutdown` | `( -- )` | Trap SIGINT and SIGTERM |
 | `signal.ignore-sigpipe` | `( -- )` | Ignore SIGPIPE (for servers) |
+
+---
+
+### std:son - Seq Object Notation Helpers
+
+Convenience module that re-exports `std:map` and `std:list`, providing all the builder words needed for SON data construction.
+
+```seq
+include std:son
+
+map-of "host" "localhost" kv "port" 8080 kv
+list-of 1 lv 2 lv 3 lv
+```
+
+Including `std:son` gives you `map-of`, `kv`, `list-of`, and `lv`.
+
+**Security warning:** SON files are executable Seq code. Only load SON from trusted sources.
+
+---
+
+### std:stack-utils - Stack Utilities
+
+Common stack operations built from primitives.
+
+```seq
+include std:stack-utils
+
+1 2 3 2drop  # Stack: 1
+```
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `2drop` | `( A B -- )` | Drop top two values |
 
 ---
 

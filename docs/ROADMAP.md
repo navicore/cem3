@@ -14,13 +14,13 @@ Inspired by the Tokio ecosystem (tokio-console, tracing, metrics, tower), we asp
 
 Compile-time safety for union types (RFC #345). The compiler auto-generates
 type-safe constructors, predicates (`is-Get?`), and field accessors
-(`Get-response_chan`) for all union variants. See [MIGRATION_4.0.md](/MIGRATION_4.0.md).
+(`Get-response_chan`) for all union variants. See [MIGRATION_4.0.md](../MIGRATION_4.0.md).
 
 ### Error Handling Standardization (v3.0)
 
 All fallible operations return `(value Bool)` instead of panicking.
 Division, TCP, regex, and other operations now consistently use this pattern.
-See [MIGRATION_3.0.md](/MIGRATION_3.0.md).
+See [MIGRATION_3.0.md](../MIGRATION_3.0.md).
 
 ---
 

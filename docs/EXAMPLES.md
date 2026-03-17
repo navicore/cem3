@@ -187,16 +187,16 @@ include std:json
 
 : main ( -- Int )
   "{\"name\": \"Alice\", \"age\": 30}" json-parse
-  "name" json.get json.as-string io.write-line
+  drop json-serialize io.write-line
   0 ;
 ```
 
 ### YAML (yaml/)
 
 YAML parsing with support for:
-- Multiline strings
-- Nested structures
-- Anchors and aliases
+- Multi-line documents with multiple key-value pairs
+- String, number, boolean, and null values
+- Comments and blank lines
 
 ### SON (son/)
 
@@ -208,11 +208,13 @@ YAML parsing with support for:
 
 ```seq
 include std:zipper
+include std:list
 
-{ 1 2 3 4 5 } list->zipper
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv
+zipper.from-list
 zipper.right zipper.right  # Move to element 3
 100 zipper.set             # Replace with 100
-zipper.to-list             # { 1 2 100 4 5 }
+zipper.to-list             # [1, 2, 100, 4, 5]
 ```
 
 ### Encoding (encoding.seq)
@@ -395,13 +397,11 @@ include std:http
 
 ### HTTP Client (http-client.seq)
 
-Making HTTP requests using the std:http module:
+Making HTTP requests:
 
 ```seq
-include std:http
-
 "https://api.example.com/data" http.get
-http.body io.write-line
+"body" map.get drop io.write-line
 ```
 
 ### Terminal (terminal/)
@@ -474,7 +474,7 @@ curl http://localhost:8080/invalid
 
 The server demonstrates several Seq features:
 
-1. **TCP Operations**: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`, `tcp-close`
+1. **TCP Operations**: `tcp.listen`, `tcp.accept`, `tcp.read`, `tcp.write`, `tcp.close`
 2. **Routing**: Uses `cond` combinator for multi-way branching on request paths
 3. **Concurrency**: Each connection is handled in a separate strand (green thread)
 4. **Channels**: Spawned workers receive socket IDs via channels
@@ -484,9 +484,9 @@ The server demonstrates several Seq features:
 
 ```
 main
-  ├─ tcp-listen (creates listener socket)
+  ├─ tcp.listen (creates listener socket)
   └─ accept-loop (infinite)
-       ├─ tcp-accept (waits for connection)
+       ├─ tcp.accept (waits for connection)
        ├─ chan.make (creates communication channel)
        ├─ strand.spawn [ worker ] (launches handler strand with channel)
        └─ chan.send (passes socket ID to worker via channel)
@@ -494,10 +494,10 @@ main
 worker strand
   ├─ chan.receive (gets socket ID from channel)
   └─ handle-connection
-       ├─ tcp-read (reads HTTP request)
+       ├─ tcp.read (reads HTTP request)
        ├─ route (pattern matches to response)
-       ├─ tcp-write (sends HTTP response)
-       └─ tcp-close (cleanup)
+       ├─ tcp.write (sends HTTP response)
+       └─ tcp.close (cleanup)
 ```
 
 #### Key Features
@@ -519,7 +519,7 @@ This example serves as a foundation for:
 #### References
 
 - [Seq Roadmap](../../docs/ROADMAP.md)
-- [Concatenative Design](../../docs/CLEAN_CONCATENATIVE_DESIGN.md)
+- [Architecture](../../docs/ARCHITECTURE.md)
 
 
 ## Complete Projects

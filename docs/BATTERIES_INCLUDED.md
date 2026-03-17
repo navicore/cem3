@@ -31,7 +31,7 @@ Seq can leverage Rust's ecosystem directly:
 | **Compression** | `flate2`, `zstd` | Fast, well-maintained |
 | **Random** | `rand` | Industry standard |
 | **UUID** | `uuid` | Complete implementation |
-| **Database** | `rusqlite` | Mature, stable |
+| **Database** | `rusqlite` | Mature, stable (not yet integrated) |
 
 ### Pattern Already Proven
 
@@ -173,18 +173,19 @@ cargo build --release --no-default-features --features crypto
 
 ### Standard Library (Pure Seq)
 
-Located in `crates/compiler/stdlib/` (~3800 lines):
+Located in `crates/compiler/stdlib/` (~2900 lines):
 
 | Module | Lines | Description |
 |--------|-------|-------------|
-| `json.seq` | 1234 | Full JSON parser and encoder |
-| `yaml.seq` | 750 | YAML parser |
-| `result.seq` | 268 | Result/Option monadic error handling |
+| `json.seq` | 1166 | Full JSON parser and encoder |
+| `yaml.seq` | 752 | YAML parser |
+| `zipper.seq` | 328 | Functional list zipper |
 | `http.seq` | 190 | HTTP response building, request parsing |
 | `imath.seq` | 145 | Integer math utilities (abs, min, max, clamp) |
 | `fmath.seq` | 109 | Float math utilities |
-| `list.seq` | 55 | List helpers |
+| `signal.seq` | 66 | Signal handling |
 | `son.seq` | 57 | SON serialization helpers |
+| `list.seq` | 55 | List helpers |
 | `stack-utils.seq` | 46 | Stack manipulation utilities |
 | `map.seq` | 30 | Map helpers |
 
@@ -231,8 +232,8 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 
 | Category | Status |
 |----------|--------|
-| **JSON** | Complete (1234 lines) |
-| **YAML** | Complete (750 lines) |
+| **JSON** | Complete (1166 lines) |
+| **YAML** | Complete (752 lines) |
 | **HTTP server** | Working (helpers + example) |
 | **HTTP client** | Complete (builtin) - GET, POST, PUT, DELETE with TLS |
 | **Regex** | Complete (builtin) - match, find, replace, captures, split |
@@ -240,7 +241,7 @@ Located in `crates/compiler/stdlib/` (~3800 lines):
 | **LSP** | Complete (2200+ lines) - diagnostics, completions |
 | **REPL** | Complete - with LSP integration, vim keybindings |
 | **Testing** | Complete (builtin) |
-| **Result/Option** | Complete (268 lines) |
+| **Result/Option** | Convention-based (value Bool) pattern, no stdlib module |
 | **Base64/Hex** | Complete (builtin) - standard, URL-safe, hex |
 | **Crypto Phase 1** | Complete (builtin) - SHA-256, HMAC, random, UUID |
 | **Crypto Phase 2** | Complete (builtin) - AES-256-GCM encryption, PBKDF2 key derivation |
@@ -568,7 +569,7 @@ http.handle
 
 ```seq
 # Good: Works naturally on stack
-users [ "active" @ ] list.filter
+users [ is-active ] list.filter
 
 # Avoid: Deeply nested structures that fight the stack
 ```
@@ -577,7 +578,7 @@ users [ "active" @ ] list.filter
 
 ```seq
 # Good: Clear what happens
-response http.body json.decode "users" json.get
+response "body" map.get drop json-parse drop
 
 # Avoid: Hidden transformations
 ```
@@ -585,19 +586,22 @@ response http.body json.decode "users" json.get
 ### 4. Errors as Values
 
 ```seq
-# Use Result/Option patterns
-file.read-text  # ( Path -- String Bool )
-[ process-content ] [ "File not found" error ] if-else
+# Use (value Bool) pattern
+"data.txt" file.slurp  # ( String -- String Bool )
+if
+  process-content
+else
+  drop "File not found" io.write-line
+then
 ```
 
 ### 5. Consistent Naming
 
 | Pattern | Example | Meaning |
 |---------|---------|---------|
-| `noun.verb` | `http.get`, `json.encode` | Action on type |
+| `noun.verb` | `http.get`, `json-serialize` | Action on type |
 | `noun?` | `list.empty?`, `map.has?` | Predicate |
-| `noun!` | `http.url!`, `buffer.flush!` | Mutation/side effect |
-| `->` | `string->int`, `json->map` | Conversion |
+| `->` | `string->int`, `int->float` | Conversion |
 
 ---
 

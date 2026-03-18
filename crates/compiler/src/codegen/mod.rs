@@ -76,6 +76,7 @@ mod error;
 mod ffi_wrappers;
 mod globals;
 mod inline;
+mod layout;
 mod platform;
 mod program;
 mod runtime;

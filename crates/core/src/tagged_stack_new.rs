@@ -66,7 +66,11 @@ pub fn is_tagged_heap(tagged: u64) -> bool {
     tagged & 1 == 0 && tagged > TAG_TRUE
 }
 
-/// Encode an i64 as a tagged integer (63-bit range)
+/// Encode an i64 as a tagged integer.
+///
+/// Valid range: -(2^62) to (2^62 - 1). Values outside this range will
+/// silently overflow due to the left shift. This is acceptable because
+/// Seq's integer range is documented as 63-bit signed.
 #[inline(always)]
 pub fn tag_int(value: i64) -> u64 {
     ((value as u64) << 1) | 1

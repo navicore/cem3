@@ -24,9 +24,12 @@ pub fn stack_value_size() -> usize {
     std::mem::size_of::<StackValue>()
 }
 
-/// Discriminant constants — used by codegen and external code that references types.
-/// With tagged pointers these are no longer stored in the value itself, but
-/// the constants are still used by codegen for type-dispatch logic.
+/// Discriminant constants — retained for API compatibility with codegen and
+/// runtime code that switches on type. In tagged-ptr mode, these values are
+/// NOT stored in the StackValue itself (the tag is in the pointer bits).
+/// They are used only when the runtime unpacks a Value (via pop()) and needs
+/// to identify its type. Phase 2 codegen will use bit-level tag checks instead
+/// of loading these discriminants from memory.
 pub const DISC_INT: u64 = 0;
 pub const DISC_FLOAT: u64 = 1;
 pub const DISC_BOOL: u64 = 2;
@@ -94,7 +97,7 @@ pub unsafe extern "C" fn patch_seq_clone_value(src: *const StackValue, dst: *mut
 /// The StackValue must contain valid tagged data.
 #[inline]
 pub unsafe fn clone_stack_value(sv: StackValue) -> StackValue {
-    if is_tagged_int(sv) || sv <= TAG_TRUE {
+    if is_tagged_int(sv) || sv == TAG_FALSE || sv == TAG_TRUE {
         // Int or Bool — just copy
         sv
     } else {
@@ -113,7 +116,7 @@ pub unsafe fn clone_stack_value(sv: StackValue) -> StackValue {
 /// The StackValue must be valid and not previously dropped.
 #[inline]
 pub unsafe fn drop_stack_value(sv: StackValue) {
-    if is_tagged_int(sv) || sv <= TAG_TRUE {
+    if is_tagged_int(sv) || sv == TAG_FALSE || sv == TAG_TRUE {
         // Int or Bool — nothing to do
         return;
     }
@@ -625,11 +628,7 @@ fn print_stack_value(sv: StackValue) {
 
 #[macro_export]
 macro_rules! test_stack {
-    () => {{
-        use $crate::tagged_stack::StackValue;
-        static mut BUFFER: [StackValue; 256] = [0u64; 256];
-        unsafe { BUFFER.as_mut_ptr() }
-    }};
+    () => {{ $crate::stack::alloc_test_stack() }};
 }
 
 #[cfg(test)]
@@ -744,6 +743,139 @@ mod tests {
                 Value::String(s) => assert_eq!(s.as_str(), "hello"),
                 other => panic!("Expected String, got {:?}", other),
             }
+        }
+    }
+
+    #[test]
+    fn test_symbol_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let s = crate::seqstring::SeqString::from("my-sym");
+            let stack = push(stack, Value::Symbol(s));
+            let (_, val) = pop(stack);
+            match val {
+                Value::Symbol(s) => assert_eq!(s.as_str(), "my-sym"),
+                other => panic!("Expected Symbol, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_variant_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let tag = crate::seqstring::SeqString::from("Foo");
+            let data = crate::value::VariantData::new(tag, vec![Value::Int(1), Value::Int(2)]);
+            let stack = push(stack, Value::Variant(std::sync::Arc::new(data)));
+            let (_, val) = pop(stack);
+            match val {
+                Value::Variant(v) => {
+                    assert_eq!(v.tag.as_str(), "Foo");
+                    assert_eq!(v.fields.len(), 2);
+                }
+                other => panic!("Expected Variant, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_map_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let mut map = std::collections::HashMap::new();
+            map.insert(crate::value::MapKey::Int(1), Value::Int(100));
+            let stack = push(stack, Value::Map(Box::new(map)));
+            let (_, val) = pop(stack);
+            match val {
+                Value::Map(m) => {
+                    assert_eq!(m.len(), 1);
+                    assert_eq!(m.get(&crate::value::MapKey::Int(1)), Some(&Value::Int(100)));
+                }
+                other => panic!("Expected Map, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_quotation_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let stack = push(
+                stack,
+                Value::Quotation {
+                    wrapper: 0x1000,
+                    impl_: 0x2000,
+                },
+            );
+            let (_, val) = pop(stack);
+            match val {
+                Value::Quotation { wrapper, impl_ } => {
+                    assert_eq!(wrapper, 0x1000);
+                    assert_eq!(impl_, 0x2000);
+                }
+                other => panic!("Expected Quotation, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_closure_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let env: std::sync::Arc<[Value]> = std::sync::Arc::from(vec![Value::Int(42)]);
+            let stack = push(
+                stack,
+                Value::Closure {
+                    fn_ptr: 0x3000,
+                    env,
+                },
+            );
+            let (_, val) = pop(stack);
+            match val {
+                Value::Closure { fn_ptr, env } => {
+                    assert_eq!(fn_ptr, 0x3000);
+                    assert_eq!(env.len(), 1);
+                }
+                other => panic!("Expected Closure, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_channel_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let (sender, receiver) = may::sync::mpmc::channel();
+            let ch = std::sync::Arc::new(crate::value::ChannelData { sender, receiver });
+            let stack = push(stack, Value::Channel(ch));
+            let (_, val) = pop(stack);
+            assert!(matches!(val, Value::Channel(_)));
+        }
+    }
+
+    #[test]
+    fn test_weavectx_roundtrip() {
+        unsafe {
+            let stack = alloc_test_stack();
+            let (ys, yr) = may::sync::mpmc::channel();
+            let (rs, rr) = may::sync::mpmc::channel();
+            let yield_chan = std::sync::Arc::new(crate::value::WeaveChannelData {
+                sender: ys,
+                receiver: yr,
+            });
+            let resume_chan = std::sync::Arc::new(crate::value::WeaveChannelData {
+                sender: rs,
+                receiver: rr,
+            });
+            let stack = push(
+                stack,
+                Value::WeaveCtx {
+                    yield_chan,
+                    resume_chan,
+                },
+            );
+            let (_, val) = pop(stack);
+            assert!(matches!(val, Value::WeaveCtx { .. }));
         }
     }
 }

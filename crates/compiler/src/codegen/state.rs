@@ -187,6 +187,11 @@ pub struct CodeGen {
     pub(super) instrument: bool,
     /// Maps word name -> sequential ID for instrumentation counters
     pub(super) word_instrument_ids: HashMap<String, usize>,
+    /// WIP: When true, emit IR for 8-byte tagged pointer values instead of
+    /// 40-byte StackValue structs. This must match the runtime's `tagged-ptr`
+    /// feature flag. Phase 2 of tagged pointer migration — helpers in layout.rs.
+    #[allow(dead_code)]
+    pub(super) tagged_ptr: bool,
 }
 
 impl Default for CodeGen {
@@ -231,6 +236,7 @@ impl CodeGen {
             current_aux_sp: 0,
             instrument: false,
             word_instrument_ids: HashMap::new(),
+            tagged_ptr: false,
         }
     }
 

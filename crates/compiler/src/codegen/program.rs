@@ -83,10 +83,8 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type definition: Rust enum with #[repr(C)], 40 bytes
-        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
-        writeln!(&mut ir)?;
+        // Value type definition (layout depends on tagged_ptr flag)
+        self.emit_value_type_def(&mut ir)?;
 
         // String and symbol constants
         self.emit_string_and_symbol_globals(&mut ir)?;
@@ -182,10 +180,8 @@ impl CodeGen {
         writeln!(&mut ir, "target triple = \"{}\"", get_target_triple())?;
         writeln!(&mut ir)?;
 
-        // Value type definition: Rust enum with #[repr(C)], 40 bytes
-        writeln!(&mut ir, "; Value type (Rust enum - 40 bytes)")?;
-        writeln!(&mut ir, "%Value = type {{ i64, i64, i64, i64, i64 }}")?;
-        writeln!(&mut ir)?;
+        // Value type definition (layout depends on tagged_ptr flag)
+        self.emit_value_type_def(&mut ir)?;
 
         // String and symbol constants
         self.emit_string_and_symbol_globals(&mut ir)?;

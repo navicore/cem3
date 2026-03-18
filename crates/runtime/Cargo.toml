@@ -40,6 +40,9 @@ http = ["dep:ureq", "dep:url"]
 regex = ["dep:regex"]
 compression = ["dep:flate2", "dep:zstd"]
 
+# WIP: 8-byte tagged pointer values (propagates to seq-core)
+tagged-ptr = ["seq-core/tagged-ptr"]
+
 [dependencies]
 # Core runtime primitives (shared foundation for stack-based languages)
 seq-core = { path = "../core", version = "=4.0.3" }

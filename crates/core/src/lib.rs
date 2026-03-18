@@ -5,7 +5,7 @@
 //!
 //! Key design principles:
 //! - Value: What the language talks about (Int, Bool, Variant, etc.)
-//! - StackValue: 40-byte tagged stack entry (discriminant + 4 payload slots)
+//! - StackValue: 40-byte tagged entry (default) or 8-byte tagged pointer (`tagged-ptr` feature)
 //! - Stack: Contiguous array of StackValue entries for efficient operations
 //!
 //! # Modules
@@ -14,7 +14,7 @@
 //! - `memory_stats`: Cross-thread memory statistics registry
 //! - `arena`: Thread-local bump allocation for fast value creation
 //! - `seqstring`: Arena or globally-allocated strings
-//! - `tagged_stack`: Low-level 40-byte stack value layout
+//! - `tagged_stack`: Stack value layout and allocation
 //! - `value`: Core Value enum (Int, Float, Bool, String, Variant, Map, etc.)
 //! - `stack`: Stack operations and value conversion
 //! - `son`: Seq Object Notation serialization

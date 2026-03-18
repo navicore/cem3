@@ -12,7 +12,9 @@ include std:son
 ;
 
 : test-son-dump-float-whole ( -- )
-  # Whole floats must serialize with decimal point (not as integers)
+  # son.dump always includes ".0" for whole-number floats so the output
+  # is unambiguous (42.0 won't be confused with Int 42).
+  # This differs from float->string which omits the decimal point.
   42.0 son.dump dup "." string.contains test.assert
   drop
 ;

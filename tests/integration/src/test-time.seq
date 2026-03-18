@@ -18,9 +18,9 @@
 ;
 
 : test-time-sleep ( -- )
-  # Sleep 1ms, verify time advanced
+  # Sleep 10ms for robustness on loaded CI agents
   time.nanos
-  1 time.sleep-ms
+  10 time.sleep-ms
   time.nanos
   swap i.> test.assert
 ;

@@ -5,7 +5,9 @@
 ;
 
 : test-float-to-string-whole ( -- )
-  # float->string for whole numbers omits decimal point
+  # float->string uses Rust's Display for f64, which omits the decimal point
+  # for whole numbers. This differs from son.dump which always includes ".0"
+  # to keep SON output unambiguous (so 42.0 isn't confused with Int 42).
   42.0 float->string "42" string.equal? test.assert
 ;
 
@@ -34,8 +36,13 @@
 ;
 
 : test-float-string-roundtrip ( -- )
-  3.14 float->string string->float
+  # Use 0.25 (exact in IEEE 754) for a bulletproof roundtrip
+  0.25 float->string string->float
   test.assert  # success flag
+  0.25 f.= test.assert
+  # Also test 3.14 which happens to roundtrip cleanly in practice
+  3.14 float->string string->float
+  test.assert
   3.14 f.= test.assert
 ;
 

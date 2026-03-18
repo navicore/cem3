@@ -1,0 +1,40 @@
+# Test roll operation - rotate N+1 items, bringing depth N to top
+#
+# roll(0) is like noop (top stays on top)
+# roll(1) is like swap
+# roll(2) is like rot
+
+: test-roll-0 ( -- )
+  42 0 roll
+  42 test.assert-eq
+;
+
+: test-roll-1 ( -- )
+  10 20 1 roll  # swap: [20, 10]
+  10 test.assert-eq
+  20 test.assert-eq
+;
+
+: test-roll-2 ( -- )
+  10 20 30 2 roll  # rot: [20, 30, 10]
+  10 test.assert-eq
+  30 test.assert-eq
+  20 test.assert-eq
+;
+
+: test-roll-3 ( -- )
+  10 20 30 40 3 roll  # [20, 30, 40, 10]
+  10 test.assert-eq
+  40 test.assert-eq
+  30 test.assert-eq
+  20 test.assert-eq
+;
+
+: test-roll-preserves-values ( -- )
+  1 2 3 4 5 4 roll  # bring bottom (1) to top: [2, 3, 4, 5, 1]
+  1 test.assert-eq
+  5 test.assert-eq
+  4 test.assert-eq
+  3 test.assert-eq
+  2 test.assert-eq
+;

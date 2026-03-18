@@ -1,0 +1,24 @@
+# Test relative include system
+# This is a standalone test (not run via test runner) because the test runner
+# copies files to a temp dir, breaking relative include paths.
+#
+# Run: seqc build tests/integration/src/test-include-main.seq -o /tmp/test_include && /tmp/test_include
+
+include "test-include-helper"
+
+: main ( -- Int )
+  # Test included word
+  3 4 included-add
+  dup 7 i.= not if
+    drop "FAIL: included-add" io.write-line 1
+  else
+    drop
+    # Test included constant
+    included-value
+    dup 42 i.= not if
+      drop "FAIL: included-value" io.write-line 1
+    else
+      drop "PASS: include system" io.write-line 0
+    then
+  then
+;

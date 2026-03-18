@@ -1,0 +1,51 @@
+# Test OS operations
+
+: test-os-name ( -- )
+  # os.name returns a non-empty string like "macos" or "linux"
+  os.name string.empty? not test.assert
+;
+
+: test-os-arch ( -- )
+  # os.arch returns a non-empty string like "aarch64" or "x86_64"
+  os.arch string.empty? not test.assert
+;
+
+: test-os-getenv-path ( -- )
+  # PATH should always exist
+  "PATH" os.getenv
+  test.assert  # success flag
+  string.empty? not test.assert
+;
+
+: test-os-getenv-missing ( -- )
+  # Nonexistent variable returns false
+  "SEQ_NONEXISTENT_VAR_12345" os.getenv
+  not test.assert  # success flag is false
+  drop  # drop placeholder
+;
+
+: test-os-path-join ( -- )
+  "foo" "bar" os.path-join
+  # Result should contain both components
+  dup "foo" string.contains test.assert
+  "bar" string.contains test.assert
+;
+
+: test-os-path-exists ( -- )
+  # Current directory should exist
+  "." os.path-exists test.assert
+  # Nonsense path should not
+  "/nonexistent_seq_test_path_12345" os.path-exists not test.assert
+;
+
+: test-os-current-dir ( -- )
+  os.current-dir
+  test.assert  # success flag
+  string.empty? not test.assert
+;
+
+: test-os-home-dir ( -- )
+  os.home-dir
+  test.assert  # success flag
+  string.empty? not test.assert
+;

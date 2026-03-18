@@ -1,0 +1,62 @@
+# Test list operations at larger scale
+# This is a regression safety net for the COW optimization
+
+include std:list
+
+: push-n ( List Int -- List )
+  dup 0 i.<= if
+    drop
+  else
+    dup rot swap lv swap
+    1 i.- push-n
+  then
+;
+
+# push-n pushes N, N-1, ..., 1. So index 0 = N, index N-1 = 1.
+
+# Build a list of 500 elements and verify
+: test-build-500 ( -- )
+  list-of 500 push-n
+  list.length 500 test.assert-eq
+;
+
+# Build a list then verify first and last elements
+: test-build-and-access ( -- )
+  list-of 200 push-n
+  dup 0 list.get test.assert 200 test.assert-eq
+  dup 199 list.get test.assert 1 test.assert-eq
+  list.length 200 test.assert-eq
+;
+
+# Map over a 100-element list
+: test-map-100 ( -- )
+  list-of 100 push-n
+  [ 2 i.* ] list.map
+  dup 0 list.get test.assert 200 test.assert-eq
+  99 list.get test.assert 2 test.assert-eq
+;
+
+# Filter a 100-element list — keep even numbers
+: test-filter-100 ( -- )
+  list-of 100 push-n
+  [ 2 i.% drop 0 i.= ] list.filter
+  list.length 50 test.assert-eq
+;
+
+# Fold sum over 100 elements: 100+99+...+1 = 5050
+: test-fold-sum-100 ( -- )
+  list-of 100 push-n
+  0 [ i.+ ] list.fold
+  5050 test.assert-eq
+;
+
+# Chain: build -> map (double) -> filter (>10) -> fold (sum)
+# Values: 200, 198, ..., 12 (those >10 after doubling 100..6)
+# Sum = 2*(100+99+...+6) = 2*((100*101/2) - (5*6/2)) = 2*(5050-15) = 10070
+: test-chain-100 ( -- )
+  list-of 100 push-n
+  [ 2 i.* ] list.map
+  [ 10 i.> ] list.filter
+  0 [ i.+ ] list.fold
+  10070 test.assert-eq
+;

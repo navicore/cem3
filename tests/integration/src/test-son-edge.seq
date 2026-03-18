@@ -1,0 +1,56 @@
+# SON serialization edge cases
+# These are currently only covered by Rust unit tests
+
+include std:son
+
+: test-son-dump-float ( -- )
+  3.14 son.dump "3.14" string.equal? test.assert
+;
+
+: test-son-dump-float-negative ( -- )
+  -2.5 son.dump "-2.5" string.equal? test.assert
+;
+
+: test-son-dump-float-whole ( -- )
+  # son.dump always includes ".0" for whole-number floats so the output
+  # is unambiguous (42.0 won't be confused with Int 42).
+  # This differs from float->string which omits the decimal point.
+  42.0 son.dump dup "." string.contains test.assert
+  drop
+;
+
+: test-son-dump-zero ( -- )
+  0 son.dump "0" string.equal? test.assert
+;
+
+: test-son-dump-empty-string ( -- )
+  "" son.dump "\"\"" string.equal? test.assert
+;
+
+: test-son-dump-string-with-quotes ( -- )
+  "say \"hi\"" son.dump
+  # Should contain escaped quotes
+  dup "\\\"" string.contains test.assert
+  drop
+;
+
+: test-son-dump-variant-with-fields ( -- )
+  42 "hello" :Pair wrap-2 son.dump
+  dup ":Pair" string.contains test.assert
+  dup "42" string.contains test.assert
+  "hello" string.contains test.assert
+;
+
+: test-son-dump-nested-map-list ( -- )
+  map-of "nums" list-of 1 lv 2 lv 3 lv kv
+  son.dump
+  dup "map-of" string.contains test.assert
+  dup "list-of" string.contains test.assert
+  "nums" string.contains test.assert
+;
+
+: test-son-roundtrip-pretty-contains-newlines ( -- )
+  map-of "a" 1 kv "b" 2 kv
+  son.dump-pretty
+  "\n" string.contains test.assert
+;

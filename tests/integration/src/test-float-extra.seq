@@ -1,0 +1,65 @@
+# Float edge cases not covered by test-float.seq
+
+: test-float-to-string ( -- )
+  2.5 float->string "2.5" string.equal? test.assert
+;
+
+: test-float-to-string-whole ( -- )
+  # float->string uses Rust's Display for f64, which omits the decimal point
+  # for whole numbers. This differs from son.dump which always includes ".0"
+  # to keep SON output unambiguous (so 42.0 isn't confused with Int 42).
+  42.0 float->string "42" string.equal? test.assert
+;
+
+: test-float-negative ( -- )
+  0.0 1.0 f.subtract -1.0 f.= test.assert
+  -3.5 -2.5 f.add -6.0 f.= test.assert
+;
+
+: test-float-comparison-equal ( -- )
+  1.0 1.0 f.= test.assert
+  1.0 2.0 f.= not test.assert
+;
+
+: test-float-comparison-neq ( -- )
+  1.0 2.0 f.<> test.assert
+  3.0 3.0 f.<> not test.assert
+;
+
+: test-float-comparison-lte-gte ( -- )
+  1.0 2.0 f.<= test.assert
+  2.0 2.0 f.<= test.assert
+  3.0 2.0 f.<= not test.assert
+  3.0 2.0 f.>= test.assert
+  2.0 2.0 f.>= test.assert
+  1.0 2.0 f.>= not test.assert
+;
+
+: test-float-string-roundtrip ( -- )
+  # Use 0.25 (exact in IEEE 754) for a bulletproof roundtrip
+  0.25 float->string string->float
+  test.assert  # success flag
+  0.25 f.= test.assert
+  # Also test 3.14 which happens to roundtrip cleanly in practice
+  3.14 float->string string->float
+  test.assert
+  3.14 f.= test.assert
+;
+
+: test-string-to-float-failure ( -- )
+  "not-a-float" string->float
+  not test.assert  # success flag is false
+  drop  # drop placeholder value
+;
+
+: test-float-zero ( -- )
+  0.0 0.0 f.add 0.0 f.= test.assert
+  0.0 5.0 f.multiply 0.0 f.= test.assert
+;
+
+: test-float-terse-ops ( -- )
+  1.5 2.5 f.+ 4.0 f.= test.assert
+  10.0 3.0 f.- 7.0 f.= test.assert
+  2.0 3.0 f.* 6.0 f.= test.assert
+  10.0 4.0 f./ 2.5 f.= test.assert
+;

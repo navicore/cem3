@@ -1,0 +1,13 @@
+# Helper file for include system testing
+# This file is compiled directly (not via test runner) to test relative includes
+#
+# Build and run:
+#   seqc build tests/integration/src/test-include-main.seq -o /tmp/test_include && /tmp/test_include
+
+: included-add ( Int Int -- Int )
+  i.+
+;
+
+: included-value ( -- Int )
+  42
+;

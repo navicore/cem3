@@ -94,6 +94,7 @@ impl CodeGen {
                 "  %{} = load i64, ptr %{}",
                 tagged, value_ptr
             )?;
+            // Arithmetic shift right preserves sign for negative integers
             let val = self.fresh_temp();
             writeln!(&mut self.output, "  %{} = ashr i64 %{}, 1", val, tagged)?;
             Ok(val)
@@ -123,6 +124,8 @@ impl CodeGen {
         int_var: &str,
     ) -> Result<(), CodeGenError> {
         if self.tagged_ptr {
+            // Assumes value fits in 63-bit signed range (-(2^62) to 2^62-1).
+            // Values outside this range will silently overflow the shl.
             let shifted = self.fresh_temp();
             writeln!(&mut self.output, "  %{} = shl i64 %{}, 1", shifted, int_var)?;
             let tagged = self.fresh_temp();
@@ -195,5 +198,122 @@ impl CodeGen {
     /// Return the size of a single Value in bytes (for memmove calculations).
     pub(super) fn value_size_bytes(&self) -> u64 {
         if self.tagged_ptr { 8 } else { 40 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn codegen_default() -> CodeGen {
+        CodeGen::new()
+    }
+
+    fn codegen_tagged() -> CodeGen {
+        let mut cg = CodeGen::new();
+        cg.tagged_ptr = true;
+        cg
+    }
+
+    #[test]
+    fn test_value_type_def_default() {
+        let cg = codegen_default();
+        let mut ir = String::new();
+        cg.emit_value_type_def(&mut ir).unwrap();
+        assert!(ir.contains("{ i64, i64, i64, i64, i64 }"));
+        assert!(ir.contains("40 bytes"));
+    }
+
+    #[test]
+    fn test_value_type_def_tagged() {
+        let cg = codegen_tagged();
+        let mut ir = String::new();
+        cg.emit_value_type_def(&mut ir).unwrap();
+        assert!(ir.contains("%Value = type i64"));
+        assert!(ir.contains("8 bytes"));
+    }
+
+    #[test]
+    fn test_stack_gep_default() {
+        let mut cg = codegen_default();
+        let tmp = cg.emit_stack_gep("sp", -1).unwrap();
+        assert!(cg.output.contains("getelementptr %Value"));
+        assert!(cg.output.contains(&format!("%{}", tmp)));
+    }
+
+    #[test]
+    fn test_stack_gep_tagged() {
+        let mut cg = codegen_tagged();
+        let tmp = cg.emit_stack_gep("sp", -1).unwrap();
+        assert!(cg.output.contains("getelementptr i64"));
+        assert!(!cg.output.contains("%Value"));
+        assert!(cg.output.contains(&format!("%{}", tmp)));
+    }
+
+    #[test]
+    fn test_load_int_payload_default() {
+        let mut cg = codegen_default();
+        let val = cg.emit_load_int_payload("ptr_a").unwrap();
+        // Should GEP to slot1 then load
+        assert!(cg.output.contains("getelementptr i64, ptr %ptr_a, i64 1"));
+        assert!(cg.output.contains("load i64, ptr %"));
+        assert!(!val.is_empty());
+    }
+
+    #[test]
+    fn test_load_int_payload_tagged() {
+        let mut cg = codegen_tagged();
+        let val = cg.emit_load_int_payload("ptr_a").unwrap();
+        // Should load then ashr
+        assert!(cg.output.contains("load i64, ptr %ptr_a"));
+        assert!(cg.output.contains("ashr i64"));
+        assert!(!val.is_empty());
+    }
+
+    #[test]
+    fn test_store_int_default() {
+        let mut cg = codegen_default();
+        cg.emit_store_int("ptr_a", "val").unwrap();
+        // Should store discriminant 0, then GEP to slot1, then store value
+        assert!(cg.output.contains("store i64 0, ptr %ptr_a"));
+        assert!(cg.output.contains("getelementptr i64, ptr %ptr_a, i64 1"));
+        assert!(cg.output.contains("store i64 %val"));
+    }
+
+    #[test]
+    fn test_store_int_tagged() {
+        let mut cg = codegen_tagged();
+        cg.emit_store_int("ptr_a", "val").unwrap();
+        // Should shl, or, then store
+        assert!(cg.output.contains("shl i64 %val, 1"));
+        assert!(cg.output.contains("or i64"));
+        assert!(cg.output.contains("store i64"));
+        // Should NOT write a discriminant
+        assert!(!cg.output.contains("store i64 0, ptr"));
+    }
+
+    #[test]
+    fn test_store_bool_default() {
+        let mut cg = codegen_default();
+        cg.emit_store_bool("ptr_a", "bval").unwrap();
+        // Should store discriminant 2
+        assert!(cg.output.contains("store i64 2, ptr %ptr_a"));
+        assert!(cg.output.contains("getelementptr i64, ptr %ptr_a, i64 1"));
+    }
+
+    #[test]
+    fn test_store_bool_tagged() {
+        let mut cg = codegen_tagged();
+        cg.emit_store_bool("ptr_a", "bval").unwrap();
+        // Should shl by 1 (false=0, true=2)
+        assert!(cg.output.contains("shl i64 %bval, 1"));
+        // Should NOT write discriminant 2
+        assert!(!cg.output.contains("store i64 2"));
+    }
+
+    #[test]
+    fn test_value_size_bytes() {
+        assert_eq!(codegen_default().value_size_bytes(), 40);
+        assert_eq!(codegen_tagged().value_size_bytes(), 8);
     }
 }

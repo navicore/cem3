@@ -301,23 +301,12 @@ mod tests {
     use super::*;
     use std::mem::{align_of, size_of};
 
-    // Value and StackValue must have matching layouts
     #[test]
     fn test_value_layout() {
-        // Print sizes for debugging
         println!("size_of::<Value>() = {}", size_of::<Value>());
         println!("align_of::<Value>() = {}", align_of::<Value>());
 
-        // Verify Value is exactly 40 bytes to match StackValue layout
-        // This is critical for FFI correctness between LLVM IR and Rust
-        use crate::tagged_stack::StackValue;
-        assert_eq!(
-            size_of::<Value>(),
-            size_of::<StackValue>(),
-            "Value ({} bytes) must match StackValue ({} bytes) for FFI compatibility",
-            size_of::<Value>(),
-            size_of::<StackValue>()
-        );
+        // Value (Rust enum) is always 40 bytes with #[repr(C)]
         assert_eq!(
             size_of::<Value>(),
             40,
@@ -325,7 +314,23 @@ mod tests {
             size_of::<Value>()
         );
 
-        // Verify alignment is 8 (for 64-bit pointers)
+        // StackValue size depends on feature flag
+        use crate::tagged_stack::StackValue;
+        #[cfg(not(feature = "tagged-ptr"))]
+        assert_eq!(
+            size_of::<StackValue>(),
+            40,
+            "StackValue must be 40 bytes (default), got {}",
+            size_of::<StackValue>()
+        );
+        #[cfg(feature = "tagged-ptr")]
+        assert_eq!(
+            size_of::<StackValue>(),
+            8,
+            "StackValue must be 8 bytes (tagged-ptr), got {}",
+            size_of::<StackValue>()
+        );
+
         assert_eq!(align_of::<Value>(), 8);
     }
 

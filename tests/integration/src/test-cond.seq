@@ -1,0 +1,52 @@
+# Test the cond combinator for multi-way branching
+#
+# Stack effect: ( value [pred] [body] ... [predN] [bodyN] N cond -- result )
+# Each predicate: ( value -- value Bool ) - must keep value, add Bool
+# Each body: ( value -- result ) - consumes value, produces result
+
+: test-cond-first-match ( -- )
+  10
+  [ dup 10 i.= ] [ drop 1 ]
+  [ dup 20 i.= ] [ drop 2 ]
+  [ true ]       [ drop 0 ]
+  3 cond
+  1 test.assert-eq
+;
+
+: test-cond-second-match ( -- )
+  20
+  [ dup 10 i.= ] [ drop 1 ]
+  [ dup 20 i.= ] [ drop 2 ]
+  [ true ]       [ drop 0 ]
+  3 cond
+  2 test.assert-eq
+;
+
+: test-cond-fallthrough ( -- )
+  99
+  [ dup 10 i.= ] [ drop 1 ]
+  [ dup 20 i.= ] [ drop 2 ]
+  [ true ]       [ drop 0 ]
+  3 cond
+  0 test.assert-eq
+;
+
+: test-cond-single-clause ( -- )
+  42
+  [ true ] [ drop 100 ]
+  1 cond
+  100 test.assert-eq
+;
+
+: classify ( Int -- String )
+  [ dup 0 i.< ] [ drop "negative" ]
+  [ dup 0 i.= ] [ drop "zero" ]
+  [ true ]      [ drop "positive" ]
+  3 cond
+;
+
+: test-cond-in-word ( -- )
+  -5 classify "negative" string.equal? test.assert
+  0 classify "zero" string.equal? test.assert
+  42 classify "positive" string.equal? test.assert
+;

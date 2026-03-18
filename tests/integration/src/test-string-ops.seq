@@ -1,0 +1,58 @@
+# Test string operations that didn't have Seq-level coverage
+
+: test-substring ( -- )
+  "hello world" 0 5 string.substring "hello" string.equal? test.assert
+  "hello world" 6 5 string.substring "world" string.equal? test.assert
+  "abcdef" 2 3 string.substring "cde" string.equal? test.assert
+;
+
+: test-find ( -- )
+  "hello world" "world" string.find 6 test.assert-eq
+  "hello world" "xyz" string.find -1 test.assert-eq
+  "aaa" "a" string.find 0 test.assert-eq
+;
+
+: test-char-at ( -- )
+  "ABC" 0 string.char-at 65 test.assert-eq
+  "ABC" 1 string.char-at 66 test.assert-eq
+  "ABC" 2 string.char-at 67 test.assert-eq
+;
+
+: test-starts-with ( -- )
+  "hello world" "hello" string.starts-with test.assert
+  "hello world" "world" string.starts-with not test.assert
+  "" "" string.starts-with test.assert
+;
+
+: test-trim ( -- )
+  "  hello  " string.trim "hello" string.equal? test.assert
+  "no-spaces" string.trim "no-spaces" string.equal? test.assert
+  "   " string.trim "" string.equal? test.assert
+;
+
+: test-chomp ( -- )
+  "hello\n" string.chomp "hello" string.equal? test.assert
+  "hello" string.chomp "hello" string.equal? test.assert
+;
+
+: test-json-escape ( -- )
+  "hello" string.json-escape "hello" string.equal? test.assert
+  # Quotes get escaped
+  "say \"hi\"" string.json-escape "say \\\"hi\\\"" string.equal? test.assert
+;
+
+: test-empty ( -- )
+  "" string.empty? test.assert
+  "x" string.empty? not test.assert
+;
+
+: test-byte-length ( -- )
+  "hello" string.byte-length 5 test.assert-eq
+  "" string.byte-length 0 test.assert-eq
+;
+
+: test-to-upper-lower ( -- )
+  "hello" string.to-upper "HELLO" string.equal? test.assert
+  "HELLO" string.to-lower "hello" string.equal? test.assert
+  "123" string.to-upper "123" string.equal? test.assert
+;

@@ -374,6 +374,34 @@ impl CodeGen {
     }
 
     // =========================================================================
+    // Full value load/store (Pattern 4 — for swap, rot, tuck, etc.)
+    // =========================================================================
+
+    /// Load a full opaque value from a stack pointer.
+    /// Returns the temp variable holding the value.
+    /// In 40-byte mode: `load %Value`. In tagged-ptr mode: `load i64`.
+    pub(super) fn emit_load_value(&mut self, ptr: &str) -> Result<String, CodeGenError> {
+        let val = self.fresh_temp();
+        if self.tagged_ptr {
+            writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val, ptr)?;
+        } else {
+            writeln!(&mut self.output, "  %{} = load %Value, ptr %{}", val, ptr)?;
+        }
+        Ok(val)
+    }
+
+    /// Store a full opaque value to a stack pointer.
+    /// In 40-byte mode: `store %Value`. In tagged-ptr mode: `store i64`.
+    pub(super) fn emit_store_value(&mut self, ptr: &str, val: &str) -> Result<(), CodeGenError> {
+        if self.tagged_ptr {
+            writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val, ptr)?;
+        } else {
+            writeln!(&mut self.output, "  store %Value %{}, ptr %{}", val, ptr)?;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Array size calculation (Pattern 5)
     // =========================================================================
 

@@ -246,7 +246,8 @@ mod tests {
         assert!(ir.contains("call ptr @seq_main(ptr %stack_base)"));
 
         // 3. Read result from stack and return as exit code
-        assert!(ir.contains("trunc i64 %result to i32"));
+        assert!(ir.contains("trunc i64 %"));
+        assert!(ir.contains("to i32"));
         assert!(ir.contains("ret i32 %exit_code"));
 
         // 4. Use inline push with virtual registers (Issue #189)

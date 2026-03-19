@@ -23,31 +23,9 @@ impl CodeGen {
         let stack_var = stack_var.as_str();
 
         // Peek and pop condition: read bool value from top of stack and decrement SP
-        // (Inlined here as this is the only place this pattern is used after removing while/until)
-        let top_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            top_ptr, stack_var
-        )?;
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, top_ptr
-        )?;
-        let cond_val = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            cond_val, slot1_ptr
-        )?;
-        let popped_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            popped_stack, stack_var
-        )?;
+        let top_ptr = self.emit_stack_gep(stack_var, -1)?;
+        let cond_val = self.emit_load_int_payload(&top_ptr)?;
+        let popped_stack = self.emit_stack_gep(stack_var, -1)?;
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();

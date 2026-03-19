@@ -450,16 +450,9 @@ impl CodeGen {
                 "  %final_sp = call ptr @seq_main(ptr %stack_base)"
             )?;
 
-            // Read top of stack value (at sp - 1, slot1 contains the int value)
-            writeln!(
-                &mut self.output,
-                "  %top_ptr = getelementptr %Value, ptr %final_sp, i64 -1"
-            )?;
-            writeln!(
-                &mut self.output,
-                "  %val_ptr = getelementptr i64, ptr %top_ptr, i64 1"
-            )?;
-            writeln!(&mut self.output, "  %result = load i64, ptr %val_ptr")?;
+            // Read top of stack value (exit code)
+            let top_ptr = self.emit_stack_gep("final_sp", -1)?;
+            let result = self.emit_load_int_payload(&top_ptr)?;
 
             // Free the stack
             writeln!(
@@ -468,7 +461,11 @@ impl CodeGen {
             )?;
 
             // Return result as exit code (truncate to i32)
-            writeln!(&mut self.output, "  %exit_code = trunc i64 %result to i32")?;
+            writeln!(
+                &mut self.output,
+                "  %exit_code = trunc i64 %{} to i32",
+                result
+            )?;
             writeln!(&mut self.output, "  ret i32 %exit_code")?;
         } else {
             // Normal mode: use scheduler for concurrency support

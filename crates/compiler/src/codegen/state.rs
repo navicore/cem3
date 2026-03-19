@@ -119,7 +119,8 @@ pub(super) enum VirtualValue {
 }
 
 impl VirtualValue {
-    /// Get the discriminant for this value type
+    /// Get the discriminant for this value type (used by layout-dependent spill paths)
+    #[allow(dead_code)]
     pub fn discriminant(&self) -> i64 {
         match self {
             VirtualValue::Int { .. } => 0,

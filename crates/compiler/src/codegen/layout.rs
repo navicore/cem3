@@ -192,6 +192,204 @@ impl CodeGen {
     }
 
     // =========================================================================
+    // Loading two operands from stack (binary ops pattern)
+    // =========================================================================
+
+    /// Load two integer payloads from the top two stack positions.
+    /// Returns (ptr_a, val_a, val_b) where ptr_a points to where the result
+    /// should be stored (position -2, consuming both operands).
+    pub(super) fn emit_load_two_int_operands(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String, String), CodeGenError> {
+        let ptr_b = self.emit_stack_gep(stack_var, -1)?;
+        let ptr_a = self.emit_stack_gep(stack_var, -2)?;
+        let val_a = self.emit_load_int_payload(&ptr_a)?;
+        let val_b = self.emit_load_int_payload(&ptr_b)?;
+        Ok((ptr_a, val_a, val_b))
+    }
+
+    /// Load two float operands from the top two stack positions as doubles.
+    /// Returns (ptr_a, val_a_double, val_b_double) for float binary ops.
+    /// Also returns slot1_a for storing the result back (40-byte mode only).
+    pub(super) fn emit_load_two_float_operands(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String, String, String), CodeGenError> {
+        let ptr_b = self.emit_stack_gep(stack_var, -1)?;
+        let ptr_a = self.emit_stack_gep(stack_var, -2)?;
+
+        if self.tagged_ptr {
+            // In tagged-ptr mode, floats are heap-boxed.
+            // TODO: Load from heap object. For now, load raw bits.
+            let bits_a = self.fresh_temp();
+            writeln!(&mut self.output, "  %{} = load i64, ptr %{}", bits_a, ptr_a)?;
+            let bits_b = self.fresh_temp();
+            writeln!(&mut self.output, "  %{} = load i64, ptr %{}", bits_b, ptr_b)?;
+            let val_a = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = bitcast i64 %{} to double",
+                val_a, bits_a
+            )?;
+            let val_b = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = bitcast i64 %{} to double",
+                val_b, bits_b
+            )?;
+            let store_target = ptr_a.clone();
+            Ok((ptr_a, store_target, val_a, val_b))
+        } else {
+            // 40-byte mode: access slot1 for float bits
+            let slot1_a = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_a, ptr_a
+            )?;
+            let slot1_b = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_b, ptr_b
+            )?;
+            let bits_a = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = load i64, ptr %{}",
+                bits_a, slot1_a
+            )?;
+            let bits_b = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = load i64, ptr %{}",
+                bits_b, slot1_b
+            )?;
+            let val_a = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = bitcast i64 %{} to double",
+                val_a, bits_a
+            )?;
+            let val_b = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = bitcast i64 %{} to double",
+                val_b, bits_b
+            )?;
+            Ok((ptr_a, slot1_a, val_a, val_b))
+        }
+    }
+
+    /// Store a float result (as double) at the given stack pointer.
+    /// In 40-byte mode: stores bits to slot1 (discriminant 1 already at slot0).
+    /// In tagged-ptr mode: TODO heap-box the float.
+    /// `slot1_or_ptr` is the target — slot1 in 40-byte mode, ptr_a in tagged-ptr.
+    pub(super) fn emit_store_float_result(
+        &mut self,
+        slot1_or_ptr: &str,
+        double_var: &str,
+    ) -> Result<(), CodeGenError> {
+        let bits = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = bitcast double %{} to i64",
+            bits, double_var
+        )?;
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            bits, slot1_or_ptr
+        )?;
+        Ok(())
+    }
+
+    /// Load one integer payload from the top of the stack.
+    /// Returns (top_ptr, val) where top_ptr points to the value for in-place update.
+    pub(super) fn emit_load_top_int(
+        &mut self,
+        stack_var: &str,
+    ) -> Result<(String, String), CodeGenError> {
+        let top_ptr = self.emit_stack_gep(stack_var, -1)?;
+        let val = self.emit_load_int_payload(&top_ptr)?;
+        Ok((top_ptr, val))
+    }
+
+    /// Store an integer result in place at the top of stack (for unary ops).
+    /// In 40-byte mode: writes to slot1 (discriminant unchanged).
+    /// In tagged-ptr mode: writes tagged int directly.
+    /// `top_ptr` is the pointer to the value slot, `result_var` is the untagged i64.
+    pub(super) fn emit_store_int_result_in_place(
+        &mut self,
+        top_ptr: &str,
+        result_var: &str,
+    ) -> Result<(), CodeGenError> {
+        if self.tagged_ptr {
+            self.emit_store_int(top_ptr, result_var)?;
+        } else {
+            // In 40-byte mode, slot1 is at offset +8 from the Value start
+            let slot1_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_ptr, top_ptr
+            )?;
+            writeln!(
+                &mut self.output,
+                "  store i64 %{}, ptr %{}",
+                result_var, slot1_ptr
+            )?;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
+    // Float storage (for virtual stack spill)
+    // =========================================================================
+
+    /// Store a float value (as i64 bits) at the given stack pointer.
+    /// In 40-byte mode: writes discriminant 1 to slot0, bits to slot1.
+    /// In tagged-ptr mode: writes the bits as a heap-boxed Value via runtime call.
+    /// `bits_var` is an i64 holding the f64 bit pattern.
+    ///
+    /// Note: In tagged-ptr mode, floats are heap-allocated. For the spill path
+    /// we store the raw bits and let the runtime box them. This is a placeholder —
+    /// the spill path for tagged-ptr floats will need a runtime helper call.
+    pub(super) fn emit_store_float_bits(
+        &mut self,
+        value_ptr: &str,
+        bits_var: &str,
+    ) -> Result<(), CodeGenError> {
+        if self.tagged_ptr {
+            // TODO: In tagged-ptr mode, floats are heap-boxed.
+            // For now, store raw bits — this will need a runtime helper
+            // to box the float when tagged-ptr codegen is fully wired.
+            writeln!(
+                &mut self.output,
+                "  store i64 %{}, ptr %{}",
+                bits_var, value_ptr
+            )?;
+        } else {
+            // Write discriminant 1 (Float) to slot0
+            writeln!(&mut self.output, "  store i64 1, ptr %{}", value_ptr)?;
+            // Write bits to slot1 (offset +8)
+            let slot1_ptr = self.fresh_temp();
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 1",
+                slot1_ptr, value_ptr
+            )?;
+            writeln!(
+                &mut self.output,
+                "  store i64 %{}, ptr %{}",
+                bits_var, slot1_ptr
+            )?;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Array size calculation (Pattern 5)
     // =========================================================================
 

@@ -631,20 +631,21 @@ pub use patch_seq_string_trim as string_trim;
 pub unsafe extern "C" fn patch_seq_string_to_cstring(stack: Stack, _out: *mut u8) -> *mut u8 {
     assert!(!stack.is_null(), "string_to_cstring: stack is empty");
 
-    use crate::stack::{DISC_STRING, peek_sv};
+    use crate::stack::peek;
+    use crate::value::Value;
 
     // Peek the string value (don't pop - caller will pop after we return)
-    let sv = unsafe { peek_sv(stack) };
-    if sv.slot0 != DISC_STRING {
-        panic!(
-            "string_to_cstring: expected String on stack, got discriminant {}",
-            sv.slot0
-        );
-    }
+    let val = unsafe { peek(stack) };
+    let s = match &val {
+        Value::String(s) => s,
+        other => panic!(
+            "string_to_cstring: expected String on stack, got {:?}",
+            other
+        ),
+    };
 
-    // Extract string data from StackValue slots
-    let str_ptr = sv.slot1 as *const u8;
-    let len = sv.slot2 as usize;
+    let str_ptr = s.as_ptr();
+    let len = s.len();
 
     // Guard against overflow: len + 1 for null terminator
     let alloc_size = len.checked_add(1).unwrap_or_else(|| {

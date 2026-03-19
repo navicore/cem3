@@ -27,8 +27,6 @@
 use super::{CodeGen, CodeGenError};
 use std::fmt::Write as _;
 
-// These helpers are WIP — they'll be wired in as we migrate each codegen pattern.
-#[allow(dead_code)]
 impl CodeGen {
     // =========================================================================
     // Type definition
@@ -70,6 +68,30 @@ impl CodeGen {
                 &mut self.output,
                 "  %{} = getelementptr %Value, ptr %{}, i64 {}",
                 tmp, base, offset
+            )?;
+        }
+        Ok(tmp)
+    }
+
+    /// Emit a GEP with a dynamic (runtime) offset in an SSA variable.
+    /// Returns the temp variable name holding the resulting pointer.
+    pub(super) fn emit_dynamic_stack_gep(
+        &mut self,
+        base: &str,
+        offset_var: &str,
+    ) -> Result<String, CodeGenError> {
+        let tmp = self.fresh_temp();
+        if self.tagged_ptr {
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr i64, ptr %{}, i64 %{}",
+                tmp, base, offset_var
+            )?;
+        } else {
+            writeln!(
+                &mut self.output,
+                "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
+                tmp, base, offset_var
             )?;
         }
         Ok(tmp)
@@ -374,6 +396,34 @@ impl CodeGen {
     }
 
     // =========================================================================
+    // Full value load/store (Pattern 4 — for swap, rot, tuck, etc.)
+    // =========================================================================
+
+    /// Load a full opaque value from a stack pointer.
+    /// Returns the temp variable holding the value.
+    /// In 40-byte mode: `load %Value`. In tagged-ptr mode: `load i64`.
+    pub(super) fn emit_load_value(&mut self, ptr: &str) -> Result<String, CodeGenError> {
+        let val = self.fresh_temp();
+        if self.tagged_ptr {
+            writeln!(&mut self.output, "  %{} = load i64, ptr %{}", val, ptr)?;
+        } else {
+            writeln!(&mut self.output, "  %{} = load %Value, ptr %{}", val, ptr)?;
+        }
+        Ok(val)
+    }
+
+    /// Store a full opaque value to a stack pointer.
+    /// In 40-byte mode: `store %Value`. In tagged-ptr mode: `store i64`.
+    pub(super) fn emit_store_value(&mut self, ptr: &str, val: &str) -> Result<(), CodeGenError> {
+        if self.tagged_ptr {
+            writeln!(&mut self.output, "  store i64 %{}, ptr %{}", val, ptr)?;
+        } else {
+            writeln!(&mut self.output, "  store %Value %{}, ptr %{}", val, ptr)?;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Array size calculation (Pattern 5)
     // =========================================================================
 
@@ -576,5 +626,60 @@ mod tests {
                 .to_string()
                 .contains("not yet implemented")
         );
+    }
+
+    #[test]
+    fn test_load_value_default() {
+        let mut cg = codegen_default();
+        let val = cg.emit_load_value("ptr_a").unwrap();
+        assert!(cg.output.contains("load %Value, ptr %ptr_a"));
+        assert!(!val.is_empty());
+    }
+
+    #[test]
+    fn test_load_value_tagged() {
+        let mut cg = codegen_tagged();
+        let val = cg.emit_load_value("ptr_a").unwrap();
+        assert!(cg.output.contains("load i64, ptr %ptr_a"));
+        assert!(!cg.output.contains("%Value"));
+        assert!(!val.is_empty());
+    }
+
+    #[test]
+    fn test_store_value_default() {
+        let mut cg = codegen_default();
+        cg.emit_store_value("ptr_a", "val").unwrap();
+        assert!(cg.output.contains("store %Value %val, ptr %ptr_a"));
+    }
+
+    #[test]
+    fn test_store_value_tagged() {
+        let mut cg = codegen_tagged();
+        cg.emit_store_value("ptr_a", "val").unwrap();
+        assert!(cg.output.contains("store i64 %val, ptr %ptr_a"));
+        assert!(!cg.output.contains("%Value"));
+    }
+
+    #[test]
+    fn test_dynamic_stack_gep_default() {
+        let mut cg = codegen_default();
+        let tmp = cg.emit_dynamic_stack_gep("sp", "offset").unwrap();
+        assert!(
+            cg.output
+                .contains("getelementptr %Value, ptr %sp, i64 %offset")
+        );
+        assert!(!tmp.is_empty());
+    }
+
+    #[test]
+    fn test_dynamic_stack_gep_tagged() {
+        let mut cg = codegen_tagged();
+        let tmp = cg.emit_dynamic_stack_gep("sp", "offset").unwrap();
+        assert!(
+            cg.output
+                .contains("getelementptr i64, ptr %sp, i64 %offset")
+        );
+        assert!(!cg.output.contains("%Value"));
+        assert!(!tmp.is_empty());
     }
 }

@@ -211,18 +211,18 @@ impl CodeGen {
 
     /// Load two float operands from the top two stack positions as doubles.
     /// Returns (ptr_a, val_a_double, val_b_double) for float binary ops.
-    /// Also returns slot1_a for storing the result back (40-byte mode only).
+    /// Use `emit_store_float_result` with ptr_a to store the result back.
     pub(super) fn emit_load_two_float_operands(
         &mut self,
         stack_var: &str,
-    ) -> Result<(String, String, String, String), CodeGenError> {
+    ) -> Result<(String, String, String), CodeGenError> {
         let ptr_b = self.emit_stack_gep(stack_var, -1)?;
         let ptr_a = self.emit_stack_gep(stack_var, -2)?;
 
         if self.tagged_ptr {
-            // In tagged-ptr mode, floats are heap-boxed.
-            // This path will be implemented when tagged-ptr codegen is fully wired.
-            todo!("tagged-ptr float load not yet implemented")
+            Err(CodeGenError::Logic(
+                "tagged-ptr float load not yet implemented".to_string(),
+            ))
         } else {
             // 40-byte mode: access slot1 for float bits
             let slot1_a = self.fresh_temp();
@@ -261,34 +261,37 @@ impl CodeGen {
                 "  %{} = bitcast i64 %{} to double",
                 val_b, bits_b
             )?;
-            Ok((ptr_a, slot1_a, val_a, val_b))
+            Ok((ptr_a, val_a, val_b))
         }
     }
 
-    /// Store a float result (as double) at the given stack pointer.
-    /// In 40-byte mode: stores bits to slot1 (discriminant 1 already at slot0).
-    /// Store a float result (as double) at the given store target.
-    /// In 40-byte mode: `store_target` is slot1 (discriminant 1 already at slot0).
+    /// Store a float result (as double) at the value position ptr_a.
+    /// In 40-byte mode: computes slot1 from ptr_a and stores bits there.
     /// In tagged-ptr mode: not yet implemented (floats are heap-boxed).
     pub(super) fn emit_store_float_result(
         &mut self,
-        store_target: &str,
+        ptr_a: &str,
         double_var: &str,
     ) -> Result<(), CodeGenError> {
         if self.tagged_ptr {
-            todo!("tagged-ptr float store not yet implemented");
+            return Err(CodeGenError::Logic(
+                "tagged-ptr float store not yet implemented".to_string(),
+            ));
         }
+        // Compute slot1 from ptr_a (offset +8 in 40-byte mode)
+        let slot1 = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1, ptr_a
+        )?;
         let bits = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = bitcast double %{} to i64",
             bits, double_var
         )?;
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            bits, store_target
-        )?;
+        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", bits, slot1)?;
         Ok(())
     }
 
@@ -349,7 +352,9 @@ impl CodeGen {
         bits_var: &str,
     ) -> Result<(), CodeGenError> {
         if self.tagged_ptr {
-            todo!("tagged-ptr float spill not yet implemented");
+            return Err(CodeGenError::Logic(
+                "tagged-ptr float spill not yet implemented".to_string(),
+            ));
         } else {
             // Write discriminant 1 (Float) to slot0
             writeln!(&mut self.output, "  store i64 1, ptr %{}", value_ptr)?;
@@ -549,16 +554,28 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_load_float_operands_tagged_panics() {
+    fn test_load_float_operands_tagged_errors() {
         let mut cg = codegen_tagged();
-        let _ = cg.emit_load_two_float_operands("sp");
+        let result = cg.emit_load_two_float_operands("sp");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not yet implemented")
+        );
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_store_float_bits_tagged_panics() {
+    fn test_store_float_bits_tagged_errors() {
         let mut cg = codegen_tagged();
-        let _ = cg.emit_store_float_bits("ptr", "bits");
+        let result = cg.emit_store_float_bits("ptr", "bits");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not yet implemented")
+        );
     }
 }

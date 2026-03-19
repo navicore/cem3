@@ -149,7 +149,7 @@ impl CodeGen {
         let stack_var = stack_var.as_str();
 
         // Load operands as doubles
-        let (_ptr_a, slot1_a, val_a, val_b) = self.emit_load_two_float_operands(stack_var)?;
+        let (ptr_a, val_a, val_b) = self.emit_load_two_float_operands(stack_var)?;
 
         // Perform the float operation
         let op_result = self.fresh_temp();
@@ -160,7 +160,7 @@ impl CodeGen {
         )?;
 
         // Store result
-        self.emit_store_float_result(&slot1_a, &op_result)?;
+        self.emit_store_float_result(&ptr_a, &op_result)?;
 
         // SP = SP - 1 (consumed b)
         let result_var = self.emit_stack_gep(stack_var, -1)?;
@@ -180,7 +180,7 @@ impl CodeGen {
         let stack_var = stack_var.as_str();
 
         // Load operands as doubles
-        let (ptr_a, _slot1_a, val_a, val_b) = self.emit_load_two_float_operands(stack_var)?;
+        let (ptr_a, val_a, val_b) = self.emit_load_two_float_operands(stack_var)?;
 
         // Compare using fcmp
         let cmp_result = self.fresh_temp();

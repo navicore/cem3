@@ -355,22 +355,21 @@ impl CodeGen {
             return Err(CodeGenError::Logic(
                 "tagged-ptr float spill not yet implemented".to_string(),
             ));
-        } else {
-            // Write discriminant 1 (Float) to slot0
-            writeln!(&mut self.output, "  store i64 1, ptr %{}", value_ptr)?;
-            // Write bits to slot1 (offset +8)
-            let slot1_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                slot1_ptr, value_ptr
-            )?;
-            writeln!(
-                &mut self.output,
-                "  store i64 %{}, ptr %{}",
-                bits_var, slot1_ptr
-            )?;
         }
+        // Write discriminant 1 (Float) to slot0
+        writeln!(&mut self.output, "  store i64 1, ptr %{}", value_ptr)?;
+        // Write bits to slot1 (offset +8)
+        let slot1_ptr = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = getelementptr i64, ptr %{}, i64 1",
+            slot1_ptr, value_ptr
+        )?;
+        writeln!(
+            &mut self.output,
+            "  store i64 %{}, ptr %{}",
+            bits_var, slot1_ptr
+        )?;
         Ok(())
     }
 

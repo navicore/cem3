@@ -246,6 +246,7 @@ mod tests {
         assert!(ir.contains("call ptr @seq_main(ptr %stack_base)"));
 
         // 3. Read result from stack and return as exit code
+        // SSA name is a dynamic temp (not hardcoded %result), so check line-level
         assert!(
             ir.lines()
                 .any(|l| l.contains("trunc i64 %") && l.contains("to i32")),

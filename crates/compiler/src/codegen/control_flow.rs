@@ -23,9 +23,10 @@ impl CodeGen {
         let stack_var = stack_var.as_str();
 
         // Peek and pop condition: read bool value from top of stack and decrement SP
+        // top_ptr is also the new SP after the pop (one slot back)
         let top_ptr = self.emit_stack_gep(stack_var, -1)?;
         let cond_val = self.emit_load_int_payload(&top_ptr)?;
-        let popped_stack = self.emit_stack_gep(stack_var, -1)?;
+        let popped_stack = top_ptr.clone();
 
         // Compare with 0 (0 = false, non-zero = true)
         let cmp_temp = self.fresh_temp();

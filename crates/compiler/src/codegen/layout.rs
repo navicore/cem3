@@ -221,25 +221,8 @@ impl CodeGen {
 
         if self.tagged_ptr {
             // In tagged-ptr mode, floats are heap-boxed.
-            // TODO: Load from heap object. For now, load raw bits.
-            let bits_a = self.fresh_temp();
-            writeln!(&mut self.output, "  %{} = load i64, ptr %{}", bits_a, ptr_a)?;
-            let bits_b = self.fresh_temp();
-            writeln!(&mut self.output, "  %{} = load i64, ptr %{}", bits_b, ptr_b)?;
-            let val_a = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = bitcast i64 %{} to double",
-                val_a, bits_a
-            )?;
-            let val_b = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = bitcast i64 %{} to double",
-                val_b, bits_b
-            )?;
-            let store_target = ptr_a.clone();
-            Ok((ptr_a, store_target, val_a, val_b))
+            // This path will be implemented when tagged-ptr codegen is fully wired.
+            todo!("tagged-ptr float load not yet implemented")
         } else {
             // 40-byte mode: access slot1 for float bits
             let slot1_a = self.fresh_temp();
@@ -284,13 +267,17 @@ impl CodeGen {
 
     /// Store a float result (as double) at the given stack pointer.
     /// In 40-byte mode: stores bits to slot1 (discriminant 1 already at slot0).
-    /// In tagged-ptr mode: TODO heap-box the float.
-    /// `slot1_or_ptr` is the target — slot1 in 40-byte mode, ptr_a in tagged-ptr.
+    /// Store a float result (as double) at the given store target.
+    /// In 40-byte mode: `store_target` is slot1 (discriminant 1 already at slot0).
+    /// In tagged-ptr mode: not yet implemented (floats are heap-boxed).
     pub(super) fn emit_store_float_result(
         &mut self,
-        slot1_or_ptr: &str,
+        store_target: &str,
         double_var: &str,
     ) -> Result<(), CodeGenError> {
+        if self.tagged_ptr {
+            todo!("tagged-ptr float store not yet implemented");
+        }
         let bits = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -300,7 +287,7 @@ impl CodeGen {
         writeln!(
             &mut self.output,
             "  store i64 %{}, ptr %{}",
-            bits, slot1_or_ptr
+            bits, store_target
         )?;
         Ok(())
     }
@@ -362,14 +349,7 @@ impl CodeGen {
         bits_var: &str,
     ) -> Result<(), CodeGenError> {
         if self.tagged_ptr {
-            // TODO: In tagged-ptr mode, floats are heap-boxed.
-            // For now, store raw bits — this will need a runtime helper
-            // to box the float when tagged-ptr codegen is fully wired.
-            writeln!(
-                &mut self.output,
-                "  store i64 %{}, ptr %{}",
-                bits_var, value_ptr
-            )?;
+            todo!("tagged-ptr float spill not yet implemented");
         } else {
             // Write discriminant 1 (Float) to slot0
             writeln!(&mut self.output, "  store i64 1, ptr %{}", value_ptr)?;
@@ -513,5 +493,72 @@ mod tests {
     fn test_value_size_bytes() {
         assert_eq!(codegen_default().value_size_bytes(), 40);
         assert_eq!(codegen_tagged().value_size_bytes(), 8);
+    }
+
+    #[test]
+    fn test_load_two_int_operands_default() {
+        let mut cg = codegen_default();
+        let (ptr_a, val_a, val_b) = cg.emit_load_two_int_operands("sp").unwrap();
+        // Should GEP to -1 and -2 with %Value stride, then load slot1 from each
+        assert!(cg.output.contains("getelementptr %Value"));
+        assert!(cg.output.contains("getelementptr i64"));
+        assert!(!ptr_a.is_empty());
+        assert!(!val_a.is_empty());
+        assert!(!val_b.is_empty());
+    }
+
+    #[test]
+    fn test_load_two_int_operands_tagged() {
+        let mut cg = codegen_tagged();
+        let (_ptr_a, val_a, val_b) = cg.emit_load_two_int_operands("sp").unwrap();
+        // Should GEP with i64 stride, load, then ashr to untag
+        assert!(cg.output.contains("getelementptr i64"));
+        assert!(cg.output.contains("ashr i64"));
+        assert!(!cg.output.contains("%Value"));
+        assert!(!val_a.is_empty());
+        assert!(!val_b.is_empty());
+    }
+
+    #[test]
+    fn test_load_top_int_default() {
+        let mut cg = codegen_default();
+        let (top_ptr, val) = cg.emit_load_top_int("sp").unwrap();
+        assert!(cg.output.contains("getelementptr %Value"));
+        assert!(!top_ptr.is_empty());
+        assert!(!val.is_empty());
+    }
+
+    #[test]
+    fn test_store_int_result_in_place_default() {
+        let mut cg = codegen_default();
+        cg.emit_store_int_result_in_place("ptr_a", "result")
+            .unwrap();
+        // Should GEP to slot1 and store there (not write discriminant)
+        assert!(cg.output.contains("getelementptr i64, ptr %ptr_a, i64 1"));
+        assert!(cg.output.contains("store i64 %result"));
+    }
+
+    #[test]
+    fn test_store_int_result_in_place_tagged() {
+        let mut cg = codegen_tagged();
+        cg.emit_store_int_result_in_place("ptr_a", "result")
+            .unwrap();
+        // Should tag (shl + or) then store
+        assert!(cg.output.contains("shl i64 %result, 1"));
+        assert!(cg.output.contains("or i64"));
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_load_float_operands_tagged_panics() {
+        let mut cg = codegen_tagged();
+        let _ = cg.emit_load_two_float_operands("sp");
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_store_float_bits_tagged_panics() {
+        let mut cg = codegen_tagged();
+        let _ = cg.emit_store_float_bits("ptr", "bits");
     }
 }

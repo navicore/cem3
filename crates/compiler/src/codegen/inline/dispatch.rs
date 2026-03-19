@@ -22,6 +22,7 @@ impl CodeGen {
             // Must call runtime to properly drop heap values
             "drop" => {
                 let stack_var = self.spill_virtual_stack(stack_var)?;
+                let stack_var = stack_var.as_str();
                 let result_var = self.fresh_temp();
                 writeln!(
                     &mut self.output,
@@ -363,21 +364,8 @@ impl CodeGen {
                     neg_offset, offset
                 )?;
 
-                // Get pointer to the item to copy (dynamic GEP)
-                let src_ptr = self.fresh_temp();
-                if self.tagged_ptr {
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = getelementptr i64, ptr %{}, i64 %{}",
-                        src_ptr, stack_var, neg_offset
-                    )?;
-                } else {
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
-                        src_ptr, stack_var, neg_offset
-                    )?;
-                }
+                // Get pointer to the item to copy (dynamic offset)
+                let src_ptr = self.emit_dynamic_stack_gep(stack_var, &neg_offset)?;
 
                 // Clone value from src to n_ptr (replacing n)
                 writeln!(
@@ -419,20 +407,7 @@ impl CodeGen {
                 )?;
 
                 // Dynamic GEP to xn
-                let src_ptr = self.fresh_temp();
-                if self.tagged_ptr {
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = getelementptr i64, ptr %{}, i64 %{}",
-                        src_ptr, popped_sp, neg_offset
-                    )?;
-                } else {
-                    writeln!(
-                        &mut self.output,
-                        "  %{} = getelementptr %Value, ptr %{}, i64 %{}",
-                        src_ptr, popped_sp, neg_offset
-                    )?;
-                }
+                let src_ptr = self.emit_dynamic_stack_gep(&popped_sp, &neg_offset)?;
 
                 // Load the value to roll
                 let rolled_val = self.emit_load_value(&src_ptr)?;
@@ -478,9 +453,9 @@ impl CodeGen {
 
                 self.current_aux_sp += 1;
 
-                // Decrement main stack SP
-                let result_var = top_ptr.clone();
-                Ok(Some(result_var))
+                // Reuse top_ptr as the new SP — it already points to sp-1
+                // (the slot we just consumed), so no additional GEP needed
+                Ok(Some(top_ptr))
             }
 
             // aux>: ( -- T ) move top of aux stack to main stack

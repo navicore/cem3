@@ -626,6 +626,20 @@ fn print_stack_value(sv: StackValue) {
     print!("{}", son);
 }
 
+// ============================================================================
+// Short Aliases for Internal/Test Use
+// ============================================================================
+
+pub use patch_seq_2dup as two_dup;
+pub use patch_seq_dup as dup;
+pub use patch_seq_nip as nip;
+pub use patch_seq_over as over;
+pub use patch_seq_pick_op as pick;
+pub use patch_seq_roll as roll;
+pub use patch_seq_rot as rot;
+pub use patch_seq_swap as swap;
+pub use patch_seq_tuck as tuck;
+
 #[macro_export]
 macro_rules! test_stack {
     () => {{ $crate::stack::alloc_test_stack() }};

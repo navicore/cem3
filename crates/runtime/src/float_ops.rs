@@ -523,7 +523,8 @@ mod tests {
         }
     }
 
-    // This test uses i64::MAX which is outside the 44-bit NaN-boxing range
+    // This test uses i64::MAX which overflows the 63-bit tagged-ptr range
+    #[cfg(not(feature = "tagged-ptr"))]
     #[test]
     fn test_float_to_int_overflow_positive() {
         unsafe {
@@ -537,7 +538,8 @@ mod tests {
         }
     }
 
-    // This test uses i64::MIN which is outside the 44-bit NaN-boxing range
+    // This test uses i64::MIN which overflows the 63-bit tagged-ptr range
+    #[cfg(not(feature = "tagged-ptr"))]
     #[test]
     fn test_float_to_int_overflow_negative() {
         unsafe {
@@ -564,7 +566,8 @@ mod tests {
         }
     }
 
-    // This test uses i64::MAX which is outside the 44-bit NaN-boxing range
+    // This test uses i64::MAX which overflows the 63-bit tagged-ptr range
+    #[cfg(not(feature = "tagged-ptr"))]
     #[test]
     fn test_float_to_int_infinity() {
         unsafe {

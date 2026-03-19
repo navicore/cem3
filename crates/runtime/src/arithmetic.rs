@@ -21,8 +21,7 @@
 //!
 //! This matches the behavior of Forth and Factor, providing consistency for low-level code.
 
-use crate::stack::DISC_INT;
-use crate::stack::{Stack, peek_sv, pop, pop_two, push};
+use crate::stack::{Stack, peek, pop, pop_two, push};
 use crate::value::Value;
 
 /// Push an integer literal onto the stack (for compiler-generated code)
@@ -525,15 +524,11 @@ pub unsafe extern "C" fn patch_seq_int_bits(stack: Stack) -> Stack {
 pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
     assert!(!stack.is_null(), "peek_int_value: stack is empty");
 
-    // Stack points to next push location, so top is at stack - 1
-    let sv = unsafe { peek_sv(stack) };
-    if sv.slot0 == DISC_INT {
-        sv.slot1 as i64
-    } else {
-        panic!(
-            "peek_int_value: expected Int on stack, got discriminant {}",
-            sv.slot0
-        )
+    // Peek and extract — use pop/push-free path via peek()
+    let val = unsafe { peek(stack) };
+    match val {
+        Value::Int(i) => i,
+        other => panic!("peek_int_value: expected Int on stack, got {:?}", other),
     }
 }
 
@@ -543,18 +538,12 @@ pub unsafe extern "C" fn patch_seq_peek_int_value(stack: Stack) -> i64 {
 /// Stack must have a Bool value on top
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_peek_bool_value(stack: Stack) -> bool {
-    use crate::stack::DISC_BOOL;
     assert!(!stack.is_null(), "peek_bool_value: stack is empty");
 
-    // Stack points to next push location, so top is at stack - 1
-    let sv = unsafe { peek_sv(stack) };
-    if sv.slot0 == DISC_BOOL {
-        sv.slot1 != 0
-    } else {
-        panic!(
-            "peek_bool_value: expected Bool on stack, got discriminant {}",
-            sv.slot0
-        )
+    let val = unsafe { peek(stack) };
+    match val {
+        Value::Bool(b) => b,
+        other => panic!("peek_bool_value: expected Bool on stack, got {:?}", other),
     }
 }
 
@@ -687,7 +676,8 @@ mod tests {
         }
     }
 
-    // This test uses i64::MAX and i64::MIN which are outside the 44-bit NaN-boxing range
+    // This test uses i64::MAX and i64::MIN which overflow the 63-bit tagged-ptr range
+    #[cfg(not(feature = "tagged-ptr"))]
     #[test]
     fn test_overflow_wrapping() {
         // Test that arithmetic uses wrapping semantics (defined overflow behavior)
@@ -750,7 +740,8 @@ mod tests {
         }
     }
 
-    // This test uses i64::MIN which is outside the 44-bit NaN-boxing range
+    // This test uses i64::MIN which overflows the 63-bit tagged-ptr range
+    #[cfg(not(feature = "tagged-ptr"))]
     #[test]
     fn test_division_overflow_edge_case() {
         // Critical edge case: i64::MIN / -1 would overflow

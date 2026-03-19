@@ -1213,6 +1213,8 @@ mod tests {
         }
     }
 
+    // This test uses i64::MIN/MAX which overflow the 63-bit tagged-ptr range
+    #[cfg(not(feature = "tagged-ptr"))]
     #[test]
     fn test_weave_yields_i64_min() {
         // Edge case: ensure i64::MIN can be yielded (no sentinel values)

@@ -38,30 +38,12 @@ impl CodeGen {
 
         // Spill each value to memory (oldest first, so they're in correct order)
         for value in std::mem::take(&mut self.virtual_stack) {
-            // Store discriminant at slot0
-            writeln!(
-                &mut self.output,
-                "  store i64 {}, ptr %{}",
-                value.discriminant(),
-                current_sp
-            )?;
-
-            // Get pointer to slot1 (offset 8 bytes)
-            let slot1_ptr = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr i64, ptr %{}, i64 1",
-                slot1_ptr, current_sp
-            )?;
-
-            // Store value at slot1
             match &value {
-                VirtualValue::Int { ssa_var, .. } | VirtualValue::Bool { ssa_var } => {
-                    writeln!(
-                        &mut self.output,
-                        "  store i64 %{}, ptr %{}",
-                        ssa_var, slot1_ptr
-                    )?;
+                VirtualValue::Int { ssa_var, .. } => {
+                    self.emit_store_int(&current_sp, ssa_var)?;
+                }
+                VirtualValue::Bool { ssa_var } => {
+                    self.emit_store_bool(&current_sp, ssa_var)?;
                 }
                 VirtualValue::Float { ssa_var } => {
                     // Convert double to i64 bits for storage
@@ -71,21 +53,12 @@ impl CodeGen {
                         "  %{} = bitcast double %{} to i64",
                         bits, ssa_var
                     )?;
-                    writeln!(
-                        &mut self.output,
-                        "  store i64 %{}, ptr %{}",
-                        bits, slot1_ptr
-                    )?;
+                    self.emit_store_float_bits(&current_sp, &bits)?;
                 }
             }
 
-            // Advance stack pointer to next Value slot (40 bytes)
-            let next_sp = self.fresh_temp();
-            writeln!(
-                &mut self.output,
-                "  %{} = getelementptr %Value, ptr %{}, i64 1",
-                next_sp, current_sp
-            )?;
+            // Advance stack pointer to next Value slot
+            let next_sp = self.emit_stack_gep(&current_sp, 1)?;
             current_sp = next_sp;
         }
 

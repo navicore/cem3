@@ -118,17 +118,6 @@ pub(super) enum VirtualValue {
     Bool { ssa_var: String },
 }
 
-impl VirtualValue {
-    /// Get the discriminant for this value type
-    pub fn discriminant(&self) -> i64 {
-        match self {
-            VirtualValue::Int { .. } => 0,
-            VirtualValue::Float { .. } => 1,
-            VirtualValue::Bool { .. } => 2,
-        }
-    }
-}
-
 pub struct CodeGen {
     pub(super) output: String,
     pub(super) string_globals: String,

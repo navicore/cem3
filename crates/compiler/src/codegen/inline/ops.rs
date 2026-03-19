@@ -3,13 +3,16 @@
 //! This module contains helper functions for generating inline LLVM IR
 //! for common operations like comparisons, arithmetic, and loops.
 //! These are called by try_codegen_inline_op in the main module.
+//!
+//! Layout-dependent operations use helpers from `layout.rs` to support
+//! both 40-byte StackValue and 8-byte tagged pointer representations.
 
 use super::super::{CodeGen, CodeGenError, VirtualValue};
 use std::fmt::Write as _;
 
 impl CodeGen {
     /// Generate inline code for comparison operations.
-    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
+    /// Result is a Bool value at position -2, consuming both operands.
     pub(in crate::codegen) fn codegen_inline_comparison(
         &mut self,
         stack_var: &str,
@@ -19,47 +22,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Get pointers to Value slots
-        let ptr_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            ptr_b, stack_var
-        )?;
-        let ptr_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-            ptr_a, stack_var
-        )?;
-
-        // Get slot1 pointers (values are at offset 8)
-        let slot1_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_a, ptr_a
-        )?;
-        let slot1_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_b, ptr_b
-        )?;
-
-        // Load values from slot1
-        let val_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_a, slot1_a
-        )?;
-        let val_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_b, slot1_b
-        )?;
+        // Load two integer operands
+        let (ptr_a, val_a, val_b) = self.emit_load_two_int_operands(stack_var)?;
 
         // Compare
         let cmp_result = self.fresh_temp();
@@ -77,17 +41,11 @@ impl CodeGen {
             zext, cmp_result
         )?;
 
-        // Store result as Value::Bool (discriminant 2 at slot0, 0/1 at slot1)
-        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
-        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
+        // Store result as Bool
+        self.emit_store_bool(&ptr_a, &zext)?;
 
         // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
+        let result_var = self.emit_stack_gep(stack_var, -1)?;
 
         Ok(Some(result_var))
     }
@@ -160,47 +118,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Get pointers to Value slots
-        let ptr_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            ptr_b, stack_var
-        )?;
-        let ptr_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-            ptr_a, stack_var
-        )?;
-
-        // Get pointers to slot1 (actual value, offset 8 bytes from Value start)
-        let slot1_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_a, ptr_a
-        )?;
-        let slot1_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_b, ptr_b
-        )?;
-
-        // Load actual values from slot1
-        let val_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_a, slot1_a
-        )?;
-        let val_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_b, slot1_b
-        )?;
+        // Load two integer operands
+        let (ptr_a, val_a, val_b) = self.emit_load_two_int_operands(stack_var)?;
 
         // Perform the operation
         let op_result = self.fresh_temp();
@@ -210,26 +129,16 @@ impl CodeGen {
             op_result, llvm_op, val_a, val_b
         )?;
 
-        // Store result (discriminant already 0 from original push)
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            op_result, slot1_a
-        )?;
+        // Store result in place at ptr_a
+        self.emit_store_int_result_in_place(&ptr_a, &op_result)?;
 
         // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
+        let result_var = self.emit_stack_gep(stack_var, -1)?;
 
         Ok(Some(result_var))
     }
 
     /// Generate inline code for float binary operations (f.add, f.subtract, etc.)
-    /// Values are stored as f64 bits in slot1, discriminant 1 (Float).
     pub(in crate::codegen) fn codegen_inline_float_binary_op(
         &mut self,
         stack_var: &str,
@@ -239,8 +148,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Load operands as doubles (Issue #215: extracted helper)
-        let (_ptr_a, slot1_a, val_a, val_b) = self.codegen_float_load_operands(stack_var)?;
+        // Load operands as doubles
+        let (ptr_a, val_a, val_b) = self.emit_load_two_float_operands(stack_var)?;
 
         // Perform the float operation
         let op_result = self.fresh_temp();
@@ -250,99 +159,17 @@ impl CodeGen {
             op_result, llvm_op, val_a, val_b
         )?;
 
-        // Bitcast result back to i64
-        let result_bits = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = bitcast double %{} to i64",
-            result_bits, op_result
-        )?;
-
-        // Store result at slot1 (discriminant 1 already at slot0)
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            result_bits, slot1_a
-        )?;
+        // Store result
+        self.emit_store_float_result(&ptr_a, &op_result)?;
 
         // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
+        let result_var = self.emit_stack_gep(stack_var, -1)?;
 
         Ok(Some(result_var))
     }
 
-    /// Load two float operands from stack (Issue #215: extracted helper).
-    /// Returns (ptr_a, slot1_a, val_a, val_b) where vals are doubles.
-    pub(in crate::codegen) fn codegen_float_load_operands(
-        &mut self,
-        stack_var: &str,
-    ) -> Result<(String, String, String, String), CodeGenError> {
-        // Get pointers to Value slots
-        let ptr_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            ptr_b, stack_var
-        )?;
-        let ptr_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-            ptr_a, stack_var
-        )?;
-
-        // Get slot1 pointers (values at offset 8)
-        let slot1_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_a, ptr_a
-        )?;
-        let slot1_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_b, ptr_b
-        )?;
-
-        // Load values from slot1 as i64 (raw bits)
-        let bits_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            bits_a, slot1_a
-        )?;
-        let bits_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            bits_b, slot1_b
-        )?;
-
-        // Bitcast to double
-        let val_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = bitcast i64 %{} to double",
-            val_a, bits_a
-        )?;
-        let val_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = bitcast i64 %{} to double",
-            val_b, bits_b
-        )?;
-
-        Ok((ptr_a, slot1_a, val_a, val_b))
-    }
-
     /// Generate inline code for float comparison operations.
-    /// Returns Value::Bool (discriminant 2 at slot0, 0/1 at slot1).
+    /// Result is a Bool value.
     pub(in crate::codegen) fn codegen_inline_float_comparison(
         &mut self,
         stack_var: &str,
@@ -352,8 +179,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Load operands as doubles (Issue #215: reuse helper)
-        let (ptr_a, slot1_a, val_a, val_b) = self.codegen_float_load_operands(stack_var)?;
+        // Load operands as doubles
+        let (ptr_a, val_a, val_b) = self.emit_load_two_float_operands(stack_var)?;
 
         // Compare using fcmp
         let cmp_result = self.fresh_temp();
@@ -371,23 +198,16 @@ impl CodeGen {
             zext, cmp_result
         )?;
 
-        // Store result as Value::Bool (discriminant 2 at slot0, 0/1 at slot1)
-        writeln!(&mut self.output, "  store i64 2, ptr %{}", ptr_a)?;
-        writeln!(&mut self.output, "  store i64 %{}, ptr %{}", zext, slot1_a)?;
+        // Store result as Bool
+        self.emit_store_bool(&ptr_a, &zext)?;
 
         // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
+        let result_var = self.emit_stack_gep(stack_var, -1)?;
 
         Ok(Some(result_var))
     }
 
     /// Generate inline code for integer bitwise binary operations.
-    /// Returns tagged int (discriminant 0).
     pub(in crate::codegen) fn codegen_inline_int_bitwise_binary(
         &mut self,
         stack_var: &str,
@@ -397,47 +217,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Get pointers to Value slots
-        let ptr_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            ptr_b, stack_var
-        )?;
-        let ptr_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-            ptr_a, stack_var
-        )?;
-
-        // Get slot1 pointers (values at offset 8)
-        let slot1_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_a, ptr_a
-        )?;
-        let slot1_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_b, ptr_b
-        )?;
-
-        // Load values from slot1
-        let val_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_a, slot1_a
-        )?;
-        let val_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_b, slot1_b
-        )?;
+        // Load two integer operands
+        let (ptr_a, val_a, val_b) = self.emit_load_two_int_operands(stack_var)?;
 
         // Perform the bitwise operation
         let op_result = self.fresh_temp();
@@ -447,20 +228,11 @@ impl CodeGen {
             op_result, llvm_op, val_a, val_b
         )?;
 
-        // Store result (discriminant stays 0 for Int, just update slot1)
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            op_result, slot1_a
-        )?;
+        // Store result in place
+        self.emit_store_int_result_in_place(&ptr_a, &op_result)?;
 
         // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
+        let result_var = self.emit_stack_gep(stack_var, -1)?;
 
         Ok(Some(result_var))
     }
@@ -477,79 +249,19 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Load operands from memory (Issue #215: extracted helper)
-        let (slot1_a, val_a, val_b) = self.codegen_shift_load_operands(stack_var)?;
+        // Load operands from memory
+        let (ptr_a, val_a, val_b) = self.emit_load_two_int_operands(stack_var)?;
 
-        // Perform bounds-checked shift (Issue #215: extracted helper)
+        // Perform bounds-checked shift
         let op_result = self.codegen_shift_compute(&val_a, &val_b, is_left)?;
 
-        // Store result (discriminant stays 0 for Int, just update slot1)
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            op_result, slot1_a
-        )?;
+        // Store result in place
+        self.emit_store_int_result_in_place(&ptr_a, &op_result)?;
 
         // SP = SP - 1 (consumed b)
-        let result_var = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            result_var, stack_var
-        )?;
+        let result_var = self.emit_stack_gep(stack_var, -1)?;
 
         Ok(Some(result_var))
-    }
-
-    /// Load two operands for shift operation (Issue #215: extracted helper).
-    /// Returns (slot1_a, val_a, val_b) where slot1_a is the store target.
-    pub(in crate::codegen) fn codegen_shift_load_operands(
-        &mut self,
-        stack_var: &str,
-    ) -> Result<(String, String, String), CodeGenError> {
-        // Get pointers to Value slots (b = shift count, a = value to shift)
-        let ptr_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            ptr_b, stack_var
-        )?;
-        let ptr_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -2",
-            ptr_a, stack_var
-        )?;
-
-        // Get slot1 pointers (values at offset 8)
-        let slot1_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_a, ptr_a
-        )?;
-        let slot1_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_b, ptr_b
-        )?;
-
-        // Load values from slot1
-        let val_a = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_a, slot1_a
-        )?;
-        let val_b = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val_b, slot1_b
-        )?;
-
-        Ok((slot1_a, val_a, val_b))
     }
 
     /// Perform bounds-checked shift operation (Issue #215: extracted helper).
@@ -623,29 +335,8 @@ impl CodeGen {
         let stack_var = self.spill_virtual_stack(stack_var)?;
         let stack_var = stack_var.as_str();
 
-        // Get pointer to top Value
-        let top_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr %Value, ptr %{}, i64 -1",
-            top_ptr, stack_var
-        )?;
-
-        // Get pointer to slot1 (value at offset 8)
-        let slot1_ptr = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = getelementptr i64, ptr %{}, i64 1",
-            slot1_ptr, top_ptr
-        )?;
-
-        // Load value from slot1
-        let val = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = load i64, ptr %{}",
-            val, slot1_ptr
-        )?;
+        // Load top value
+        let (top_ptr, val) = self.emit_load_top_int(stack_var)?;
 
         // Call the intrinsic
         let result = self.fresh_temp();
@@ -664,12 +355,8 @@ impl CodeGen {
             )?;
         }
 
-        // Store result (discriminant stays 0 for Int)
-        writeln!(
-            &mut self.output,
-            "  store i64 %{}, ptr %{}",
-            result, slot1_ptr
-        )?;
+        // Store result in place
+        self.emit_store_int_result_in_place(&top_ptr, &result)?;
 
         // SP unchanged
         Ok(Some(stack_var.to_string()))

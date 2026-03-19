@@ -246,7 +246,12 @@ mod tests {
         assert!(ir.contains("call ptr @seq_main(ptr %stack_base)"));
 
         // 3. Read result from stack and return as exit code
-        assert!(ir.contains("trunc i64 %result to i32"));
+        // SSA name is a dynamic temp (not hardcoded %result), so check line-level
+        assert!(
+            ir.lines()
+                .any(|l| l.contains("trunc i64 %") && l.contains("to i32")),
+            "Expected a trunc i64 %N to i32 instruction"
+        );
         assert!(ir.contains("ret i32 %exit_code"));
 
         // 4. Use inline push with virtual registers (Issue #189)

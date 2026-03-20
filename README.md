@@ -59,7 +59,7 @@ Stable as of 4.0. The language and standard library are stable and used by the c
 
 *Prerequisites* — **clang** is required to compile Seq programs (used to compile LLVM IR to native executables):
 - macOS: `xcode-select --install`
-- Ubuntu/Debian: `apt install clang`
+- Ubuntu/Debian: `apt install clang libedit-dev`
 - Fedora: `dnf install clang`
 
 *Install from crates.io:*

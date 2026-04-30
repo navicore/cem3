@@ -145,6 +145,16 @@ check-bench-freshness:
     fi
     echo "✅ Benchmarks are fresh ($AGE_HOURS hours old)"
 
+# Measure binary contents against the NO_DEAD_CODE design goal.
+#
+# Compiles a `hello world` and asserts the resulting binary contains no
+# symbols from crates the source does not reference (HTTP, regex, crypto,
+# compression). Currently fails — see docs/design/NO_DEAD_CODE.md. Use
+# this to grade candidate link strategies: each strategy is judged by
+# whether it drives the leaked-symbol count toward zero.
+check-binary-contents:
+    cargo test --locked --release -p seq-compiler --test no_dead_code -- --ignored --nocapture
+
 # Lint all Seq source files (strict mode for CI - warnings are errors)
 lint-seq: build
     @echo "Linting Seq files..."

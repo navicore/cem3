@@ -502,7 +502,7 @@ json-empty-object "name" json-string "John" json-string obj-with
 ## Building and CI
 
 The `justfile` is the source of truth for all build, test, and lint
-operations. GitHub Actions calls these recipes directly — there is no
+operations. Forgejo Actions calls these recipes directly — there is no
 duplication between local development and CI.
 
 ```bash
@@ -514,17 +514,18 @@ just ci          # everything CI runs: fmt-check, lint, test, build,
 ```
 
 Run `just ci` before pushing — it's the same pipeline that runs in
-GitHub Actions and will catch formatting, clippy, test, and lint
+Forgejo Actions and will catch formatting, clippy, test, and lint
 failures locally.
 
 ### Toolchain pinning
 
-The Rust toolchain is pinned in three places that must always agree:
+The Rust toolchain is pinned in two places that must always agree:
 
 - `rust-toolchain.toml` — used by `rustup` for local development
-- `.github/workflows/ci-linux.yml` — `dtolnay/rust-toolchain@master`
-  with explicit `toolchain:` input
-- `.github/workflows/ci-macos.yml` — same explicit pin
+- `.forgejo/workflows/*.yml` — every workflow that calls
+  `dtolnay/rust-toolchain@master` declares the same explicit
+  `toolchain:` input (`ci-linux.yml`, `release.yml`, `bench.yml`,
+  `bench-calibrate.yml`)
 
 All cargo commands in the `ci` pipeline use `--locked` so a stale
 `Cargo.lock` is a build failure rather than a silent re-resolve.

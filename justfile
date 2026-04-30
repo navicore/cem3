@@ -1,7 +1,7 @@
 # Seq Build System
 #
 # This is the SOURCE OF TRUTH for all build/test/lint operations.
-# GitHub Actions calls these recipes directly - no duplication!
+# Forgejo Actions calls these recipes directly - no duplication!
 
 # Default recipe: show available commands
 default:
@@ -93,7 +93,7 @@ fmt-check:
     @echo "Checking code formatting..."
     cargo fmt --all -- --check
 
-# Run all CI checks (same as GitHub Actions!)
+# Run all CI checks (same as Forgejo Actions!)
 # This is what developers should run before pushing
 ci: fmt-check lint test build build-examples test-integration lint-seq check-binary-contents
     @echo ""
@@ -108,7 +108,7 @@ ci: fmt-check lint test build build-examples test-integration lint-seq check-bin
     @echo "   - Seq lint ✓"
     @echo "   - Binary contents ✓"
     @echo ""
-    @echo "Safe to push to GitHub - CI will pass."
+    @echo "Safe to push - CI will pass."
 
 # Check that benchmarks have been run recently (within 48 hours)
 # This catches performance regressions by ensuring benchmarks are run regularly

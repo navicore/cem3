@@ -200,11 +200,15 @@ impl ErrorFlagAnalyzer {
                     state.stack.push(v);
                 }
             }
-            "over" => {
-                if state.depth() >= 2 {
-                    let second = state.stack[state.depth() - 2].clone();
-                    state.stack.push(second);
-                }
+            // Guard arms ("over"/"2dup" with depth check) intentionally
+            // fall through to the catch-all `_ => { /* no-op */ }` when
+            // the guard fails. Adding a new earlier arm whose pattern
+            // could match these names (e.g. another `_ if ... =>`) would
+            // silently change behavior — keep guard-bearing arms close
+            // to the catch-all or convert back to inner-`if` form.
+            "over" if state.depth() >= 2 => {
+                let second = state.stack[state.depth() - 2].clone();
+                state.stack.push(second);
             }
             "rot" => {
                 let c = state.pop();
@@ -233,13 +237,11 @@ impl ErrorFlagAnalyzer {
                     state.stack.push(v);
                 }
             }
-            "2dup" => {
-                if state.depth() >= 2 {
-                    let a = state.stack[state.depth() - 2].clone();
-                    let b = state.stack[state.depth() - 1].clone();
-                    state.stack.push(a);
-                    state.stack.push(b);
-                }
+            "2dup" if state.depth() >= 2 => {
+                let a = state.stack[state.depth() - 2].clone();
+                let b = state.stack[state.depth() - 1].clone();
+                state.stack.push(a);
+                state.stack.push(b);
             }
             ">aux" => {
                 if let Some(v) = state.pop() {

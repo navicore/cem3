@@ -65,87 +65,28 @@ This is Seq's unfair advantage: a concatenative language with the full power of 
 
 ---
 
-## Feature Flags & Binary Size
+## Binary Contents
 
-The runtime uses Cargo feature flags to allow opt-in compilation of optional modules. This keeps the core runtime smaller while allowing full batteries for apps that need them.
+A `seqc build` binary contains exactly what the source uses. The
+runtime ships with every capability built in, and the link removes
+what the program does not reference.
 
-### Feature Structure
+There are no `seqc` flags for capability selection. There are no
+source annotations. The typechecker already knows which builtins
+each program touches; the linker uses the `seq_main` reachability
+boundary to drop the rest. A `hello world` ships no HTTP code, no
+TLS, no regex, no crypto, no compression — and pays nothing for
+their presence in the runtime archive.
 
-```toml
-# crates/runtime/Cargo.toml
-[features]
-default = ["full", "diagnostics"]
+This means "batteries included" is honest: adding a builtin to the
+runtime imposes no cost on programs that do not call it.
 
-# Full batteries - enable all optional modules
-full = ["crypto", "http", "regex", "compression"]
-
-# Optional modules - enable individually for smaller binaries
-crypto = ["dep:sha2", "dep:hmac", "dep:rand", "dep:uuid", "dep:subtle",
-          "dep:aes-gcm", "dep:pbkdf2", "dep:ed25519-dalek"]
-http = ["dep:ureq", "dep:url"]
-regex = ["dep:regex"]
-compression = ["dep:flate2", "dep:zstd"]
-```
-
-### Static Library Sizes (Measured)
-
-| Configuration | Library Size | Use Case |
-|---------------|--------------|----------|
-| `core` only | ~20 MiB | Embedded, CLI tools, scripts |
-| `core` + `crypto` | ~22 MiB | Security tools, auth services |
-| `core` + `compression` | ~22 MiB | Data processing, archiving |
-| `core` + `regex` | ~27 MiB | Text processing, parsing |
-| `core` + `http` | ~33 MiB | API clients, web scrapers |
-| `full` (default) | ~43 MiB | Full web applications |
-
-*Note: These are static library sizes. Final executable sizes depend on linking and may be smaller.*
-
-### Compile-Time Gating
-
-Each optional module is gated with `#[cfg(feature = "...")]`:
-
-```rust
-// Real implementation when feature enabled
-#[cfg(feature = "crypto")]
-pub mod crypto;
-
-// Stub with helpful panic when feature disabled
-#[cfg(not(feature = "crypto"))]
-pub mod crypto_stub;
-```
-
-When a disabled feature is used at runtime:
-```
-thread 'main' panicked at 'crypto.sha256 requires crypto feature not enabled.
-Rebuild with: cargo build --features crypto'
-```
-
-### Building with Features
-
-```bash
-# Full batteries (default)
-cargo build --release
-
-# Minimal build (core only - no crypto, http, regex, compression)
-cargo build --release --no-default-features
-
-# Specific capabilities
-cargo build --release --no-default-features --features "crypto,http"
-
-# Just crypto for a security tool
-cargo build --release --no-default-features --features crypto
-```
-
-### Available Features
-
-| Feature | Includes | Builtins |
-|---------|----------|----------|
-| `crypto` | SHA-256, HMAC, AES-GCM, PBKDF2, Ed25519, random, UUID | `crypto.*` |
-| `http` | HTTP client with TLS | `http.get/post/put/delete` |
-| `regex` | Regular expressions | `regex.*` |
-| `compression` | gzip, zstd | `compress.*` |
-| `diagnostics` | SIGQUIT strand dump | (debugging) |
-| `full` | All of the above | Everything |
+> **Note:** The runtime crate (`crates/runtime/Cargo.toml`) still
+> exposes Cargo features (`crypto`, `http`, `regex`, `compression`)
+> for builds that bypass `seqc` and depend on the runtime directly.
+> These are a Cargo-build internal — they are never surfaced through
+> `seqc build` and have no bearing on what a Seq source program can
+> reference.
 
 ---
 

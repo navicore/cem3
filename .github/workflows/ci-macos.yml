@@ -25,7 +25,7 @@ jobs:
     - name: Install Rust toolchain (edition 2024)
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: 1.93.0  # Pin exact version to match local development
+        toolchain: 1.95.0  # Pin exact version to match local development
         components: rustfmt, clippy
 
     - name: Verify Rust version

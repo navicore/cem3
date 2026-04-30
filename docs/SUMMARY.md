@@ -21,6 +21,7 @@
 - [Tail Call Optimization](TCO_GUIDE.md)
 - [FFI Guide](FFI_GUIDE.md)
 - [Observability](OBSERVABILITY_GUIDE.md)
+- [Binary Footprint](BINARY_FOOTPRINT.md)
 - [Architecture](ARCHITECTURE.md)
 
 # Appendix

@@ -95,7 +95,7 @@ fmt-check:
 
 # Run all CI checks (same as GitHub Actions!)
 # This is what developers should run before pushing
-ci: fmt-check lint test build build-examples test-integration lint-seq
+ci: fmt-check lint test build build-examples test-integration lint-seq check-binary-contents
     @echo ""
     @echo "✅ All CI checks passed!"
     @echo "   - Code formatting ✓"
@@ -106,6 +106,7 @@ ci: fmt-check lint test build build-examples test-integration lint-seq
     @echo "   - Examples built ✓"
     @echo "   - Integration tests ✓"
     @echo "   - Seq lint ✓"
+    @echo "   - Binary contents ✓"
     @echo ""
     @echo "Safe to push to GitHub - CI will pass."
 
@@ -144,6 +145,15 @@ check-bench-freshness:
         exit 1
     fi
     echo "✅ Benchmarks are fresh ($AGE_HOURS hours old)"
+
+# Assert the compiled binary contains no symbols from crates a hello
+# world does not reference. See docs/design/done/NO_DEAD_CODE.md.
+#
+# Passes on Linux; `#[ignore]`d on macOS due to a small residue of
+# `ring` asm symbols the linker cannot prove dead. To see the residue:
+#   cargo test --release -p seq-compiler --test no_dead_code -- --ignored --nocapture
+check-binary-contents:
+    cargo test --locked --release -p seq-compiler --test no_dead_code -- --nocapture
 
 # Lint all Seq source files (strict mode for CI - warnings are errors)
 lint-seq: build

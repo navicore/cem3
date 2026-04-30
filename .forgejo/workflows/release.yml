@@ -26,8 +26,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libedit-dev
+          apt-get update
+          apt-get install -y libedit-dev
 
       - name: Extract version from tag
         id: version

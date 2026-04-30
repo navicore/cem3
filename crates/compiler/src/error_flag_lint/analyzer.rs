@@ -200,6 +200,12 @@ impl ErrorFlagAnalyzer {
                     state.stack.push(v);
                 }
             }
+            // Guard arms ("over"/"2dup" with depth check) intentionally
+            // fall through to the catch-all `_ => { /* no-op */ }` when
+            // the guard fails. Adding a new earlier arm whose pattern
+            // could match these names (e.g. another `_ if ... =>`) would
+            // silently change behavior — keep guard-bearing arms close
+            // to the catch-all or convert back to inner-`if` form.
             "over" if state.depth() >= 2 => {
                 let second = state.stack[state.depth() - 2].clone();
                 state.stack.push(second);

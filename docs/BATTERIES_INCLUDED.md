@@ -67,9 +67,9 @@ This is Seq's unfair advantage: a concatenative language with the full power of 
 
 ## Binary Contents
 
-The binary contains exactly what the source uses. The runtime is
-always built with everything on, and the link removes what the
-program does not reference.
+A `seqc build` binary contains exactly what the source uses. The
+runtime ships with every capability built in, and the link removes
+what the program does not reference.
 
 There are no `seqc` flags for capability selection. There are no
 source annotations. The typechecker already knows which builtins
@@ -78,8 +78,15 @@ boundary to drop the rest. A `hello world` ships no HTTP code, no
 TLS, no regex, no crypto, no compression — and pays nothing for
 their presence in the runtime archive.
 
-This means "batteries included" is honest: adding a builtin to
-the runtime imposes no cost on programs that do not call it.
+This means "batteries included" is honest: adding a builtin to the
+runtime imposes no cost on programs that do not call it.
+
+> **Note:** The runtime crate (`crates/runtime/Cargo.toml`) still
+> exposes Cargo features (`crypto`, `http`, `regex`, `compression`)
+> for builds that bypass `seqc` and depend on the runtime directly.
+> These are a Cargo-build internal — they are never surfaced through
+> `seqc build` and have no bearing on what a Seq source program can
+> reference.
 
 ---
 

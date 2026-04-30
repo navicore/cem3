@@ -42,10 +42,21 @@ const FORBIDDEN_FOR_HELLO: &[&str] = &[
     "zstd",
 ];
 
+// Release-only: the empirical zero-leaks result depends on the
+// workspace's release profile (`lto = true`, `codegen-units = 1`)
+// being applied to the runtime archive `seqc` links against. Under
+// `cargo test` (debug), `seqc` embeds a debug runtime with codegen-
+// units=256 and no LTO, where `-Wl,--gc-sections` leaves a much
+// larger residue and the assertion fails in confusing ways. The
+// `just check-binary-contents` recipe forces release.
+//
+// macOS is also gated: 4 hand-written `ring` asm kernels are
+// referenced via inline assembly the linker cannot prove dead. See
+// docs/design/done/NO_DEAD_CODE.md.
 #[test]
 #[cfg_attr(
-    target_os = "macos",
-    ignore = "4 ring asm symbols survive ld64's -dead_strip; see docs/design/done/NO_DEAD_CODE.md"
+    any(target_os = "macos", debug_assertions),
+    ignore = "release-only; macOS additionally leaves 4 ring asm stragglers — see docs/design/done/NO_DEAD_CODE.md"
 )]
 fn hello_world_binary_contains_no_unreferenced_capabilities() {
     let tmp = TempDir::new().expect("create tempdir");

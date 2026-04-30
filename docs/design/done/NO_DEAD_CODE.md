@@ -182,5 +182,5 @@ mechanism is the production answer.
 
 ### Companion analysis
 
-`docs/design/BINARY_FOOTPRINT.md` documents what is left in the
-binary after dead-stripping and why each piece is there.
+`docs/design/done/BINARY_FOOTPRINT.md` documents what is left in
+the binary after dead-stripping and why each piece is there.

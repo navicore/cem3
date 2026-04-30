@@ -388,10 +388,12 @@ pub fn compile_file_with_config(
     // binary contains only the runtime machinery the source program
     // could possibly execute. ld64 walks atom-level reachability from
     // the entry point; GNU ld / lld do the same via section
-    // reachability. See docs/design/done/NO_DEAD_CODE.md.
+    // reachability. Other targets (notably Windows-MSVC, where clang
+    // calls `link.exe`) get no flag — `--gc-sections` would be
+    // rejected. See docs/design/done/NO_DEAD_CODE.md.
     if cfg!(target_os = "macos") {
         clang.arg("-Wl,-dead_strip");
-    } else {
+    } else if cfg!(target_os = "linux") {
         clang.arg("-Wl,--gc-sections");
     }
 

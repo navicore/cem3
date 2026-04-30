@@ -1,19 +1,18 @@
-//! Encodes the goal of `docs/design/NO_DEAD_CODE.md` as a runnable test.
+//! Asserts the binary produced by `seqc build` contains no symbols
+//! from crates the source program does not reference. Encodes the
+//! goal of `docs/design/done/NO_DEAD_CODE.md` as a runnable test.
 //!
-//! A `hello world` Seq program references no HTTP, regex, crypto, or
-//! compression code. The compiled binary should reflect that. This test
-//! compiles a `hello.seq` and asserts the resulting binary contains no
-//! symbols from the canary set of crates the source does not touch.
-//!
-//! Currently fails. The test is `#[ignore]`'d so `cargo test` does not
-//! run it; invoke explicitly to measure each candidate link strategy:
+//! On Linux, `-Wl,--gc-sections` drives this to zero and the test
+//! passes. On macOS, `-Wl,-dead_strip` leaves a small residue of
+//! `ring` asm kernels that survive linker reachability analysis
+//! because they are referenced via inline assembly the linker cannot
+//! see; the test is `#[ignore]`d on macOS for that reason. The
+//! residue is documented in `docs/design/done/NO_DEAD_CODE.md`. To
+//! inspect it manually:
 //!
 //! ```text
 //! cargo test --release -p seq-compiler --test no_dead_code -- --ignored --nocapture
 //! ```
-//!
-//! When a link strategy makes the test pass, remove `#[ignore]` and wire
-//! it into `just ci`.
 
 use std::fs;
 use std::process::Command;
@@ -44,8 +43,10 @@ const FORBIDDEN_FOR_HELLO: &[&str] = &[
 ];
 
 #[test]
-#[ignore = "design goal of docs/design/NO_DEAD_CODE.md; currently fails. \
-            Run with `cargo test -- --ignored` to measure progress."]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "4 ring asm symbols survive ld64's -dead_strip; see docs/design/done/NO_DEAD_CODE.md"
+)]
 fn hello_world_binary_contains_no_unreferenced_capabilities() {
     let tmp = TempDir::new().expect("create tempdir");
     let src = tmp.path().join("hello.seq");

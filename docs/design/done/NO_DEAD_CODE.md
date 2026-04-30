@@ -1,6 +1,6 @@
 # No Dead Code in Compiled Binaries
 
-Status: design · 2026-04-25
+Status: shipped · 2026-04-30 (Linux clean, macOS with documented residue)
 
 ## Intent
 
@@ -126,3 +126,61 @@ statically eliminates to nothing.
    program doesn't reference.*
 5. **No regression in `just ci`.** Existing tests, examples, and
    integration continue to pass under the new link.
+
+## Result
+
+Section/atom-level link-time GC turned out to be sufficient,
+without nightly Rust, without bitcode embedding, without an `lld`
+dependency. `seqc build` unconditionally passes one extra flag at
+the final link:
+
+- macOS: `-Wl,-dead_strip` — ld64 walks atom-level reachability
+  from `seq_main`, dropping every function and data item not
+  transitively referenced.
+- Linux: `-Wl,--gc-sections` — GNU ld / lld do the same via
+  section reachability. Effective on the workspace's existing
+  `lto = true / codegen-units = 1` release profile.
+
+Measured against `examples/basics/hello-world.seq` on rustc 1.95,
+across the eleven canary crates the source does not touch
+(`ureq`, `flate2`, `sha2`, `aes_gcm`, `regex_automata`,
+`regex_syntax`, `rustls`, `ed25519`, `hmac`, `pbkdf2`, `zstd`):
+
+| Platform           | Baseline leaks | After dead-strip |
+|--------------------|---------------:|-----------------:|
+| macOS aarch64      |          3,655 |                4 |
+| Linux x86\_64      |          3,673 |                0 |
+
+The four macOS residue symbols are hand-written assembly entry
+points in the `ring` crate
+(`_ring_core_*__aes_gcm_{enc,dec}_kernel`,
+`_ring_core_*__sha256_block_data_order_{hw,nohw}`). They survive
+ld64's `-dead_strip` because `ring` references them from inline
+assembly via symbol lookups the linker cannot see. They are
+inert in a `hello world` (no caller exists) but consume a few KB
+of code. The integration test
+(`crates/compiler/tests/no_dead_code.rs`) is `#[ignore]`d on
+macOS for this reason; on Linux it is part of `just ci`.
+
+### Cross-language LTO was attempted and ruled out
+
+Cross-language LTO via `-C linker-plugin-lto` was investigated as
+a uniform mechanism for both platforms. On Linux it is plausibly
+viable but redundant — `--gc-sections` already drives the leak
+count to zero. On macOS it is blocked: rustc emits
+`-Wl,-plugin-opt=...` flags under `-C linker-plugin-lto`, and
+neither Apple's ld64 nor LLVM's ld64.lld accepts that argument
+(it is a GNU/ELF plugin protocol; LLVM's Mach-O linker uses a
+different mechanism). Working around it would require a linker
+wrapper or upstream toolchain changes — real engineering for no
+additional correctness gain.
+
+Cross-language LTO remains a future option if the macOS residue
+becomes load-bearing or if a future LLVM/rustc combination makes
+the toolchain coupling cheaper. For now, the simpler section-GC
+mechanism is the production answer.
+
+### Companion analysis
+
+`docs/design/BINARY_FOOTPRINT.md` documents what is left in the
+binary after dead-stripping and why each piece is there.

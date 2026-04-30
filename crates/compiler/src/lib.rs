@@ -384,29 +384,15 @@ pub fn compile_file_with_config(
         clang.arg("-l").arg(lib);
     }
 
-    // Opt-in dead-code experiments for docs/design/NO_DEAD_CODE.md.
-    // Off by default; gated on env vars so measurement runs do not
-    // affect any other build path.
-    //
-    // SEQ_DEAD_STRIP=1 — atom/section-level link-time GC. macOS uses
-    //   `-Wl,-dead_strip` (atom-level via ld64); Linux uses
-    //   `-Wl,--gc-sections` (requires per-function sections from rustc,
-    //   currently nightly-only).
-    //
-    // SEQ_LTO_LINK=1 — cross-language LTO at the final link. Requires
-    //   the runtime archive to be built with
-    //   `-C linker-plugin-lto -C embed-bitcode=yes` so the staticlib
-    //   carries LLVM bitcode. Uses `lld` so the linker can consume that
-    //   bitcode format.
-    if std::env::var("SEQ_DEAD_STRIP").is_ok_and(|v| !v.is_empty() && v != "0") {
-        if cfg!(target_os = "macos") {
-            clang.arg("-Wl,-dead_strip");
-        } else {
-            clang.arg("-Wl,--gc-sections");
-        }
-    }
-    if std::env::var("SEQ_LTO_LINK").is_ok_and(|v| !v.is_empty() && v != "0") {
-        clang.arg("-flto=thin").arg("-fuse-ld=lld");
+    // Strip code unreachable from `seq_main` at the final link, so the
+    // binary contains only the runtime machinery the source program
+    // could possibly execute. ld64 walks atom-level reachability from
+    // the entry point; GNU ld / lld do the same via section
+    // reachability. See docs/design/done/NO_DEAD_CODE.md.
+    if cfg!(target_os = "macos") {
+        clang.arg("-Wl,-dead_strip");
+    } else {
+        clang.arg("-Wl,--gc-sections");
     }
 
     let output = clang

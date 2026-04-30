@@ -268,7 +268,7 @@ fn read_word_counts() -> Option<Vec<(String, u64)>> {
     }
 
     // Sort by count descending
-    counts.sort_by(|a, b| b.1.cmp(&a.1));
+    counts.sort_by_key(|b| std::cmp::Reverse(b.1));
     Some(counts)
 }
 

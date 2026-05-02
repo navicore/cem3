@@ -55,3 +55,22 @@ include std:imath
   -10 0 100 clamp 0 test.assert-eq
   150 0 100 clamp 100 test.assert-eq
 ;
+
+: test-int-to-bits ( -- )
+  0 int->bits "0" test.assert-eq-str
+  1 int->bits "1" test.assert-eq-str
+  10 int->bits "1010" test.assert-eq-str
+  12 int->bits "1100" test.assert-eq-str
+  255 int->bits "11111111" test.assert-eq-str
+  256 int->bits "100000000" test.assert-eq-str
+;
+
+: test-int-to-bits-padded ( -- )
+  0 8 int->bits-padded "00000000" test.assert-eq-str
+  10 8 int->bits-padded "00001010" test.assert-eq-str
+  12 8 int->bits-padded "00001100" test.assert-eq-str
+  10 4 int->bits-padded "1010" test.assert-eq-str
+  255 4 int->bits-padded "1111" test.assert-eq-str
+  1 1 int->bits-padded "1" test.assert-eq-str
+  5 0 int->bits-padded "" test.assert-eq-str
+;

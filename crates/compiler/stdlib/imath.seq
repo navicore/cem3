@@ -22,19 +22,30 @@
 # - sign: ( Int -- Int ) - Sign function: returns -1, 0, or 1
 # - square: ( Int -- Int ) - Square a number
 # - clamp: ( Int min max -- Int ) - Clamp value between min and max
+# - int->bits: ( Int -- String ) - Binary string, minimum width, no leading zeros
+# - int->bits-padded: ( Int Int -- String ) - Binary string padded/truncated to N bits
 #
 # ## Notes
 #
 # - All operations use wrapping integer arithmetic (i64)
 # - Recursive functions (gcd, pow) may stack overflow for very large inputs
 # - Division by zero will panic at runtime
+# - int->bits and int->bits-padded are defined for non-negative ints only.
+#   Seq Ints are 63-bit tagged; logical shr of a negative cannot reduce to
+#   zero under the current tag scheme, so int->bits will not terminate on
+#   negative input. See docs/design/TAGGED_INT_BITWISE.md.
+# - int->bits-padded truncates to the low `width` bits when width is
+#   smaller than the value's bit length
 #
 # ## Examples
 #
-#   48 18 gcd          # Returns 6
-#   2 10 pow           # Returns 1024
-#   15 0 100 clamp     # Returns 15 (within range)
-#   -5 abs             # Returns 5
+#   48 18 gcd                   # Returns 6
+#   2 10 pow                    # Returns 1024
+#   15 0 100 clamp              # Returns 15 (within range)
+#   -5 abs                      # Returns 5
+#   10 int->bits                # Returns "1010"
+#   10 8 int->bits-padded       # Returns "00001010"
+#   255 4 int->bits-padded      # Returns "1111" (low 4 bits)
 #
 
 # Absolute value
@@ -142,4 +153,48 @@
       drop
     ] if
   ] if
+;
+
+# Internal: build bits from least-significant to most, prepending each
+# bit-char so the accumulator reads MSB-first. Tail-recursive (TCO).
+# Stack: ( n acc -- String )
+: int->bits-loop ( Int String -- String )
+  over 0 i.= [
+    nip
+  ] [
+    over 1 band int->string swap string.concat
+    swap 1 shr swap
+    int->bits-loop
+  ] if
+;
+
+# Convert an Int to its binary-string representation (no leading zeros).
+# Negative values render as the full 64-bit two's-complement pattern,
+# because shr is logical (zero-fill).
+: int->bits ( Int -- String )
+  dup 0 i.= [
+    drop "0"
+  ] [
+    "" int->bits-loop
+  ] if
+;
+
+# Internal: same shape as int->bits-loop but driven by a width counter
+# instead of n reaching zero. Truncates to the low `width` bits.
+# Stack: ( n width acc -- String )
+: int->bits-padded-loop ( Int Int String -- String )
+  over 0 i.<= [
+    nip nip
+  ] [
+    2 pick 1 band int->string swap string.concat
+    swap 1 i.- swap
+    rot 1 shr rot rot
+    int->bits-padded-loop
+  ] if
+;
+
+# Convert an Int to a binary string padded/truncated to exactly `width` bits.
+# width <= 0 yields the empty string.
+: int->bits-padded ( Int Int -- String )
+  "" int->bits-padded-loop
 ;

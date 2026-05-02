@@ -30,8 +30,10 @@
 # - All operations use wrapping integer arithmetic (i64)
 # - Recursive functions (gcd, pow) may stack overflow for very large inputs
 # - Division by zero will panic at runtime
-# - int->bits uses logical (zero-fill) shift, so negative ints render as
-#   the full 64-bit two's-complement pattern
+# - int->bits and int->bits-padded are defined for non-negative ints only.
+#   Seq Ints are 63-bit tagged; logical shr of a negative cannot reduce to
+#   zero under the current tag scheme, so int->bits will not terminate on
+#   negative input. See docs/design/TAGGED_INT_BITWISE.md.
 # - int->bits-padded truncates to the low `width` bits when width is
 #   smaller than the value's bit length
 #

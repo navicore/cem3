@@ -8,65 +8,28 @@ on:
 # This workflow ONLY calls `just` commands. The justfile is the source
 # of truth for all build/test/lint logic, preventing drift between
 # local development and CI.
+#
+# `runs-on: navicore-rust` targets the custom job image at
+# git.navicore.tech/navicore/navicore-forgejo-runner:latest, which has
+# Rust 1.95.0, clang-19, and just pre-installed. See
+# ../navicore-forgejo-runner for the image definition.
 
 jobs:
   ci-linux:
     name: CI - Linux x86_64
-    runs-on: ubuntu-latest
+    runs-on: navicore-rust
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Rust toolchain (edition 2024)
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: 1.95.0  # Pin exact version to match local development
-        components: rustfmt, clippy
-
-    - name: Verify Rust version
-      run: rustc --version && cargo --version && cargo clippy --version
-
-    - name: Install system dependencies
-      env:
-        CLANG_VERSION: "19"
+    - name: Verify toolchain
       run: |
-        # seqc states a minimum of clang 15, but in practice the IR it
-        # generates needs a newer clang to parse cleanly. Working dev
-        # environments use Apple clang 21 (macOS) and clang 20 (Rocky 9);
-        # the previous GitHub Actions runners shipped a recent clang too.
-        # Forgejo's runner is bookworm-based, where the newest distro
-        # clang is 16 — still too old. Pull a modern clang from the
-        # official LLVM apt repo and point the unversioned `clang` at it,
-        # since the seqc compiler invokes plain `clang`
-        # (crates/compiler/src/lib.rs).
-        apt-get update
-        apt-get install -y libedit-dev curl wget gnupg lsb-release \
-          software-properties-common ca-certificates
-        curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
-        chmod +x /tmp/llvm.sh
-        /tmp/llvm.sh "$CLANG_VERSION"
-        update-alternatives --install /usr/bin/clang clang \
-          "/usr/bin/clang-$CLANG_VERSION" 100
+        rustc --version
+        cargo --version
+        cargo clippy --version
         clang --version
-
-    # Install `just` from a pinned GitHub release tarball. We avoid both
-    # `extractions/setup-just` and the `just.systems/install.sh` script
-    # because both query api.github.com to discover the latest version.
-    # On Forgejo Actions, GITHUB_TOKEN is a Forgejo token; sending it to
-    # GitHub yields a 401 / "Bad credentials". Downloading a pinned
-    # release artifact directly bypasses the API entirely and gives us
-    # reproducible CI as a bonus. Bump JUST_VERSION to upgrade.
-    - name: Install just
-      env:
-        JUST_VERSION: 1.42.4
-      run: |
-        set -euo pipefail
-        mkdir -p "$HOME/.local/bin"
-        curl --proto '=https' --tlsv1.2 -sSfL \
-          "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-          | tar -xz -C "$HOME/.local/bin" just
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        just --version
 
     - name: Cache cargo registry
       uses: actions/cache@v4

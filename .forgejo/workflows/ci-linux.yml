@@ -29,8 +29,15 @@ jobs:
 
     - name: Install system dependencies
       run: |
+        # The default `clang` on Debian bookworm is version 14, but seqc
+        # generates LLVM IR with opaque pointers and requires clang/LLVM 15+.
+        # Install clang-16 explicitly and point the unversioned `clang`
+        # command at it via update-alternatives, since the seqc compiler
+        # invokes plain `clang` (see crates/compiler/src/lib.rs).
         apt-get update
-        apt-get install -y libedit-dev clang
+        apt-get install -y libedit-dev clang-15
+        update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 100
+        clang --version
 
     # Install `just` from a pinned GitHub release tarball. We avoid both
     # `extractions/setup-just` and the `just.systems/install.sh` script

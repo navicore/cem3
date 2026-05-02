@@ -96,3 +96,31 @@ fn test_all_signatures_have_docs() {
         );
     }
 }
+
+#[test]
+fn test_categories_cover_every_signature() {
+    // Guards against adding a new builtin sub-module without registering
+    // it in `builtin_categories()` — which would silently drop those words
+    // from the LSP `seq/listWords` response and any quick-reference UI.
+    let sigs = builtin_signatures();
+    let mut categorised = std::collections::HashSet::new();
+    for (_, words) in builtin_categories() {
+        for w in words {
+            categorised.insert(w);
+        }
+    }
+
+    for name in sigs.keys() {
+        assert!(
+            categorised.contains(name),
+            "Builtin '{}' has a signature but is not enumerated by builtin_categories() — \
+             add its sub-module to the list in builtins.rs",
+            name
+        );
+    }
+    assert_eq!(
+        categorised.len(),
+        sigs.len(),
+        "builtin_categories() listed extra words not in builtin_signatures()"
+    );
+}

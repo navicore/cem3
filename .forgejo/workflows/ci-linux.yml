@@ -28,9 +28,27 @@ jobs:
       run: rustc --version && cargo --version && cargo clippy --version
 
     - name: Install system dependencies
+      env:
+        CLANG_VERSION: "19"
       run: |
+        # seqc states a minimum of clang 15, but in practice the IR it
+        # generates needs a newer clang to parse cleanly. Working dev
+        # environments use Apple clang 21 (macOS) and clang 20 (Rocky 9);
+        # the previous GitHub Actions runners shipped a recent clang too.
+        # Forgejo's runner is bookworm-based, where the newest distro
+        # clang is 16 — still too old. Pull a modern clang from the
+        # official LLVM apt repo and point the unversioned `clang` at it,
+        # since the seqc compiler invokes plain `clang`
+        # (crates/compiler/src/lib.rs).
         apt-get update
-        apt-get install -y libedit-dev
+        apt-get install -y libedit-dev curl wget gnupg lsb-release \
+          software-properties-common ca-certificates
+        curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+        chmod +x /tmp/llvm.sh
+        /tmp/llvm.sh "$CLANG_VERSION"
+        update-alternatives --install /usr/bin/clang clang \
+          "/usr/bin/clang-$CLANG_VERSION" 100
+        clang --version
 
     # Install `just` from a pinned GitHub release tarball. We avoid both
     # `extractions/setup-just` and the `just.systems/install.sh` script

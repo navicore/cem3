@@ -35,6 +35,13 @@ pub fn has_stdlib(name: &str) -> bool {
     STDLIB.contains_key(name)
 }
 
+/// Names of all embedded stdlib modules, sorted alphabetically.
+pub fn stdlib_module_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = STDLIB.keys().copied().collect();
+    names.sort_unstable();
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

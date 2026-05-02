@@ -15,6 +15,7 @@ use tracing::{info, warn};
 mod completion;
 mod diagnostics;
 mod includes;
+mod words;
 
 use diagnostics::QuotationInfo;
 use includes::{IncludeResolution, LocalWord};
@@ -60,6 +61,15 @@ impl SeqLanguageServer {
                 None
             }
         }
+    }
+
+    /// Build the response for the `seq/listWords` custom request.
+    ///
+    /// Returns every built-in and stdlib word the language exposes, grouped
+    /// by category, with stack-effect signatures and (where available) docs.
+    /// Editor plugins use this to render a quick-reference / pocket guide.
+    async fn list_words(&self, _params: serde_json::Value) -> Result<words::ListWordsResponse> {
+        Ok(words::build())
     }
 
     /// Update document state, resolve includes, and return diagnostics
@@ -781,7 +791,9 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(SeqLanguageServer::new);
+    let (service, socket) = LspService::build(SeqLanguageServer::new)
+        .custom_method("seq/listWords", SeqLanguageServer::list_words)
+        .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 

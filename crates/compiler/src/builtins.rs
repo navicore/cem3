@@ -31,6 +31,40 @@ mod udp;
 #[cfg(test)]
 mod tests;
 
+type AddSigsFn = fn(&mut HashMap<String, Effect>);
+type AddDocsFn = fn(&mut HashMap<&'static str, &'static str>);
+
+/// Single source of truth for the built-in category sub-modules.
+///
+/// Adding a new sub-module requires exactly one row here; the signature map,
+/// the doc map, and `builtin_categories()` all iterate over this list, so
+/// they cannot drift apart.
+const CATEGORIES: &[(&str, AddSigsFn, AddDocsFn)] = &[
+    ("io", io::add_signatures, io::add_docs),
+    ("fs", fs::add_signatures, fs::add_docs),
+    ("arith", arith::add_signatures, arith::add_docs),
+    ("stack", stack::add_signatures, stack::add_docs),
+    (
+        "concurrency",
+        concurrency::add_signatures,
+        concurrency::add_docs,
+    ),
+    ("callable", callable::add_signatures, callable::add_docs),
+    ("tcp", tcp::add_signatures, tcp::add_docs),
+    ("udp", udp::add_signatures, udp::add_docs),
+    ("os", os::add_signatures, os::add_docs),
+    ("text", text::add_signatures, text::add_docs),
+    ("adt", adt::add_signatures, adt::add_docs),
+    ("list", list::add_signatures, list::add_docs),
+    ("map", map::add_signatures, map::add_docs),
+    ("float", float::add_signatures, float::add_docs),
+    (
+        "diagnostics",
+        diagnostics::add_signatures,
+        diagnostics::add_docs,
+    ),
+];
+
 /// Get the stack-effect signature for a built-in word.
 pub fn builtin_signature(name: &str) -> Option<Effect> {
     BUILTIN_SIGNATURES.get(name).cloned()
@@ -46,27 +80,32 @@ pub fn builtin_signatures() -> HashMap<String, Effect> {
 
 static BUILTIN_SIGNATURES: LazyLock<HashMap<String, Effect>> = LazyLock::new(|| {
     let mut sigs = HashMap::new();
-    io::add_signatures(&mut sigs);
-    fs::add_signatures(&mut sigs);
-    arith::add_signatures(&mut sigs);
-    stack::add_signatures(&mut sigs);
-    concurrency::add_signatures(&mut sigs);
-    callable::add_signatures(&mut sigs);
-    tcp::add_signatures(&mut sigs);
-    udp::add_signatures(&mut sigs);
-    os::add_signatures(&mut sigs);
-    text::add_signatures(&mut sigs);
-    adt::add_signatures(&mut sigs);
-    list::add_signatures(&mut sigs);
-    map::add_signatures(&mut sigs);
-    float::add_signatures(&mut sigs);
-    diagnostics::add_signatures(&mut sigs);
+    for (_, add_sigs, _) in CATEGORIES {
+        add_sigs(&mut sigs);
+    }
     sigs
 });
 
 /// Get documentation for a built-in word.
 pub fn builtin_doc(name: &str) -> Option<&'static str> {
     BUILTIN_DOCS.get(name).copied()
+}
+
+/// Built-in words grouped by their category sub-module, in registration order.
+///
+/// Each entry is `(category_name, sorted_word_names)`. Useful for clients
+/// that want to render a categorised reference (e.g. a quick-help screen).
+pub fn builtin_categories() -> Vec<(&'static str, Vec<String>)> {
+    CATEGORIES
+        .iter()
+        .map(|(name, add_sigs, _)| {
+            let mut sigs = HashMap::new();
+            add_sigs(&mut sigs);
+            let mut words: Vec<String> = sigs.into_keys().collect();
+            words.sort();
+            (*name, words)
+        })
+        .collect()
 }
 
 /// Get all built-in word documentation (cached with LazyLock for performance).
@@ -76,20 +115,8 @@ pub fn builtin_docs() -> &'static HashMap<&'static str, &'static str> {
 
 static BUILTIN_DOCS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     let mut docs = HashMap::new();
-    io::add_docs(&mut docs);
-    fs::add_docs(&mut docs);
-    arith::add_docs(&mut docs);
-    stack::add_docs(&mut docs);
-    concurrency::add_docs(&mut docs);
-    callable::add_docs(&mut docs);
-    tcp::add_docs(&mut docs);
-    udp::add_docs(&mut docs);
-    os::add_docs(&mut docs);
-    text::add_docs(&mut docs);
-    adt::add_docs(&mut docs);
-    list::add_docs(&mut docs);
-    map::add_docs(&mut docs);
-    float::add_docs(&mut docs);
-    diagnostics::add_docs(&mut docs);
+    for (_, _, add_docs) in CATEGORIES {
+        add_docs(&mut docs);
+    }
     docs
 });

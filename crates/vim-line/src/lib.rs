@@ -112,7 +112,7 @@ impl EditResult {
 }
 
 /// Actions the editor can request from the host.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// User wants to submit the current input.
     Submit,
@@ -122,6 +122,8 @@ pub enum Action {
     HistoryNext,
     /// User wants to cancel/abort.
     Cancel,
+    /// User submitted an Ex-style command line (without the leading `:`).
+    SubmitCommand(String),
 }
 
 /// A single text mutation.

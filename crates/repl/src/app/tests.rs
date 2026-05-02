@@ -240,6 +240,171 @@ fn test_repl_command() -> Result<(), String> {
 }
 
 #[test]
+fn test_command_line_quit_from_normal() -> Result<(), String> {
+    // Checkpoint 5: from Normal, `:` `q` Enter quits — without entering
+    // Insert and without writing `:q` into the main input buffer.
+    let mut app = App::new()?;
+    assert_eq!(app.editor.status(), "NORMAL");
+
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    assert_eq!(
+        app.editor.status(),
+        "COMMAND",
+        "`:` from Normal must enter command-line mode"
+    );
+    assert_eq!(
+        app.repl_state.input, "",
+        "main input must stay empty while typing in the command line"
+    );
+
+    app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+    assert_eq!(app.editor.command_line_buffer(), Some("q"));
+    assert_eq!(app.repl_state.input, "");
+
+    app.handle_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.should_quit, "Enter on `:q` must quit");
+    Ok(())
+}
+
+#[test]
+fn test_command_line_escape_cancels() -> Result<(), String> {
+    // Esc from CommandLine returns to Normal with the main buffer
+    // unchanged and no command dispatched.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    for c in "stack".chars() {
+        app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+    }
+    assert_eq!(app.editor.command_line_buffer(), Some("stack"));
+
+    app.handle_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!(app.editor.status(), "NORMAL");
+    assert_eq!(app.editor.command_line_buffer(), None);
+    assert_eq!(app.repl_state.input, "");
+    assert!(!app.should_quit);
+    Ok(())
+}
+
+#[test]
+fn test_cmdline_tab_cycles_matches() -> Result<(), String> {
+    // From `:i` Tab should cycle through every command starting with "i":
+    // `include `, `ir`, `ir ast`, `ir llvm`, `ir stack`, then back to the
+    // original `i` prefix, then around again.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+    assert_eq!(app.editor.command_line_buffer(), Some("i"));
+
+    let expected = [
+        "include ", "ir", "ir ast", "ir llvm", "ir stack", "i", // original prefix
+        "include ",
+    ];
+    for want in expected {
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        assert_eq!(
+            app.editor.command_line_buffer(),
+            Some(want),
+            "Tab cycle expected {:?}",
+            want
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_cmdline_shift_tab_cycles_reverse() -> Result<(), String> {
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+
+    // BackTab on first invocation should jump straight to the LAST match.
+    app.handle_key(KeyEvent::from(KeyCode::BackTab));
+    assert_eq!(app.editor.command_line_buffer(), Some("ir stack"));
+    // And step backwards from there.
+    app.handle_key(KeyEvent::from(KeyCode::BackTab));
+    assert_eq!(app.editor.command_line_buffer(), Some("ir llvm"));
+    Ok(())
+}
+
+#[test]
+fn test_cmdline_tab_resets_cycle_after_typing() -> Result<(), String> {
+    // Tab cycle is keyed off the buffer at the moment cycling began;
+    // typing any other key must rebuild it next time Tab is pressed.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+    app.handle_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.editor.command_line_buffer(), Some("quit"));
+    // Tab again would advance, but we're going to type instead.
+    app.handle_key(KeyEvent::from(KeyCode::Backspace));
+    // Back to the user's prefix `qui` (Backspace removed `t`).
+    assert_eq!(app.editor.command_line_buffer(), Some("qui"));
+    // Cycle should rebuild from `qui` — only one match now.
+    app.handle_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.editor.command_line_buffer(), Some("quit"));
+    Ok(())
+}
+
+#[test]
+fn test_cmdline_tab_no_matches_is_noop() -> Result<(), String> {
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('z')));
+    app.handle_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.editor.command_line_buffer(), Some("z"));
+    Ok(())
+}
+
+#[test]
+fn test_cmdline_completion_then_submit_dispatches() -> Result<(), String> {
+    // End-to-end: Tab-complete `:q` to `:quit`, hit Enter, app quits.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+    app.handle_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.editor.command_line_buffer(), Some("quit"));
+    app.handle_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.should_quit);
+    Ok(())
+}
+
+#[test]
+fn test_cmdline_tab_in_insert_mode_unchanged() -> Result<(), String> {
+    // Outside CommandLine, Tab still triggers main-buffer completion —
+    // not command cycling.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('d')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('u')));
+    app.handle_key(KeyEvent::from(KeyCode::Tab));
+    assert!(
+        app.completions.is_visible(),
+        "Tab in Insert should still pop the main-buffer completion list"
+    );
+    assert!(app.editor.command_line_buffer().is_none());
+    Ok(())
+}
+
+#[test]
+fn test_legacy_insert_colon_command_still_works() -> Result<(), String> {
+    // Checkpoint 6: the original Insert-typed `:cmd⏎` path continues to
+    // dispatch through execute_input's `:`-prefix detection, unchanged by
+    // the new CommandLine mode.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+    assert_eq!(app.editor.status(), "INSERT");
+    app.handle_key(KeyEvent::from(KeyCode::Char(':')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+    assert_eq!(
+        app.repl_state.input, ":q",
+        "Insert-mode `:` is a literal char, not a mode shift"
+    );
+    app.handle_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.should_quit);
+    Ok(())
+}
+
+#[test]
 fn test_word_effect_lookup() -> Result<(), String> {
     let app = App::new()?;
     // Stack manipulation

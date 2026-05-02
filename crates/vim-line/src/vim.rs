@@ -7,6 +7,7 @@
 use crate::{Action, EditResult, Key, KeyCode, LineEditor, TextEdit};
 use std::ops::Range;
 
+mod command_line;
 mod edits;
 mod motions;
 
@@ -20,6 +21,10 @@ pub(crate) enum Mode {
     Visual,
     /// Waiting for a character to replace the one under cursor (r command)
     ReplaceChar,
+    /// Ex-style command line entered with `:` from Normal (opt-in via the
+    /// editor's command-mode flag). Operates on a separate command buffer
+    /// owned by the editor; the host's main text is untouched.
+    CommandLine,
 }
 
 /// Operators that wait for a motion.
@@ -42,6 +47,15 @@ pub struct VimLineEditor {
     pub(in crate::vim) visual_anchor: Option<usize>,
     /// Last yanked text (for paste).
     pub(in crate::vim) yank_buffer: String,
+    /// Whether Normal-mode `:` enters `Mode::CommandLine`. Off by default so
+    /// non-REPL hosts keep classic vim behavior (where `:` is a no-op until
+    /// the host opts in to Ex-style command entry).
+    pub(in crate::vim) command_mode_enabled: bool,
+    /// Buffer for the Ex-style command line (only populated in
+    /// `Mode::CommandLine`). Decoupled from the host's main text.
+    pub(in crate::vim) command_buf: String,
+    /// Cursor within `command_buf` (byte offset).
+    pub(in crate::vim) command_cursor: usize,
 }
 
 impl Default for VimLineEditor {
@@ -58,7 +72,57 @@ impl VimLineEditor {
             mode: Mode::Normal,
             visual_anchor: None,
             yank_buffer: String::new(),
+            command_mode_enabled: false,
+            command_buf: String::new(),
+            command_cursor: 0,
         }
+    }
+
+    /// Enable (or disable) the opt-in `:` -> `Mode::CommandLine` behavior.
+    /// Builder-style; call this on a freshly constructed editor.
+    pub fn with_command_mode(mut self, enabled: bool) -> Self {
+        self.command_mode_enabled = enabled;
+        self
+    }
+
+    /// Current command-line buffer, if the editor is in `Mode::CommandLine`.
+    /// Returns `None` in every other mode so the host can render it
+    /// unconditionally.
+    pub fn command_line_buffer(&self) -> Option<&str> {
+        if self.mode == Mode::CommandLine {
+            Some(&self.command_buf)
+        } else {
+            None
+        }
+    }
+
+    /// Cursor offset within the command-line buffer (only meaningful while
+    /// in `Mode::CommandLine`).
+    pub fn command_line_cursor(&self) -> usize {
+        self.command_cursor
+    }
+
+    /// Replace the command-line buffer and cursor. No-op outside
+    /// `Mode::CommandLine`. Used by hosts that compute completions
+    /// (`Tab`-cycling, etc.) and want to install the result.
+    pub fn set_command_line(&mut self, buf: String, cursor: usize) {
+        if self.mode != Mode::CommandLine {
+            return;
+        }
+        let cursor = cursor.min(buf.len());
+        // Snap to a char boundary if the caller handed us a mid-codepoint
+        // offset.
+        let cursor = if buf.is_char_boundary(cursor) {
+            cursor
+        } else {
+            let mut p = cursor;
+            while p > 0 && !buf.is_char_boundary(p) {
+                p -= 1;
+            }
+            p
+        };
+        self.command_buf = buf;
+        self.command_cursor = cursor;
     }
 
     /// Current mode — test-only accessor.
@@ -246,6 +310,16 @@ impl VimLineEditor {
             // Replace character (r)
             KeyCode::Char('r') => {
                 self.mode = Mode::ReplaceChar;
+                EditResult::none()
+            }
+
+            // Ex-style command line (`:`) — opt-in. Without the flag, `:` is
+            // an unhandled key in Normal mode, matching classic vim's
+            // "press `i` first" behavior so non-REPL hosts are unaffected.
+            KeyCode::Char(':') if self.command_mode_enabled => {
+                self.mode = Mode::CommandLine;
+                self.command_buf.clear();
+                self.command_cursor = 0;
                 EditResult::none()
             }
 
@@ -568,6 +642,7 @@ impl LineEditor for VimLineEditor {
             Mode::OperatorPending(op) => self.handle_operator_pending(op, key, text),
             Mode::Visual => self.handle_visual(key, text),
             Mode::ReplaceChar => self.handle_replace_char(key, text),
+            Mode::CommandLine => self.handle_command_line(key),
         };
 
         // Store yanked text
@@ -591,6 +666,7 @@ impl LineEditor for VimLineEditor {
             Mode::OperatorPending(Operator::Yank) => "y...",
             Mode::Visual => "VISUAL",
             Mode::ReplaceChar => "r...",
+            Mode::CommandLine => "COMMAND",
         }
     }
 
@@ -607,7 +683,9 @@ impl LineEditor for VimLineEditor {
         self.cursor = 0;
         self.mode = Mode::Normal;
         self.visual_anchor = None;
-        // Keep yank buffer across resets
+        self.command_buf.clear();
+        self.command_cursor = 0;
+        // Keep yank buffer and command_mode_enabled flag across resets.
     }
 
     fn set_cursor(&mut self, pos: usize, text: &str) {

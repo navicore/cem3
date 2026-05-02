@@ -379,3 +379,159 @@ fn test_percent_on_non_bracket() {
     // Cursor should not move when not on a bracket
     assert_eq!(editor.cursor(), orig_cursor);
 }
+
+// ----- Mode::CommandLine (Ex-style `:` command line, opt-in) -----
+
+#[test]
+fn test_command_line_enter_clean() {
+    // Checkpoint 1: flag-on `:` enters CommandLine with empty buffer; main
+    // text untouched; status reports the new mode.
+    let text = String::from("preserved");
+    let mut editor = VimLineEditor::new().with_command_mode(true);
+    editor.set_cursor(0, &text);
+
+    let result = editor.handle_key(Key::char(':'), &text);
+
+    assert_eq!(editor.mode(), Mode::CommandLine);
+    assert_eq!(editor.command_line_buffer(), Some(""));
+    assert_eq!(editor.command_line_cursor(), 0);
+    assert!(result.edits.is_empty(), "no edits should touch main text");
+    assert!(result.action.is_none());
+    assert_eq!(editor.status(), "COMMAND");
+    // Main buffer is the caller's; verify we returned no instructions to
+    // mutate it.
+    assert_eq!(text, "preserved");
+}
+
+#[test]
+fn test_command_line_typing_submit_escape() {
+    // Checkpoint 2: typing appends to the command buffer, not the main
+    // buffer; Enter emits SubmitCommand without the leading `:`; Escape
+    // clears the buffer with no side effects.
+    let text = String::from("main");
+    let mut editor = VimLineEditor::new().with_command_mode(true);
+
+    editor.handle_key(Key::char(':'), &text);
+    for c in "ir".chars() {
+        let r = editor.handle_key(Key::char(c), &text);
+        assert!(r.edits.is_empty(), "char '{}' must not edit main text", c);
+        assert!(r.action.is_none(), "char '{}' must not emit an action", c);
+    }
+    assert_eq!(editor.command_line_buffer(), Some("ir"));
+    assert_eq!(editor.command_line_cursor(), 2);
+
+    let submit = editor.handle_key(Key::code(KeyCode::Enter), &text);
+    match submit.action {
+        Some(Action::SubmitCommand(s)) => assert_eq!(s, "ir"),
+        other => panic!("expected SubmitCommand(\"ir\"), got {:?}", other),
+    }
+    assert!(submit.edits.is_empty(), "submit must not edit main text");
+    assert_eq!(editor.mode(), Mode::Normal);
+    assert_eq!(editor.command_line_buffer(), None);
+
+    // Now exercise Escape: enter again, type, escape -> Normal, no action.
+    editor.handle_key(Key::char(':'), &text);
+    editor.handle_key(Key::char('q'), &text);
+    let esc = editor.handle_key(Key::code(KeyCode::Escape), &text);
+    assert!(esc.action.is_none());
+    assert!(esc.edits.is_empty());
+    assert_eq!(editor.mode(), Mode::Normal);
+    assert_eq!(editor.command_line_buffer(), None);
+    assert_eq!(text, "main");
+}
+
+#[test]
+fn test_command_line_disabled_by_default() {
+    // Checkpoint 3: with the flag off (default), Normal-mode `:` is a
+    // no-op so other consumers of vim-line are unaffected.
+    let text = String::from("hello");
+    let mut editor = VimLineEditor::new();
+    let result = editor.handle_key(Key::char(':'), &text);
+
+    assert_eq!(editor.mode(), Mode::Normal);
+    assert!(result.edits.is_empty());
+    assert!(result.action.is_none());
+    assert_eq!(editor.command_line_buffer(), None);
+}
+
+#[test]
+fn test_command_line_does_not_steal_r_replace() {
+    // Checkpoint 4: `r:` (replace char with `:`) still works with the
+    // command-mode flag enabled — ReplaceChar swallows the next key
+    // before Normal-mode dispatch can see it.
+    let mut text = String::from("abc");
+    let mut editor = VimLineEditor::new().with_command_mode(true);
+
+    editor.handle_key(Key::char('r'), &text);
+    assert_eq!(editor.mode(), Mode::ReplaceChar);
+    let result = editor.handle_key(Key::char(':'), &text);
+    for edit in result.edits.into_iter().rev() {
+        edit.apply(&mut text);
+    }
+    assert_eq!(text, ":bc");
+    assert_eq!(editor.mode(), Mode::Normal);
+}
+
+#[test]
+fn test_command_line_does_not_steal_d_operator() {
+    // Checkpoint 4 (cont.): `d:` cancels the delete operator like before
+    // (`:` is not a known motion), without entering CommandLine.
+    let text = String::from("hello");
+    let mut editor = VimLineEditor::new().with_command_mode(true);
+
+    editor.handle_key(Key::char('d'), &text);
+    assert!(matches!(editor.mode(), Mode::OperatorPending(_)));
+    let result = editor.handle_key(Key::char(':'), &text);
+    assert_eq!(editor.mode(), Mode::Normal);
+    assert!(result.edits.is_empty());
+    assert!(result.action.is_none());
+    assert_eq!(editor.command_line_buffer(), None);
+}
+
+#[test]
+fn test_command_line_insert_mode_literal_colon_unchanged() {
+    // Checkpoint 4 (cont.): Insert-mode `:` is still a literal char insert
+    // even with the flag on. This is the path word definitions (`: foo …`)
+    // flow through.
+    let mut text = String::new();
+    let mut editor = VimLineEditor::new().with_command_mode(true);
+
+    editor.handle_key(Key::char('i'), &text);
+    let result = editor.handle_key(Key::char(':'), &text);
+    for edit in result.edits.into_iter().rev() {
+        edit.apply(&mut text);
+    }
+    assert_eq!(text, ":");
+    assert_eq!(editor.mode(), Mode::Insert);
+}
+
+#[test]
+fn test_command_line_backspace_and_arrows() {
+    // Backspace pops from the command buffer; arrows move the command
+    // cursor; mid-buffer typing inserts at the cursor — none of which
+    // should touch the host's main text.
+    let text = String::from("ignored");
+    let mut editor = VimLineEditor::new().with_command_mode(true);
+
+    editor.handle_key(Key::char(':'), &text);
+    for c in "abd".chars() {
+        editor.handle_key(Key::char(c), &text);
+    }
+    assert_eq!(editor.command_line_buffer(), Some("abd"));
+
+    editor.handle_key(Key::code(KeyCode::Backspace), &text);
+    assert_eq!(editor.command_line_buffer(), Some("ab"));
+    assert_eq!(editor.command_line_cursor(), 2);
+
+    editor.handle_key(Key::code(KeyCode::Left), &text);
+    assert_eq!(editor.command_line_cursor(), 1);
+    editor.handle_key(Key::char('X'), &text);
+    assert_eq!(editor.command_line_buffer(), Some("aXb"));
+
+    editor.handle_key(Key::code(KeyCode::Home), &text);
+    assert_eq!(editor.command_line_cursor(), 0);
+    editor.handle_key(Key::code(KeyCode::End), &text);
+    assert_eq!(editor.command_line_cursor(), 3);
+
+    assert_eq!(text, "ignored");
+}

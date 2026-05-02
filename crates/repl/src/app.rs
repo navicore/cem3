@@ -50,6 +50,29 @@ const INCLUDES_MARKER: &str = "# --- includes ---";
 /// Marker for main section
 const MAIN_MARKER: &str = "# --- main ---";
 
+/// REPL command names completable by Tab in CommandLine mode (without the
+/// leading `:`). Sorted alphabetically so cycle order is predictable. Keep
+/// this in sync with the match arms in `App::handle_command`. `include `
+/// keeps a trailing space so completing it positions the cursor for the
+/// module argument.
+const COMMANDS: &[&str] = &[
+    "clear", "e", "edit", "h", "help", "include ", "ir", "ir ast", "ir llvm", "ir stack", "pop",
+    "q", "quit", "s", "show", "stack", "v", "version",
+];
+
+/// Tab-cycle state for the `:` command line. Built from the buffer the
+/// first time Tab is pressed; reset when the user types any non-Tab key.
+#[derive(Debug, Clone)]
+struct CmdlineCycle {
+    /// Buffer contents at the moment cycling began.
+    prefix: String,
+    /// Indices into `COMMANDS` whose entries start with `prefix`.
+    matches: Vec<usize>,
+    /// `Some(i)` means we're showing `COMMANDS[matches[i]]`. `None` means
+    /// we're showing the original `prefix` (the user-typed buffer).
+    showing: Option<usize>,
+}
+
 /// Lines shown by the `:help` command in the IR pane.
 const HELP_LINES: &[&str] = &[
     "╭─────────────────────────────────────╮",
@@ -137,6 +160,8 @@ pub(crate) struct App {
     search_match_index: usize,
     /// Original input before search started (for cancellation)
     search_original_input: String,
+    /// In-progress Tab cycle for the `:` command line.
+    cmdline_cycle: Option<CmdlineCycle>,
 }
 
 // Note: App intentionally does not implement Default because App::new() can fail
@@ -165,7 +190,7 @@ impl App {
             repl_state: ReplState::new(),
             ir_content: IrContent::new(),
             ir_mode: IrViewMode::default(),
-            editor: VimLineEditor::new(),
+            editor: VimLineEditor::new().with_command_mode(true),
             layout_config: LayoutConfig::default(),
             filename: "(scratch)".to_string(),
             show_ir_pane: false,
@@ -180,6 +205,7 @@ impl App {
             search_matches: Vec::new(),
             search_match_index: 0,
             search_original_input: String::new(),
+            cmdline_cycle: None,
         };
         app.load_history();
         Ok(app)
@@ -216,7 +242,7 @@ impl App {
             repl_state: ReplState::new(),
             ir_content: IrContent::new(),
             ir_mode: IrViewMode::default(),
-            editor: VimLineEditor::new(),
+            editor: VimLineEditor::new().with_command_mode(true),
             layout_config: LayoutConfig::default(),
             filename,
             show_ir_pane: false,
@@ -231,6 +257,7 @@ impl App {
             search_matches: Vec::new(),
             search_match_index: 0,
             search_original_input: String::new(),
+            cmdline_cycle: None,
         };
         app.load_history();
         Ok(app)
@@ -484,7 +511,28 @@ impl App {
             _ => {}
         }
 
-        // Tab triggers completion (before vim-line, which doesn't handle Tab)
+        // CommandLine mode owns Tab / Shift+Tab for cycling REPL command
+        // completions. Any other key while in CommandLine resets the cycle
+        // so the next Tab re-derives matches from the new buffer.
+        if self.editor.command_line_buffer().is_some() {
+            let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+            match key.code {
+                KeyCode::Tab => {
+                    self.cycle_command_completion(shift);
+                    return;
+                }
+                KeyCode::BackTab => {
+                    self.cycle_command_completion(true);
+                    return;
+                }
+                _ => {
+                    self.cmdline_cycle = None;
+                }
+            }
+        }
+
+        // Tab triggers main-buffer completion (before vim-line, which
+        // doesn't handle Tab).
         if key.code == KeyCode::Tab {
             self.request_completions();
             return;
@@ -576,6 +624,13 @@ impl App {
                 }
                 Action::Cancel => {
                     self.should_quit = true;
+                }
+                Action::SubmitCommand(cmd) => {
+                    // CommandLine submitted — re-attach the leading `:` so
+                    // handle_command's existing dispatch matches the same
+                    // strings as the legacy Insert-typed `:cmd⏎` path.
+                    let full = format!(":{}", cmd);
+                    self.handle_command(&full);
                 }
             }
         }
@@ -1280,6 +1335,72 @@ impl App {
         }
     }
 
+    /// Advance (or reverse) the Tab-cycle for the `:` command line. On the
+    /// first Tab after a non-Tab keystroke, build the cycle from the
+    /// current buffer; on subsequent Tabs, walk through matches. The
+    /// "original prefix" is treated as one slot in the cycle so the user
+    /// can cycle past the last match back to what they typed.
+    fn cycle_command_completion(&mut self, reverse: bool) {
+        if self.editor.command_line_buffer().is_none() {
+            return;
+        }
+
+        if self.cmdline_cycle.is_none() {
+            let prefix = self.editor.command_line_buffer().unwrap_or("").to_string();
+            // Exact-prefix matches are excluded so Tab always moves to a
+            // *different* command than what's already in the buffer. The
+            // user can step back to their original prefix via the extra
+            // "showing = None" slot below.
+            let matches: Vec<usize> = COMMANDS
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.starts_with(&prefix) && **c != prefix)
+                .map(|(i, _)| i)
+                .collect();
+            self.cmdline_cycle = Some(CmdlineCycle {
+                prefix,
+                matches,
+                showing: None,
+            });
+        }
+
+        let cycle = self.cmdline_cycle.as_mut().expect("just set");
+        if cycle.matches.is_empty() {
+            return;
+        }
+
+        // Slots: 0..matches.len() = each match, then one extra slot for
+        // the original prefix. Reverse just walks the other way.
+        let n = cycle.matches.len();
+        let next = match (cycle.showing, reverse) {
+            (None, false) => Some(0),
+            (None, true) => {
+                if n == 0 {
+                    None
+                } else {
+                    Some(n - 1)
+                }
+            }
+            (Some(i), false) => {
+                if i + 1 >= n {
+                    None
+                } else {
+                    Some(i + 1)
+                }
+            }
+            (Some(0), true) => None,
+            (Some(i), true) => Some(i - 1),
+        };
+        cycle.showing = next;
+
+        let new_buf = match next {
+            Some(i) => COMMANDS[cycle.matches[i]].to_string(),
+            None => cycle.prefix.clone(),
+        };
+        let new_cursor = new_buf.len();
+        self.editor.set_command_line(new_buf, new_cursor);
+    }
+
     /// Accept the current completion
     fn accept_completion(&mut self) {
         let input = &self.repl_state.input;
@@ -1328,6 +1449,13 @@ impl App {
 
     /// Render the status bar
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
+        // CommandLine mode owns the status bar while it's active so the user
+        // can see (and edit) the `:` buffer they're typing into.
+        if let Some(buf) = self.editor.command_line_buffer() {
+            self.render_command_line(frame, area, buf);
+            return;
+        }
+
         let status = StatusContent::new()
             .filename(&self.filename)
             .mode(self.editor.status())
@@ -1341,6 +1469,43 @@ impl App {
 
         let style = Style::default().bg(Color::DarkGray).fg(Color::White);
         let paragraph = Paragraph::new(Line::from(Span::styled(status_text, style)));
+        frame.render_widget(paragraph, area);
+    }
+
+    /// Render the Ex-style `:` command line in the status bar, with a block
+    /// cursor at `editor.command_line_cursor()`.
+    fn render_command_line(&self, frame: &mut Frame, area: Rect, buf: &str) {
+        let bg = Style::default().bg(Color::DarkGray).fg(Color::White);
+        let cursor_style = Style::default().bg(Color::White).fg(Color::Black);
+
+        let cursor = self.editor.command_line_cursor().min(buf.len());
+        let (before, after) = buf.split_at(cursor);
+        let cursor_char_len = after.chars().next().map_or(0, |c| c.len_utf8());
+        let (under_cursor, rest) = after.split_at(cursor_char_len);
+        let cursor_glyph = if under_cursor.is_empty() {
+            " "
+        } else {
+            under_cursor
+        };
+
+        let mut spans = vec![
+            Span::styled(":".to_string(), bg),
+            Span::styled(before.to_string(), bg),
+            Span::styled(cursor_glyph.to_string(), cursor_style),
+        ];
+        if !rest.is_empty() {
+            spans.push(Span::styled(rest.to_string(), bg));
+        }
+        // Pad the remainder of the row so the dark-gray background spans
+        // the full status width like the normal status line does.
+        let used: usize =
+            1 + before.chars().count() + cursor_glyph.chars().count() + rest.chars().count();
+        let pad = (area.width as usize).saturating_sub(used);
+        if pad > 0 {
+            spans.push(Span::styled(" ".repeat(pad), bg));
+        }
+
+        let paragraph = Paragraph::new(Line::from(spans));
         frame.render_widget(paragraph, area);
     }
 

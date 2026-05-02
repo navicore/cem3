@@ -8,6 +8,7 @@
 use seqc::parser::Parser;
 use seqc::stdlib_embed;
 use serde::Serialize;
+use tracing::warn;
 
 use crate::completion::format_effect;
 
@@ -74,9 +75,21 @@ fn collect_stdlib() -> Vec<WordGroup> {
     stdlib_embed::stdlib_module_names()
         .into_iter()
         .filter_map(|module| {
-            let source = stdlib_embed::get_stdlib(module)?;
+            // `stdlib_module_names()` is the source of truth for what's
+            // embedded, so a missing entry here would be a bug in seqc.
+            let source = stdlib_embed::get_stdlib(module)
+                .expect("stdlib_module_names listed a module not in get_stdlib");
             let mut parser = Parser::new(source);
-            let program = parser.parse().ok()?;
+            let program = match parser.parse() {
+                Ok(p) => p,
+                Err(e) => {
+                    // Drop this module from the response, but make the failure
+                    // visible — silently dropping it would let stdlib regressions
+                    // hide from anyone consuming `seq/listWords`.
+                    warn!("seq/listWords: failed to parse stdlib module {module}: {e}");
+                    return None;
+                }
+            };
 
             let mut words: Vec<WordInfo> = program
                 .words

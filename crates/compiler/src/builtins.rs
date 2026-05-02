@@ -69,6 +69,41 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
     BUILTIN_DOCS.get(name).copied()
 }
 
+/// Built-in words grouped by their category sub-module, in registration order.
+///
+/// Each entry is `(category_name, sorted_word_names)`. Useful for clients
+/// that want to render a categorised reference (e.g. a quick-help screen).
+pub fn builtin_categories() -> Vec<(&'static str, Vec<String>)> {
+    type AddFn = fn(&mut HashMap<String, Effect>);
+    let categories: &[(&'static str, AddFn)] = &[
+        ("io", io::add_signatures),
+        ("fs", fs::add_signatures),
+        ("arith", arith::add_signatures),
+        ("stack", stack::add_signatures),
+        ("concurrency", concurrency::add_signatures),
+        ("callable", callable::add_signatures),
+        ("tcp", tcp::add_signatures),
+        ("udp", udp::add_signatures),
+        ("os", os::add_signatures),
+        ("text", text::add_signatures),
+        ("adt", adt::add_signatures),
+        ("list", list::add_signatures),
+        ("map", map::add_signatures),
+        ("float", float::add_signatures),
+        ("diagnostics", diagnostics::add_signatures),
+    ];
+    categories
+        .iter()
+        .map(|(name, add_fn)| {
+            let mut sigs = HashMap::new();
+            add_fn(&mut sigs);
+            let mut words: Vec<String> = sigs.into_keys().collect();
+            words.sort();
+            (*name, words)
+        })
+        .collect()
+}
+
 /// Get all built-in word documentation (cached with LazyLock for performance).
 pub fn builtin_docs() -> &'static HashMap<&'static str, &'static str> {
     &BUILTIN_DOCS

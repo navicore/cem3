@@ -41,7 +41,8 @@ jobs:
         # since the seqc compiler invokes plain `clang`
         # (crates/compiler/src/lib.rs).
         apt-get update
-        apt-get install -y libedit-dev curl gnupg lsb-release ca-certificates
+        apt-get install -y libedit-dev curl wget gnupg lsb-release \
+          software-properties-common ca-certificates
         curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
         chmod +x /tmp/llvm.sh
         /tmp/llvm.sh "$CLANG_VERSION"

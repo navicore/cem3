@@ -30,7 +30,7 @@ jobs:
     - name: Install system dependencies
       run: |
         apt-get update
-        apt-get install -y libedit-dev
+        apt-get install -y libedit-dev clang
 
     # Install `just` from a pinned GitHub release tarball. We avoid both
     # `extractions/setup-just` and the `just.systems/install.sh` script

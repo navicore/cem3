@@ -202,34 +202,10 @@ impl CodeGen {
             intermediate, is_invalid, shift_result
         )?;
 
-        // 63-bit clamp: any result outside [I63_MIN, I63_MAX] would lose
-        // bit 62 when retagged into the tagged stack slot. Map out-of-range
-        // to 0. (0 is in range, so the existing invalid->0 mapping is
-        // preserved.)
-        let fits_min = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = icmp sge i64 %{}, -4611686018427387904",
-            fits_min, intermediate
-        )?;
-        let fits_max = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = icmp sle i64 %{}, 4611686018427387903",
-            fits_max, intermediate
-        )?;
-        let fits = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = and i1 %{}, %{}",
-            fits, fits_min, fits_max
-        )?;
-        let result = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = select i1 %{}, i64 %{}, i64 0",
-            result, fits, intermediate
-        )?;
+        // 63-bit clamp: out-of-range results would lose bit 62 when
+        // retagged. Shared helper keeps the inline + specialized paths
+        // honest against the same encoding.
+        let result = self.emit_clamp_to_i63(&intermediate)?;
 
         ctx.push(result, RegisterType::I64);
         Ok(())

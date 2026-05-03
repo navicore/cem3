@@ -273,61 +273,22 @@ impl CodeGen {
             intermediate, is_invalid, shift_result
         )?;
 
-        // 63-bit clamp: if the result doesn't fit in [I63_MIN, I63_MAX] it
-        // would silently lose bit 62 when retagged into the tagged stack
-        // slot. Map out-of-range to 0 instead. (0 is in range, so the
-        // existing invalid->0 mapping is preserved.)
+        // Apply the 63-bit clamp: any out-of-range result would silently
+        // lose bit 62 when retagged. (0 is in range, so the existing
+        // invalid->0 mapping is preserved.)
         let op_result = self.emit_clamp_to_i63(&intermediate)?;
 
         Ok(op_result)
     }
 
-    /// Emit IR that clamps `val` to the 63-bit signed Int range, returning
-    /// 0 for any value that doesn't fit. Used to keep `shl`/`shr` honest
-    /// against the tagged-pointer encoding (Seq Int is 63-bit; the i64
-    /// storage has one bit of slack).
-    pub(in crate::codegen) fn emit_clamp_to_i63(
-        &mut self,
-        val: &str,
-    ) -> Result<String, CodeGenError> {
-        let fits_min = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = icmp sge i64 %{}, -4611686018427387904",
-            fits_min, val
-        )?;
-        let fits_max = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = icmp sle i64 %{}, 4611686018427387903",
-            fits_max, val
-        )?;
-        let fits = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = and i1 %{}, %{}",
-            fits, fits_min, fits_max
-        )?;
-        let clamped = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = select i1 %{}, i64 %{}, i64 0",
-            clamped, fits, val
-        )?;
-        Ok(clamped)
-    }
-
-    /// Generate inline code for integer unary intrinsic operations.
-    /// Used for popcount, clz, ctz which use LLVM intrinsics.
+    /// Generate inline code for integer unary intrinsic operations
+    /// (`popcount`, `clz`, `ctz`). Result is 63-bit-aware — see the
+    /// helpers in `bitwise_i63.rs` for what each one does.
     ///
-    /// Each is adjusted so the result reflects the 63-bit Int model
-    /// rather than the i64 storage:
-    /// - `popcount`: mask off bit 63 (the i64 sign-extension bit) before
-    ///   counting, so `popcount(-1) = 63`.
-    /// - `clz`: subtract 1 from the i64 leading-zero count (saturating
-    ///   at 0). `clz(0) = 63`, `clz(-1) = 0`.
-    /// - `ctz`: special-case `v == 0` to return 63 instead of the i64
-    ///   intrinsic's 64.
+    /// The match below is total against the set of intrinsics dispatched
+    /// to this function from `inline/dispatch.rs`. Wiring a fourth
+    /// intrinsic upstream without updating both files will trip the
+    /// panic — keep the two in sync.
     pub(in crate::codegen) fn codegen_inline_int_unary_intrinsic(
         &mut self,
         stack_var: &str,
@@ -341,68 +302,13 @@ impl CodeGen {
         let (top_ptr, val) = self.emit_load_top_int(stack_var)?;
 
         let result = match intrinsic {
-            "llvm.ctpop.i64" => {
-                let masked = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = and i64 %{}, 9223372036854775807",
-                    masked, val
-                )?;
-                let r = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @{}(i64 %{})",
-                    r, intrinsic, masked
-                )?;
-                r
-            }
-            "llvm.ctlz.i64" => {
-                let raw = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @{}(i64 %{}, i1 false)",
-                    raw, intrinsic, val
-                )?;
-                // Saturating `raw - 1`: returns 0 when raw == 0.
-                let raw_is_zero = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = icmp eq i64 %{}, 0",
-                    raw_is_zero, raw
-                )?;
-                let minus_one = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = sub i64 %{}, 1", minus_one, raw)?;
-                let r = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = select i1 %{}, i64 0, i64 %{}",
-                    r, raw_is_zero, minus_one
-                )?;
-                r
-            }
-            "llvm.cttz.i64" => {
-                let raw = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @{}(i64 %{}, i1 false)",
-                    raw, intrinsic, val
-                )?;
-                // For v == 0, intrinsic returns 64; we want 63.
-                let val_is_zero = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = icmp eq i64 %{}, 0",
-                    val_is_zero, val
-                )?;
-                let r = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = select i1 %{}, i64 63, i64 %{}",
-                    r, val_is_zero, raw
-                )?;
-                r
-            }
-            other => panic!("unexpected intrinsic for inline int unary: {other}"),
+            "llvm.ctpop.i64" => self.emit_popcount_i63(&val)?,
+            "llvm.ctlz.i64" => self.emit_clz_i63(&val)?,
+            "llvm.cttz.i64" => self.emit_ctz_i63(&val)?,
+            other => panic!(
+                "codegen_inline_int_unary_intrinsic: unsupported intrinsic {other}; \
+                 dispatch.rs and ops.rs are out of sync"
+            ),
         };
 
         // Store result in place

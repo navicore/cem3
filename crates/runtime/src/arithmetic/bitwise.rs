@@ -107,7 +107,10 @@ pub unsafe extern "C" fn patch_seq_shl(stack: Stack) -> Stack {
     let (rest, value, count) = unsafe { pop_two(stack, "shl") };
     match (value, count) {
         (Value::Int(v), Value::Int(c)) => {
-            let result = if c < 0 {
+            // Reject the count *before* casting to u32: the i64 range
+            // includes counts > u32::MAX, which would otherwise truncate
+            // into a small valid count and silently violate the contract.
+            let result = if !(0..64).contains(&c) {
                 0
             } else {
                 let raw = v.checked_shl(c as u32).unwrap_or(0);
@@ -135,7 +138,8 @@ pub unsafe extern "C" fn patch_seq_shr(stack: Stack) -> Stack {
     let (rest, value, count) = unsafe { pop_two(stack, "shr") };
     match (value, count) {
         (Value::Int(v), Value::Int(c)) => {
-            let result = if c < 0 {
+            // Reject the count *before* casting to u32 — see `shl` for why.
+            let result = if !(0..64).contains(&c) {
                 0
             } else {
                 let raw = (v as u64).checked_shr(c as u32).unwrap_or(0) as i64;

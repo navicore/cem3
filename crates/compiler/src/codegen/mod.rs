@@ -74,6 +74,7 @@
 //! - `tests.rs`: End-to-end codegen tests (pipeline-level)
 
 // Submodules
+mod bitwise_i63;
 mod control_flow;
 mod debug_info;
 mod error;

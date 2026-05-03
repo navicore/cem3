@@ -163,72 +163,21 @@ impl CodeGen {
                 self.emit_specialized_safe_shift(ctx, false)?;
             }
 
-            // Bit counting operations — adjusted for the 63-bit Int model.
-            // See docs/design/TAGGED_INT_BITWISE.md for the contract.
+            // Bit counting operations — 63-bit-aware via shared helpers.
+            // See codegen/bitwise_i63.rs and docs/design/TAGGED_INT_BITWISE.md.
             "popcount" => {
                 let (a, _) = ctx.pop().unwrap();
-                let masked = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = and i64 %{}, 9223372036854775807",
-                    masked, a
-                )?;
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @llvm.ctpop.i64(i64 %{})",
-                    result, masked
-                )?;
+                let result = self.emit_popcount_i63(&a)?;
                 ctx.push(result, RegisterType::I64);
             }
             "clz" => {
                 let (a, _) = ctx.pop().unwrap();
-                let raw = self.fresh_temp();
-                // is_zero_poison = false: returns 64 for input 0.
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @llvm.ctlz.i64(i64 %{}, i1 false)",
-                    raw, a
-                )?;
-                // Saturating raw - 1: 63-bit Int has one less bit than i64
-                // storage; for v=-1 the i64 leading-zero count is already 0.
-                let raw_is_zero = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = icmp eq i64 %{}, 0",
-                    raw_is_zero, raw
-                )?;
-                let minus_one = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = sub i64 %{}, 1", minus_one, raw)?;
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = select i1 %{}, i64 0, i64 %{}",
-                    result, raw_is_zero, minus_one
-                )?;
+                let result = self.emit_clz_i63(&a)?;
                 ctx.push(result, RegisterType::I64);
             }
             "ctz" => {
                 let (a, _) = ctx.pop().unwrap();
-                let raw = self.fresh_temp();
-                // is_zero_poison = false: returns 64 for input 0; we want 63.
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @llvm.cttz.i64(i64 %{}, i1 false)",
-                    raw, a
-                )?;
-                let val_is_zero = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = icmp eq i64 %{}, 0",
-                    val_is_zero, a
-                )?;
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = select i1 %{}, i64 63, i64 %{}",
-                    result, val_is_zero, raw
-                )?;
+                let result = self.emit_ctz_i63(&a)?;
                 ctx.push(result, RegisterType::I64);
             }
 

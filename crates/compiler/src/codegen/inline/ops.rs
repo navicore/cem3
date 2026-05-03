@@ -265,23 +265,34 @@ impl CodeGen {
             shift_result, op, val_a, safe_count
         )?;
 
-        // Select final result: 0 if invalid, otherwise shift_result
-        let op_result = self.fresh_temp();
+        // Select intermediate result: 0 if invalid, otherwise shift_result.
+        let intermediate = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = select i1 %{}, i64 0, i64 %{}",
-            op_result, is_invalid, shift_result
+            intermediate, is_invalid, shift_result
         )?;
+
+        // Apply the 63-bit clamp: any out-of-range result would silently
+        // lose bit 62 when retagged. (0 is in range, so the existing
+        // invalid->0 mapping is preserved.)
+        let op_result = self.emit_clamp_to_i63(&intermediate)?;
 
         Ok(op_result)
     }
 
-    /// Generate inline code for integer unary intrinsic operations.
-    /// Used for popcount, clz, ctz which use LLVM intrinsics.
+    /// Generate inline code for integer unary intrinsic operations
+    /// (`popcount`, `clz`, `ctz`). Result is 63-bit-aware — see the
+    /// helpers in `bitwise_i63.rs` for what each one does.
+    ///
+    /// The match below is total against the set of intrinsics dispatched
+    /// to this function from `inline/dispatch.rs`. Wiring a fourth
+    /// intrinsic upstream without updating both files will trip the
+    /// panic — keep the two in sync.
     pub(in crate::codegen) fn codegen_inline_int_unary_intrinsic(
         &mut self,
         stack_var: &str,
-        intrinsic: &str, // "llvm.ctpop.i64", "llvm.ctlz.i64", "llvm.cttz.i64"
+        intrinsic: &str,
     ) -> Result<Option<String>, CodeGenError> {
         // Spill virtual registers (Issue #189)
         let stack_var = self.spill_virtual_stack(stack_var)?;
@@ -290,22 +301,15 @@ impl CodeGen {
         // Load top value
         let (top_ptr, val) = self.emit_load_top_int(stack_var)?;
 
-        // Call the intrinsic
-        let result = self.fresh_temp();
-        if intrinsic == "llvm.ctpop.i64" {
-            writeln!(
-                &mut self.output,
-                "  %{} = call i64 @{}(i64 %{})",
-                result, intrinsic, val
-            )?;
-        } else {
-            // clz and ctz have a second parameter: is_poison_on_zero (false)
-            writeln!(
-                &mut self.output,
-                "  %{} = call i64 @{}(i64 %{}, i1 false)",
-                result, intrinsic, val
-            )?;
-        }
+        let result = match intrinsic {
+            "llvm.ctpop.i64" => self.emit_popcount_i63(&val)?,
+            "llvm.ctlz.i64" => self.emit_clz_i63(&val)?,
+            "llvm.cttz.i64" => self.emit_ctz_i63(&val)?,
+            other => panic!(
+                "codegen_inline_int_unary_intrinsic: unsupported intrinsic {other}; \
+                 dispatch.rs and ops.rs are out of sync"
+            ),
+        };
 
         // Store result in place
         self.emit_store_int_result_in_place(&top_ptr, &result)?;

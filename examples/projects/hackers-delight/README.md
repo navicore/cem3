@@ -31,7 +31,7 @@ These examples use Seq's bitwise operations:
 - `popcount` - count 1-bits
 - `clz` - count leading zeros
 - `ctz` - count trailing zeros
-- `int-bits` - bit width (64)
+- `int-bits` - bit width (63 — Seq Int is signed 63-bit)
 
 ## Numeric Literals
 

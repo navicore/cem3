@@ -163,37 +163,21 @@ impl CodeGen {
                 self.emit_specialized_safe_shift(ctx, false)?;
             }
 
-            // Bit counting operations (LLVM intrinsics)
+            // Bit counting operations — 63-bit-aware via shared helpers.
+            // See codegen/bitwise_i63.rs and docs/design/TAGGED_INT_BITWISE.md.
             "popcount" => {
                 let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @llvm.ctpop.i64(i64 %{})",
-                    result, a
-                )?;
+                let result = self.emit_popcount_i63(&a)?;
                 ctx.push(result, RegisterType::I64);
             }
             "clz" => {
                 let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                // is_zero_poison = false: return 64 for input 0
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @llvm.ctlz.i64(i64 %{}, i1 false)",
-                    result, a
-                )?;
+                let result = self.emit_clz_i63(&a)?;
                 ctx.push(result, RegisterType::I64);
             }
             "ctz" => {
                 let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                // is_zero_poison = false: return 64 for input 0
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call i64 @llvm.cttz.i64(i64 %{}, i1 false)",
-                    result, a
-                )?;
+                let result = self.emit_ctz_i63(&a)?;
                 ctx.push(result, RegisterType::I64);
             }
 

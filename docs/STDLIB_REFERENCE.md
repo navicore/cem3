@@ -164,7 +164,7 @@ Division and modulo operations return a result and a success flag:
 | `popcount` | `( Int -- Int )` | Count number of set bits |
 | `clz` | `( Int -- Int )` | Count leading zeros |
 | `ctz` | `( Int -- Int )` | Count trailing zeros |
-| `int-bits` | `( -- Int )` | Push bit width of integers (64) |
+| `int-bits` | `( -- Int )` | Push bit width of integers (63 — see language guide for the 63-bit Int model) |
 
 ## Stack Operations
 

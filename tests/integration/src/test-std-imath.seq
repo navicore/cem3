@@ -74,3 +74,12 @@ include std:imath
   1 1 int->bits-padded "1" test.assert-eq-str
   5 0 int->bits-padded "" test.assert-eq-str
 ;
+
+: test-int-to-bits-of-negative-terminates ( -- )
+  # Regression: int->bits of a negative used to loop forever because
+  # logical shr could never reduce it to zero. With the 63-bit clamp
+  # on shr, the loop terminates. Output is lossy for negatives — the
+  # contract guarded here is *termination*, not the precise string.
+  -1 int->bits drop
+  -42 int->bits drop
+;

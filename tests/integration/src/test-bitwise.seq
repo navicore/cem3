@@ -30,8 +30,8 @@
 ;
 
 : test-clz ( -- )
-  # 1 has 63 leading zeros in a 64-bit int
-  1 clz 63 test.assert-eq
+  # Seq Int is 63-bit; 1 has 62 leading zeros in a 63-bit int
+  1 clz 62 test.assert-eq
 ;
 
 : test-ctz ( -- )
@@ -40,7 +40,8 @@
 ;
 
 : test-int-bits ( -- )
-  int-bits 64 test.assert-eq
+  # Int is 63-bit signed (the low bit of the tagged stack slot is the tag).
+  int-bits 63 test.assert-eq
 ;
 
 : test-hex-literals ( -- )
@@ -65,15 +66,40 @@
 ;
 
 : test-clz-ctz-edge-cases ( -- )
-  # clz(0) should be 64
-  0 clz 64 test.assert-eq
-  # ctz(0) should be 64
-  0 ctz 64 test.assert-eq
+  # clz(0) should be 63 (all 63 Int bits are zero)
+  0 clz 63 test.assert-eq
+  # ctz(0) should be 63
+  0 ctz 63 test.assert-eq
 ;
 
 : test-popcount-edge-cases ( -- )
-  # popcount(-1) = 64 (all bits set)
-  -1 popcount 64 test.assert-eq
+  # popcount(-1) = 63 — all 63 bits of the Int are set; the i64 sign-
+  # extension bit is not counted.
+  -1 popcount 63 test.assert-eq
   # popcount(0) = 0
   0 popcount 0 test.assert-eq
 ;
+
+: test-shl-overflow ( -- )
+  # 1 61 shl = 2^61 fits in 63-bit Int.
+  1 61 shl 2305843009213693952 test.assert-eq
+  # 1 62 shl would be 2^62, one past the 63-bit max — clamps to 0.
+  1 62 shl 0 test.assert-eq
+  # 1 63 shl would be i64::MIN, far outside the 63-bit range.
+  1 63 shl 0 test.assert-eq
+  # -1 62 shl = -2^62 = the 63-bit min — exactly fits, kept as-is.
+  -1 62 shl -4611686018427387904 test.assert-eq
+  # -1 63 shl would be i64::MIN, out of 63-bit range.
+  -1 63 shl 0 test.assert-eq
+;
+
+: test-shr-negative ( -- )
+  # The historical bug case: -1 1 shr produced i64::MAX which then
+  # silently lost bit 62 in the tagger. New contract: 0.
+  -1 1 shr 0 test.assert-eq
+  # -1 2 shr = u64::MAX >> 2 = 2^62 - 1 = the 63-bit max — fits.
+  -1 2 shr 4611686018427387903 test.assert-eq
+  # -1 62 shr = u64::MAX >> 62 = 3 — fits.
+  -1 62 shr 3 test.assert-eq
+;
+

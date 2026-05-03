@@ -194,13 +194,18 @@ impl CodeGen {
             shift_result, op, a, safe_count
         )?;
 
-        // Select final result: 0 if invalid, otherwise shift_result
-        let result = self.fresh_temp();
+        // Select intermediate result: 0 if invalid, otherwise shift_result.
+        let intermediate = self.fresh_temp();
         writeln!(
             &mut self.output,
             "  %{} = select i1 %{}, i64 0, i64 %{}",
-            result, is_invalid, shift_result
+            intermediate, is_invalid, shift_result
         )?;
+
+        // 63-bit clamp: out-of-range results would lose bit 62 when
+        // retagged. Shared helper keeps the inline + specialized paths
+        // honest against the same encoding.
+        let result = self.emit_clamp_to_i63(&intermediate)?;
 
         ctx.push(result, RegisterType::I64);
         Ok(())

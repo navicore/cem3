@@ -2104,7 +2104,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "seq-compiler"
-version = "6.4.1"
+version = "6.4.2"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "6.4.1"
+version = "6.4.2"
 dependencies = [
  "bumpalo",
  "may",
@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "6.4.1"
+version = "6.4.2"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2140,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "6.4.1"
+version = "6.4.2"
 dependencies = [
  "clap",
  "crossterm",
@@ -2157,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "6.4.1"
+version = "6.4.2"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2348,9 +2348,9 @@ checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
 
 [[package]]
 name = "siphasher"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
+checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "slab"
@@ -2961,7 +2961,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "6.4.1"
+version = "6.4.2"
 
 [[package]]
 name = "vtparse"

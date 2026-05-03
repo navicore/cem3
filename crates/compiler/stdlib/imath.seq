@@ -31,9 +31,11 @@
 # - Recursive functions (gcd, pow) may stack overflow for very large inputs
 # - Division by zero will panic at runtime
 # - int->bits and int->bits-padded are defined for non-negative ints only.
-#   Seq Ints are 63-bit tagged; logical shr of a negative cannot reduce to
-#   zero under the current tag scheme, so int->bits will not terminate on
-#   negative input. See docs/design/TAGGED_INT_BITWISE.md.
+#   Negative inputs terminate (the runtime's `shr` clamps to 0 once the
+#   intermediate value escapes the 63-bit Int range), but the resulting
+#   bit string is lossy — typically a single leading "1" bit — because
+#   the upper bits of the i64 sign-extension fall off in the first shr.
+#   See docs/design/TAGGED_INT_BITWISE.md.
 # - int->bits-padded truncates to the low `width` bits when width is
 #   smaller than the value's bit length
 #
@@ -169,8 +171,8 @@
 ;
 
 # Convert an Int to its binary-string representation (no leading zeros).
-# Negative values render as the full 64-bit two's-complement pattern,
-# because shr is logical (zero-fill).
+# Defined for non-negative inputs; negatives terminate but produce
+# lossy output (see header note + docs/design/TAGGED_INT_BITWISE.md).
 : int->bits ( Int -- String )
   dup 0 i.= [
     drop "0"

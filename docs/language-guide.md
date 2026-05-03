@@ -683,7 +683,14 @@ If you need functional composition patterns (map, bind), you can define your own
 
 ## Bitwise Operations
 
-For low-level bit manipulation:
+For low-level bit manipulation.
+
+> **Int is 63-bit.** Seq's `Int` is a signed 63-bit integer — the low bit
+> of the tagged stack slot is the type tag, leaving 63 bits for the
+> value. Range: `[-2^62, 2^62 - 1]` = `[-4611686018427387904,
+> 4611686018427387903]`. All bitwise operations report results in this
+> 63-bit model. `shl`/`shr` results that would fall outside the range
+> return `0` rather than silently truncating bit 62 in the tagger.
 
 | Word | Effect | Description |
 |------|--------|-------------|
@@ -691,24 +698,26 @@ For low-level bit manipulation:
 | `bor` | `( Int Int -- Int )` | Bitwise OR |
 | `bxor` | `( Int Int -- Int )` | Bitwise XOR |
 | `bnot` | `( Int -- Int )` | Bitwise NOT (one's complement) |
-| `shl` | `( Int Int -- Int )` | Shift left |
-| `shr` | `( Int Int -- Int )` | Logical shift right (zero-fill) |
-| `popcount` | `( Int -- Int )` | Count 1-bits |
-| `clz` | `( Int -- Int )` | Count leading zeros |
-| `ctz` | `( Int -- Int )` | Count trailing zeros |
-| `int-bits` | `( -- Int )` | Push 64 (bit width of Int) |
+| `shl` | `( Int Int -- Int )` | Shift left, clamped to 63-bit range (out of range → 0) |
+| `shr` | `( Int Int -- Int )` | Logical shift right (zero-fill), clamped to 63-bit range |
+| `popcount` | `( Int -- Int )` | Count 1-bits in the 63-bit representation |
+| `clz` | `( Int -- Int )` | Count leading zeros (`clz(0) = 63`) |
+| `ctz` | `( Int -- Int )` | Count trailing zeros (`ctz(0) = 63`) |
+| `int-bits` | `( -- Int )` | Push 63 (bit width of Int) |
 
 ### Shift Behavior
 
-- Shift by 0 returns the original value
-- Shift by 63 is the maximum valid shift
-- Shift by 64 or more returns 0
-- Shift by negative amount returns 0
-- Right shift is *logical* (zero-fill), not arithmetic (sign-extending)
+- Shift by 0 returns the original value.
+- Shift by a negative count returns 0.
+- Shift by 64 or more returns 0.
+- Any shift result that doesn't fit in the 63-bit Int range also returns 0.
+- Right shift is *logical* (zero-fill), not arithmetic (sign-extending).
 
 ```seq
-1 63 shl    # -9223372036854775808 (i64::MIN, high bit set)
--1 1 shr    # 9223372036854775807 (i64::MAX, logical shift fills with 0)
+1 61 shl    # 2305843009213693952  (= 2^61, fits in 63-bit range)
+1 62 shl    # 0  (would be 2^62, one past the 63-bit max)
+-1 2 shr    # 4611686018427387903  (= 2^62 - 1, the 63-bit max)
+-1 1 shr    # 0  (would be 2^63 - 1, outside the 63-bit range)
 ```
 
 ## Recursion and Tail Call Optimization

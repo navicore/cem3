@@ -35,7 +35,8 @@
 #   intermediate value escapes the 63-bit Int range), but the resulting
 #   bit string is lossy — typically a single leading "1" bit — because
 #   the upper bits of the i64 sign-extension fall off in the first shr.
-#   See docs/design/TAGGED_INT_BITWISE.md.
+#   See the Bitwise Operations section of docs/language-guide.md for the
+#   63-bit Int contract.
 # - int->bits-padded truncates to the low `width` bits when width is
 #   smaller than the value's bit length
 #
@@ -172,7 +173,8 @@
 
 # Convert an Int to its binary-string representation (no leading zeros).
 # Defined for non-negative inputs; negatives terminate but produce
-# lossy output (see header note + docs/design/TAGGED_INT_BITWISE.md).
+# lossy output (see header note + docs/language-guide.md Bitwise
+# Operations).
 : int->bits ( Int -- String )
   dup 0 i.= [
     drop "0"

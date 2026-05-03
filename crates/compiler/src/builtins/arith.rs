@@ -118,5 +118,5 @@ pub(super) fn add_docs(docs: &mut HashMap<&'static str, &'static str>) {
     docs.insert("popcount", "Count the number of set bits.");
     docs.insert("clz", "Count leading zeros.");
     docs.insert("ctz", "Count trailing zeros.");
-    docs.insert("int-bits", "Push the bit width of integers (64).");
+    docs.insert("int-bits", "Push the bit width of integers (63).");
 }

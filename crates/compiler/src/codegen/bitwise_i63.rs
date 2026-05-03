@@ -8,8 +8,9 @@
 //! adjustments, so the IR shapes live here as shared helpers.
 //!
 //! Keeping the constants and the IR templates in one place means the two
-//! codegen paths can never drift if the encoding changes; see
-//! `docs/design/TAGGED_INT_BITWISE.md` for the contract.
+//! codegen paths can never drift if the encoding changes; see the Bitwise
+//! Operations section of `docs/language-guide.md` for the 63-bit Int
+//! contract.
 
 use super::CodeGen;
 use super::error::CodeGenError;

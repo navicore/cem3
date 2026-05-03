@@ -164,7 +164,8 @@ impl CodeGen {
             }
 
             // Bit counting operations — 63-bit-aware via shared helpers.
-            // See codegen/bitwise_i63.rs and docs/design/TAGGED_INT_BITWISE.md.
+            // See codegen/bitwise_i63.rs and the Bitwise Operations section
+            // of docs/language-guide.md for the 63-bit Int contract.
             "popcount" => {
                 let (a, _) = ctx.pop().unwrap();
                 let result = self.emit_popcount_i63(&a)?;

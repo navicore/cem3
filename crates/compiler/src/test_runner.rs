@@ -3,6 +3,7 @@
 //! Discovers and executes tests in `test-*.seq` files, reporting results.
 
 use crate::parser::Parser;
+use crate::types::{Effect, StackType};
 use crate::{CompilerConfig, compile_file_with_config};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,8 +52,24 @@ pub struct FileTestResults {
     pub path: PathBuf,
     /// Individual test results
     pub tests: Vec<TestResult>,
+    /// Words named `test-*` whose stack effect isn't `( -- )` and were
+    /// therefore not promoted to test entry points. Surfaced so the user
+    /// can tell the difference between "helper picked up by accident"
+    /// (issue #435) and "test silently disappeared".
+    pub skipped: Vec<SkippedTest>,
     /// Compilation error if file failed to compile
     pub compile_error: Option<String>,
+}
+
+/// A `test-*` word that was discovered by name but skipped because its
+/// stack effect isn't `( -- )`. Used for diagnostics, not execution.
+#[derive(Debug, Clone)]
+pub struct SkippedTest {
+    /// Word name as written in source
+    pub name: String,
+    /// Human-readable reason — either a surface stack effect like
+    /// `( Int Int -- Bool )` or "no stack effect declared".
+    pub reason: String,
 }
 
 /// Test runner configuration
@@ -92,6 +109,26 @@ impl TestRunner {
         test_files
     }
 
+    /// Validate explicit paths before discovery. Any path ending in
+    /// `.seq` is treated as a file path and must match `test-*.seq`;
+    /// directories are fine (descent already filters). The check is
+    /// name-based, not filesystem-state-based, so it's deterministic in
+    /// tests and surfaces the naming rule even before the file is
+    /// stat'd. Converts the previously silent zero-tests outcome on
+    /// misnamed files into a loud error.
+    pub fn validate_paths(&self, paths: &[PathBuf]) -> Result<(), String> {
+        for path in paths {
+            let looks_like_seq_file = path.extension().and_then(|e| e.to_str()) == Some("seq");
+            if looks_like_seq_file && !self.is_test_file(path) {
+                return Err(format!(
+                    "Test files must be named `test-*.seq`. Got: `{}`",
+                    path.display()
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn is_test_file(&self, path: &Path) -> bool {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             name.starts_with("test-") && name.ends_with(".seq")
@@ -113,24 +150,57 @@ impl TestRunner {
         }
     }
 
-    /// Discover test functions in a source file
-    /// Returns (test_names, has_main) - test names and whether file has its own main
-    pub fn discover_test_functions(&self, source: &str) -> Result<(Vec<String>, bool), String> {
+    /// Discover test functions in a source file.
+    ///
+    /// A word is a test entry point iff its name starts with `test-` AND
+    /// its declared stack effect is exactly `( -- )`. Words matching the
+    /// name pattern but with a different effect (e.g. a `test-flag`
+    /// helper with `( Int Int -- Bool )`) are reported as `skipped` so
+    /// the runner can tell the user why the synthetic main isn't calling
+    /// them — see issue #435 for the original confusion.
+    ///
+    /// Returns (test_names, skipped, has_main).
+    pub fn discover_test_functions(
+        &self,
+        source: &str,
+    ) -> Result<(Vec<String>, Vec<SkippedTest>, bool), String> {
         let mut parser = Parser::new(source);
         let program = parser.parse()?;
 
         let has_main = program.words.iter().any(|w| w.name == "main");
 
-        let mut test_names: Vec<String> = program
-            .words
-            .iter()
-            .filter(|w| w.name.starts_with("test-"))
-            .filter(|w| self.matches_filter(&w.name))
-            .map(|w| w.name.clone())
-            .collect();
+        let mut test_names: Vec<String> = Vec::new();
+        let mut skipped: Vec<SkippedTest> = Vec::new();
+
+        for w in &program.words {
+            if !w.name.starts_with("test-") {
+                continue;
+            }
+            if !self.matches_filter(&w.name) {
+                continue;
+            }
+            match &w.effect {
+                Some(eff) if is_unit_effect(eff) => {
+                    test_names.push(w.name.clone());
+                }
+                Some(eff) => {
+                    skipped.push(SkippedTest {
+                        name: w.name.clone(),
+                        reason: format_effect_surface(eff),
+                    });
+                }
+                None => {
+                    skipped.push(SkippedTest {
+                        name: w.name.clone(),
+                        reason: "no stack effect declared".to_string(),
+                    });
+                }
+            }
+        }
 
         test_names.sort();
-        Ok((test_names, has_main))
+        skipped.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok((test_names, skipped, has_main))
     }
 
     fn matches_filter(&self, name: &str) -> bool {
@@ -148,17 +218,19 @@ impl TestRunner {
                 return FileTestResults {
                     path: path.to_path_buf(),
                     tests: vec![],
+                    skipped: vec![],
                     compile_error: Some(format!("Failed to read file: {}", e)),
                 };
             }
         };
 
-        let (test_names, has_main) = match self.discover_test_functions(&source) {
+        let (test_names, skipped, has_main) = match self.discover_test_functions(&source) {
             Ok(result) => result,
             Err(e) => {
                 return FileTestResults {
                     path: path.to_path_buf(),
                     tests: vec![],
+                    skipped: vec![],
                     compile_error: Some(format!("Parse error: {}", e)),
                 };
             }
@@ -169,6 +241,7 @@ impl TestRunner {
             return FileTestResults {
                 path: path.to_path_buf(),
                 tests: vec![],
+                skipped,
                 compile_error: None,
             };
         }
@@ -177,12 +250,15 @@ impl TestRunner {
             return FileTestResults {
                 path: path.to_path_buf(),
                 tests: vec![],
+                skipped,
                 compile_error: None,
             };
         }
 
         // Compile once and run all tests in the file
-        self.run_all_tests_in_file(path, &source, &test_names)
+        let mut results = self.run_all_tests_in_file(path, &source, &test_names);
+        results.skipped = skipped;
+        results
     }
 
     fn run_all_tests_in_file(
@@ -228,6 +304,7 @@ impl TestRunner {
             return FileTestResults {
                 path: path.to_path_buf(),
                 tests: vec![],
+                skipped: vec![],
                 compile_error: Some(format!("Failed to write temp file: {}", e)),
             };
         }
@@ -238,6 +315,7 @@ impl TestRunner {
             return FileTestResults {
                 path: path.to_path_buf(),
                 tests: vec![],
+                skipped: vec![],
                 compile_error: Some(format!("Compilation error: {}", e)),
             };
         }
@@ -273,6 +351,7 @@ impl TestRunner {
                                 error_output: Some(format!("{}{}", stderr, stdout)),
                             })
                             .collect(),
+                        skipped: vec![],
                         compile_error: None,
                     };
                 }
@@ -280,12 +359,14 @@ impl TestRunner {
                 FileTestResults {
                     path: path.to_path_buf(),
                     tests: results,
+                    skipped: vec![],
                     compile_error: None,
                 }
             }
             Err(e) => FileTestResults {
                 path: path.to_path_buf(),
                 tests: vec![],
+                skipped: vec![],
                 compile_error: Some(format!("Failed to run tests: {}", e)),
             },
         }
@@ -363,7 +444,7 @@ impl TestRunner {
                 continue;
             }
 
-            if file_result.tests.is_empty() {
+            if file_result.tests.is_empty() && file_result.skipped.is_empty() {
                 continue;
             }
 
@@ -376,6 +457,13 @@ impl TestRunner {
                 } else {
                     println!("  {} ... {}", test.name, status);
                 }
+            }
+
+            for s in &file_result.skipped {
+                println!(
+                    "  {} ... skipped — name starts with `test-` but stack effect is {}, not ( -- ). Rename if it's a helper; fix the signature if it's a test.",
+                    s.name, s.reason
+                );
             }
         }
 
@@ -440,6 +528,80 @@ fn sanitize_name(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect()
+}
+
+/// True iff the effect is `( -- )` — neither side has concrete types
+/// pushed or popped, and no computational side effects. The parser
+/// implicitly row-polymorphises every effect (`( -- )` becomes
+/// `..rest -- ..rest`), so the check is "no `Cons` layer on either
+/// side" rather than literal `Empty`. The row-var name doesn't matter.
+fn is_unit_effect(eff: &Effect) -> bool {
+    fn no_concrete_types(st: &StackType) -> bool {
+        !matches!(st, StackType::Cons { .. })
+    }
+    no_concrete_types(&eff.inputs) && no_concrete_types(&eff.outputs) && eff.effects.is_empty()
+}
+
+/// Render an effect in surface syntax — `( Int Int -- Bool )` rather
+/// than the internal `(..rest Int Int) -- (..rest Bool)` printed by
+/// `Display for Effect`. The parser implicitly row-polymorphises every
+/// effect; if the same row variable sits at the bottom of both sides
+/// it's just the implicit one, and showing it would be noisier than
+/// what the user wrote in source. Used only for the skip diagnostic.
+fn format_effect_surface(eff: &Effect) -> String {
+    // Walk down a stack type to its bottom row var (if any) and the
+    // concrete top-down list of types stacked above it.
+    fn split(st: &StackType) -> (Option<&str>, Vec<String>) {
+        let mut types: Vec<String> = Vec::new();
+        let mut cur = st;
+        loop {
+            match cur {
+                StackType::Empty => return (None, types_bottom_first(types)),
+                StackType::RowVar(name) => {
+                    return (Some(name.as_str()), types_bottom_first(types));
+                }
+                StackType::Cons { rest, top } => {
+                    types.push(format!("{}", top));
+                    cur = rest;
+                }
+            }
+        }
+    }
+    fn types_bottom_first(mut top_down: Vec<String>) -> Vec<String> {
+        top_down.reverse();
+        top_down
+    }
+    let (in_rv, in_types) = split(&eff.inputs);
+    let (out_rv, out_types) = split(&eff.outputs);
+    // Hide the row variable when both sides share it (implicit
+    // polymorphism). Otherwise show it explicitly.
+    let show_row = in_rv != out_rv;
+
+    let render = |rv: Option<&str>, types: &[String]| -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if show_row && let Some(name) = rv {
+            parts.push(format!("..{}", name));
+        }
+        parts.extend(types.iter().cloned());
+        parts.join(" ")
+    };
+    let inp = render(in_rv, &in_types);
+    let out = render(out_rv, &out_types);
+    let inp_sep = if inp.is_empty() { "" } else { " " };
+    let out_sep = if out.is_empty() { "" } else { " " };
+    if eff.effects.is_empty() {
+        format!("( {}{}-- {}{})", inp, inp_sep, out, out_sep)
+    } else {
+        let effs: Vec<String> = eff.effects.iter().map(|e| format!("{}", e)).collect();
+        format!(
+            "( {}{}-- {}{}| {} )",
+            inp,
+            inp_sep,
+            out,
+            out_sep,
+            effs.join(" ")
+        )
+    }
 }
 
 /// Given the full test-wrapper stdout and a test name, find the

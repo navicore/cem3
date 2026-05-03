@@ -7,6 +7,12 @@ pub(crate) fn run_test(paths: &[PathBuf], filter: Option<String>, verbose: bool)
     use seqc::test_runner::TestRunner;
 
     let runner = TestRunner::new(verbose, filter);
+
+    if let Err(e) = runner.validate_paths(paths) {
+        eprintln!("{}", e);
+        process::exit(2);
+    }
+
     let summary = runner.run(paths);
 
     runner.print_results(&summary);

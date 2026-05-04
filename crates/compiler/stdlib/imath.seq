@@ -24,6 +24,8 @@
 # - clamp: ( Int min max -- Int ) - Clamp value between min and max
 # - int->bits: ( Int -- String ) - Binary string, minimum width, no leading zeros
 # - int->bits-padded: ( Int Int -- String ) - Binary string padded/truncated to N bits
+# - int->bits-fmt-8: ( Int -- String ) - 8-bit binary, nibbles separated by space
+# - int->bits-fmt-16: ( Int -- String ) - 16-bit binary, nibbles separated by space
 #
 # ## Notes
 #
@@ -49,6 +51,8 @@
 #   10 int->bits                # Returns "1010"
 #   10 8 int->bits-padded       # Returns "00001010"
 #   255 4 int->bits-padded      # Returns "1111" (low 4 bits)
+#   40 int->bits-fmt-8          # Returns "0010 1000"
+#   40 int->bits-fmt-16         # Returns "0000 0000 0010 1000"
 #
 
 # Absolute value
@@ -201,4 +205,30 @@
 # width <= 0 yields the empty string.
 : int->bits-padded ( Int Int -- String )
   "" int->bits-padded-loop
+;
+
+# 8-bit binary representation, with the two nibbles separated by a single
+# space — convenient for reading bit patterns at a glance in the REPL.
+: int->bits-fmt-8 ( Int -- String )
+  8 int->bits-padded                  # ( s )
+  dup 0 4 string.substring            # ( s "hhhh" )
+  " " string.concat                   # ( s "hhhh " )
+  swap 4 4 string.substring           # ( "hhhh " "llll" )
+  string.concat                       # ( "hhhh llll" )
+;
+
+# 16-bit binary representation, with each nibble separated by a single
+# space (four nibbles, three spaces).
+: int->bits-fmt-16 ( Int -- String )
+  16 int->bits-padded                 # ( s )
+  dup 0 4 string.substring            # ( s n0 )
+  " " string.concat                   # ( s "n0 " )
+  over 4 4 string.substring           # ( s "n0 " n1 )
+  string.concat                       # ( s "n0 n1" )
+  " " string.concat                   # ( s "n0 n1 " )
+  over 8 4 string.substring           # ( s "n0 n1 " n2 )
+  string.concat                       # ( s "n0 n1 n2" )
+  " " string.concat                   # ( s "n0 n1 n2 " )
+  swap 12 4 string.substring          # ( "n0 n1 n2 " n3 )
+  string.concat                       # ( "n0 n1 n2 n3" )
 ;

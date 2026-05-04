@@ -75,6 +75,23 @@ include std:imath
   5 0 int->bits-padded "" test.assert-eq-str
 ;
 
+: test-int-to-bits-fmt-8 ( -- )
+  0 int->bits-fmt-8 "0000 0000" test.assert-eq-str
+  40 int->bits-fmt-8 "0010 1000" test.assert-eq-str
+  255 int->bits-fmt-8 "1111 1111" test.assert-eq-str
+  170 int->bits-fmt-8 "1010 1010" test.assert-eq-str
+  1 int->bits-fmt-8 "0000 0001" test.assert-eq-str
+;
+
+: test-int-to-bits-fmt-16 ( -- )
+  0 int->bits-fmt-16 "0000 0000 0000 0000" test.assert-eq-str
+  40 int->bits-fmt-16 "0000 0000 0010 1000" test.assert-eq-str
+  43690 int->bits-fmt-16 "1010 1010 1010 1010" test.assert-eq-str
+  1 int->bits-fmt-16 "0000 0000 0000 0001" test.assert-eq-str
+  # 0x8001 = 32769: high bit + low bit
+  32769 int->bits-fmt-16 "1000 0000 0000 0001" test.assert-eq-str
+;
+
 : test-int-to-bits-of-negative-terminates ( -- )
   # Regression: int->bits of a negative used to loop forever because
   # logical shr could never reduce it to zero. With the 63-bit clamp

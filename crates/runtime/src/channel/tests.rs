@@ -382,7 +382,13 @@ fn test_mpmc_concurrent_receivers() {
 
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        // Send messages
+        // Send messages with a tiny pause between each so the scheduler
+        // gets a yield point per send. Without this, on a single-core
+        // runner the whole send loop completes before any receiver is
+        // scheduled, the first receiver drains the queue without ever
+        // blocking (the others stay suspended on `receive`, so
+        // `yield_now` finds no ready peers), and the distribution
+        // assertion below fails even though every message was delivered.
         for i in 0..NUM_MESSAGES {
             let ch_ptr = CHANNEL_PTR.load(Ordering::SeqCst) as *const ChannelData;
             let channel = Arc::from_raw(ch_ptr);
@@ -392,6 +398,7 @@ fn test_mpmc_concurrent_receivers() {
             let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(i));
             stack = push(stack, Value::Channel(channel_clone));
             let _ = send(stack);
+            std::thread::sleep(std::time::Duration::from_micros(50));
         }
 
         // Send sentinels

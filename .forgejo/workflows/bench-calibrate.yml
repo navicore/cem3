@@ -74,8 +74,13 @@ jobs:
             echo ""
           done
 
+      # Pinned to @v3 because @v4+ uses the artifact v2.0 backend API
+      # which Forgejo doesn't implement — the action errors with
+      # `GHESNotSupportedError`. v3 uses the older REST-shaped API that
+      # Forgejo Actions does implement. Do NOT bump this without first
+      # confirming Forgejo has added v2.0 backend support.
       - name: Upload baseline artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: baseline-${{ github.run_number }}
           path: benchmarks/baseline/

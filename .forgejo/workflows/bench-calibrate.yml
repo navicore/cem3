@@ -35,15 +35,28 @@ jobs:
             | tar -xz -C "$HOME/.local/bin" just
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # Install Go from a pinned go.dev tarball. `actions/setup-go`
+      # resolves versions through GitHub's `actions/go-versions` manifest
+      # (same GitHub-only API path that broke the `just` install above),
+      # which Forgejo Actions can't reach — its GITHUB_TOKEN is a
+      # Forgejo token. `go.dev/dl` serves binaries directly with no API.
+      # Bump GO_VERSION to upgrade.
       - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
+        env:
+          GO_VERSION: 1.21.13
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSfL \
+            "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz -C "$HOME"
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      # Python: rely on the system `python3` shipped with `ubuntu-latest`.
+      # `actions/setup-python` resolves versions through GitHub's
+      # python-versions manifest (same GitHub-only API path that broke
+      # the `just` install above), which Forgejo Actions can't reach
+      # — its GITHUB_TOKEN is a Forgejo token. The bench script already
+      # `command -v python3`-checks and skips Python suites if missing.
 
       - name: Run benchmarks
         run: just bench

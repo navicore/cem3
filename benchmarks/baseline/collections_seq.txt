@@ -1,5 +1,1 @@
-BENCH:collections:build-100k:100000:3
-BENCH:collections:chain:7499850000:801
-BENCH:collections:filter-evens:50000:322
-BENCH:collections:fold-sum:4999950000:315
-BENCH:collections:map-double:100000:317
+SKIP:collections:seq:not available

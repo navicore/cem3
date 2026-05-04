@@ -37,10 +37,13 @@ test-math.seq
 
 ## Test Discovery
 
-The test runner uses two naming conventions:
+The test runner uses two naming conventions plus a signature check:
 
-1. **Test files**: Files named `test-*.seq` are discovered automatically
-2. **Test functions**: Words named `test-*` within those files are run as tests
+1. **Test files**: Files named `test-*.seq` are discovered automatically.
+2. **Test functions**: Words named `test-*` are run as tests **only when
+   their declared stack effect is exactly `( -- )`**. A `test-*` word
+   with a different signature (e.g. a `test-flag ( Int Int -- Bool )`
+   helper) is skipped, not promoted to an entry point.
 
 ```
 myproject/
@@ -60,6 +63,33 @@ seqc test tests/           # Run all test-*.seq files in tests/
 seqc test test-parser.seq  # Run specific file
 seqc test .                # Run all tests in current directory (recursive)
 ```
+
+If you pass an explicit file path that doesn't match `test-*.seq`, the
+runner errors instead of silently producing zero results:
+
+```bash
+$ seqc test tests/parser.seq
+Test files must be named `test-*.seq`. Got: `tests/parser.seq`
+```
+
+### Why `test-` predicates are safe
+
+Inside a `test-*.seq` file, you can still define helpers whose names
+start with `test-` — for example, predicate-style words ending in `?`
+or domain probes that take arguments. The signature filter excludes any
+`test-*` word that doesn't match `( -- )`, so it never gets called with
+an empty stack, and the runner prints a one-line note explaining why it
+was skipped:
+
+```
+test-flag ... skipped — name starts with `test-` but stack effect is
+( Int Int -- Bool ), not ( -- ). Rename if it's a helper; fix the
+signature if it's a test.
+```
+
+The note distinguishes "you have a helper that happens to start with
+`test-`" from "your test silently disappeared" — if you wrote what you
+thought was a test and see this skip note, fix the signature.
 
 ## Test Framework Builtins
 

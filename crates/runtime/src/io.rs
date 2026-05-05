@@ -163,20 +163,6 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
     }
 }
 
-/// Read a line from stdin with explicit EOF detection
-///
-/// Returns the line and a status flag:
-/// - ( line 1 ) on success (line includes trailing newline)
-/// - ( "" 0 ) at EOF or I/O error
-///
-/// Stack effect: ( -- String Int )
-///
-/// The `+` suffix indicates this returns a result pattern (value + status).
-/// Errors are values, not crashes.
-///
-/// # Line Ending Normalization
-///
-/// Line endings are normalized to `\n` regardless of platform. Windows-style
 /// Maximum bytes allowed for a single read_n call (10MB)
 /// This prevents accidental or malicious massive memory allocations.
 /// LSP messages are typically < 1MB, so 10MB provides generous headroom.

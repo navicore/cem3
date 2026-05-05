@@ -29,11 +29,29 @@ use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use vim_line::{Action, LineEditor, TextEdit, VimLineEditor};
 
-/// REPL template for new sessions (same as original REPL)
+/// REPL template for new sessions.
+///
+/// All stdlib modules are pre-included so tab completion can surface their
+/// words without the user having to remember to `:include` first. Includes
+/// are cheap (parse-only until a word is actually called); prune via
+/// `:edit` if you want a leaner session.
 const REPL_TEMPLATE: &str = r#"# Seq REPL session
 # Expressions are auto-printed via stack.dump
 
 # --- includes ---
+include std:control
+include std:fmath
+include std:http
+include std:imath
+include std:json
+include std:list
+include std:loops
+include std:map
+include std:signal
+include std:son
+include std:stack-utils
+include std:yaml
+include std:zipper
 
 # --- definitions ---
 
@@ -1529,6 +1547,20 @@ impl App {
         } else {
             repl_area.y
         };
+
+        // Clamp the popup to the actual frame bounds. On a tiny terminal
+        // (e.g. 78x7) the natural popup height can extend past the visible
+        // buffer, which makes ratatui's Clear panic with
+        // "index outside of buffer". Skip the popup entirely if there's no
+        // room left for even one item plus the border.
+        let frame_area = frame.area();
+        let max_w = frame_area.right().saturating_sub(x);
+        let max_h = frame_area.bottom().saturating_sub(y);
+        let popup_width = popup_width.min(max_w);
+        let popup_height = popup_height.min(max_h);
+        if popup_width < 4 || popup_height < 3 {
+            return;
+        }
 
         let popup_area = Rect::new(x, y, popup_width, popup_height);
 

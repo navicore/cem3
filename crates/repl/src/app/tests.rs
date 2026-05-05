@@ -1,4 +1,6 @@
 use super::*;
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 
 #[test]
 fn test_app_creation() -> Result<(), String> {
@@ -720,6 +722,29 @@ fn test_search_mode_case_insensitive() -> Result<(), String> {
     // Should match all 3 (case insensitive)
     assert_eq!(app.search_matches.len(), 3);
 
+    Ok(())
+}
+
+#[test]
+fn test_render_completion_popup_does_not_panic_on_tiny_terminal() -> Result<(), String> {
+    // Regression: a 78x7 terminal with a fully-populated completion popup
+    // (10 items → natural popup_height = 12) used to extend the Clear
+    // widget past the buffer's last row and panic with
+    // "index outside of buffer". Render must clamp to the frame bounds.
+    let mut app = App::new()?;
+    app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+    app.handle_key(KeyEvent::from(KeyCode::Char('d')));
+    app.handle_key(KeyEvent::from(KeyCode::Tab));
+    assert!(
+        app.completions.is_visible(),
+        "test setup: tab should populate completions"
+    );
+
+    let backend = TestBackend::new(78, 7);
+    let mut terminal = Terminal::new(backend).map_err(|e| e.to_string())?;
+    terminal
+        .draw(|f| app.render(f))
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

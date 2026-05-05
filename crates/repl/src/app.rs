@@ -1530,6 +1530,20 @@ impl App {
             repl_area.y
         };
 
+        // Clamp the popup to the actual frame bounds. On a tiny terminal
+        // (e.g. 78x7) the natural popup height can extend past the visible
+        // buffer, which makes ratatui's Clear panic with
+        // "index outside of buffer". Skip the popup entirely if there's no
+        // room left for even one item plus the border.
+        let frame_area = frame.area();
+        let max_w = frame_area.right().saturating_sub(x);
+        let max_h = frame_area.bottom().saturating_sub(y);
+        let popup_width = popup_width.min(max_w);
+        let popup_height = popup_height.min(max_h);
+        if popup_width < 4 || popup_height < 3 {
+            return;
+        }
+
         let popup_area = Rect::new(x, y, popup_width, popup_height);
 
         // Clear the area first

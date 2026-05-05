@@ -29,11 +29,29 @@ use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use vim_line::{Action, LineEditor, TextEdit, VimLineEditor};
 
-/// REPL template for new sessions (same as original REPL)
+/// REPL template for new sessions.
+///
+/// All stdlib modules are pre-included so tab completion can surface their
+/// words without the user having to remember to `:include` first. Includes
+/// are cheap (parse-only until a word is actually called); prune via
+/// `:edit` if you want a leaner session.
 const REPL_TEMPLATE: &str = r#"# Seq REPL session
 # Expressions are auto-printed via stack.dump
 
 # --- includes ---
+include std:control
+include std:fmath
+include std:http
+include std:imath
+include std:json
+include std:list
+include std:loops
+include std:map
+include std:signal
+include std:son
+include std:stack-utils
+include std:yaml
+include std:zipper
 
 # --- definitions ---
 

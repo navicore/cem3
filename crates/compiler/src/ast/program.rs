@@ -39,7 +39,6 @@ impl Program {
             "io.write",
             "io.write-line",
             "io.read-line",
-            "io.read-line+",
             "io.read-n",
             "int->string",
             "symbol->string",

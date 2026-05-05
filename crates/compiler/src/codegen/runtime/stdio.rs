@@ -39,10 +39,6 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         category: None,
     },
     RuntimeDecl {
-        decl: "declare ptr @patch_seq_read_line_plus(ptr)",
-        category: None,
-    },
-    RuntimeDecl {
         decl: "declare ptr @patch_seq_read_n(ptr)",
         category: None,
     },
@@ -65,7 +61,6 @@ pub(super) static SYMBOLS: &[(&str, &str)] = &[
     ("io.write", "patch_seq_write"),
     ("io.write-line", "patch_seq_write_line"),
     ("io.read-line", "patch_seq_read_line"),
-    ("io.read-line+", "patch_seq_read_line_plus"),
     ("io.read-n", "patch_seq_read_n"),
     ("int->string", "patch_seq_int_to_string"),
     ("symbol->string", "patch_seq_symbol_to_string"),

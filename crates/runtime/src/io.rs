@@ -163,56 +163,6 @@ pub unsafe extern "C" fn patch_seq_read_line(stack: Stack) -> Stack {
     }
 }
 
-/// Read a line from stdin with explicit EOF detection
-///
-/// Returns the line and a status flag:
-/// - ( line 1 ) on success (line includes trailing newline)
-/// - ( "" 0 ) at EOF or I/O error
-///
-/// Stack effect: ( -- String Int )
-///
-/// The `+` suffix indicates this returns a result pattern (value + status).
-/// Errors are values, not crashes.
-///
-/// # Line Ending Normalization
-///
-/// Line endings are normalized to `\n` regardless of platform. Windows-style
-/// `\r\n` endings are converted to `\n`. This ensures consistent behavior
-/// across different operating systems.
-///
-/// # Safety
-/// Always safe to call
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn patch_seq_read_line_plus(stack: Stack) -> Stack {
-    use std::io::BufRead;
-
-    let stdin = io::stdin();
-    let mut line = String::new();
-
-    match stdin.lock().read_line(&mut line) {
-        Ok(0) => {
-            // EOF
-            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
-            unsafe { push(stack, Value::Int(0)) }
-        }
-        Ok(_) => {
-            // Normalize line endings: \r\n -> \n
-            if line.ends_with("\r\n") {
-                line.pop(); // remove \n
-                line.pop(); // remove \r
-                line.push('\n'); // add back \n
-            }
-            let stack = unsafe { push(stack, Value::String(line.into())) };
-            unsafe { push(stack, Value::Int(1)) }
-        }
-        Err(_) => {
-            // I/O error - treat like EOF
-            let stack = unsafe { push(stack, Value::String("".to_string().into())) };
-            unsafe { push(stack, Value::Int(0)) }
-        }
-    }
-}
-
 /// Maximum bytes allowed for a single read_n call (10MB)
 /// This prevents accidental or malicious massive memory allocations.
 /// LSP messages are typically < 1MB, so 10MB provides generous headroom.
@@ -243,7 +193,7 @@ fn validate_read_n_count(value: &Value) -> Result<usize, String> {
 ///
 /// Stack effect: ( Int -- String Int )
 ///
-/// Like `io.read-line+`, this returns a result pattern (value + status) to allow
+/// Like `io.read-line`, this returns a result pattern (value + status) to allow
 /// explicit EOF detection. The function name omits the `+` suffix for brevity
 /// since byte-count reads are inherently status-oriented.
 ///
@@ -566,7 +516,6 @@ pub use patch_seq_push_seqstring as push_seqstring;
 pub use patch_seq_push_string as push_string;
 pub use patch_seq_push_symbol as push_symbol;
 pub use patch_seq_read_line as read_line;
-pub use patch_seq_read_line_plus as read_line_plus;
 pub use patch_seq_read_n as read_n;
 pub use patch_seq_string_to_symbol as string_to_symbol;
 pub use patch_seq_symbol_to_string as symbol_to_string;

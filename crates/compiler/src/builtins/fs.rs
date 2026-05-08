@@ -24,9 +24,9 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     builtin!(sigs, "dir.delete", (a String -- a Bool));
     builtin!(sigs, "dir.list", (a String -- a V Bool)); // V = List variant
 
-    // file.for-each-line+: Complex quotation type - defined manually
+    // file.for-each-line: Complex quotation type - defined manually
     sigs.insert(
-        "file.for-each-line+".to_string(),
+        "file.for-each-line".to_string(),
         Effect::new(
             StackType::RowVar("a".to_string())
                 .push(Type::String)
@@ -34,9 +34,7 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
                     StackType::RowVar("a".to_string()).push(Type::String),
                     StackType::RowVar("a".to_string()),
                 )))),
-            StackType::RowVar("a".to_string())
-                .push(Type::String)
-                .push(Type::Bool),
+            StackType::RowVar("a".to_string()).push(Type::Bool),
         ),
     );
 }
@@ -65,8 +63,8 @@ pub(super) fn add_docs(docs: &mut HashMap<&'static str, &'static str>) {
         "Get file size in bytes. Returns (Int Bool) -- Bool is false if file not found.",
     );
     docs.insert(
-        "file.for-each-line+",
-        "Execute a quotation for each line in a file.",
+        "file.for-each-line",
+        "Execute a quotation for each line in a file. Returns Bool -- false if the file could not be opened or a read error occurred.",
     );
 
     // Directory Operations

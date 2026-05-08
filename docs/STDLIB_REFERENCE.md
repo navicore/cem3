@@ -81,7 +81,7 @@ This document covers:
 | `file.exists?` | `( String -- Bool )` | Check if file exists at path |
 | `file.delete` | `( String -- Bool )` | Delete a file at path. Returns success |
 | `file.size` | `( String -- Int Bool )` | Get file size in bytes. Returns size and success |
-| `file.for-each-line+` | `( String [String --] -- String Bool )` | Execute quotation for each line in file |
+| `file.for-each-line` | `( String [String --] -- Bool )` | Execute quotation for each line in file. Returns false if the file could not be opened or a read error occurred. |
 
 ## Directory Operations
 

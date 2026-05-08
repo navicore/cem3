@@ -306,7 +306,7 @@ pub unsafe extern "C" fn patch_seq_test_assert_not(stack: Stack) -> Stack {
 
 /// Assert that two integers are equal
 ///
-/// Stack effect: ( expected actual -- )
+/// Stack effect: ( actual expected -- )
 ///
 /// Records failure if values differ, records pass otherwise.
 ///
@@ -315,8 +315,8 @@ pub unsafe extern "C" fn patch_seq_test_assert_not(stack: Stack) -> Stack {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_test_assert_eq(stack: Stack) -> Stack {
     unsafe {
-        let (stack, actual_val) = pop(stack);
         let (stack, expected_val) = pop(stack);
+        let (stack, actual_val) = pop(stack);
 
         let (expected, actual) = match (&expected_val, &actual_val) {
             (Value::Int(e), Value::Int(a)) => (*e, *a),
@@ -343,7 +343,7 @@ pub unsafe extern "C" fn patch_seq_test_assert_eq(stack: Stack) -> Stack {
 
 /// Assert that two strings are equal
 ///
-/// Stack effect: ( expected actual -- )
+/// Stack effect: ( actual expected -- )
 ///
 /// Records failure if strings differ, records pass otherwise.
 ///
@@ -352,8 +352,8 @@ pub unsafe extern "C" fn patch_seq_test_assert_eq(stack: Stack) -> Stack {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_test_assert_eq_str(stack: Stack) -> Stack {
     unsafe {
-        let (stack, actual_val) = pop(stack);
         let (stack, expected_val) = pop(stack);
+        let (stack, actual_val) = pop(stack);
 
         let (expected, actual) = match (&expected_val, &actual_val) {
             (Value::String(e), Value::String(a)) => (

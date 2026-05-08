@@ -230,12 +230,13 @@ YAML parsing with support for:
 **zipper-demo.seq** - Functional list navigation with O(1) cursor movement:
 
 ```seq
+include std:list
 include std:zipper
 
-{ 1 2 3 4 5 } list->zipper
+list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
 zipper.right zipper.right  # Move to element 3
 100 zipper.set             # Replace with 100
-zipper.to-list             # { 1 2 100 4 5 }
+zipper.to-list             # list contents: 1 2 100 4 5
 ```
 
 ### Encoding (encoding.seq)

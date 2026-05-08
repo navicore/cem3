@@ -704,7 +704,7 @@ These examples use Seq's bitwise operations:
 - `popcount` - count 1-bits
 - `clz` - count leading zeros
 - `ctz` - count trailing zeros
-- `int-bits` - bit width (64)
+- `int-bits` - bit width (63 — Seq Int is signed 63-bit)
 
 #### Numeric Literals
 
@@ -716,93 +716,125 @@ Seq supports hex and binary literals for bit manipulation:
 ```
 
 
-### Shopping Cart REST Server
+### Seq → OSC → Csound (live-coding POC)
 
-A complete example demonstrating:
-- HTTP REST API with multiple endpoints
-- SQLite persistence with prepared statements
-- Database transactions for checkout
-- URL query parameter parsing
-- Concurrent request handling with strands
+This directory is the Phase C POC from
+[`docs/design/LIVE_CODING_CSOUND_POC.md`](../../../docs/design/LIVE_CODING_CSOUND_POC.md):
+prove that Seq can drive an external audio engine (Csound) over OSC well
+enough to support live-coding music.
 
-#### Build
+#### What's here
 
-```bash
-seqc --ffi-manifest examples/shopping-cart/sqlite.toml \
-     examples/shopping-cart/shopping-cart.seq -o shopping-cart
+| File | Purpose |
+|---|---|
+| `osc.seq` | OSC 1.0 encoder, written in Seq. Library, no `main`. |
+| `test_osc.seq` | Byte-exact unit tests for the encoder. |
+| `test_osc_loopback.seq` | End-to-end UDP round-trip tests (no audio). |
+| `live.csd` | Csound orchestra: OSC listener on port 7770 + kick instrument. |
+| `tone.seq` | One-shot driver — sends a single `/kick 220.0` message. |
+| `live.seq` | 8-beat metronome driver — sends 8 evenly-spaced kicks. |
+
+#### Audible run
+
+The encoder/loopback tests run in CI (`just ci`). The audible parts
+below need a working Csound install on your machine.
+
+##### 1. Install Csound
+
+macOS (Homebrew):
+
+```sh
+brew install csound
 ```
 
-#### Run
+Linux (Debian/Ubuntu):
 
-```bash
-./shopping-cart
+```sh
+sudo apt-get install csound
 ```
 
-#### API Endpoints
+Verify:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | API info |
-| GET | `/products` | List all products |
-| GET | `/cart` | View cart contents |
-| POST | `/cart/add?product=ID&qty=N` | Add item to cart |
-| POST | `/cart/remove?id=N` | Remove item from cart |
-| POST | `/cart/checkout` | Process order with transaction |
-
-#### Test with curl
-
-```bash
-### List products
-curl http://localhost:8080/products
-
-### Add items to cart
-curl -X POST "http://localhost:8080/cart/add?product=1&qty=2"
-curl -X POST "http://localhost:8080/cart/add?product=4&qty=1"
-
-### View cart
-curl http://localhost:8080/cart
-
-### Checkout (uses transaction)
-curl -X POST http://localhost:8080/cart/checkout
-
-### Verify stock was updated
-curl http://localhost:8080/products
+```sh
+csound --version
 ```
 
-#### Database
+##### 2. Start the listener
 
-The server creates `shop.db` with three tables:
-- `products` - Product catalog with stock tracking
-- `cart_items` - Shopping cart
-- `orders` - Completed orders
+In one terminal, from the repo root:
 
-Check the database directly:
-```bash
-sqlite3 shop.db "SELECT * FROM products"
-sqlite3 shop.db "SELECT * FROM orders"
+```sh
+csound -odac examples/projects/live-coding-csound/live.csd
 ```
 
-#### Features Demonstrated
+`-odac` writes audio to your default output device. You should see
+Csound print its banner, list the instruments, and sit waiting (last
+line will say something like `SECTION 1:` followed by no further
+output). Leave this terminal running.
 
-##### SQLite FFI
-- `db-open`, `db-close` - Connection management
-- `db-exec` - Simple SQL execution
-- `db-prepare`, `db-step`, `db-finalize` - Prepared statements
-- `db-column-int`, `db-column-text` - Result extraction
+##### 3. Send one kick (`tone.seq`)
 
-##### Transactions
-The checkout process uses `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK`:
-1. Calculate cart total
-2. Begin transaction
-3. Update product stock
-4. Create order record
-5. Clear cart
-6. Commit (or rollback on error)
+In a second terminal, build and run the one-shot driver:
 
-##### HTTP Server
-- Route matching by method and path
-- Query parameter parsing
-- Concurrent request handling with strands
+```sh
+just build
+target/examples/projects-live-coding-csound-tone
+```
+
+You should hear a single short percussive tone at 220 Hz. The Seq
+process exits immediately; Csound stays up so you can run again.
+
+##### 4. Run the metronome (`live.seq`)
+
+```sh
+target/examples/projects-live-coding-csound-live
+```
+
+You should hear 8 evenly-spaced kicks over roughly 4 seconds (120 BPM).
+
+##### 5. Live-coding loop
+
+Edit `live.seq` (e.g. change `bpm-ms` from `500` to `250` for 240 BPM,
+or `beats` from `8` to `16`), then run `just build` and re-execute
+the binary. Csound keeps running between Seq runs, so the iteration
+cycle is just edit → build → re-run.
+
+To stop everything: `Ctrl+C` in the Csound terminal.
+
+#### Troubleshooting
+
+**Nothing audible after `tone`/`live`.** Check the Csound terminal:
+when an OSC message lands, Csound prints something like
+`new alloc for instr 2:` and `ihold:` lines. If those are absent,
+the message isn't reaching Csound. Verify the port matches (Csound
+listens on 7770; Seq sends to 7770).
+
+**`csound: command not found`.** Install per step 1 above.
+
+**`Address already in use` from Csound.** Another process holds port
+7770. `lsof -i :7770` to find it; kill the holder or change the port
+in *both* `live.csd` and the `7770` literal in `tone.seq` / `live.seq`.
+
+**Audio cuts out / glitches.** Csound's default audio backend can be
+finicky. Try `csound -odac0 live.csd` to force the system default
+device, or pass `-+rtaudio=...` to pick a specific backend (CoreAudio
+on macOS, ALSA/JACK on Linux).
+
+#### How this fits the design doc
+
+- **Checkpoint 1 (UDP loopback)** — covered by `test_osc_loopback.seq`,
+  runs in CI.
+- **Checkpoint 2 (OSC fixture test)** — covered by `test_osc.seq`,
+  runs in CI.
+- **Checkpoint 3 (Csound responds, one tone)** — `tone.seq` + this
+  README. Manual verification.
+- **Checkpoint 4 (a bar of music)** — `live.seq` + this README.
+  Manual verification.
+- **Checkpoint 5 (POC writeup decides spinout question)** — once
+  you've run the metronome a few times and exercised the
+  edit-build-rerun loop, the design doc gets a final block recording
+  what worked, what surfaced as a Seq language gap, and whether the
+  whole thing is worth spinning into its own repo.
 
 
 ## Foreign Function Interface

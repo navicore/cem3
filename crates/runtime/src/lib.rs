@@ -292,8 +292,7 @@ pub use args::{
 
 // File operations (exported for LLVM linking)
 pub use file::{
-    patch_seq_file_exists as file_exists,
-    patch_seq_file_for_each_line_plus as file_for_each_line_plus,
+    patch_seq_file_exists as file_exists, patch_seq_file_for_each_line as file_for_each_line,
     patch_seq_file_slurp as file_slurp,
 };
 

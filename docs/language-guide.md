@@ -250,7 +250,7 @@ Basic console I/O:
 
 ### Line Ending Normalization
 
-All line-reading operations (`io.read-line`, `file.for-each-line+`)
+All line-reading operations (`io.read-line`, `file.for-each-line`)
 normalize line endings to `\n`. Windows-style `\r\n` is converted to `\n`.
 This ensures Seq programs behave consistently across operating systems.
 
@@ -865,7 +865,7 @@ Script mode trades runtime optimization (`-O0`) for faster compilation. For prod
 | `file.exists?` | `( String -- Bool )` | Check if file exists at path |
 | `file.delete` | `( String -- Bool )` | Delete a file at path. Returns success |
 | `file.size` | `( String -- Int Bool )` | Get file size in bytes. Returns size and success |
-| `file.for-each-line+` | `( String [String --] -- String Bool )` | Process file line by line |
+| `file.for-each-line` | `( String [String --] -- Bool )` | Process file line by line. Returns success |
 
 ## Directory Operations
 
@@ -878,7 +878,7 @@ Script mode trades runtime optimization (`-O0`) for faster compilation. For prod
 
 ### Line-by-Line File Processing
 
-For processing files line by line, use `file.for-each-line+`:
+For processing files line by line, use `file.for-each-line`:
 
 ```seq
 : process-line ( String -- )
@@ -887,20 +887,18 @@ For processing files line by line, use `file.for-each-line+`:
 ;
 
 : main ( -- )
-    "data.txt" [ process-line ] file.for-each-line+
+    "data.txt" [ process-line ] file.for-each-line
     if
-        drop  # drop empty string on success
         "Done!" io.write-line
     else
-        # error message is on stack
-        "Error: " swap string.concat io.write-line
+        "Error reading file" io.write-line
     then
 ;
 ```
 
 The quotation receives each line (including trailing newline) and must consume it.
-Returns `("" true)` on success, `("error message" false)` on failure. Empty files succeed
-without calling the quotation.
+Returns `true` on success (including empty files), `false` if the file could not be
+opened or a read error occurred mid-stream.
 
 Line endings are normalized to `\n` regardless of platform - Windows-style `\r\n`
 becomes `\n`. This ensures consistent behavior when processing files across
@@ -981,7 +979,6 @@ Operations are grouped by functionality:
 | Suffix | Meaning | Example |
 |--------|---------|---------|
 | `?` | Predicate (returns boolean) | `nil?`, `string.empty?`, `file.exists?` |
-| `+` | Returns result + status | `file.for-each-line+` |
 
 ### Core Primitives (No Prefix)
 

@@ -13,7 +13,7 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         category: None,
     },
     RuntimeDecl {
-        decl: "declare ptr @patch_seq_file_for_each_line_plus(ptr)",
+        decl: "declare ptr @patch_seq_file_for_each_line(ptr)",
         category: None,
     },
     RuntimeDecl {
@@ -55,7 +55,7 @@ pub(super) static SYMBOLS: &[(&str, &str)] = &[
     // File operations
     ("file.slurp", "patch_seq_file_slurp"),
     ("file.exists?", "patch_seq_file_exists"),
-    ("file.for-each-line+", "patch_seq_file_for_each_line_plus"),
+    ("file.for-each-line", "patch_seq_file_for_each_line"),
     ("file.spit", "patch_seq_file_spit"),
     ("file.append", "patch_seq_file_append"),
     ("file.delete", "patch_seq_file_delete"),

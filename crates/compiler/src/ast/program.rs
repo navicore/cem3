@@ -49,7 +49,7 @@ impl Program {
             // File operations
             "file.slurp",
             "file.exists?",
-            "file.for-each-line+",
+            "file.for-each-line",
             "file.spit",
             "file.append",
             "file.delete",

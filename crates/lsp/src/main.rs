@@ -260,7 +260,17 @@ impl LanguageServer for SeqLanguageServer {
             return Ok(None);
         };
 
-        // Check if cursor is inside a quotation
+        // Word under the cursor wins: a hit on `file.spit` inside a `[ ... ]`
+        // should resolve to the builtin's signature, not the enclosing
+        // quotation's effect. Only fall through to the quotation hover when
+        // there's no resolvable word at the cursor (whitespace, brackets, or
+        // an unknown identifier).
+        if let Some(ref w) = word
+            && let Some(hover) = lookup_word_hover(w, &local_words, &included_words)
+        {
+            return Ok(Some(hover));
+        }
+
         let line = position.line as usize;
         let col = position.character as usize;
         for q in &quotations {
@@ -283,15 +293,6 @@ impl LanguageServer for SeqLanguageServer {
                     }),
                 }));
             }
-        }
-
-        let Some(word) = word else {
-            return Ok(None);
-        };
-
-        // Look up the word in local words, included words, or builtins
-        if let Some(hover) = lookup_word_hover(&word, &local_words, &included_words) {
-            return Ok(Some(hover));
         }
 
         Ok(None)

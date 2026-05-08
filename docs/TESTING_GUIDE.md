@@ -99,12 +99,16 @@ thought was a test and see this skip note, fix the signature.
 | `test.finish` | `( -- )` | Complete test and report results |
 | `test.assert` | `( Bool -- )` | Assert condition is true |
 | `test.assert-not` | `( Bool -- )` | Assert condition is false |
-| `test.assert-eq` | `( Int Int -- )` | Assert two integers are equal |
-| `test.assert-eq-str` | `( String String -- )` | Assert two strings are equal |
+| `test.assert-eq` | `( actual expected -- )` | Assert two integers are equal |
+| `test.assert-eq-str` | `( actual expected -- )` | Assert two strings are equal |
 | `test.fail` | `( String -- )` | Explicitly fail with message |
 | `test.pass-count` | `( -- Int )` | Get number of passed assertions |
 | `test.fail-count` | `( -- Int )` | Get number of failed assertions |
 | `test.has-failures` | `( -- Bool )` | Check if any assertions failed |
+
+For `test.assert-eq` and `test.assert-eq-str`, push the actual
+(computed) value first and the expected (literal) value on top. On
+failure the runner prints `expected <top>, got <below>`.
 
 ## Writing Tests
 

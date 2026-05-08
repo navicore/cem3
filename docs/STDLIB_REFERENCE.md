@@ -412,8 +412,8 @@ All regex operations return a Bool success flag (false for invalid regex).
 | `test.has-failures` | `( -- Bool )` | Check if any tests failed |
 | `test.assert` | `( Bool -- )` | Assert boolean is true |
 | `test.assert-not` | `( Bool -- )` | Assert boolean is false |
-| `test.assert-eq` | `( Int Int -- )` | Assert two integers equal |
-| `test.assert-eq-str` | `( String String -- )` | Assert two strings equal |
+| `test.assert-eq` | `( actual expected -- )` | Assert two integers equal. Push the computed value first, the expected literal on top. |
+| `test.assert-eq-str` | `( actual expected -- )` | Assert two strings equal. Push the computed value first, the expected literal on top. |
 | `test.fail` | `( String -- )` | Mark test as failed with message |
 | `test.pass-count` | `( -- Int )` | Get passed assertion count |
 | `test.fail-count` | `( -- Int )` | Get failed assertion count |

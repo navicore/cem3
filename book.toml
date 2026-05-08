@@ -14,7 +14,7 @@ preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/navicore/patch-seq"
 edit-url-template = "https://github.com/navicore/patch-seq/edit/main/docs/{path}"
 site-url = "/patch-seq/"
-additional-js = ["mermaid.min.js", "mermaid-init.js"]
+additional-js = ["mdbook-assets/mermaid.min.js", "mdbook-assets/mermaid-init.js"]
 
 [output.html.fold]
 enable = true

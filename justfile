@@ -10,13 +10,20 @@ default:
 # Build everything (compiler + runtime + lsp)
 build: build-runtime build-compiler build-lsp
 
-install:
+# `install` depends on `build` so the canonical
+# `target/release/libseq_runtime.a` is refreshed before
+# `crates/compiler/build.rs` embeds it via `include_bytes!`. Without
+# this, a build-dep-only rebuild of seq-runtime updates
+# `deps/libseq_runtime-<hash>.a` but leaves the no-hash file stale,
+# producing a seqc binary whose self-reported version doesn't match
+# its embedded runtime bytes.
+install: build
     @echo "Installing the compiler..."
-    cargo install --path crates/compiler
+    cargo install --path crates/compiler --force
     @echo "Installing the lsp server..."
-    cargo install --path crates/lsp
+    cargo install --path crates/lsp --force
     @echo "Installing the repl..."
-    cargo install --path crates/repl
+    cargo install --path crates/repl --force
 
 # Build the Rust runtime as static library
 build-runtime:

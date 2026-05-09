@@ -20,6 +20,47 @@ fn display_value(val: &Value) -> String {
     }
 }
 
+/// Escape a string for inclusion in a single-line failure detail.
+///
+/// `\n`, `\r`, `\t`, `\\`, `\"` become their two-character source forms;
+/// other control bytes (< 0x20 or 0x7F) become `\xNN`. Non-ASCII bytes
+/// pass through unchanged so legible UTF-8 stays legible.
+///
+/// Critical for the `assert-eq-str` failure path: the test runner's
+/// `collect_failure_block` only attaches continuation lines that start
+/// with whitespace, so an embedded raw newline in a value would break
+/// the failure block in two and silently truncate the report.
+fn escape_for_display(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7E => out.push(b as char),
+            0x00..=0x1F | 0x7F => {
+                use std::fmt::Write;
+                let _ = write!(out, "\\x{:02X}", b);
+            }
+            _ => out.push(b as char),
+        }
+    }
+    out
+}
+
+/// Discriminator for how a failure should be rendered. The string-eq
+/// path needs a multi-line block (escaped values, byte counts, first
+/// differing offset); other failures keep the historical single-line
+/// `expected E, got A` shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FailureKind {
+    #[default]
+    Other,
+    StringEq,
+}
+
 /// Maximum number of per-test assertion failures to print in the run
 /// summary. Additional failures are rolled up into a `+N more failure(s)`
 /// footer so noisy tests (loop-like assertions over lists) don't drown
@@ -32,8 +73,11 @@ pub struct TestFailure {
     /// Source line of the assertion (1-indexed), if codegen set one.
     pub line: Option<u32>,
     pub message: String,
+    /// For `kind == StringEq` these hold the *raw* values; the printer
+    /// escapes them. For other kinds they hold pre-formatted strings.
     pub expected: Option<String>,
     pub actual: Option<String>,
+    pub kind: FailureKind,
 }
 
 /// Test context that tracks assertion results
@@ -82,9 +126,24 @@ impl TestContext {
             message,
             expected,
             actual,
+            kind: FailureKind::Other,
         });
         // Same rationale as `record_pass`: don't let this line bleed into
         // the next assertion's record.
+        self.current_line = None;
+    }
+
+    /// Record a string-equality failure. Stores the raw (unescaped)
+    /// values; rendering happens at print time so we keep the byte
+    /// counts and first-differing offset accurate.
+    pub fn record_string_eq_failure(&mut self, expected: String, actual: String) {
+        self.failures.push(TestFailure {
+            line: self.current_line,
+            message: "assertion failed: strings not equal".to_string(),
+            expected: Some(expected),
+            actual: Some(actual),
+            kind: FailureKind::StringEq,
+        });
         self.current_line = None;
     }
 
@@ -174,6 +233,62 @@ pub unsafe extern "C" fn patch_seq_test_init(stack: Stack) -> Stack {
     }
 }
 
+/// Render a single failure as one or more indented detail lines,
+/// terminated by a final newline. The result is always whitespace-prefixed
+/// on every line so the runner's `collect_failure_block` attaches it to
+/// the preceding `... FAILED` header.
+///
+/// Pure (no I/O, no globals) so the output is unit-testable.
+pub fn format_failure_detail(failure: &TestFailure) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+
+    match (failure.kind, &failure.expected, &failure.actual) {
+        (FailureKind::StringEq, Some(e), Some(a)) => {
+            match failure.line {
+                Some(line) => writeln!(out, "  at line {}: {}", line, failure.message).unwrap(),
+                None => writeln!(out, "  {}", failure.message).unwrap(),
+            }
+            writeln!(
+                out,
+                "    expected ({} bytes): \"{}\"",
+                e.len(),
+                escape_for_display(e)
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    actual   ({} bytes): \"{}\"",
+                a.len(),
+                escape_for_display(a)
+            )
+            .unwrap();
+            if e != a {
+                let common = e
+                    .as_bytes()
+                    .iter()
+                    .zip(a.as_bytes().iter())
+                    .take_while(|(x, y)| x == y)
+                    .count();
+                writeln!(out, "    first differ at byte {}", common).unwrap();
+            }
+        }
+        (_, Some(e), Some(a)) => {
+            let detail = format!("expected {}, got {}", e, a);
+            match failure.line {
+                Some(line) => writeln!(out, "  at line {}: {}", line, detail).unwrap(),
+                None => writeln!(out, "  {}", detail).unwrap(),
+            }
+        }
+        _ => match failure.line {
+            Some(line) => writeln!(out, "  at line {}: {}", line, failure.message).unwrap(),
+            None => writeln!(out, "  {}", failure.message).unwrap(),
+        },
+    }
+
+    out
+}
+
 /// Finalize test and print results
 ///
 /// Stack effect: ( -- )
@@ -201,14 +316,7 @@ pub unsafe extern "C" fn patch_seq_test_finish(stack: Stack) -> Stack {
         // counts anything suppressed.
         println!("{} ... FAILED", test_name);
         for failure in ctx.failures.iter().take(MAX_PRINTED_FAILURES_PER_TEST) {
-            let detail = match (&failure.expected, &failure.actual) {
-                (Some(e), Some(a)) => format!("expected {}, got {}", e, a),
-                _ => failure.message.clone(),
-            };
-            match failure.line {
-                Some(line) => println!("  at line {}: {}", line, detail),
-                None => println!("  {}", detail),
-            }
+            print!("{}", format_failure_detail(failure));
         }
         if ctx.failures.len() > MAX_PRINTED_FAILURES_PER_TEST {
             let remaining = ctx.failures.len() - MAX_PRINTED_FAILURES_PER_TEST;
@@ -370,11 +478,7 @@ pub unsafe extern "C" fn patch_seq_test_assert_eq_str(stack: Stack) -> Stack {
         if expected == actual {
             ctx.record_pass();
         } else {
-            ctx.record_failure(
-                "assertion failed: strings not equal".to_string(),
-                Some(format!("\"{}\"", expected)),
-                Some(format!("\"{}\"", actual)),
-            );
+            ctx.record_string_eq_failure(expected, actual);
         }
 
         stack

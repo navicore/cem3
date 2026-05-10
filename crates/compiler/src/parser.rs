@@ -13,7 +13,7 @@ mod driver;
 mod items;
 mod statements;
 mod token;
-mod type_parse;
+pub(crate) mod type_parse;
 
 #[cfg(test)]
 mod tests;

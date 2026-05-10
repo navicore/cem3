@@ -929,7 +929,7 @@ Seq uses a consistent naming scheme for all built-in operations:
 
 | Delimiter | Usage | Example |
 |-----------|-------|---------|
-| `.` (dot) | Module/namespace prefix | `io.write-line`, `tcp.listen`, `string.concat` |
+| `.` (dot) | Module/namespace prefix | `io.write-line`, `net.tcp.listen`, `string.concat` |
 | `-` (hyphen) | Compound words within names | `home-dir`, `field-at`, `write-line` |
 | `->` (arrow) | Type conversions | `int->string`, `float->int` |
 
@@ -967,7 +967,7 @@ Operations are grouped by functionality:
 | `list.` | List operations | `list.map`, `list.filter` |
 | `map.` | Hash maps | `map.make`, `map.get`, `map.set` |
 | `chan.` | Channels | `chan.make`, `chan.send`, `chan.receive` |
-| `tcp.` | Networking | `tcp.listen`, `tcp.accept` |
+| `net.tcp.` / `net.udp.` / `net.http.` | Networking | `net.tcp.listen`, `net.udp.bind`, `net.http.get` |
 | `os.` | Operating system | `os.getenv`, `os.home-dir` |
 | `args.` | Command-line args | `args.count`, `args.at` |
 | `variant.` | Variant introspection | `variant.tag`, `variant.field-at` |
@@ -1244,30 +1244,30 @@ Build network servers with strand-per-connection:
 
 | Word | Effect | Description |
 |------|--------|-------------|
-| `tcp.listen` | `( Int -- Int )` | Listen on port, return listener |
-| `tcp.accept` | `( Int -- Int )` | Accept connection, return socket |
-| `tcp.read` | `( Int -- String )` | Read from socket |
-| `tcp.write` | `( String Int -- )` | Write to socket |
-| `tcp.close` | `( Int -- )` | Close socket |
+| `net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port, return listener socket |
+| `net.tcp.accept` | `( Socket -- Socket Bool )` | Accept connection, return client socket |
+| `net.tcp.read` | `( Socket -- String Bool )` | Read from socket |
+| `net.tcp.write` | `( String Socket -- Bool )` | Write to socket |
+| `net.tcp.close` | `( Socket -- Bool )` | Close socket |
 
 ### Concurrent Server Pattern
 
 ```seq
-: handle-client ( Int -- )
-    dup tcp.read      # read request
-    process-request   # your logic here
-    over tcp.write    # write response
-    tcp.close
+: handle-client ( Socket -- )
+    dup net.tcp.read drop  # read request
+    process-request        # your logic here
+    over net.tcp.write drop # write response
+    net.tcp.close drop
 ;
 
-: accept-loop ( Int -- )
-    dup tcp.accept                    # ( listener client )
+: accept-loop ( Socket -- )
+    dup net.tcp.accept drop                  # ( listener client )
     [ handle-client ] strand.spawn drop      # spawn handler
-    accept-loop                       # tail call - runs forever, no stack growth
+    accept-loop                              # tail call - runs forever, no stack growth
 ;
 
 : main ( -- )
-    8080 tcp.listen
+    8080 net.tcp.listen
     "Listening on :8080" io.write-line
     accept-loop
 ;

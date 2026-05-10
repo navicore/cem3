@@ -11,7 +11,7 @@ include std:son
 include std:zipper
 
 # Helper to print a zipper's state
-: print-zipper ( Zipper -- Zipper )
+: print-zipper ( Variant -- Variant )
   dup zipper.empty? [
     "  [empty zipper]" io.write-line
   ] [

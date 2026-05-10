@@ -868,8 +868,11 @@ fn test_parse_no_stack_effect() {
 
 #[test]
 fn test_parse_simple_quotation() {
+    // T is a single-letter type variable — multi-character names like `Quot`
+    // are no longer accepted as ad-hoc type vars (they're typo-prone and
+    // collide with concrete types). Use a real Quotation effect or `T` here.
     let source = r#"
-: test ( -- Quot )
+: test ( -- T )
   [ 1 add ] ;
 "#;
 
@@ -1063,8 +1066,11 @@ fn test_parse_simple_closure_type() {
 
 #[test]
 fn test_parse_closure_type_with_row_vars() {
-    // Test: ( ..a Config -- ..a Closure[Request -- Response] )
-    let source = ": make-handler ( ..a Config -- ..a Closure[Request -- Response] ) ;";
+    // Test: ( ..a T -- ..a Closure[U -- V] )
+    // Single-letter type variables — multi-character names like `Config`/
+    // `Request`/`Response` are no longer accepted as ad-hoc type vars under
+    // the strict parser rule.
+    let source = ": make-handler ( ..a T -- ..a Closure[U -- V] ) ;";
     let mut parser = Parser::new(source);
     let program = parser.parse().unwrap();
 
@@ -1074,11 +1080,11 @@ fn test_parse_closure_type_with_row_vars() {
     let (rest, top) = effect.outputs.clone().pop().unwrap();
     match top {
         Type::Closure { effect, .. } => {
-            // Closure effect: Request -> Response
+            // Closure effect: U -> V
             let (_, in_top) = effect.inputs.clone().pop().unwrap();
-            assert_eq!(in_top, Type::Var("Request".to_string()));
+            assert_eq!(in_top, Type::Var("U".to_string()));
             let (_, out_top) = effect.outputs.clone().pop().unwrap();
-            assert_eq!(out_top, Type::Var("Response".to_string()));
+            assert_eq!(out_top, Type::Var("V".to_string()));
         }
         _ => panic!("Expected Closure type"),
     }

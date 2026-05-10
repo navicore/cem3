@@ -4,11 +4,11 @@
 # is buffered by the kernel, so a single-strand bind/send/receive
 # round-trip is a sound smoke test.
 
-: bind-localhost ( -- Int Int )
+: bind-localhost ( -- Socket Int )
   # Bind a UDP socket on an OS-assigned port. Returns ( socket bound-port ).
   # Aborts the test on failure.
-  0 udp.bind                                # ( socket bound-port success )
-  [ ] [ "udp.bind failed" io.write-line 1 os.exit ] if
+  0 net.udp.bind                                # ( socket bound-port success )
+  [ ] [ "net.udp.bind failed" io.write-line 1 os.exit ] if
 ;
 
 : test-udp-loopback-round-trip ( -- )
@@ -28,11 +28,11 @@
   "ping" "127.0.0.1"                        # ( a-sock "ping" "127.0.0.1" )
   aux>                                      # ( a-sock "ping" "127.0.0.1" a-port )
   aux>                                      # ( a-sock "ping" "127.0.0.1" a-port b-sock )
-  udp.send-to                               # ( a-sock send-success )
+  net.udp.send-to                               # ( a-sock send-success )
   test.assert
 
   # Receive on A. ( socket -- bytes host port success ).
-  udp.receive-from                          # ( bytes host port success )
+  net.udp.receive-from                          # ( bytes host port success )
   test.assert
   drop                                      # drop port (source-port checks live in the Rust unit test)
   drop                                      # drop host
@@ -41,13 +41,13 @@
 
 : test-udp-bind-invalid-port ( -- )
   # A port outside [0, 65535] returns ( 0 0 false ).
-  -1 udp.bind                               # ( 0 0 false )
+  -1 net.udp.bind                               # ( socket bound-port false )
   test.assert-not
   0 test.assert-eq                          # bound-port == 0
-  0 test.assert-eq                          # socket    == 0
+  socket->fd 0 test.assert-eq               # socket fd == 0
 ;
 
 : test-udp-close-invalid ( -- )
   # Closing a never-allocated handle returns false.
-  99999 udp.close test.assert-not
+  99999 fd->socket net.udp.close test.assert-not
 ;

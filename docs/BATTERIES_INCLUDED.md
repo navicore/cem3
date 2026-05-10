@@ -140,17 +140,17 @@ Located in `crates/compiler/stdlib/` (~2900 lines):
 
 ```seq
 # Working HTTP server pattern
-8080 tcp.listen
+8080 net.tcp.listen
 [ conn-id |
-  conn-id tcp.read
+  conn-id net.tcp.read
   http-request-path
   cond
     [ "/health" string.equal? ] [ drop "OK" http-ok ]
     [ "/api" string.starts-with ] [ handle-api ]
     [ true ] [ drop "Not Found" http-not-found ]
   end
-  conn-id tcp.write
-  conn-id tcp.close
+  conn-id net.tcp.write
+  conn-id net.tcp.close
 ] accept-loop
 ```
 
@@ -198,18 +198,18 @@ The HTTP client is implemented using the `ureq` Rust crate.
 
 ```seq
 # GET request - returns response map
-"https://api.example.com/users" http.get
+"https://api.example.com/users" net.http.get
 # Stack: ( Map ) where Map = { "status": 200, "body": "...", "ok": true }
 
 # POST request with body and content-type
-"https://api.example.com/users" "{\"name\":\"Alice\"}" "application/json" http.post
+"https://api.example.com/users" "{\"name\":\"Alice\"}" "application/json" net.http.post
 # Stack: ( Map )
 
 # PUT request (same signature as POST)
-"https://api.example.com/users/1" "{\"name\":\"Bob\"}" "application/json" http.put
+"https://api.example.com/users/1" "{\"name\":\"Bob\"}" "application/json" net.http.put
 
 # DELETE request
-"https://api.example.com/users/1" http.delete
+"https://api.example.com/users/1" net.http.delete
 # Stack: ( Map )
 ```
 
@@ -225,7 +225,7 @@ All HTTP operations return a Map with these keys:
 
 ```seq
 # Make a GET request and handle the response
-"https://httpbin.org/get" http.get
+"https://httpbin.org/get" net.http.get
 dup "ok" map.get drop
 if
   "body" map.get drop io.write-line
@@ -540,7 +540,7 @@ then
 
 | Pattern | Example | Meaning |
 |---------|---------|---------|
-| `noun.verb` | `http.get`, `json-serialize` | Action on type |
+| `noun.verb` | `net.http.get`, `json-serialize` | Action on type |
 | `noun?` | `list.empty?`, `map.has?` | Predicate |
 | `->` | `string->int`, `int->float` | Conversion |
 

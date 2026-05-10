@@ -1774,16 +1774,18 @@ fn test_non_tail_call_recursion_not_divergent() {
 #[test]
 fn test_call_yield_quotation_error() {
     // Phase 2c: Calling a quotation with Yield effect directly should error.
-    // : bad ( Ctx -- Ctx ) [ yield ] call ;
+    // : bad ( W -- W ) [ yield ] call ;
     // This is wrong because yield quotations must be wrapped with strand.weave.
+    // (W is a single-letter type variable — multi-character names like `Ctx`
+    // are no longer accepted as ad-hoc type vars under the strict rule.)
     let program = Program {
         includes: vec![],
         unions: vec![],
         words: vec![WordDef {
             name: "bad".to_string(),
             effect: Some(Effect::new(
-                StackType::singleton(Type::Var("Ctx".to_string())),
-                StackType::singleton(Type::Var("Ctx".to_string())),
+                StackType::singleton(Type::Var("W".to_string())),
+                StackType::singleton(Type::Var("W".to_string())),
             )),
             body: vec![
                 // Push a dummy value that will be yielded
@@ -1823,7 +1825,9 @@ fn test_call_yield_quotation_error() {
 #[test]
 fn test_strand_weave_yield_quotation_ok() {
     // Phase 2c: Using strand.weave on a Yield quotation is correct.
-    // : good ( -- Int Handle ) 42 [ yield ] strand.weave ;
+    // : good ( -- Int H ) 42 [ yield ] strand.weave ;
+    // (single-letter type variable — multi-character names like `Handle`
+    // are no longer accepted as ad-hoc type vars under the strict rule.)
     let program = Program {
         includes: vec![],
         unions: vec![],
@@ -1833,7 +1837,7 @@ fn test_strand_weave_yield_quotation_ok() {
                 StackType::Empty,
                 StackType::Empty
                     .push(Type::Int)
-                    .push(Type::Var("Handle".to_string())),
+                    .push(Type::Var("H".to_string())),
             )),
             body: vec![
                 Statement::IntLiteral(42),

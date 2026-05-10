@@ -1,8 +1,11 @@
 # Strands - Seq's cooperative concurrency model
 # See examples/weave/counter.seq for a complete example
 
-# Counter using weave/yield
-: counter-loop ( Ctx Int -- | Yield Int )
+# Counter using weave/yield.
+# `W` is a single-letter type variable standing in for the opaque WeaveCtx
+# handle threaded through the loop. (The runtime has Value::WeaveCtx, but
+# there is no nominal Type::WeaveCtx yet — see SOCKET_TYPE_AND_NETWORKING.md.)
+: counter-loop ( W Int -- | Yield Int )
   tuck
   yield
   rot
@@ -10,7 +13,7 @@
   counter-loop
 ;
 
-: counter-body ( Ctx Int -- | Yield Int )
+: counter-body ( W Int -- | Yield Int )
   counter-loop
 ;
 

@@ -13,6 +13,7 @@ impl TypeChecker {
             "Bool" => Type::Bool,
             "String" => Type::String,
             "Channel" => Type::Channel,
+            "Socket" => Type::Socket,
             // Any other name is assumed to be a union type reference
             other => Type::Union(other.to_string()),
         }
@@ -20,11 +21,13 @@ impl TypeChecker {
 
     /// Check if a type name is a known valid type
     ///
-    /// Returns true for built-in types (Int, Float, Bool, String, Channel) and
-    /// registered union type names
+    /// Returns true for built-in types (Int, Float, Bool, String, Channel, Socket)
+    /// and registered union type names
     pub(super) fn is_valid_type_name(&self, name: &str) -> bool {
-        matches!(name, "Int" | "Float" | "Bool" | "String" | "Channel")
-            || self.unions.contains_key(name)
+        matches!(
+            name,
+            "Int" | "Float" | "Bool" | "String" | "Channel" | "Socket"
+        ) || self.unions.contains_key(name)
     }
 
     /// Validate that all field types in union definitions reference known types
@@ -79,15 +82,28 @@ impl TypeChecker {
 
     /// Validate a single type
     ///
-    /// Type variables are allowed - they're used for polymorphism.
-    /// Only Type::Union types are validated to ensure they're registered.
+    /// Single-character uppercase and any lowercase identifiers are legitimate
+    /// type variables. Multi-character uppercase identifiers that survived
+    /// `fixup_union_types()` were neither concrete types nor registered unions
+    /// — almost certainly typos. Reject them with a "did you mean" hint.
     pub(super) fn validate_type(&self, ty: &Type, word_name: &str) -> Result<(), String> {
         match ty {
-            Type::Var(_) => {
-                // Type variables are always valid - they represent polymorphic types
-                // Examples: T, U, V, Ctx, Handle, Acc, etc.
-                // After fixup_union_types(), any union name that was mistakenly parsed
-                // as a type variable will have been converted to Type::Union
+            Type::Var(name) => {
+                let mut chars = name.chars();
+                let first = chars.next();
+                let is_multi_upper =
+                    first.is_some_and(|c| c.is_uppercase()) && name.chars().count() > 1;
+                if is_multi_upper {
+                    return Err(format!(
+                        "In word '{}': unknown type '{}' in stack effect.{} \
+                         Multi-character type names must be a concrete type or \
+                         a registered union; use a single uppercase letter \
+                         (T, U, V, …) for a polymorphic type variable.",
+                        word_name,
+                        name,
+                        self.suggest_type_hint(name),
+                    ));
+                }
                 Ok(())
             }
             Type::Quotation(effect) => self.validate_effect_types(effect, word_name),
@@ -105,6 +121,7 @@ impl TypeChecker {
             | Type::String
             | Type::Symbol
             | Type::Channel
+            | Type::Socket
             | Type::Variant => Ok(()),
             // Union types are valid if they're registered
             Type::Union(name) => {
@@ -117,6 +134,30 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+        }
+    }
+
+    /// Build " Did you mean 'X'?" suffix for an unknown uppercase type name,
+    /// or empty string if no close match. Edit-distance ≤ 2 against the known
+    /// concrete types and registered unions.
+    fn suggest_type_hint(&self, unknown: &str) -> String {
+        const CONCRETE: &[&str] = &[
+            "Int", "Float", "Bool", "String", "Symbol", "Channel", "Socket", "Variant",
+        ];
+        let mut best: Option<(String, usize)> = None;
+        for cand in CONCRETE
+            .iter()
+            .map(|s| s.to_string())
+            .chain(self.unions.keys().cloned())
+        {
+            let d = crate::parser::type_parse::edit_distance(unknown, &cand);
+            if d <= 2 && best.as_ref().is_none_or(|(_, bd)| d < *bd) {
+                best = Some((cand, d));
+            }
+        }
+        match best {
+            Some((cand, _)) => format!(" Did you mean '{}'?", cand),
+            None => String::new(),
         }
     }
 }

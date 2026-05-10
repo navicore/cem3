@@ -29,7 +29,7 @@ union Record {
   Make-Data ;
 
 # Simple transformer: doubles the id and wraps in Some
-: transformer ( Ctx Record -- | Yield Record )
+: transformer ( W Record -- | Yield Record )
   # Get the id, double it, wrap in Some
   dup record-id 2 i.* Make-Some
   swap record-id swap
@@ -79,7 +79,7 @@ union Record {
 
 # Generator that yields records until id reaches 0
 # Returns Ctx when done (weave completes naturally)
-: countdown-gen ( Ctx Record -- Ctx | Yield Record )
+: countdown-gen ( W Record -- W | Yield Record )
   dup record-id 0 i.> [
     # id > 0: yield record with Some(id)
     # Stack: (Ctx Record)

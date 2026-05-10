@@ -18,6 +18,7 @@ mod concurrency;
 mod diagnostics;
 mod float;
 mod fs;
+mod http;
 mod io;
 mod list;
 mod macros;
@@ -52,6 +53,7 @@ const CATEGORIES: &[(&str, AddSigsFn, AddDocsFn)] = &[
     ("callable", callable::add_signatures, callable::add_docs),
     ("tcp", tcp::add_signatures, tcp::add_docs),
     ("udp", udp::add_signatures, udp::add_docs),
+    ("http", http::add_signatures, http::add_docs),
     ("os", os::add_signatures, os::add_docs),
     ("text", text::add_signatures, text::add_docs),
     ("adt", adt::add_signatures, adt::add_docs),

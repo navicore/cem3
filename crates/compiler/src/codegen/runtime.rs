@@ -19,6 +19,7 @@ mod collections;
 mod concurrency;
 mod float;
 mod fs;
+mod http;
 mod misc;
 mod os;
 mod stack;
@@ -55,6 +56,7 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<&'static RuntimeDecl>> = LazyLock:
         collections::DECLS,
         tcp::DECLS,
         udp::DECLS,
+        http::DECLS,
         os::DECLS,
         text::DECLS,
         adt::DECLS,
@@ -82,6 +84,7 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         closure::SYMBOLS,
         tcp::SYMBOLS,
         udp::SYMBOLS,
+        http::SYMBOLS,
         os::SYMBOLS,
         text::SYMBOLS,
         misc::SYMBOLS,

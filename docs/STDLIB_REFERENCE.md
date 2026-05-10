@@ -20,13 +20,15 @@ This document covers:
 - [Control Flow](#control-flow)
 - [Concurrency](#concurrency)
 - [Channel Operations](#channel-operations)
-- [TCP Operations](#tcp-operations)
+- [Networking — net.tcp.*](#networking--nettcp)
+- [Networking — net.udp.*](#networking--netudp)
+- [Networking — Socket type](#networking--socket-type)
 - [OS Operations](#os-operations)
 - [Terminal Operations](#terminal-operations)
 - [String Operations](#string-operations)
 - [Encoding Operations](#encoding-operations)
 - [Crypto Operations](#crypto-operations)
-- [HTTP Client](#http-client)
+- [Networking — net.http.* (HTTP client)](#networking--nethttp-http-client)
 - [Regular Expressions](#regular-expressions)
 - [Compression](#compression)
 - [Variant Operations](#variant-operations)
@@ -210,17 +212,43 @@ Division and modulo operations return a result and a success flag:
 | `chan.close` | `( Channel -- )` | Close channel |
 | `chan.yield` | `( -- )` | Yield control to scheduler |
 
-## TCP Operations
+## Networking — net.tcp.*
 
-All TCP operations return a Bool success flag for error handling.
+All TCP operations return a Bool success flag for error handling. The fd
+slot is typed as `Socket` (a phantom over Int) — `net.net.tcp.write` will not
+accept an arbitrary integer.
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `tcp.listen` | `( Int -- Int Bool )` | Listen on port. Returns (socket_id, success) |
-| `tcp.accept` | `( Int -- Int Bool )` | Accept connection. Returns (client_id, success) |
-| `tcp.read` | `( Int -- String Bool )` | Read from socket. Returns (data, success) |
-| `tcp.write` | `( String Int -- Bool )` | Write to socket. Returns success |
-| `tcp.close` | `( Int -- Bool )` | Close socket. Returns success |
+| `net.net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success) |
+| `net.net.tcp.accept` | `( Socket -- Socket Bool )` | Accept connection. Returns (client, success) |
+| `net.net.tcp.read` | `( Socket -- String Bool )` | Read from socket. Returns (data, success) |
+| `net.net.tcp.write` | `( String Socket -- Bool )` | Write to socket. Returns success |
+| `net.net.tcp.close` | `( Socket -- Bool )` | Close socket. Returns success |
+
+## Networking — net.udp.*
+
+Datagram-oriented; sockets are `Socket` handles. Every word ends with a
+success Bool on top so callers can `[ ... ] [ ... ] if`.
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `net.net.udp.bind` | `( Int -- Socket Int Bool )` | Bind to local port. Returns (socket, bound-port, success). port=0 lets the OS pick. |
+| `net.net.udp.send-to` | `( String String Int Socket -- Bool )` | Send a datagram. (bytes, host, port, socket) |
+| `net.net.udp.receive-from` | `( Socket -- String String Int Bool )` | Receive (yields). Returns (bytes, host, port, success) |
+| `net.net.udp.close` | `( Socket -- Bool )` | Release the socket |
+
+## Networking — Socket type
+
+`Socket` is a compile-time-only nominal wrapper over the `Int` file
+descriptor; the runtime representation stays `Value::Int(fd)`. This means
+the type checker rejects `42 net.net.tcp.write`. Two escape hatches exist
+for FFI / debugging:
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `fd->socket` | `( Int -- Socket )` | Cast a raw fd to a Socket. No runtime conversion. |
+| `socket->fd` | `( Socket -- Int )` | Cast a Socket back to a raw fd. No runtime conversion. |
 
 ## OS Operations
 
@@ -300,14 +328,18 @@ All TCP operations return a Bool success flag for error handling.
 | `crypto.ed25519-sign` | `( String String -- String Bool )` | Sign message. (message, private-key) |
 | `crypto.ed25519-verify` | `( String String String -- Bool )` | Verify signature. (message, signature, public-key) |
 
-## HTTP Client
+## Networking — net.http.* (HTTP client)
+
+The HTTP **client** lives under `net.http.*`. The `std:http` stdlib module
+provides server-side response/parsing helpers (`http-ok`, `http-request-path`,
+…) and is unrelated.
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `http.get` | `( String -- Map )` | GET request. Map has status, body, ok, error |
-| `http.post` | `( String String String -- Map )` | POST request. (url, body, content-type) |
-| `http.put` | `( String String String -- Map )` | PUT request. (url, body, content-type) |
-| `http.delete` | `( String -- Map )` | DELETE request |
+| `net.net.http.get` | `( String -- Map )` | GET request. Map has status, body, ok, error |
+| `net.net.http.post` | `( String String String -- Map )` | POST request. (url, body, content-type) |
+| `net.net.http.put` | `( String String String -- Map )` | PUT request. (url, body, content-type) |
+| `net.net.http.delete` | `( String -- Map )` | DELETE request |
 
 ## Regular Expressions
 

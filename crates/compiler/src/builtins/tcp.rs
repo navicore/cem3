@@ -11,34 +11,51 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     // TCP Operations
     // =========================================================================
 
-    // TCP operations return Bool for error handling
-    builtin!(sigs, "tcp.listen", (a Int -- a Int Bool));
-    builtin!(sigs, "tcp.accept", (a Int -- a Int Bool));
-    builtin!(sigs, "tcp.read", (a Int -- a String Bool));
-    builtin!(sigs, "tcp.write", (a String Int -- a Bool));
-    builtin!(sigs, "tcp.close", (a Int -- a Bool));
+    // TCP operations return Bool for error handling.
+    // The fd slot is typed as `Socket` (a phantom over Int) so the type
+    // checker rejects passing arbitrary integers to net.tcp.write / net.tcp.close.
+    builtin!(sigs, "net.tcp.listen", (a Int    -- a Socket Bool));
+    builtin!(sigs, "net.tcp.accept", (a Socket -- a Socket Bool));
+    builtin!(sigs, "net.tcp.read",   (a Socket -- a String Bool));
+    builtin!(sigs, "net.tcp.write",  (a String Socket -- a Bool));
+    builtin!(sigs, "net.tcp.close",  (a Socket -- a Bool));
+
+    // Escape hatches for FFI / debugging — at runtime both are identity
+    // (Socket is a compile-time phantom over the same i64 fd).
+    builtin!(sigs, "fd->socket", (a Int    -- a Socket));
+    builtin!(sigs, "socket->fd", (a Socket -- a Int));
 }
 
 pub(super) fn add_docs(docs: &mut HashMap<&'static str, &'static str>) {
-    // TCP Operations
+    // TCP Operations (under net.* namespace)
     docs.insert(
-        "tcp.listen",
-        "Start listening on a port. Returns (fd Bool) -- Bool is false on failure.",
+        "net.tcp.listen",
+        "Start listening on a port. Returns (Socket Bool) -- Bool is false on failure.",
     );
     docs.insert(
-        "tcp.accept",
-        "Accept a connection. Returns (fd Bool) -- Bool is false on failure.",
+        "net.tcp.accept",
+        "Accept a connection. Returns (Socket Bool) -- Bool is false on failure.",
     );
     docs.insert(
-        "tcp.read",
+        "net.tcp.read",
         "Read from a connection. Returns (String Bool) -- Bool is false on failure.",
     );
     docs.insert(
-        "tcp.write",
+        "net.tcp.write",
         "Write to a connection. Returns Bool -- false on failure.",
     );
     docs.insert(
-        "tcp.close",
+        "net.tcp.close",
         "Close a connection. Returns Bool -- false on failure.",
+    );
+    docs.insert(
+        "fd->socket",
+        "Cast a raw Int file descriptor to a Socket. Escape hatch for FFI; \
+         no runtime conversion (Socket is a phantom over Int).",
+    );
+    docs.insert(
+        "socket->fd",
+        "Cast a Socket back to a raw Int file descriptor. Escape hatch for \
+         FFI / debugging; no runtime conversion.",
     );
 }

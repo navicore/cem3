@@ -2,7 +2,7 @@
 # Note: These tests require network access. Connection failures are handled gracefully.
 
 # Helper to safely get a boolean field
-: get-bool-field ( Map String -- Bool Bool )
+: get-bool-field ( M String -- Bool Bool )
   map.get
   [
     true
@@ -12,7 +12,7 @@
 ;
 
 # Helper to safely get an int field
-: get-int-field ( Map String -- Int Bool )
+: get-int-field ( M String -- Int Bool )
   map.get
   [
     true
@@ -22,7 +22,7 @@
 ;
 
 # Helper to safely get a string field
-: get-string-field ( Map String -- String Bool )
+: get-string-field ( M String -- String Bool )
   map.get
   [
     true
@@ -33,7 +33,7 @@
 
 # Test GET request response structure (uses httpbin.org for reliable testing)
 : test-http-get-structure ( -- )
-  "https://httpbin.org/get" http.get
+  "https://httpbin.org/get" net.http.get
   dup "status" map.has? test.assert
   dup "body" map.has? test.assert
   dup "ok" map.has? test.assert
@@ -41,7 +41,7 @@
 ;
 
 # Helper: verify status is in 2xx range
-: assert-status-2xx ( Map -- )
+: assert-status-2xx ( M -- )
   "status" get-int-field
   [
     dup 200 i.>= swap 299 i.<= and test.assert
@@ -52,7 +52,7 @@
 
 # Test GET request on success returns ok=true
 : test-http-get-ok-on-success ( -- )
-  "https://httpbin.org/get" http.get
+  "https://httpbin.org/get" net.http.get
   dup "ok" get-bool-field
   [
     [
@@ -68,7 +68,7 @@
 ;
 
 # Helper: verify status is 404 or network error (status=0)
-: assert-status-404-or-network-error ( Map -- )
+: assert-status-404-or-network-error ( M -- )
   "status" get-int-field
   [
     dup 0 i.= [
@@ -83,7 +83,7 @@
 
 # Test GET request 404 returns ok=false
 : test-http-get-404 ( -- )
-  "https://httpbin.org/status/404" http.get
+  "https://httpbin.org/status/404" net.http.get
   dup "ok" get-bool-field
   [
     [
@@ -101,7 +101,7 @@
 
 # Test POST request structure
 : test-http-post-structure ( -- )
-  "https://httpbin.org/post" "{\"key\":\"value\"}" "application/json" http.post
+  "https://httpbin.org/post" "{\"key\":\"value\"}" "application/json" net.http.post
   dup "status" map.has? test.assert
   dup "body" map.has? test.assert
   dup "ok" map.has? test.assert
@@ -110,7 +110,7 @@
 
 # Test PUT request structure
 : test-http-put-structure ( -- )
-  "https://httpbin.org/put" "{\"key\":\"value\"}" "application/json" http.put
+  "https://httpbin.org/put" "{\"key\":\"value\"}" "application/json" net.http.put
   dup "status" map.has? test.assert
   dup "body" map.has? test.assert
   dup "ok" map.has? test.assert
@@ -119,7 +119,7 @@
 
 # Test DELETE request structure
 : test-http-delete-structure ( -- )
-  "https://httpbin.org/delete" http.delete
+  "https://httpbin.org/delete" net.http.delete
   dup "status" map.has? test.assert
   dup "body" map.has? test.assert
   dup "ok" map.has? test.assert
@@ -129,25 +129,25 @@
 # Test connection error returns status=0 and ok=false
 : test-http-connection-error ( -- )
   # Use a non-routable IP to trigger connection error
-  "http://192.0.2.1:12345/test" http.get
+  "http://192.0.2.1:12345/test" net.http.get
   dup "ok" get-bool-field
   [
     test.assert-not  # ok should be false
   ] [
-    drop true test.assert  # Field missing, pass (drop the sentinel, keep Map)
+    drop true test.assert  # Field missing, pass (drop the sentinel, keep M)
   ] if
   dup "status" get-int-field
   [
     0 test.assert-eq  # status should be 0
   ] [
-    drop true test.assert  # Field missing, pass (drop the sentinel, keep Map)
+    drop true test.assert  # Field missing, pass (drop the sentinel, keep M)
   ] if
   "error" map.has? test.assert  # should have error key
 ;
 
 # Test response body is a string
 : test-http-response-body-is-string ( -- )
-  "https://httpbin.org/get" http.get
+  "https://httpbin.org/get" net.http.get
   "body" get-string-field
   [
     string.length 0 i.>= test.assert

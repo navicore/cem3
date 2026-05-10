@@ -156,23 +156,7 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         decl: "declare ptr @patch_seq_crypto_ed25519_verify(ptr)",
         category: None,
     },
-    // HTTP client operations
-    RuntimeDecl {
-        decl: "declare ptr @patch_seq_http_get(ptr)",
-        category: Some("; HTTP client operations"),
-    },
-    RuntimeDecl {
-        decl: "declare ptr @patch_seq_http_post(ptr)",
-        category: None,
-    },
-    RuntimeDecl {
-        decl: "declare ptr @patch_seq_http_put(ptr)",
-        category: None,
-    },
-    RuntimeDecl {
-        decl: "declare ptr @patch_seq_http_delete(ptr)",
-        category: None,
-    },
+    // (HTTP client RuntimeDecls moved to codegen/runtime/http.rs.)
 ];
 
 pub(super) static SYMBOLS: &[(&str, &str)] = &[
@@ -216,9 +200,5 @@ pub(super) static SYMBOLS: &[(&str, &str)] = &[
     ("crypto.ed25519-keypair", "patch_seq_crypto_ed25519_keypair"),
     ("crypto.ed25519-sign", "patch_seq_crypto_ed25519_sign"),
     ("crypto.ed25519-verify", "patch_seq_crypto_ed25519_verify"),
-    // HTTP client operations
-    ("http.get", "patch_seq_http_get"),
-    ("http.post", "patch_seq_http_post"),
-    ("http.put", "patch_seq_http_put"),
-    ("http.delete", "patch_seq_http_delete"),
+    // (HTTP client SYMBOLS moved to codegen/runtime/http.rs.)
 ];

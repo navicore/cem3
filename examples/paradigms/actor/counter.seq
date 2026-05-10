@@ -15,7 +15,7 @@
 # Uses tail recursion for the infinite loop (TCO prevents stack growth)
 #
 # Stack: ( Ctx count -- | Yield Int ) divergent with Yield effect
-: counter-loop ( Ctx Int -- | Yield Int )
+: counter-loop ( W Int -- | Yield Int )
   tuck           # ( count Ctx count )
   yield          # yield count, receive increment -> ( count Ctx increment )
   rot            # ( Ctx increment count )
@@ -26,7 +26,7 @@
 # Counter generator entry point
 # Receives (Ctx, initial_value) and starts the loop
 # Propagates the Yield effect from counter-loop
-: counter-body ( Ctx Int -- | Yield Int )
+: counter-body ( W Int -- | Yield Int )
   counter-loop
 ;
 

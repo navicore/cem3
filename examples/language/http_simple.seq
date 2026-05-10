@@ -27,19 +27,19 @@ include std:http
 ;
 
 # seq:allow(unchecked-tcp-write)
-: handle-connection ( Int -- )
-  dup tcp.read             # ( socket string success )
+: handle-connection ( Socket -- )
+  dup net.tcp.read             # ( socket string success )
   not [
-    drop tcp.close drop    # read failed - clean up
+    drop net.tcp.close drop    # read failed - clean up
   ] [
     route                  # ( socket response )
-    over tcp.write drop    # write and drop success flag
-    tcp.close drop         # close and drop success flag
+    over net.tcp.write drop    # write and drop success flag
+    net.tcp.close drop         # close and drop success flag
   ] if
 ;
 
-: accept-loop ( Int -- )
-  dup tcp.accept          # ( listener client success )
+: accept-loop ( Socket -- )
+  dup net.tcp.accept          # ( listener client success )
   not [
     drop accept-loop      # accept failed - retry
   ] [
@@ -58,7 +58,7 @@ include std:http
   "Try: curl http://localhost:8080/" io.write-line
   "Try: curl http://localhost:8080/health" io.write-line
   "Try: curl http://localhost:8080/custom" io.write-line
-  8080 tcp.listen         # ( listener success )
+  8080 net.tcp.listen         # ( listener success )
   not [
     drop "Failed to bind to port 8080" io.write-line
   ] [

@@ -65,14 +65,7 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     builtin!(sigs, "crypto.ed25519-sign", (a String String -- a String Bool));
     builtin!(sigs, "crypto.ed25519-verify", (a String String String -- a Bool));
 
-    // =========================================================================
-    // HTTP Client Operations
-    // =========================================================================
-
-    builtin!(sigs, "http.get", (a String -- a M));
-    builtin!(sigs, "http.post", (a String String String -- a M));
-    builtin!(sigs, "http.put", (a String String String -- a M));
-    builtin!(sigs, "http.delete", (a String -- a M));
+    // (HTTP Client signatures moved to builtins/http.rs under net.* namespace.)
 
     // =========================================================================
     // Regular Expression Operations
@@ -218,23 +211,7 @@ pub(super) fn add_docs(docs: &mut HashMap<&'static str, &'static str>) {
         "Verify Ed25519 signature. ( message signature public-key -- valid )",
     );
 
-    // HTTP Client Operations
-    docs.insert(
-        "http.get",
-        "HTTP GET request. ( url -- response-map ) Map has status, body, ok, error.",
-    );
-    docs.insert(
-        "http.post",
-        "HTTP POST request. ( url body content-type -- response-map )",
-    );
-    docs.insert(
-        "http.put",
-        "HTTP PUT request. ( url body content-type -- response-map )",
-    );
-    docs.insert(
-        "http.delete",
-        "HTTP DELETE request. ( url -- response-map )",
-    );
+    // (HTTP Client docs moved to builtins/http.rs under net.* namespace.)
 
     // Regular Expression Operations
     docs.insert(

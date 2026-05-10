@@ -109,6 +109,7 @@ fn occurs_in_type(var: &str, ty: &Type) -> bool {
         | Type::String
         | Type::Symbol
         | Type::Channel
+        | Type::Socket
         | Type::Union(_)
         | Type::Variant => false,
         Type::Quotation(effect) => {
@@ -146,7 +147,8 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
         | (Type::Bool, Type::Bool)
         | (Type::String, Type::String)
         | (Type::Symbol, Type::Symbol)
-        | (Type::Channel, Type::Channel) => Ok(Subst::empty()),
+        | (Type::Channel, Type::Channel)
+        | (Type::Socket, Type::Socket) => Ok(Subst::empty()),
 
         // Union types unify if they have the same name
         (Type::Union(name1), Type::Union(name2)) => {

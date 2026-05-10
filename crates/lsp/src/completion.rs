@@ -400,6 +400,7 @@ pub(crate) fn format_type(ty: &seqc::Type) -> String {
         Type::String => "String".to_string(),
         Type::Symbol => "Symbol".to_string(),
         Type::Channel => "Channel".to_string(),
+        Type::Socket => "Socket".to_string(),
         Type::Var(name) => name.clone(),
         Type::Union(name) => name.clone(),
         Type::Variant => "Variant".to_string(),

@@ -12,25 +12,25 @@ include "osc"
 # sends `msg` to it, receives one datagram back, closes the socket,
 # returns the received bytes.
 #
-# `0 udp.bind` lets the OS pick the port so concurrent CI test runs
+# `0 net.udp.bind` lets the OS pick the port so concurrent CI test runs
 # can't collide. The success flags from bind / send-to / close are
 # dropped intentionally — loopback bind / send rarely fail and we'd
 # rather hang in receive than swallow a real failure silently. If
 # loopback ever does start failing, the receive blocks and the test
 # times out instead of asserting bogus equality.
 : udp-loopback ( String -- String )
-  0 udp.bind drop                  # ( msg socket port )
+  0 net.udp.bind drop                  # ( msg socket port )
   swap                             # ( msg port socket )
   dup >aux                         # ( msg port socket )       ; aux: [socket]
   swap                             # ( msg socket port )
   "127.0.0.1" swap                 # ( msg socket "127.0.0.1" port )
   rot                              # ( msg "127.0.0.1" port socket )
-  udp.send-to drop                 # ( )                       ; aux: [socket]
+  net.udp.send-to drop                 # ( )                       ; aux: [socket]
   aux>                             # ( socket )
   dup >aux                         # ( socket )                ; aux: [socket] (for close)
-  udp.receive-from                 # ( bytes host port ok )
+  net.udp.receive-from                 # ( bytes host port ok )
   drop drop drop                   # drop ok port host → ( bytes )
-  aux> udp.close drop              # ( bytes )
+  aux> net.udp.close drop              # ( bytes )
 ;
 
 : test-osc-msg-if-roundtrip ( -- )

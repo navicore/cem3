@@ -12,12 +12,12 @@
 # ============================================================================
 
 # Create an empty list
-: nil ( -- List )
+: nil ( -- L )
   :Nil variant.make-0
 ;
 
 # Prepend an element to a list
-: cons ( T List -- List )
+: cons ( T L -- L )
   :Cons variant.make-2
 ;
 
@@ -26,12 +26,12 @@
 # ============================================================================
 
 # Check if a list is empty
-: nil? ( List -- Bool )
+: nil? ( L -- Bool )
   variant.tag :Nil symbol.=
 ;
 
 # Check if a list is non-empty
-: cons? ( List -- Bool )
+: cons? ( L -- Bool )
   variant.tag :Cons symbol.=
 ;
 
@@ -40,12 +40,12 @@
 # ============================================================================
 
 # Get the first element (head)
-: car ( List -- T )
+: car ( L -- T )
   0 variant.field-at
 ;
 
 # Get the rest of the list (tail)
-: cdr ( List -- List )
+: cdr ( L -- L )
   1 variant.field-at
 ;
 
@@ -54,7 +54,7 @@
 # ============================================================================
 
 # Get the length of a list (recursive helper with accumulator)
-: length-acc ( List Int -- Int )
+: length-acc ( L Int -- Int )
   swap                        # ( acc list )
   dup nil? [
     drop                      # ( acc ) return accumulator
@@ -64,12 +64,12 @@
 ;
 
 # Get the length of a list
-: length ( List -- Int )
+: length ( L -- Int )
   0 length-acc
 ;
 
 # Reverse helper with accumulator
-: reverse-acc ( List List -- List )
+: reverse-acc ( L L -- L )
   swap                        # ( acc list )
   dup nil? [
     drop                      # ( acc ) return accumulator
@@ -83,7 +83,7 @@
 ;
 
 # Reverse a list
-: reverse ( List -- List )
+: reverse ( L -- L )
   nil reverse-acc
 ;
 
@@ -92,7 +92,7 @@
 # ============================================================================
 
 # Print a list element by element (recursive)
-: print-list-items ( List -- )
+: print-list-items ( L -- )
   dup nil? [
     drop
   ] [
@@ -108,7 +108,7 @@
 ;
 
 # Print a list in parentheses
-: print-list ( List -- )
+: print-list ( L -- )
   "(" io.write
   print-list-items
   ")" io.write-line
@@ -130,7 +130,7 @@
   2 swap cons
   1 swap cons
 
-  "List: " io.write
+  "L: " io.write
   dup print-list
 
   # Show length

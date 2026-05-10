@@ -43,7 +43,7 @@
 #   left focus right :Zip wrap-3  - zipper with left (reversed), focus, right
 
 : zipper.make-empty ( -- Variant ) :ZipEmpty wrap-0 ;
-: zipper.make-zip ( Variant Variant Variant -- Variant ) :Zip wrap-3 ;
+: zipper.make-zip ( Variant T Variant -- Variant ) :Zip wrap-3 ;
 : zipper.empty? ( Variant -- Bool ) variant.tag :ZipEmpty symbol.= ;
 : zipper.get-left ( Variant -- Variant ) 0 variant.field-at ;
 : zipper.get-focus ( Variant -- Variant ) 1 variant.field-at ;
@@ -228,7 +228,7 @@
 
 # === Modification ===
 
-: zipper.set ( Variant Variant -- Variant )
+: zipper.set ( Variant T -- Variant )
   over zipper.empty? [
     drop  # drop new value, return empty
   ] [
@@ -240,7 +240,7 @@
   ] if
 ;
 
-: zipper.insert-left ( Variant Variant -- Variant )
+: zipper.insert-left ( Variant T -- Variant )
   over zipper.empty? [
     nip znil swap znil zipper.make-zip
   ] [
@@ -253,7 +253,7 @@
   ] if
 ;
 
-: zipper.insert-right ( Variant Variant -- Variant )
+: zipper.insert-right ( Variant T -- Variant )
   over zipper.empty? [
     nip znil swap znil zipper.make-zip
   ] [

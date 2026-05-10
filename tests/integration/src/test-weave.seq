@@ -6,7 +6,7 @@
 
 # Simple generator that yields three fixed values then completes
 # Has Yield effect because it uses yield
-: three-values ( Ctx Int -- Ctx | Yield Int )
+: three-values ( W Int -- W | Yield Int )
   drop       # ignore initial resume value
   1 yield drop
   2 yield drop
@@ -33,7 +33,7 @@
 ;
 
 # Simple body that just returns without yielding
-: return-immediately ( Ctx Int -- Ctx )
+: return-immediately ( W Int -- W )
   drop  # drop the resume value
   # weave completes immediately
 ;
@@ -82,7 +82,7 @@
 # Generator that yields extreme Int values near the edges of 63-bit range
 # Uses values within -(2^62) to (2^62-1) so tests work with tagged pointers.
 # Full i64::MIN/MAX edge cases are covered by Rust unit tests.
-: extreme-values ( Ctx Int -- Ctx | Yield Int )
+: extreme-values ( W Int -- W | Yield Int )
   drop                            # ignore initial resume value
   -4611686018427387904 yield drop # -(2^62)
   -4611686018427387903 yield drop # -(2^62) + 1
@@ -112,7 +112,7 @@
 # ============================================================================
 
 # Simple counter for dormant weave tests
-: dormant-counter ( Ctx Int -- | Yield Int )
+: dormant-counter ( W Int -- | Yield Int )
   tuck yield rot i.add dormant-counter
 ;
 

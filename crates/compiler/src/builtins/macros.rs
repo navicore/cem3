@@ -24,6 +24,9 @@ macro_rules! ty {
     (Channel) => {
         Type::Channel
     };
+    (Socket) => {
+        Type::Socket
+    };
     (Variant) => {
         Type::Variant
     };

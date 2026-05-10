@@ -1,4 +1,9 @@
-# std:fmath Integration Test
+# std:fmath + Float Math Builtins Integration Test
+#
+# `std:fmath` itself only provides composed words (f.abs, f.neg, f.sign,
+# f.square, f.clamp, f.min, f.max). The sqrt/trig/log/round/constants
+# surface lives in the f.* builtins and is always available — the tests
+# below exercise both layers.
 
 include std:fmath
 
@@ -42,4 +47,128 @@ include std:fmath
   50.0 0.0 100.0 f.clamp 50.0 f.= test.assert
   -10.0 0.0 100.0 f.clamp 0.0 f.= test.assert
   150.0 0.0 100.0 f.clamp 100.0 f.= test.assert
+;
+
+# ---------------------------------------------------------------------------
+# Float Math builtins (always available — no include required)
+# Tests use exact-result inputs to avoid float-equality fragility.
+# ---------------------------------------------------------------------------
+
+: test-f-sqrt ( -- )
+  16.0 f.sqrt 4.0 f.= test.assert
+  0.0 f.sqrt 0.0 f.= test.assert
+  1.0 f.sqrt 1.0 f.= test.assert
+;
+
+: test-f-cbrt ( -- )
+  27.0 f.cbrt 3.0 f.= test.assert
+  -8.0 f.cbrt -2.0 f.= test.assert
+;
+
+: test-f-pow ( -- )
+  # ( base exp -- result )
+  2.0 10.0 f.pow 1024.0 f.= test.assert
+  5.0 0.0 f.pow 1.0 f.= test.assert
+  3.0 2.0 f.pow 9.0 f.= test.assert
+;
+
+: test-f-exp ( -- )
+  # exp(0) is exactly 1.0
+  0.0 f.exp 1.0 f.= test.assert
+;
+
+: test-f-ln ( -- )
+  # ln(1) is exactly 0.0
+  1.0 f.ln 0.0 f.= test.assert
+;
+
+: test-f-log10 ( -- )
+  100.0 f.log10 2.0 f.= test.assert
+  1.0 f.log10 0.0 f.= test.assert
+;
+
+: test-f-log2 ( -- )
+  8.0 f.log2 3.0 f.= test.assert
+  1.0 f.log2 0.0 f.= test.assert
+;
+
+: test-f-sin ( -- )
+  # sin(0) is exactly 0.0
+  0.0 f.sin 0.0 f.= test.assert
+;
+
+: test-f-cos ( -- )
+  # cos(0) is exactly 1.0
+  0.0 f.cos 1.0 f.= test.assert
+;
+
+: test-f-tan ( -- )
+  # tan(0) is exactly 0.0
+  0.0 f.tan 0.0 f.= test.assert
+;
+
+: test-f-asin ( -- )
+  0.0 f.asin 0.0 f.= test.assert
+;
+
+: test-f-acos ( -- )
+  1.0 f.acos 0.0 f.= test.assert
+;
+
+: test-f-atan ( -- )
+  0.0 f.atan 0.0 f.= test.assert
+;
+
+: test-f-atan2 ( -- )
+  # ( y x -- result ) — atan2(0, -1) = π
+  0.0 -1.0 f.atan2 f.pi f.= test.assert
+  # atan2(1, 0) = π/2 = τ/4
+  1.0 0.0 f.atan2 f.tau 4.0 f./ f.= test.assert
+;
+
+: test-f-floor ( -- )
+  3.7 f.floor 3.0 f.= test.assert
+  -3.7 f.floor -4.0 f.= test.assert
+  3.0 f.floor 3.0 f.= test.assert
+;
+
+: test-f-ceil ( -- )
+  3.2 f.ceil 4.0 f.= test.assert
+  -3.7 f.ceil -3.0 f.= test.assert
+  3.0 f.ceil 3.0 f.= test.assert
+;
+
+: test-f-round ( -- )
+  # Banker's rounding: ties go to even
+  0.5 f.round 0.0 f.= test.assert
+  1.5 f.round 2.0 f.= test.assert
+  2.5 f.round 2.0 f.= test.assert
+  3.5 f.round 4.0 f.= test.assert
+  -0.5 f.round 0.0 f.= test.assert
+  -1.5 f.round -2.0 f.= test.assert
+  # Non-tie cases are nearest-integer
+  1.4 f.round 1.0 f.= test.assert
+  1.6 f.round 2.0 f.= test.assert
+;
+
+: test-f-trunc ( -- )
+  3.7 f.trunc 3.0 f.= test.assert
+  -3.7 f.trunc -3.0 f.= test.assert
+;
+
+: test-f-pi ( -- )
+  # π > 3.14 and π < 3.15
+  f.pi 3.14 f.> test.assert
+  f.pi 3.15 f.< test.assert
+;
+
+: test-f-e ( -- )
+  # e > 2.71 and e < 2.72
+  f.e 2.71 f.> test.assert
+  f.e 2.72 f.< test.assert
+;
+
+: test-f-tau ( -- )
+  # τ = 2π
+  f.tau f.pi 2.0 f.* f.= test.assert
 ;

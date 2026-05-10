@@ -49,8 +49,92 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         category: None,
     },
     RuntimeDecl {
-        decl: "declare ptr @patch_seq_int_to_float(ptr)",
+        decl: "declare ptr @patch_seq_f_sqrt(ptr)",
+        category: Some("; Float math"),
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_cbrt(ptr)",
         category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_pow(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_exp(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_ln(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_log10(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_log2(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_sin(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_cos(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_tan(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_asin(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_acos(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_atan(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_atan2(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_floor(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_ceil(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_round(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_trunc(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_pi(ptr)",
+        category: Some("; Float constants"),
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_e(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_f_tau(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_int_to_float(ptr)",
+        category: Some("; Float type conversions"),
     },
     RuntimeDecl {
         decl: "declare ptr @patch_seq_float_to_int(ptr)",
@@ -99,6 +183,29 @@ pub(super) static SYMBOLS: &[(&str, &str)] = &[
     ("f.lte", "patch_seq_f_lte"),
     ("f.gte", "patch_seq_f_gte"),
     ("f.neq", "patch_seq_f_neq"),
+    // Float math
+    ("f.sqrt", "patch_seq_f_sqrt"),
+    ("f.cbrt", "patch_seq_f_cbrt"),
+    ("f.pow", "patch_seq_f_pow"),
+    ("f.exp", "patch_seq_f_exp"),
+    ("f.ln", "patch_seq_f_ln"),
+    ("f.log10", "patch_seq_f_log10"),
+    ("f.log2", "patch_seq_f_log2"),
+    ("f.sin", "patch_seq_f_sin"),
+    ("f.cos", "patch_seq_f_cos"),
+    ("f.tan", "patch_seq_f_tan"),
+    ("f.asin", "patch_seq_f_asin"),
+    ("f.acos", "patch_seq_f_acos"),
+    ("f.atan", "patch_seq_f_atan"),
+    ("f.atan2", "patch_seq_f_atan2"),
+    ("f.floor", "patch_seq_f_floor"),
+    ("f.ceil", "patch_seq_f_ceil"),
+    ("f.round", "patch_seq_f_round"),
+    ("f.trunc", "patch_seq_f_trunc"),
+    // Float constants
+    ("f.pi", "patch_seq_f_pi"),
+    ("f.e", "patch_seq_f_e"),
+    ("f.tau", "patch_seq_f_tau"),
     // Float type conversions
     ("int->float", "patch_seq_int_to_float"),
     ("float->int", "patch_seq_float_to_int"),

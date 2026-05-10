@@ -39,9 +39,9 @@ Conditionals, pattern matching, and loops:
 
 ```seq
 : fizzbuzz ( Int -- String )
-  dup 15 i.mod 0 i.= if drop "FizzBuzz"
-  else dup 3 i.mod 0 i.= if drop "Fizz"
-  else dup 5 i.mod 0 i.= if drop "Buzz"
+  dup 15 i.modulo drop 0 i.= if drop "FizzBuzz"
+  else dup 3 i.modulo drop 0 i.= if drop "Fizz"
+  else dup 5 i.modulo drop 0 i.= if drop "Buzz"
   else int->string
   then then then ;
 ```

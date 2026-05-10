@@ -20,12 +20,6 @@ include std:imath
   -10 -5 min -10 test.assert-eq
 ;
 
-: test-mod ( -- )
-  10 3 mod test.assert 1 test.assert-eq
-  15 5 mod test.assert 0 test.assert-eq
-  17 4 mod test.assert 1 test.assert-eq
-;
-
 : test-gcd ( -- )
   48 18 gcd 6 test.assert-eq
   100 35 gcd 5 test.assert-eq

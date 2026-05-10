@@ -311,6 +311,32 @@ impl Program {
             "f.lte",
             "f.gte",
             "f.neq",
+            // Float math — roots/powers
+            "f.sqrt",
+            "f.cbrt",
+            "f.pow",
+            // Float math — exp/log
+            "f.exp",
+            "f.ln",
+            "f.log10",
+            "f.log2",
+            // Float math — trig
+            "f.sin",
+            "f.cos",
+            "f.tan",
+            "f.asin",
+            "f.acos",
+            "f.atan",
+            "f.atan2",
+            // Float math — rounding
+            "f.floor",
+            "f.ceil",
+            "f.round",
+            "f.trunc",
+            // Float constants
+            "f.pi",
+            "f.e",
+            "f.tau",
             // Type conversions
             "int->float",
             "float->int",

@@ -367,7 +367,13 @@ pub fn compile_file_with_config(
         .arg(output_path)
         .arg("-L")
         .arg(runtime_path.parent().unwrap())
-        .arg("-lseq_runtime");
+        .arg("-lseq_runtime")
+        // libm: float math builtins (f.sin, f.exp, f.pow, …) call libm
+        // symbols from the runtime archive. Clang only auto-links libm
+        // for math used directly in the IR, not for math reached via the
+        // runtime, so the link must be explicit. Harmless on macOS where
+        // libm is part of libSystem.
+        .arg("-lm");
 
     // Add custom library paths from config
     for lib_path in &config.library_paths {

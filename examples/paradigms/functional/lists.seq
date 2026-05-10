@@ -79,13 +79,15 @@ include std:imath
 ;
 
 # Keep only even numbers
+# seq:allow(unchecked-modulo)
 : keep-evens ( Variant -- Variant )
-  [ 2 mod drop 0 i.= ] list.filter
+  [ 2 i.modulo drop 0 i.= ] list.filter   # divisor is the literal 2
 ;
 
 # Keep only odd numbers
+# seq:allow(unchecked-modulo)
 : keep-odds ( Variant -- Variant )
-  [ 2 mod drop 1 i.= ] list.filter
+  [ 2 i.modulo drop 1 i.= ] list.filter   # divisor is the literal 2
 ;
 
 # Keep numbers greater than 10 (specific version since quotations don't capture)

@@ -34,6 +34,7 @@ This document covers:
 - [Map Operations](#map-operations)
 - [Float Arithmetic](#float-arithmetic)
 - [Float Comparison](#float-comparison)
+- [Float Math](#float-math)
 - [Test Framework](#test-framework)
 - [Time Operations](#time-operations)
 - [Serialization](#serialization)
@@ -403,6 +404,57 @@ All regex operations return a Bool success flag (false for invalid regex).
 | `f.>=` / `f.gte` | `( Float Float -- Bool )` | Test greater than or equal |
 | `f.<>` / `f.neq` | `( Float Float -- Bool )` | Test not equal |
 
+## Float Math
+
+NaN/Infinity propagate per IEEE 754 — no `(value Bool)` flag. e.g. `f.sqrt`
+of a negative returns `NaN`; `f.ln 0.0` returns `-Infinity`.
+
+### Roots / powers
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `f.sqrt` | `( Float -- Float )` | Square root |
+| `f.cbrt` | `( Float -- Float )` | Cube root (defined for negatives) |
+| `f.pow` | `( Float Float -- Float )` | `base exp pow` |
+
+### Exponential / logarithmic
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `f.exp` | `( Float -- Float )` | e^x |
+| `f.ln` | `( Float -- Float )` | Natural log |
+| `f.log10` | `( Float -- Float )` | Base-10 log |
+| `f.log2` | `( Float -- Float )` | Base-2 log |
+
+### Trigonometric (radians)
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `f.sin` | `( Float -- Float )` | Sine |
+| `f.cos` | `( Float -- Float )` | Cosine |
+| `f.tan` | `( Float -- Float )` | Tangent |
+| `f.asin` | `( Float -- Float )` | Arcsine, range [-π/2, π/2] |
+| `f.acos` | `( Float -- Float )` | Arccosine, range [0, π] |
+| `f.atan` | `( Float -- Float )` | Arctangent, range (-π/2, π/2) |
+| `f.atan2` | `( Float Float -- Float )` | `y x atan2` — angle of (x, y) from positive x-axis |
+
+### Rounding
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `f.floor` | `( Float -- Float )` | Round toward -Infinity |
+| `f.ceil` | `( Float -- Float )` | Round toward +Infinity |
+| `f.round` | `( Float -- Float )` | Round to nearest, ties to even (banker's, IEEE 754 default) |
+| `f.trunc` | `( Float -- Float )` | Round toward zero |
+
+### Constants
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `f.pi` | `( -- Float )` | π |
+| `f.e` | `( -- Float )` | e (Euler's number) |
+| `f.tau` | `( -- Float )` | τ = 2π |
+
 ## Test Framework
 
 | Word | Stack Effect | Description |
@@ -608,12 +660,13 @@ include std:imath
 | `abs` | `( Int -- Int )` | Absolute value |
 | `max` | `( Int Int -- Int )` | Maximum |
 | `min` | `( Int Int -- Int )` | Minimum |
-| `mod` | `( Int Int -- Int )` | Modulo |
 | `gcd` | `( Int Int -- Int )` | Greatest common divisor |
 | `pow` | `( Int Int -- Int )` | Power (base^exp) |
 | `sign` | `( Int -- Int )` | Sign (-1, 0, or 1) |
 | `square` | `( Int -- Int )` | Square |
 | `clamp` | `( Int Int Int -- Int )` | Clamp between min and max |
+
+For modulo, use the `i.modulo` builtin directly (`( Int Int -- Int Bool )`).
 
 ---
 
@@ -638,6 +691,10 @@ include std:fmath
 | `f.square` | `( Float -- Float )` | Square |
 | `f.neg` | `( Float -- Float )` | Negate |
 | `f.clamp` | `( Float Float Float -- Float )` | Clamp between min and max |
+
+For sqrt, trig, exp/log, rounding, and constants (`f.pi`, `f.e`, `f.tau`),
+see the [Float Math](#float-math) builtin section above — those are
+always available without an `include`.
 
 ---
 

@@ -165,6 +165,107 @@ pub unsafe extern "C" fn patch_seq_f_neq(stack: Stack) -> Stack {
 }
 
 // =============================================================================
+// Math Functions
+// =============================================================================
+
+// Helper macro: emit a unary `f.<name>` shim that maps Float -> Float via an
+// `f64` method. Keeps the runtime entries one-liners since they all share the
+// exact same shape (pop, match Float, push f(x)).
+macro_rules! f_unary {
+    ($fn_name:ident, $word:literal, $method:ident) => {
+        /// Unary float operation. Bad inputs propagate NaN/Infinity per IEEE 754.
+        ///
+        /// # Safety
+        /// Stack must have a Float value on top
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(stack: Stack) -> Stack {
+            assert!(!stack.is_null(), concat!($word, ": stack is empty"));
+            let (rest, val) = unsafe { pop(stack) };
+            match val {
+                Value::Float(x) => unsafe { push(rest, Value::Float(x.$method())) },
+                _ => panic!(concat!($word, ": expected Float on stack")),
+            }
+        }
+    };
+}
+
+// Helper macro: emit a zero-arg `f.<name>` shim that pushes a constant.
+macro_rules! f_const {
+    ($fn_name:ident, $value:expr) => {
+        /// Push a float constant onto the stack.
+        ///
+        /// # Safety
+        /// Stack pointer must be valid or null
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(stack: Stack) -> Stack {
+            unsafe { push(stack, Value::Float($value)) }
+        }
+    };
+}
+
+// Roots / powers
+f_unary!(patch_seq_f_sqrt, "f.sqrt", sqrt);
+f_unary!(patch_seq_f_cbrt, "f.cbrt", cbrt);
+
+/// Power: ( base exp -- result )
+///
+/// Bad inputs propagate NaN/Infinity per IEEE 754.
+///
+/// # Safety
+/// Stack must have two Float values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_f_pow(stack: Stack) -> Stack {
+    let (rest, a, b) = unsafe { pop_two(stack, "f.pow") };
+    match (a, b) {
+        (Value::Float(base), Value::Float(exp)) => unsafe {
+            push(rest, Value::Float(base.powf(exp)))
+        },
+        _ => panic!("f.pow: expected two Floats on stack"),
+    }
+}
+
+// Exponential / logarithmic
+f_unary!(patch_seq_f_exp, "f.exp", exp);
+f_unary!(patch_seq_f_ln, "f.ln", ln);
+f_unary!(patch_seq_f_log10, "f.log10", log10);
+f_unary!(patch_seq_f_log2, "f.log2", log2);
+
+// Trigonometric
+f_unary!(patch_seq_f_sin, "f.sin", sin);
+f_unary!(patch_seq_f_cos, "f.cos", cos);
+f_unary!(patch_seq_f_tan, "f.tan", tan);
+f_unary!(patch_seq_f_asin, "f.asin", asin);
+f_unary!(patch_seq_f_acos, "f.acos", acos);
+f_unary!(patch_seq_f_atan, "f.atan", atan);
+
+/// Two-argument arctangent: ( y x -- result )
+///
+/// Returns the angle in radians of (x, y) from the positive x-axis.
+/// Argument order matches C/Rust/JS.
+///
+/// # Safety
+/// Stack must have two Float values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_f_atan2(stack: Stack) -> Stack {
+    let (rest, a, b) = unsafe { pop_two(stack, "f.atan2") };
+    match (a, b) {
+        (Value::Float(y), Value::Float(x)) => unsafe { push(rest, Value::Float(y.atan2(x))) },
+        _ => panic!("f.atan2: expected two Floats on stack"),
+    }
+}
+
+// Rounding
+f_unary!(patch_seq_f_floor, "f.floor", floor);
+f_unary!(patch_seq_f_ceil, "f.ceil", ceil);
+f_unary!(patch_seq_f_round, "f.round", round_ties_even);
+f_unary!(patch_seq_f_trunc, "f.trunc", trunc);
+
+// Constants
+f_const!(patch_seq_f_pi, std::f64::consts::PI);
+f_const!(patch_seq_f_e, std::f64::consts::E);
+f_const!(patch_seq_f_tau, std::f64::consts::TAU);
+
+// =============================================================================
 // Type Conversions
 // =============================================================================
 
@@ -265,16 +366,37 @@ pub unsafe extern "C" fn patch_seq_string_to_float(stack: Stack) -> Stack {
 // Public re-exports with short names
 // =============================================================================
 
+pub use patch_seq_f_acos as f_acos;
 pub use patch_seq_f_add as f_add;
+pub use patch_seq_f_asin as f_asin;
+pub use patch_seq_f_atan as f_atan;
+pub use patch_seq_f_atan2 as f_atan2;
+pub use patch_seq_f_cbrt as f_cbrt;
+pub use patch_seq_f_ceil as f_ceil;
+pub use patch_seq_f_cos as f_cos;
 pub use patch_seq_f_divide as f_divide;
+pub use patch_seq_f_e as f_e;
 pub use patch_seq_f_eq as f_eq;
+pub use patch_seq_f_exp as f_exp;
+pub use patch_seq_f_floor as f_floor;
 pub use patch_seq_f_gt as f_gt;
 pub use patch_seq_f_gte as f_gte;
+pub use patch_seq_f_ln as f_ln;
+pub use patch_seq_f_log2 as f_log2;
+pub use patch_seq_f_log10 as f_log10;
 pub use patch_seq_f_lt as f_lt;
 pub use patch_seq_f_lte as f_lte;
 pub use patch_seq_f_multiply as f_multiply;
 pub use patch_seq_f_neq as f_neq;
+pub use patch_seq_f_pi as f_pi;
+pub use patch_seq_f_pow as f_pow;
+pub use patch_seq_f_round as f_round;
+pub use patch_seq_f_sin as f_sin;
+pub use patch_seq_f_sqrt as f_sqrt;
 pub use patch_seq_f_subtract as f_subtract;
+pub use patch_seq_f_tan as f_tan;
+pub use patch_seq_f_tau as f_tau;
+pub use patch_seq_f_trunc as f_trunc;
 pub use patch_seq_float_to_int as float_to_int;
 pub use patch_seq_float_to_string as float_to_string;
 pub use patch_seq_int_to_float as int_to_float;

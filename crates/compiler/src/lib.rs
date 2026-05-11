@@ -27,6 +27,7 @@ pub mod ast;
 pub mod builtins;
 pub mod call_graph;
 pub mod capture_analysis;
+pub mod chan_yield_lint;
 pub mod codegen;
 pub mod config;
 pub mod error_flag_lint;
@@ -44,6 +45,7 @@ pub mod types;
 pub mod unification;
 
 pub use ast::Program;
+pub use chan_yield_lint::ChanYieldAnalyzer;
 pub use codegen::CodeGen;
 pub use config::{CompilerConfig, ExternalBuiltin, OptimizationLevel};
 pub use error_flag_lint::ErrorFlagAnalyzer;

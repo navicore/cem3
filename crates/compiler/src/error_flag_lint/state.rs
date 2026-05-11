@@ -143,12 +143,12 @@ pub(super) fn fallible_op_info(name: &str) -> Option<FallibleOpInfo> {
         "list.first" => (1, 1, "empty list"),
         "list.last" => (1, 1, "empty list"),
 
-        // TCP
-        "tcp.listen" => (1, 1, "listen failure"),
-        "tcp.accept" => (1, 1, "accept failure"),
-        "tcp.read" => (1, 1, "read failure"),
-        "tcp.write" => (2, 0, "write failure"),
-        "tcp.close" => (1, 0, "close failure"),
+        // TCP (net.tcp.*)
+        "net.tcp.listen" => (1, 1, "listen failure"),
+        "net.tcp.accept" => (1, 1, "accept failure"),
+        "net.tcp.read" => (1, 1, "read failure"),
+        "net.tcp.write" => (2, 0, "write failure"),
+        "net.tcp.close" => (1, 0, "close failure"),
 
         // OS
         "os.getenv" => (1, 1, "env var not set"),

@@ -82,13 +82,24 @@ impl Parser {
         Ok(effects)
     }
 
-    /// Parse a single type token into a Type
+    /// Parse a single type token into a Type.
+    ///
+    /// Concrete types (Int, Float, Bool, String, Symbol, Channel, Socket,
+    /// Variant) parse to their nominal form. Anything else uppercase becomes
+    /// `Type::Var(name)` here. The strict gate (multi-char must be a known
+    /// type or registered union, else error with "did you mean" hint) lives
+    /// in `typechecker::validation::validate_type`, AFTER
+    /// `fixup_union_types()` resolves cross-file union references.
     pub(super) fn parse_type(&self, token: &Token) -> Result<Type, String> {
         match token.text.as_str() {
             "Int" => Ok(Type::Int),
             "Float" => Ok(Type::Float),
             "Bool" => Ok(Type::Bool),
             "String" => Ok(Type::String),
+            "Symbol" => Ok(Type::Symbol),
+            "Channel" => Ok(Type::Channel),
+            "Socket" => Ok(Type::Socket),
+            "Variant" => Ok(Type::Variant),
             // Reject 'Quotation' - it looks like a type but would be silently treated as a type variable.
             // Users must use explicit effect syntax like [Int -- Int] instead.
             "Quotation" => Err(format!(
@@ -97,32 +108,29 @@ impl Parser {
                 token.column + 1
             )),
             _ => {
-                // Check if it's a type variable (starts with uppercase)
-                if let Some(first_char) = token.text.chars().next() {
-                    if first_char.is_uppercase() {
-                        // RFC #345: Check if this is a known union type name
-                        // Union types are nominal and should NOT unify with each other
-                        if self.known_unions.contains(&token.text) {
-                            Ok(Type::Union(token.text.to_string()))
-                        } else {
-                            // Unknown uppercase identifier - treat as type variable
-                            Ok(Type::Var(token.text.to_string()))
-                        }
-                    } else {
-                        Err(format!(
-                            "Unknown type: '{}' at line {}, column {}. Expected Int, Bool, String, Closure, or a type variable (uppercase)",
-                            token.text.escape_default(),
-                            token.line + 1, // 1-indexed for user display
-                            token.column + 1
-                        ))
-                    }
-                } else {
-                    Err(format!(
+                let Some(first_char) = token.text.chars().next() else {
+                    return Err(format!(
                         "Invalid type: '{}' at line {}, column {}",
                         token.text.escape_default(),
                         token.line + 1,
                         token.column + 1
-                    ))
+                    ));
+                };
+                if !first_char.is_uppercase() {
+                    return Err(format!(
+                        "Unknown type: '{}' at line {}, column {}. Expected a concrete type (Int, Float, Bool, String, Symbol, Channel, Socket, Variant), a registered union, or an uppercase type variable.",
+                        token.text.escape_default(),
+                        token.line + 1,
+                        token.column + 1
+                    ));
+                }
+                // Uppercase identifier → known union or type variable. Multi-char
+                // names that aren't registered unions are caught by validation
+                // after include resolution and fixup; see typechecker/validation.rs.
+                if self.known_unions.contains(&token.text) {
+                    Ok(Type::Union(token.text.to_string()))
+                } else {
+                    Ok(Type::Var(token.text.to_string()))
                 }
             }
         }
@@ -301,4 +309,29 @@ impl Parser {
         // Push types onto the stack (bottom to top order)
         types.into_iter().fold(base, |stack, ty| stack.push(ty))
     }
+}
+
+/// Standard Levenshtein distance — used for "did you mean" type-name hints.
+/// Tiny inputs (type names, < 20 chars), so the O(n*m) DP is fine.
+pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr = vec![0usize; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
 }

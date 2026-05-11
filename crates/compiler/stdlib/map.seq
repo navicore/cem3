@@ -5,8 +5,8 @@
 # ## Available Words
 #
 # Builder pattern (type-safe, recommended):
-# - map-of: ( -- Map ) - Create empty map, alias for map.make
-# - kv: ( Map k v -- Map ) - Add key-value pair, alias for map.set
+# - map-of: ( -- M ) - Create empty map, alias for map.make
+# - kv: ( M K V -- M ) - Add key-value pair, alias for map.set
 #
 # Examples:
 #   # Build a map with 2 entries using builder pattern
@@ -19,12 +19,12 @@
 #     "debug" true kv
 
 # Create an empty map (alias for map.make)
-: map-of ( -- Map )
+: map-of ( -- M )
   map.make
 ;
 
 # Add a key-value pair to a map (alias for map.set)
 # Returns the updated map for chaining
-: kv ( Map K V -- Map )
+: kv ( M K V -- M )
   map.set
 ;

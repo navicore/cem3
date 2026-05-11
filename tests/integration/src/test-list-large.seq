@@ -3,7 +3,7 @@
 
 include std:list
 
-: push-n ( List Int -- List )
+: push-n ( L Int -- L )
   dup 0 i.<= [
     drop
   ] [

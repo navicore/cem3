@@ -398,5 +398,24 @@ pub use patch_seq_tcp_listen as tcp_listen;
 pub use patch_seq_tcp_read as tcp_read;
 pub use patch_seq_tcp_write as tcp_write;
 
+/// Cast between Socket and Int (both directions): identity at runtime.
+///
+/// Socket is a compile-time-only nominal wrapper over the same i64 file
+/// descriptor; the type checker enforces the distinction. This shim exists
+/// so codegen can emit a callable symbol for `fd->socket` / `socket->fd`
+/// without inventing a new value tag.
+///
+/// # Safety
+/// Stack must have an Int (or Socket-shaped Int) value on top.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_socket_cast(stack: Stack) -> Stack {
+    assert!(!stack.is_null(), "fd<->socket cast: stack is empty");
+    let (rest, val) = unsafe { pop(stack) };
+    match val {
+        Value::Int(fd) => unsafe { push(rest, Value::Int(fd)) },
+        _ => panic!("fd<->socket cast: expected Int on stack"),
+    }
+}
+
 #[cfg(test)]
 mod tests;

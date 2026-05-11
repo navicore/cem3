@@ -30,7 +30,7 @@
 # Several loops stay manual-recursive because the language intentionally
 # excludes them from the combinator repertoire:
 #   - gf256-mul-loop, gf256-inv-loop — early-exit Int arithmetic
-#   - make-random-poly-loop, split-byte-loop — accumulator is a List, but
+#   - make-random-poly-loop, split-byte-loop — accumulator is a L, but
 #     integer-fold's acc is Int-only (stdlib limit, not a language limit)
 #   - str-to-bytes-loop — string.char-at needs a concrete String type at
 #     body-inference time, which captured type variables don't provide
@@ -87,7 +87,7 @@ include std:loops
 # ============================================================================
 # Horner's method via list.fold with auto-captured evaluation point.
 
-: eval-poly ( List Int -- Int )
+: eval-poly ( L Int -- Int )
   swap list.reverse swap
   >aux 0 aux>
   [
@@ -99,7 +99,7 @@ include std:loops
 #                      Random Polynomial Generation
 # ============================================================================
 
-: make-random-poly-loop ( List Int -- List )
+: make-random-poly-loop ( L Int -- L )
   dup 0 i.<= [
     drop
   ] [
@@ -109,7 +109,7 @@ include std:loops
   ] if
 ;
 
-: make-random-poly ( Int Int -- List )
+: make-random-poly ( Int Int -- L )
   swap list-of swap lv
   swap
   dup 1 i.<= [
@@ -125,7 +125,7 @@ include std:loops
 #                        Splitting (Single Byte)
 # ============================================================================
 
-: split-byte-loop ( List Int Int List -- List )
+: split-byte-loop ( L Int Int L -- L )
   over 3 pick i.> [
     nip nip nip
   ] [
@@ -137,7 +137,7 @@ include std:loops
   ] if
 ;
 
-: split-byte ( Int Int Int -- List )
+: split-byte ( Int Int Int -- L )
   rot rot make-random-poly swap
   1 list-of split-byte-loop
 ;
@@ -162,14 +162,14 @@ include std:loops
   aux> drop
 ;
 
-: lagrange-basis ( List Int -- Int )
+: lagrange-basis ( L Int -- Int )
   swap 1 rot
   [ lagrange-basis-fold-step ] list.fold
 ;
 
 # Sum over points of y_i * basis_i(0), capturing xs for basis calculation.
 # Points encode (x << 8) | y, so unpack inside the fold body.
-: lagrange-at-zero ( List -- Int )
+: lagrange-at-zero ( L -- Int )
   dup [ 8 shr ] list.map         # ( points xs ) — xs on top
   0 swap                          # ( points 0 xs ) — xs captured on top
   [
@@ -191,7 +191,7 @@ include std:loops
 # ============================================================================
 # list.fold over indices, capturing points.
 
-: select-shares ( List List -- List )
+: select-shares ( L L -- L )
   swap list-of swap
   [
     >aux
@@ -206,7 +206,7 @@ include std:loops
 #                      Multi-Byte Split / Reconstruct
 # ============================================================================
 
-: str-to-bytes-loop ( String Int List -- List )
+: str-to-bytes-loop ( String Int L -- L )
   over 3 pick string.length i.>= [
     nip nip
   ] [
@@ -217,12 +217,12 @@ include std:loops
   ] if
 ;
 
-: str-to-bytes ( String -- List )
+: str-to-bytes ( String -- L )
   0 list-of str-to-bytes-loop
 ;
 
 # Fold over bytes, capturing k and n. Body calls split-byte on each byte.
-: split-bytes ( List Int Int -- List )
+: split-bytes ( L Int Int -- L )
   # ( bytes k n ) -> ( bytes [] k n ) so k,n are captured above acc.
   # Captures preserve caller order, so the body sees ( acc byte k n ) —
   # already in the order split-byte expects.
@@ -236,7 +236,7 @@ include std:loops
 # Reconstruct via list.fold over all_points, capturing share-indices.
 # Stack setup: ( all_points share_indices ) -> ( all_points [] share_indices )
 # so fold iterates over all_points and auto-captures share_indices on top.
-: reconstruct-bytes ( List List -- List )
+: reconstruct-bytes ( L L -- L )
   list-of swap
   [
     # Body: ( acc byte_points share_indices ) — share_indices on top (captured)
@@ -250,7 +250,7 @@ include std:loops
 ;
 
 # Collect y-values via list.fold over all_points, capturing share_idx.
-: collect-share-ys ( List Int -- List )
+: collect-share-ys ( L Int -- L )
   list-of swap
   [
     >aux
@@ -277,11 +277,11 @@ include std:loops
   io.write-line
 ;
 
-: print-points ( List -- )
+: print-points ( L -- )
   [ print-point ] list.each
 ;
 
-: print-share ( List Int -- )
+: print-share ( L Int -- )
   dup 1 i.+ int->string "  Share " swap string.concat ": [" string.concat io.write
   collect-share-ys
   [ int->string ] list.map ", " string.join io.write
@@ -289,7 +289,7 @@ include std:loops
 ;
 
 # Iterate 0..n-1 via each-integer, capturing all_points as closure state.
-: print-all-shares ( List Int -- )
+: print-all-shares ( L Int -- )
   swap                               # ( n all_points )
   [
     # Body: ( idx all_points ) — all_points on top (auto-captured)
@@ -297,7 +297,7 @@ include std:loops
   ] each-integer
 ;
 
-: verify-eq-loop ( List List Int -- Bool )
+: verify-eq-loop ( L L Int -- Bool )
   1 pick list.length over i.<= [
     drop drop drop true
   ] [

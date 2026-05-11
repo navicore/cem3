@@ -14,18 +14,18 @@ include "osc"
   # Bind a fresh outbound socket. We don't need to receive anything,
   # so port=0 (OS-assigned) is fine; drop both port and the success
   # flag.
-  0 udp.bind drop drop                     # ( socket )
+  0 net.udp.bind drop drop                     # ( socket )
 
   # Build the message: /kick with one float arg (the pitch).
   "/kick" 220.0 osc.msg-f                  # ( socket msg )
 
-  # Reorder for udp.send-to ( bytes host port socket -- Bool ).
+  # Reorder for net.udp.send-to ( bytes host port socket -- Bool ).
   swap                                     # ( msg socket )
   dup >aux                                 # ( msg socket )       ; aux: [socket]
   "127.0.0.1" swap                         # ( msg "127.0.0.1" socket )
   7770 swap                                # ( msg "127.0.0.1" 7770 socket )
-  udp.send-to drop                         # ( )                  ; aux: [socket]
+  net.udp.send-to drop                         # ( )                  ; aux: [socket]
 
-  aux> udp.close drop                      # ( )
+  aux> net.udp.close drop                      # ( )
   0
 ;

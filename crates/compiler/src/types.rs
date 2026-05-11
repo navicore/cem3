@@ -47,6 +47,11 @@ pub enum Type {
     /// Channel type (for CSP-style concurrency)
     /// Channels are reference-counted handles - dup increments refcount
     Channel,
+    /// Socket type (TCP/UDP file descriptor — phantom over Int).
+    /// Distinct from Int at the type level so `tcp.write` can't accept an
+    /// arbitrary integer; runtime representation stays Value::Int(fd).
+    /// Cross over with `fd->socket` / `socket->fd` when really needed (FFI).
+    Socket,
     /// Quotation type (stateless code block with stack effect)
     /// Example: [ Int -- Int ] is a quotation that takes Int and produces Int
     /// No captured values - backward compatible with existing quotations
@@ -285,6 +290,7 @@ impl std::fmt::Display for Type {
             Type::String => write!(f, "String"),
             Type::Symbol => write!(f, "Symbol"),
             Type::Channel => write!(f, "Channel"),
+            Type::Socket => write!(f, "Socket"),
             Type::Quotation(effect) => write!(f, "[{}]", effect),
             Type::Closure { effect, captures } => {
                 let cap_str: Vec<_> = captures.iter().map(|t| format!("{}", t)).collect();

@@ -14,7 +14,7 @@
 ;
 
 # Extract a string field from response map, with error handling
-: get-string-field ( Map String -- String Bool )
+: get-string-field ( M String -- String Bool )
   map.get
   [
     true
@@ -24,7 +24,7 @@
 ;
 
 # Extract an int field from response map, with error handling
-: get-int-field ( Map String -- Int Bool )
+: get-int-field ( M String -- Int Bool )
   map.get
   [
     true
@@ -34,7 +34,7 @@
 ;
 
 # Extract the boolean "ok" field
-: get-ok ( Map -- Bool Bool )
+: get-ok ( M -- Bool Bool )
   "ok" map.get
   [
     true
@@ -44,7 +44,7 @@
 ;
 
 # Show status code from response map
-: show-status ( Map -- )
+: show-status ( M -- )
   "status" get-int-field
   [
     "Status: " show-int
@@ -54,7 +54,7 @@
 ;
 
 # Show body size from response map
-: show-body-size ( Map -- )
+: show-body-size ( M -- )
   "body" get-string-field
   [
     string.length int->string " bytes received" string.concat io.write-line
@@ -64,7 +64,7 @@
 ;
 
 # Show error message from response map
-: show-error ( Map -- )
+: show-error ( M -- )
   "error" get-string-field
   [
     "Error: " show
@@ -74,18 +74,18 @@
 ;
 
 # Handle successful HTTP response (ok=true)
-: handle-success ( Map -- )
+: handle-success ( M -- )
   dup show-status
   show-body-size
 ;
 
 # Handle failed HTTP response (ok=false)
-: handle-failure ( Map -- )
+: handle-failure ( M -- )
   show-error
 ;
 
 # Handle HTTP response with proper error checking
-: handle-response ( Map -- )
+: handle-response ( M -- )
   dup get-ok
   [
     [
@@ -102,7 +102,7 @@
 : demo-get ( -- )
   "=== HTTP GET ===" io.write-line
   "" io.write-line
-  "https://httpbin.org/get" http.get
+  "https://httpbin.org/get" net.http.get
   handle-response
   "" io.write-line
 ;
@@ -112,7 +112,7 @@
   "=== HTTP GET (404 Error) ===" io.write-line
   "" io.write-line
 
-  "https://httpbin.org/status/404" http.get
+  "https://httpbin.org/status/404" net.http.get
 
   dup get-ok
   [
@@ -142,13 +142,13 @@
   "https://httpbin.org/post"
   "{\"name\":\"Alice\",\"age\":30}"
   "application/json"
-  http.post
+  net.http.post
   handle-response
   "" io.write-line
 ;
 
 # Handle status-only response (no body needed)
-: handle-status-response ( Map -- )
+: handle-status-response ( M -- )
   dup get-ok
   [
     [
@@ -168,7 +168,7 @@
   "https://httpbin.org/put"
   "{\"updated\":true}"
   "application/json"
-  http.put
+  net.http.put
   handle-status-response
   "" io.write-line
 ;
@@ -177,7 +177,7 @@
 : demo-delete ( -- )
   "=== HTTP DELETE ===" io.write-line
   "" io.write-line
-  "https://httpbin.org/delete" http.delete
+  "https://httpbin.org/delete" net.http.delete
   handle-status-response
   "" io.write-line
 ;
@@ -188,7 +188,7 @@
   "" io.write-line
 
   # Non-routable IP address will timeout/fail
-  "http://192.0.2.1:12345/test" http.get
+  "http://192.0.2.1:12345/test" net.http.get
 
   dup get-ok
   [

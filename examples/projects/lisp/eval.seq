@@ -19,35 +19,35 @@ include "parser"
 # separate from the typed Sexpr/SexprList unions.
 # ============================================
 
-: make-binding ( Name Val -- Binding )
+: make-binding ( N V -- B )
   :Binding variant.make-2 ;
 
-: binding-name ( Binding -- Name )
+: binding-name ( B -- N )
   0 variant.field-at ;
 
-: binding-value ( Binding -- Val )
+: binding-value ( B -- V )
   1 variant.field-at ;
 
 # Environment list operations (dynamic, not using typed SexprList)
-: env-nil ( -- EnvList )
+: env-nil ( -- E )
   :EnvNil variant.make-0 ;
 
-: env-nil? ( EnvList -- Bool )
+: env-nil? ( E -- Bool )
   variant.tag :EnvNil symbol.= ;
 
-: env-cons ( Binding EnvList -- EnvList2 )
+: env-cons ( B E -- E )
   :EnvCons variant.make-2 ;
 
-: env-car ( EnvList -- Binding )
+: env-car ( E -- B )
   0 variant.field-at ;
 
-: env-cdr ( EnvList -- EnvList2 )
+: env-cdr ( E -- E )
   1 variant.field-at ;
 
-: env-empty ( -- EnvList )
+: env-empty ( -- E )
   env-nil ;
 
-: env-extend ( Name Val EnvList -- EnvList2 )
+: env-extend ( N V E -- E )
   # Stack: Name Value Env
   rot rot make-binding swap env-cons ;
 
@@ -60,22 +60,22 @@ include "parser"
 # - Field 2: Captured environment
 # ============================================
 
-: make-closure ( Params Body Env -- Clos )
+: make-closure ( P Y E -- C )
   :Closure variant.make-3 ;
 
-: closure? ( Clos -- Bool )
+: closure? ( C -- Bool )
   variant.tag :Closure symbol.= ;
 
-: closure-params ( Clos -- Params )
+: closure-params ( C -- P )
   0 variant.field-at ;
 
-: closure-body ( Clos -- Body )
+: closure-body ( C -- Y )
   1 variant.field-at ;
 
-: closure-env ( Clos -- Env )
+: closure-env ( C -- E )
   2 variant.field-at ;
 
-: env-lookup ( Name EnvList -- Result )
+: env-lookup ( N E -- R )
   # Stack: Name Env
   # Returns the value or snil wrapped as empty SList if not found
   dup env-nil? [
@@ -97,11 +97,11 @@ include "parser"
 # ============================================
 
 # Simple eval without environment (for backward compatibility)
-: eval ( Expr -- Result )
+: eval ( X -- R )
   env-empty eval-with-env ;
 
 # Eval with explicit environment
-: eval-with-env ( Expr Env -- Result )
+: eval-with-env ( X E -- R )
   # Stack: Expr Env
   over
   match
@@ -126,13 +126,13 @@ include "parser"
 # ============================================
 
 # Evaluate a symbol in function position (builtin dispatch)
-: eval-sym-call ( Env List Head -- Result )
+: eval-sym-call ( E L H -- R )
   # Stack: Env List Head
   ssym-val swap rot eval-builtin-with-env
 ;
 
 # Evaluate a list in function position (lambda call)
-: eval-list-call ( Env List Head -- Result )
+: eval-list-call ( E L H -- R )
   # Stack: Env List Head
   2 pick eval-with-env  # -> Env List EvaledHead
   dup closure? [
@@ -145,7 +145,7 @@ include "parser"
 ;
 
 # Dispatch on function type
-: eval-func-call ( Env List Head -- Result )
+: eval-func-call ( E L H -- R )
   # Stack: Env List Head
   [ dup ssym? ]  [ eval-sym-call ]
   [ dup slist? ] [ eval-list-call ]
@@ -153,7 +153,7 @@ include "parser"
   3 cond
 ;
 
-: eval-list-with-env ( Expr Env -- Result )
+: eval-list-with-env ( X E -- R )
   # Stack: Expr Env
   swap slist-val
   dup snil? [
@@ -169,7 +169,7 @@ include "parser"
 # Built-in Function Dispatch
 # ============================================
 
-: eval-builtin-with-env ( FnName List Env -- Result )
+: eval-builtin-with-env ( F L E -- R )
   # Stack: FuncName List Env
   rot
   [ dup "+" string.equal? ]      [ drop eval-add-with-env ]
@@ -187,13 +187,13 @@ include "parser"
 # Arithmetic Operations
 # ============================================
 
-: eval-add-with-env ( List Env -- Result )
+: eval-add-with-env ( L E -- R )
   # Stack: List Env
   swap scdr swap  # Skip the + -> RestList Env
   0 swap eval-fold-add-with-env snum
 ;
 
-: eval-fold-add-with-env ( List Acc Env -- Int )
+: eval-fold-add-with-env ( L A E -- Int )
   # Stack: List Acc Env
   2 pick snil? [
     # List is empty, return Acc
@@ -210,7 +210,7 @@ include "parser"
   ] if
 ;
 
-: eval-sub-with-env ( List Env -- Result )
+: eval-sub-with-env ( L E -- R )
   # Stack: List Env
   swap scdr
   dup snil? [
@@ -229,7 +229,7 @@ include "parser"
   ] if
 ;
 
-: eval-fold-sub-with-env ( List Acc Env -- Int )
+: eval-fold-sub-with-env ( L A E -- Int )
   # Stack: List Acc Env
   2 pick snil? [
     # List is empty, return Acc
@@ -246,13 +246,13 @@ include "parser"
   ] if
 ;
 
-: eval-mul-with-env ( List Env -- Result )
+: eval-mul-with-env ( L E -- R )
   # Stack: List Env
   swap scdr swap  # Skip the * -> RestList Env
   1 swap eval-fold-mul-with-env snum
 ;
 
-: eval-fold-mul-with-env ( List Acc Env -- Int )
+: eval-fold-mul-with-env ( L A E -- Int )
   # Stack: List Acc Env
   2 pick snil? [
     # List is empty, return Acc
@@ -269,7 +269,7 @@ include "parser"
   ] if
 ;
 
-: eval-div-with-env ( List Env -- Result )
+: eval-div-with-env ( L E -- R )
   # Stack: List Env
   swap scdr
   dup snil? [
@@ -287,7 +287,7 @@ include "parser"
 ;
 
 # seq:allow(unchecked-divide)
-: eval-fold-div-with-env ( List Acc Env -- Int )
+: eval-fold-div-with-env ( L A E -- Int )
   # Stack: List Acc Env
   2 pick snil? [
     # List is empty, return Acc
@@ -308,7 +308,7 @@ include "parser"
 # Conditional (if)
 # ============================================
 
-: eval-if-with-env ( List Env -- Result )
+: eval-if-with-env ( L E -- R )
   # Stack: List Env
   # List is (if cond then-expr else-expr)
   swap scdr  # Skip the if -> Env Args
@@ -338,7 +338,7 @@ include "parser"
 # Let Binding
 # ============================================
 
-: eval-let-with-env ( List Env -- Result )
+: eval-let-with-env ( L E -- R )
   # Stack: List Env
   # List is (let name value body)
   swap scdr  # Skip the 'let' -> Env Args
@@ -360,7 +360,7 @@ include "parser"
 # Lambda
 # ============================================
 
-: eval-lambda-with-env ( List Env -- Result )
+: eval-lambda-with-env ( L E -- R )
   # Stack: List Env
   # List is (lambda (params) body)
   swap scdr  # Skip 'lambda' -> Env Args
@@ -375,7 +375,7 @@ include "parser"
 # Closure Application
 # ============================================
 
-: apply-closure ( Clos Args CallerEnv -- Result )
+: apply-closure ( C G E -- R )
   # Stack: Closure Args CallerEnv
   # For simplicity, support single-parameter lambdas
   # 1. Evaluate the single argument

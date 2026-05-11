@@ -21,7 +21,7 @@
 # `\x00` is a literal NUL, `string.concat` preserves arbitrary bytes,
 # and `int.to-bytes-i32-be` / `float.to-bytes-f32-be` produce 4-byte
 # big-endian payloads. The output of every word here is a bag-of-bytes
-# String suitable for `udp.send-to`.
+# String suitable for `net.udp.send-to`.
 
 include std:imath
 

@@ -22,8 +22,8 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
 ];
 
 pub(super) static SYMBOLS: &[(&str, &str)] = &[
-    ("udp.bind", "patch_seq_udp_bind"),
-    ("udp.send-to", "patch_seq_udp_send_to"),
-    ("udp.receive-from", "patch_seq_udp_receive_from"),
-    ("udp.close", "patch_seq_udp_close"),
+    ("net.udp.bind", "patch_seq_udp_bind"),
+    ("net.udp.send-to", "patch_seq_udp_send_to"),
+    ("net.udp.receive-from", "patch_seq_udp_receive_from"),
+    ("net.udp.close", "patch_seq_udp_close"),
 ];

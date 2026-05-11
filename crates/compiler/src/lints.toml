@@ -237,34 +237,34 @@ replacement = ""
 message = "`list.last` returns (value Bool) - check the Bool to detect an empty list"
 severity = "hint"
 
-# --- TCP Networking ---
+# --- TCP Networking (net.tcp.*) ---
 
 [[lint]]
 id = "unchecked-tcp-listen"
-pattern = "tcp.listen drop"
+pattern = "net.tcp.listen drop"
 replacement = ""
-message = "`tcp.listen` returns (fd Bool) - check the Bool before using the file descriptor"
+message = "`net.tcp.listen` returns (Socket Bool) - check the Bool before using the socket"
 severity = "warning"
 
 [[lint]]
 id = "unchecked-tcp-accept"
-pattern = "tcp.accept drop"
+pattern = "net.tcp.accept drop"
 replacement = ""
-message = "`tcp.accept` returns (fd Bool) - check the Bool before using the connection"
+message = "`net.tcp.accept` returns (Socket Bool) - check the Bool before using the connection"
 severity = "warning"
 
 [[lint]]
 id = "unchecked-tcp-read"
-pattern = "tcp.read drop"
+pattern = "net.tcp.read drop"
 replacement = ""
-message = "`tcp.read` returns (String Bool) - check the Bool before using the data"
+message = "`net.tcp.read` returns (String Bool) - check the Bool before using the data"
 severity = "warning"
 
 [[lint]]
 id = "unchecked-tcp-write"
-pattern = "tcp.write drop"
+pattern = "net.tcp.write drop"
 replacement = ""
-message = "`tcp.write` returns Bool success flag - dropping it hides write failures"
+message = "`net.tcp.write` returns Bool success flag - dropping it hides write failures"
 severity = "warning"
 
 # --- OS Operations ---

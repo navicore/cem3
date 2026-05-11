@@ -55,7 +55,7 @@ union SensorReading {
 
 # Classifier loop - processes readings until cancelled
 # Receives a reading, classifies it, yields the result
-: classifier-loop ( Ctx SensorReading -- | Yield SensorReading )
+: classifier-loop ( W SensorReading -- | Yield SensorReading )
   # Stack: (Ctx SensorReading)
   # Get temperature and classify it
   dup reading-temp classify
@@ -77,7 +77,7 @@ union SensorReading {
 ;
 
 # Entry point for the classifier weave
-: sensor-classifier ( Ctx SensorReading -- | Yield SensorReading )
+: sensor-classifier ( W SensorReading -- | Yield SensorReading )
   classifier-loop
 ;
 

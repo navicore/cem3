@@ -336,7 +336,7 @@ impl ErrorFlagAnalyzer {
 
     fn emit_warning(&mut self, flag: &ErrorFlag, drop_line: usize, word: &WordDef) {
         // Don't warn if the drop is adjacent to the operation (within 2 lines).
-        // Adjacent drops like `tcp.write drop` are covered by the pattern-based
+        // Adjacent drops like `net.tcp.write drop` are covered by the pattern-based
         // linter with better precision (exact column info, replacement suggestions).
         // We only add value for non-adjacent drops (e.g., swap nip, aux round-trips).
         // Note: if spans are missing, both lines default to 0 and this suppresses

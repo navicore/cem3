@@ -81,6 +81,7 @@ impl TypeChecker {
             | Type::String
             | Type::Symbol
             | Type::Channel
+            | Type::Socket
             | Type::Variant => ty.clone(),
             Type::Var(name) => {
                 let fresh_name = type_map

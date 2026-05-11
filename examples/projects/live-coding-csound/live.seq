@@ -17,19 +17,19 @@ include "osc"
 # Send one /kick at 220 Hz to localhost:7770, then sleep one beat.
 # Threads the socket through unchanged so the recursive driver can
 # call this on every iteration.
-: send-kick ( Int -- Int )
+: send-kick ( Socket -- Socket )
   dup                                      # ( socket socket )
   "/kick" 220.0 osc.msg-f                  # ( socket socket msg )
   swap                                     # ( socket msg socket )
   "127.0.0.1" swap                         # ( socket msg "127.0.0.1" socket )
   7770 swap                                # ( socket msg "127.0.0.1" 7770 socket )
-  udp.send-to drop                         # ( socket )
+  net.udp.send-to drop                         # ( socket )
   bpm-ms time.sleep-ms                     # ( socket )
 ;
 
 # Drive the metronome: send N kicks with an inter-beat sleep.
 # Tail-recursive on (count, socket).
-: send-n-kicks ( Int Int -- Int )
+: send-n-kicks ( Int Socket -- Socket )
   over 0 i.<= [
     nip                                    # base: drop count, keep socket
   ] [
@@ -40,9 +40,9 @@ include "osc"
 ;
 
 : main ( -- Int )
-  0 udp.bind drop drop                     # ( socket )
+  0 net.udp.bind drop drop                     # ( socket )
   beats swap                               # ( beats socket )
   send-n-kicks                             # ( socket )
-  udp.close drop
+  net.udp.close drop
   0
 ;

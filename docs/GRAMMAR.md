@@ -201,7 +201,7 @@ This means `( -- )` preserves the stack (it's `( ..rest -- ..rest )`), not that 
 
 | Delimiter | Usage | Example |
 |-----------|-------|---------|
-| `.` (dot) | Module/namespace prefix | `io.write-line`, `tcp.listen` |
+| `.` (dot) | Module/namespace prefix | `io.write-line`, `net.tcp.listen` |
 | `-` (hyphen) | Compound words | `home-dir`, `write-line` |
 | `->` (arrow) | Type conversions | `int->string`, `float->int` |
 | `?` (question) | Predicates | `list.empty?`, `map.has?` |

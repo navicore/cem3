@@ -102,10 +102,10 @@ impl Program {
             "crypto.ed25519-sign",
             "crypto.ed25519-verify",
             // HTTP client operations
-            "http.get",
-            "http.post",
-            "http.put",
-            "http.delete",
+            "net.http.get",
+            "net.http.post",
+            "net.http.put",
+            "net.http.delete",
             // List operations
             "list.make",
             "list.push",
@@ -241,16 +241,19 @@ impl Program {
             "yield",
             "cond",
             // TCP operations
-            "tcp.listen",
-            "tcp.accept",
-            "tcp.read",
-            "tcp.write",
-            "tcp.close",
+            "net.tcp.listen",
+            "net.tcp.accept",
+            "net.tcp.read",
+            "net.tcp.write",
+            "net.tcp.close",
+            // Socket <-> Int casts (FFI escape hatches)
+            "fd->socket",
+            "socket->fd",
             // UDP operations
-            "udp.bind",
-            "udp.send-to",
-            "udp.receive-from",
-            "udp.close",
+            "net.udp.bind",
+            "net.udp.send-to",
+            "net.udp.receive-from",
+            "net.udp.close",
             // OS operations
             "os.getenv",
             "os.home-dir",
@@ -413,6 +416,16 @@ impl Program {
                     // Check if it's an external word (from includes)
                     if external_words.contains(&name.as_str()) {
                         continue;
+                    }
+                    // v7.0 rename: pre-net.* networking names get a targeted
+                    // hint instead of the generic "did you misspell" message,
+                    // so the migration is obvious.
+                    if let Some(replacement) = v7_renamed_to(name) {
+                        return Err(format!(
+                            "'{}' was renamed to '{}' in v7.0 (called in word '{}'). \
+                             See docs/MIGRATION_7_0.md.",
+                            name, replacement, word_name
+                        ));
                     }
                     // Undefined word!
                     return Err(format!(
@@ -632,8 +645,35 @@ fn parse_type_name(name: &str) -> Type {
         "Bool" => Type::Bool,
         "String" => Type::String,
         "Channel" => Type::Channel,
+        "Socket" => Type::Socket,
         other => Type::Union(other.to_string()),
     }
+}
+
+/// Map a pre-v7.0 networking word to its current name, or None if unknown.
+/// Used to turn the generic "Undefined word" error into a targeted migration
+/// hint when a user calls one of the renamed builtins. Remove this table
+/// in v8.0.
+fn v7_renamed_to(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "tcp.listen" => "net.tcp.listen",
+        "tcp.accept" => "net.tcp.accept",
+        "tcp.read" => "net.tcp.read",
+        "tcp.write" => "net.tcp.write",
+        "tcp.close" => "net.tcp.close",
+        "udp.bind" => "net.udp.bind",
+        "udp.send-to" => "net.udp.send-to",
+        "udp.receive-from" => "net.udp.receive-from",
+        "udp.close" => "net.udp.close",
+        "http.get" => "net.http.get",
+        "http.post" => "net.http.post",
+        "http.put" => "net.http.put",
+        "http.delete" => "net.http.delete",
+        // imath stdlib pass-through removed in v7.0; route to the underlying
+        // builtin so callers learn the right name.
+        "mod" => "i.modulo",
+        _ => return None,
+    })
 }
 
 impl Default for Program {

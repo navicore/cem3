@@ -223,6 +223,14 @@ fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::
     // etc.) — see `normalize.rs`.
     seqc::normalize::lower_literal_if_combinators(&mut resolved.program);
 
+    // Mirror the main compile pipeline: convert any `Type::Var("UnionName")`
+    // produced by parsing one file before its union-defining file is included
+    // into proper `Type::Union(name)` references. Without this, `lint-seq`
+    // sees cross-file unions as suspect type variables and the validator
+    // rejects them (e.g. `TokenList` defined in tokenizer.seq used in
+    // parser.seq).
+    resolved.program.fixup_union_types();
+
     let call_graph = call_graph::CallGraph::build(&resolved.program);
     let mut type_checker = TypeChecker::new();
     type_checker.set_call_graph(call_graph);

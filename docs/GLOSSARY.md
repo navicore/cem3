@@ -328,13 +328,31 @@ A type system feature that lets functions work with stacks of any depth, as long
 : add-one ( ..a Int -- ..a Int ) 1 i.+ ;
 ```
 
-The `..a` is a "row variable" representing "whatever else is on the stack." This function works whether the stack has 1 element or 100 - it only cares about the `Int` on top.
+The `..a` is a [Row Variable](#row-variable) representing "whatever else is on the stack." This function works whether the stack has 1 element or 100 - it only cares about the `Int` on top.
 
 **Why it matters:** Without row polymorphism, you'd need different versions of `add-one` for different stack depths, or lose type safety entirely. Row polymorphism gives you both flexibility and safety.
 
 **History:** Row polymorphism was developed in the 1990s for typing extensible records (Mitchell Wand, 1989; Didier Rémy, 1994). It was adapted for stack-based languages by researchers working on typed Forth and later Joy. The key insight: a stack is just a record where fields are positions rather than names. Seq's type system builds on this work to provide safety without sacrificing the flexibility that makes concatenative programming powerful.
 
 **In other languages:** PureScript and some ML variants have row polymorphism for extensible records. TypeScript's mapped types and excess property checks address similar problems differently. Most languages don't need this concept because they don't have stack-based semantics - it's analogous to how generics let you write code that works with any type.
+
+---
+
+## Row Variable
+
+A polymorphic placeholder for *zero or more* stack values, in order. Written as two dots followed by a lowercase name: `..a`, `..b`, `..rest`.
+
+```seq
+: dup ( ..a T -- ..a T T )   # ..a is "everything below"; T is the top value
+```
+
+Implicit on every stack effect — you only write a row variable explicitly when:
+- Two effects must share the same row (e.g., a quotation type that promises to leave the stack at a specific depth)
+- You want to make the polymorphism visible for documentation
+
+Row variables abstract over a *sequence* of types. To abstract over a single type slot, use a [Type Variable](#type-variable) instead. The two are different tools — see [Row Polymorphism](#row-polymorphism) for the broader machinery.
+
+**Why it matters:** Row variables are what make `dup`, `swap`, `drop`, etc. compose into deeper words without writing one version per stack depth. Without them, `dup` would only work when the stack has exactly one element.
 
 ---
 
@@ -415,6 +433,25 @@ When a function's last action is calling another function (a "tail call"), TCO r
 **History:** TCO was pioneered by **Guy Steele** and **Gerald Sussman** in the development of **Scheme** (1975). They proved that properly tail-recursive functions are equivalent to loops, making recursion a practical tool for iteration. Scheme was the first language to *require* TCO in its specification. This insight influenced functional programming for decades.
 
 **In other languages:** Scheme requires TCO by specification. Haskell, OCaml, and F# implement it. Scala has `@tailrec` annotation for verified tail recursion. JavaScript includes TCO in the ES6 spec, though Safari is currently the only major browser implementing it. Java and Python do not implement TCO. Seq guarantees TCO using LLVM's `musttail` directive.
+
+---
+
+## Type Variable
+
+Within a stack effect, a polymorphic placeholder for *one* type slot. Written as a single uppercase letter: `T`, `U`, `V`, `K`, `M`, `Q`. The type checker freshens it on each call site and unifies it with whatever concrete type appears.
+
+```seq
+: dup ( ..a T -- ..a T T )       # T can be Int, String, Channel, ...
+: swap ( ..a T U -- ..a U T )    # T and U are independent
+```
+
+Multi-character uppercase identifiers (`Acc`, `Ctx`, `Sokcet`) are **not** type variables under the strict v7.0 rule. They must be a registered concrete type (`Int`, `Float`, `Bool`, `String`, `Symbol`, `Channel`, `Socket`, `Variant`) or a `union` name. Otherwise the type checker rejects them with a "did you mean" hint — this catches typos that previously masqueraded as fresh polymorphics.
+
+A type variable abstracts over a *single* type slot. To abstract over a sequence of stack values, use a [Row Variable](#row-variable) instead. The two compose: `( ..a T -- ..a T T )` is "any stack with any single value on top, duplicate the top."
+
+**Why it matters:** Type variables let one word work for many types without losing static safety. The strict single-letter rule makes typos visible — a misspelled name is no longer silently legal.
+
+**In other languages:** Equivalent to Java/C# `<T>`, Rust/Haskell type parameters, TypeScript generics. Two distinctions in Seq: type variables are inferred (you don't declare them with a `<T>` clause), and they are separate from row variables, which abstract over sequences of types rather than single types.
 
 ---
 

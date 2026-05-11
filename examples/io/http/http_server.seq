@@ -347,21 +347,21 @@
 # Stack effect: ( socket -- )
 #
 # seq:allow(unchecked-tcp-write)
-: handle-connection ( Int -- )
+: handle-connection ( Socket -- )
   # Stack: ( socket )
 
   dup                      # ( socket socket )
   # We need the socket twice: once for read, once for write.
   # dup gives us a copy.
 
-  tcp.read                 # ( socket request_string success )
+  net.tcp.read                 # ( socket request_string success )
   # Read from the copy. Original socket still there!
-  # tcp.read returns (String, Bool) for error handling.
+  # net.tcp.read returns (String, Bool) for error handling.
 
   not [
     # Read failed - clean up and exit
     drop                   # drop empty string
-    tcp.close drop         # close socket, drop success flag
+    net.tcp.close drop         # close socket, drop success flag
   ] [
     route                  # ( socket response_string )
     # Transform request into response.
@@ -370,11 +370,11 @@
     # We need the socket on top to write to it.
     # "over" copies the second item to the top.
 
-    tcp.write              # ( socket success )
-    # Write response. tcp.write returns success flag.
+    net.tcp.write              # ( socket success )
+    # Write response. net.tcp.write returns success flag.
     drop                   # drop success flag
 
-    tcp.close              # ( success )
+    net.tcp.close              # ( success )
     # Clean up by closing the connection.
     drop                   # drop success flag
   ] if
@@ -421,12 +421,12 @@
 # Stack effect: ( listener_socket -- )
 # Note: This never returns - it loops forever via tail recursion.
 #
-: accept-loop ( Int -- )
+: accept-loop ( Socket -- )
   # Stack: ( listener_socket )
 
-  dup tcp.accept
+  dup net.tcp.accept
   # dup:        ( listener_socket listener_socket )
-  # tcp.accept: ( listener_socket client_socket success )
+  # net.tcp.accept: ( listener_socket client_socket success )
   # We keep the listener to accept more connections!
 
   not [
@@ -479,8 +479,8 @@
   "Server will handle multiple concurrent connections." io.write-line
   "" io.write-line
 
-  8080 tcp.listen
-  # Push port number, call tcp.listen
+  8080 net.tcp.listen
+  # Push port number, call net.tcp.listen
   # Returns ( listener_socket success ) on the stack
 
   not [

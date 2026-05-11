@@ -532,12 +532,12 @@ union Message {
 
 # Handle an HTTP request
 # Stack: ( registry socket -- registry )
-: handle-request ( Variant Int -- Variant )
+: handle-request ( Variant Socket -- Variant )
   # Read the HTTP request
-  dup tcp.read               # ( registry socket request success )
+  dup net.tcp.read               # ( registry socket request success )
   not [
     drop                     # drop empty string
-    tcp.close drop           # close socket and drop success
+    net.tcp.close drop           # close socket and drop success
   ] [
     # Extract path from request
     dup http-request-path    # ( registry socket request path )
@@ -550,15 +550,15 @@ union Message {
 
 # Handle 404 for unknown path segments
 # seq:allow(unchecked-tcp-write)
-: dispatch-404 ( Variant Int String Int -- Variant )
+: dispatch-404 ( Variant Socket String Int -- Variant )
   drop drop
   "Not found - use 1-4 segments: company/region/district/store" http-not-found
-  over tcp.write drop
-  tcp.close drop
+  over net.tcp.write drop
+  net.tcp.close drop
 ;
 
 # Dispatch based on path segment count
-: dispatch-by-segments ( Variant Int String Int -- Variant )
+: dispatch-by-segments ( Variant Socket String Int -- Variant )
   [ dup 4 i.= ] [ drop do-get-store ]   # store query
   [ dup 3 i.= ] [ drop do-get-actor ]   # district aggregate
   [ dup 2 i.= ] [ drop do-get-actor ]   # region aggregate
@@ -569,7 +569,7 @@ union Message {
 
 # Dispatch request to appropriate handler
 # Stack: ( registry socket path method -- registry )
-: dispatch-request ( Variant Int String String -- Variant )
+: dispatch-request ( Variant Socket String String -- Variant )
   over "/increment" string-ends-with? [
     drop
     dup string.length 10 i.subtract 0 swap string.substring
@@ -602,7 +602,7 @@ union Message {
 # Handle GET request for store - get current count
 # Stack: ( registry socket path -- registry )
 # seq:allow(unchecked-tcp-write)
-: do-get-store ( Variant Int String -- Variant )
+: do-get-store ( Variant Socket String -- Variant )
   # Strip leading / if present
   dup 0 string.char-at 47 i.= [  # 47 = '/'
     1 over string.length 1 i.subtract string.substring
@@ -616,21 +616,21 @@ union Message {
     # Store not found
     drop                    # ( registry socket )
     "Store not found" http-not-found
-    over tcp.write drop
-    tcp.close drop          # ( registry )
+    over net.tcp.write drop
+    net.tcp.close drop          # ( registry )
   ] [
     # Send get request to actor and wait for response
     query-actor             # ( registry socket count )
     make-json-response      # ( registry socket response )
-    over tcp.write drop
-    tcp.close drop          # ( registry )
+    over net.tcp.write drop
+    net.tcp.close drop          # ( registry )
   ] if
 ;
 
 # Handle INCREMENT request - increment counter and return new value
 # Stack: ( registry socket path -- registry )
 # seq:allow(unchecked-tcp-write)
-: do-increment ( Variant Int String -- Variant )
+: do-increment ( Variant Socket String -- Variant )
   # Strip leading / if present
   dup 0 string.char-at 47 i.= [
     1 over string.length 1 i.subtract string.substring
@@ -643,21 +643,21 @@ union Message {
   not [
     drop                    # ( registry socket )
     "Store not found" http-not-found
-    over tcp.write drop
-    tcp.close drop          # ( registry )
+    over net.tcp.write drop
+    net.tcp.close drop          # ( registry )
   ] [
     # Send increment request to actor and wait for response
     query-actor-increment   # ( registry socket count )
     make-json-response      # ( registry socket response )
-    over tcp.write drop
-    tcp.close drop          # ( registry )
+    over net.tcp.write drop
+    net.tcp.close drop          # ( registry )
   ] if
 ;
 
 # Handle GET request for any actor (company, region, district) aggregate
 # Stack: ( registry socket path -- registry )
 # seq:allow(unchecked-tcp-write)
-: do-get-actor ( Variant Int String -- Variant )
+: do-get-actor ( Variant Socket String -- Variant )
   # Strip leading / if present
   dup 0 string.char-at 47 i.= [  # 47 = '/'
     1 over string.length 1 i.subtract string.substring
@@ -671,14 +671,14 @@ union Message {
     # Actor not found
     drop                    # ( registry socket )
     "Actor not found" http-not-found
-    over tcp.write drop
-    tcp.close drop          # ( registry )
+    over net.tcp.write drop
+    net.tcp.close drop          # ( registry )
   ] [
     # Query actor for aggregate
     query-actor             # ( registry socket count )
     make-json-response      # ( registry socket response )
-    over tcp.write drop
-    tcp.close drop          # ( registry )
+    over net.tcp.write drop
+    net.tcp.close drop          # ( registry )
   ] if
 ;
 
@@ -737,15 +737,15 @@ union Message {
 
 # Connection handler - runs in its own strand
 # Stack: ( registry socket -- )
-: connection-handler ( Variant Int -- )
+: connection-handler ( Variant Socket -- )
   handle-request            # ( registry' )
   drop                      # discard registry (immutable after init)
 ;
 
 # Accept loop - spawns concurrent handlers
 # Stack: ( registry listener -- ) [never returns]
-: accept-loop ( Variant Int -- )
-  dup tcp.accept            # ( registry listener client success )
+: accept-loop ( Variant Socket -- )
+  dup net.tcp.accept            # ( registry listener client success )
 
   not [
     drop accept-loop        # accept failed - retry
@@ -791,7 +791,7 @@ union Message {
   "" io.write-line
 
   # Start listening
-  8080 tcp.listen           # ( registry listener success )
+  8080 net.tcp.listen           # ( registry listener success )
 
   not [
     drop drop

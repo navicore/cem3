@@ -4,32 +4,35 @@ Networking, file I/O, terminal, and text processing.
 
 ## HTTP Server (http/)
 
-**http_server.seq** - TCP server with HTTP routing:
+**http_server.seq** — TCP server with HTTP routing. Uses the `net.tcp.*`
+builtins for the transport layer and `std:http` for response/parsing
+helpers:
 
 ```seq
-include std:http
+include std:http        # http-ok / http-request-path / etc.
 
-: handle-request ( TcpStream -- )
-  tcp.read-request
-  request-path "/" string.equal? if
-    "Hello from Seq!" 200 make-response
-  else
-    "Not Found" 404 make-response
-  then
-  tcp.write-response ;
+: handle-request ( Socket -- )
+  dup net.tcp.read drop          # ( socket request )
+  http-request-path              # ( socket path )
+  "/" string.equal? [
+    drop "Hello from Seq!" http-ok
+  ] [
+    drop "Not Found" http-not-found
+  ] if
+  over net.tcp.write drop
+  net.tcp.close drop ;
 ```
 
-**test_simple.seq** - Basic HTTP request/response testing.
+**test_simple.seq** — Basic HTTP request/response testing.
 
 ## HTTP Client (http-client.seq)
 
-Making HTTP requests using the std:http module:
+Making HTTP requests with the built-in `net.http.*` words. (No `include`
+required — `net.http.*` is a builtin, not part of `std:http`.)
 
 ```seq
-include std:http
-
-"https://api.example.com/data" http.get
-http.body io.write-line
+"https://api.example.com/data" net.http.get
+"body" map.get drop io.write-line
 ```
 
 ## Terminal (terminal/)

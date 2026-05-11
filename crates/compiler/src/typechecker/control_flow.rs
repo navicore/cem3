@@ -222,16 +222,21 @@ impl TypeChecker {
         if_span: &Option<crate::ast::Span>,
         current_stack: StackType,
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
-        // Pop condition (must be Bool)
-        let (stack_after_cond, cond_type) = self.pop_type(&current_stack, "if condition")?;
+        // Pop condition (must be Bool). Polymorphic pop allows the cond to
+        // come from a row variable when this `if` sits inside a quotation
+        // body with unconstrained input — the fresh type gets unified to
+        // Bool below. Issue #471.
+        let (stack_after_cond, cond_type, cond_pop_subst) =
+            self.polymorphic_pop(current_stack, "if condition")?;
 
         // Condition must be Bool
-        let cond_subst = unify_stacks(
+        let cond_unify_subst = unify_stacks(
             &StackType::singleton(Type::Bool),
             &StackType::singleton(cond_type),
         )
         .map_err(|e| format!("if condition must be Bool: {}", e))?;
 
+        let cond_subst = cond_pop_subst.compose(&cond_unify_subst);
         let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
 
         // Check for divergent branches (recursive tail calls)

@@ -1,0 +1,108 @@
+# Integration tests for nested dataflow combinators.
+#
+# Issue #471: a dip / keep / bi / if inside another combinator's
+# quotation body used to fail row-poly inference, because the
+# combinator couldn't pop a preserved value out of the body's
+# unconstrained row variable. These tests exercise the now-supported
+# nested forms end-to-end (runtime + typechecker) so the behavior is
+# pinned in the integration suite, not just unit tests.
+
+# --------------------------------------------------------------------------
+# Issue #471: canonical nested dip — the Forth/Factor idiom for reaching
+# two slots deep without explicit stack shuffling.
+# --------------------------------------------------------------------------
+
+: test-nested-dip-three-slots ( -- )
+  100 5 3
+  [ [ 50 i.+ ] dip ] dip
+  # Outer dip preserves 3. Body runs `[ 50 + ] dip` on (100 5):
+  # inner dip preserves 5, runs [ 50 + ] on 100 → 150, pushes 5 back.
+  # Outer dip pushes 3 back. Final: 150 5 3.
+  3 test.assert-eq
+  5 test.assert-eq
+  150 test.assert-eq
+;
+
+# --------------------------------------------------------------------------
+# keep inside a dip body — keep both preserves AND passes to its quotation.
+# --------------------------------------------------------------------------
+
+: test-keep-inside-dip-body ( -- )
+  10 20 99
+  [ [ 1 i.+ ] keep ] dip
+  # Outer dip preserves 99. Body sees (10 20). `keep` peeks 20, runs
+  # `[ 1 + ]` on (10 20) → (10 21), pushes 20 back → (10 21 20). Body
+  # output: 3 values. Outer dip pushes 99 back. Final: 10 21 20 99.
+  99 test.assert-eq
+  20 test.assert-eq
+  21 test.assert-eq
+  10 test.assert-eq
+;
+
+# --------------------------------------------------------------------------
+# dip inside a keep body — keep's quotation runs WITH the preserved value
+# on top, and the inner dip slips beneath it.
+# --------------------------------------------------------------------------
+
+: test-dip-inside-keep-body ( -- )
+  10 5
+  [ [ 100 i.+ ] dip ] keep
+  # keep peeks 5. Body runs on (10 5): inner dip preserves 5, runs
+  # [ 100 + ] on 10 → 110, pushes 5 back → (110 5). keep pushes
+  # original 5 back. Final: 110 5 5.
+  5 test.assert-eq
+  5 test.assert-eq
+  110 test.assert-eq
+;
+
+# --------------------------------------------------------------------------
+# bi inside a dip body — bi runs two quotations on the same value, both
+# popped out of the row variable the outer dip exposed.
+# --------------------------------------------------------------------------
+
+: test-bi-inside-dip-body ( -- )
+  7 99
+  [ [ 1 i.+ ] [ 2 i.+ ] bi ] dip
+  # Outer dip preserves 99. Body sees 7. bi runs [ 1 + ] then [ 2 + ]
+  # on 7 — quot1: 7 → 8, then bi pushes original 7 back, quot2: 7 → 9.
+  # Body output: 8 9. Outer dip pushes 99 back. Final: 8 9 99.
+  99 test.assert-eq
+  9 test.assert-eq
+  8 test.assert-eq
+;
+
+# --------------------------------------------------------------------------
+# if inside a dip body — the cond gets polymorphic-popped out of the row.
+# --------------------------------------------------------------------------
+
+: test-if-inside-dip-body ( -- )
+  42 true 7
+  [ [ 50 i.+ ] [ 200 i.+ ] if ] dip
+  # Outer dip preserves 7. Body sees (42 true). if pops true,
+  # runs [ 50 + ] on 42 → 92. Outer dip pushes 7 back. Final: 92 7.
+  7 test.assert-eq
+  92 test.assert-eq
+
+  42 false 7
+  [ [ 50 i.+ ] [ 200 i.+ ] if ] dip
+  # Else branch: 42 + 200 = 242. Final: 242 7.
+  7 test.assert-eq
+  242 test.assert-eq
+;
+
+# --------------------------------------------------------------------------
+# Three-deep nesting — exercises the row-variable refinement through two
+# nested quotation bodies, confirming substitutions compose correctly.
+# --------------------------------------------------------------------------
+
+: test-triple-nested-dip ( -- )
+  1000 100 10 1
+  [ [ [ 5 i.+ ] dip ] dip ] dip
+  # Outermost dip preserves 1. Middle preserves 10. Innermost preserves
+  # 100. [ 5 + ] runs on 1000 → 1005. Restore in reverse: 100, 10, 1.
+  # Final: 1005 100 10 1.
+  1 test.assert-eq
+  10 test.assert-eq
+  100 test.assert-eq
+  1005 test.assert-eq
+;

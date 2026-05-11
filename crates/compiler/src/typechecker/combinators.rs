@@ -49,18 +49,27 @@ impl TypeChecker {
                 .to_string());
         }
 
-        // Pop the preserved value (below the quotation)
-        let (rest_stack, preserved_type) = stack_after_quot.clone().pop().ok_or_else(|| {
-            format!(
-                "{}dip: stack underflow - expected a value below the quotation",
-                line_prefix
-            )
-        })?;
+        // Pop the preserved value (below the quotation).
+        //
+        // Polymorphic pop: when the stack below the quotation is a bare row
+        // variable (e.g., this `dip` is the first operation in a quotation
+        // body whose incoming stack is unconstrained), refine the row var
+        // by introducing a fresh type for the preserved slot. The
+        // substitution is composed with the quotation-application subst so
+        // the surrounding context sees the refinement. Issue #471.
+        let (rest_stack, preserved_type, pop_subst) = self.polymorphic_pop(
+            stack_after_quot,
+            "dip: expected a value below the quotation",
+        )?;
 
         // Freshen and apply the quotation's effect to the stack below the preserved value
         let fresh_effect = self.freshen_effect(&quot_effect);
-        let (result_stack, subst) =
+        let (result_stack, apply_subst) =
             self.apply_effect(&fresh_effect, rest_stack, "dip (quotation)", span)?;
+
+        // Combined substitution: the row-var refinement from the preserved
+        // pop, then any unification from applying the quotation's effect.
+        let subst = pop_subst.compose(&apply_subst);
 
         // Push the preserved value back on top, applying substitution in case
         // preserved_type contains type variables resolved during unification
@@ -117,19 +126,28 @@ impl TypeChecker {
                 .to_string());
         }
 
-        // Peek at the preserved value type (it stays, we just need its type)
-        let (_rest_stack, preserved_type) = stack_after_quot.clone().pop().ok_or_else(|| {
-            format!(
-                "{}keep: stack underflow - expected a value below the quotation",
-                line_prefix
-            )
-        })?;
+        // Peek at the preserved value type. We don't consume it from the
+        // stack the quotation sees (keep passes the value to the quotation
+        // AND preserves it), but we need its type to push back at the end.
+        //
+        // Polymorphic peek: if the stack below the quotation is a bare row
+        // variable (e.g., `keep` is the first operation in a quotation body
+        // with unconstrained input), refine the row var by introducing a
+        // fresh preserved-value type. The refinement substitution applies
+        // to the stack used by the quotation. Issue #471.
+        let (_rest_stack, preserved_type, peek_subst) = self.polymorphic_pop(
+            stack_after_quot.clone(),
+            "keep: expected a value below the quotation",
+        )?;
+        let quot_input_stack = peek_subst.apply_stack(&stack_after_quot);
 
         // The quotation receives x on the stack (stack_after_quot still has x on top).
         // Apply the quotation's effect to the stack INCLUDING x.
         let fresh_effect = self.freshen_effect(&quot_effect);
-        let (result_stack, subst) =
-            self.apply_effect(&fresh_effect, stack_after_quot, "keep (quotation)", span)?;
+        let (result_stack, apply_subst) =
+            self.apply_effect(&fresh_effect, quot_input_stack, "keep (quotation)", span)?;
+
+        let subst = peek_subst.compose(&apply_subst);
 
         // Push the preserved value back on top, applying substitution in case
         // preserved_type contains type variables resolved during unification
@@ -214,19 +232,23 @@ impl TypeChecker {
                 .to_string());
         }
 
-        // stack2 has x on top (the value both quotations operate on)
-        // Peek at x's type for the second application
-        let (_rest, preserved_type) = stack2.clone().pop().ok_or_else(|| {
-            format!(
-                "{}bi: stack underflow - expected a value below the quotations",
-                line_prefix
-            )
-        })?;
+        // stack2 has x on top (the value both quotations operate on).
+        // Peek at x's type for the second application. Polymorphic: refine a
+        // bare row variable below the two quotations so `bi` inside a
+        // polymorphic body type-checks. Issue #471.
+        let (_rest, preserved_type, peek_subst) =
+            self.polymorphic_pop(stack2.clone(), "bi: expected a value below the quotations")?;
+        let quot1_input_stack = peek_subst.apply_stack(&stack2);
 
         // Apply quot1 to stack including x
         let fresh_effect1 = self.freshen_effect(&quot1_effect);
-        let (after_quot1, subst1) =
-            self.apply_effect(&fresh_effect1, stack2, "bi (first quotation)", span)?;
+        let (after_quot1, apply_subst1) = self.apply_effect(
+            &fresh_effect1,
+            quot1_input_stack,
+            "bi (first quotation)",
+            span,
+        )?;
+        let subst1 = peek_subst.compose(&apply_subst1);
 
         // Push x again for quot2, applying subst1 in case preserved_type
         // contains type variables that were resolved during quot1's unification
@@ -275,19 +297,20 @@ impl TypeChecker {
                 line_prefix
             )
         })?;
-        let (stack_after_cond, cond_type) = stack2.clone().pop().ok_or_else(|| {
-            format!(
-                "{}if: stack underflow - expected Bool below the two quotations",
-                line_prefix
-            )
-        })?;
+        // Polymorphic pop of the condition: a bare row variable below the
+        // two quotations gets refined to "row + Bool" once the cond-unify
+        // constrains the fresh type. This lets `if` work inside a
+        // quotation body whose incoming stack is polymorphic. Issue #471.
+        let (stack_after_cond, cond_type, cond_pop_subst) =
+            self.polymorphic_pop(stack2, "if: expected Bool below the two quotations")?;
 
         // Condition must be Bool.
-        let cond_subst = unify_stacks(
+        let cond_unify_subst = unify_stacks(
             &StackType::singleton(Type::Bool),
             &StackType::singleton(cond_type),
         )
         .map_err(|e| format!("{}if: condition must be Bool: {}", line_prefix, e))?;
+        let cond_subst = cond_pop_subst.compose(&cond_unify_subst);
         let stack_after_cond = cond_subst.apply_stack(&stack_after_cond);
 
         // Extract both quotation effects, mirroring the dip/keep/bi pattern:

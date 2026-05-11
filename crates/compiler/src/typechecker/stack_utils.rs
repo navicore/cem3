@@ -1,5 +1,7 @@
 //! Stack-type utilities: depth, position lookup, rotation, pop, effect application.
 
+use std::collections::HashMap;
+
 use crate::builtins::builtin_signature;
 use crate::types::{Effect, StackType, Type};
 use crate::unification::{Subst, unify_stacks};
@@ -250,6 +252,62 @@ impl TypeChecker {
         match current {
             StackType::RowVar(name) => Some(name.clone()),
             _ => None,
+        }
+    }
+
+    /// Pop a value from a stack, allowing row-polymorphic refinement.
+    ///
+    /// Four cases:
+    /// - `Cons { rest, top }` — concrete pop. Returns (rest, top, empty subst).
+    /// - `RowVar("rest")` — rigid row variable from a user-declared signature
+    ///   (parser convention; see `apply_effect`). The user explicitly said
+    ///   "no values below this," so refining it would silently accept a
+    ///   genuine underflow. Returns Err.
+    /// - `RowVar(other)` — flexible row variable (inferred via "input",
+    ///   freshened via "$N"). Introduces a fresh type variable T and a fresh
+    ///   row variable ..a', returns (RowVar(..a'), Var(T), subst
+    ///   { name → Cons(RowVar(..a'), T) }). The substitution records that
+    ///   the original row variable contains at least one value on top,
+    ///   propagating outward through substitution composition.
+    /// - `Empty` — genuine underflow, returns Err.
+    ///
+    /// This enables nested combinators (dip-in-dip, etc.) to type-check
+    /// when the surrounding stack is row-polymorphic — issue #471 — while
+    /// still rejecting underflow at rigid declaration boundaries.
+    pub(super) fn polymorphic_pop(
+        &self,
+        stack: StackType,
+        context: &str,
+    ) -> Result<(StackType, Type, Subst), String> {
+        match stack {
+            StackType::Cons { rest, top } => Ok((*rest, top, Subst::empty())),
+            StackType::RowVar(name) if name == "rest" => Err(format!(
+                "{}{}: stack underflow",
+                self.line_prefix(),
+                context
+            )),
+            StackType::RowVar(name) => {
+                let fresh_type = self.fresh_var("T");
+                let fresh_row = self.fresh_var(&name);
+                let new_rest = StackType::RowVar(fresh_row);
+                let popped = Type::Var(fresh_type);
+                let refined = StackType::Cons {
+                    rest: Box::new(new_rest.clone()),
+                    top: popped.clone(),
+                };
+                let mut rows = HashMap::new();
+                rows.insert(name, refined);
+                let subst = Subst {
+                    types: HashMap::new(),
+                    rows,
+                };
+                Ok((new_rest, popped, subst))
+            }
+            StackType::Empty => Err(format!(
+                "{}{}: stack underflow",
+                self.line_prefix(),
+                context
+            )),
         }
     }
 

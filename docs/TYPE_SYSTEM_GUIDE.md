@@ -190,6 +190,47 @@ Row polymorphism enables **stack operation composition**:
 # Result: ( Int Int Int -- Int Int ) ✓
 ```
 
+### Refinement Inside Quotation Bodies
+
+Row variables are not just placeholders for "whatever is below" — they
+**refine** to expose concrete slots when an operation needs them. This
+is what lets nested combinators like `[ [ q ] dip ] dip` type-check.
+
+When the typechecker pops a value from a stack that's currently a bare
+row variable, it introduces a fresh type variable for the popped slot
+and a fresh row variable for what's still below, and records the
+substitution `..a := ..a' T`. The constraint propagates outward as the
+surrounding word's effect is inferred.
+
+```seq
+# Inside the outer quotation body, the stack starts as a fresh row
+# variable. The inner `[ 50 i.+ ] dip` pops a preserved value out of
+# that row, refining it to "at least one Int slot present":
+[ [ 50 i.+ ] dip ]
+# Body's inferred effect: ( ..r Int T -- ..r Int T )
+#   - ..r Int   below the preserved slot (the [ 50 i.+ ] operates here)
+#   - T         the preserved slot the inner dip exposes
+```
+
+The outer `dip` then applies this body effect to a concrete stack —
+unification fills `..r`, `Int`, and `T` from what the caller provided.
+
+**Refinement only applies to flexible row variables.** A row variable
+named `..rest` in a user-declared signature (the parser's convention
+for "the caller provides whatever's below") is **rigid** — it
+represents the caller's contract, not an unknown to be refined.
+Popping below it is a genuine stack underflow and reports as such:
+
+```seq
+: bad ( -- )    # ..rest is rigid: the user said "no inputs"
+  [ ] dip       # error: dip: expected a value below the quotation:
+                #        stack underflow
+;
+```
+
+This boundary is what keeps the inference sound — declared inputs are
+honored, only inferred (unconstrained) row variables refine.
+
 ### Row Polymorphism vs Traditional Generics
 
 If you're familiar with generics from languages like Java, Rust, or TypeScript, row polymorphism may seem similar—but it solves a different problem.

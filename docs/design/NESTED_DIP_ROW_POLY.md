@@ -120,6 +120,80 @@ Document the prototype result in this doc before deciding. If no-go,
 record specifically *why* — that's the artifact that future work
 needs.
 
+### Phase 1 Result — 2026-05-10
+
+**Recommendation: GO.**
+
+**What landed in the prototype:**
+
+- `TypeChecker::polymorphic_pop` in
+  `crates/compiler/src/typechecker/stack_utils.rs`. Cons → concrete
+  pop; flexible `RowVar(name)` → fresh `T` + fresh `..a'` + subst
+  `{name → Cons(..a', T)}`; **rigid** `RowVar("rest")` → Err
+  (preserves the soundness boundary at user-declared signatures);
+  `Empty` → Err. The "rest is rigid" rule matches the existing
+  convention used in `apply_effect` (`stack_utils.rs:195`).
+- Wired into `infer_dip` (preserved pop), `infer_keep` (preserved
+  peek), `infer_bi` (preserved peek), `infer_if_combinator` (cond
+  pop), and `infer_if` in `control_flow.rs` (cond pop for the
+  AST-normalized `Statement::If` path).
+
+**Results against the go/no-go criteria:**
+
+- ✅ `just ci` green: 523 integration tests, all examples, clippy,
+  fmt, `seqc lint`, no_dead_code. Pre-existing `tests/tco_*.seq`
+  parse errors are 6.0-keyword-removal stragglers, unrelated.
+- ✅ Issue #471 programs compile and produce correct runtime stacks
+  (`100 5 3 [ [ 50 i.+ ] dip ] dip` → `150 5 3`, exit 150 after two
+  drops).
+- ✅ Cross-combinator nesting works: dip-in-dip, keep-in-keep,
+  dip-in-keep, keep-with-dip-body, if-in-dip, dip-in-if all compile
+  and run with expected values.
+- ✅ Soundness boundary held: `: main ( -- ) [ ] dip ;` (rigid
+  underflow) errors with "dip: expected a value below the
+  quotation: stack underflow" rather than silently passing. Earlier
+  prototype draft refined `rest` and accepted this — caught
+  immediately and fixed before the wider trace.
+- ✅ Error-message quality preserved at genuine underflows; no
+  user-visible regression in any existing test.
+
+**Caveats traced:**
+
+1. **`>aux` / `aux>` inside polymorphic quotation bodies** still
+   error via the older `pop_type` helper. This is a **pre-existing
+   limitation**, not introduced by Phase 1 — `pop_type` was already
+   conservative on row variables. Out of scope for issue #471.
+   Logged here so a follow-up can choose to extend `polymorphic_pop`
+   to aux operations if/when the same nested-quotation friction
+   appears for aux.
+2. **Yield-effect propagation** is checked at
+   `combinators.rs:46/123/229` *before* `polymorphic_pop` runs.
+   Unchanged code path; nested-combinator yield rejection still
+   fires by construction. Confirmed by reading the unchanged
+   blocks; the existing yield tests in `just ci` pass.
+3. **Closure capture analysis** (`analyze_captures`,
+   `capture_analysis.rs`) is untouched. The 523 integration tests
+   include heavy use of `list.fold`, `list.map`, `strand.spawn`,
+   and `strand.weave` with auto-capturing quotations — all pass.
+4. **Error-message quality** at rigid signature boundaries is
+   crisp (see soundness boundary above). No degradation in error
+   messages from existing typechecker tests.
+
+**Surprises:**
+
+- The initial prototype refined `rest` unconditionally and
+  accepted a genuine underflow. The "rest is rigid" rule was added
+  in response. Worth flagging because it shows the soundness
+  failure mode is real and a future contributor reaching for
+  `polymorphic_pop` from a different call site must honor the same
+  rule. The doc comment on the method spells this out.
+- `infer_if_combinator` (the dynamic-dispatch path) and `infer_if`
+  in `control_flow.rs` (the AST-normalized literal-quotation
+  path) both needed the change. Easy to miss the second one — the
+  combinator path is the obvious target, but most real `if` usage
+  goes through the AST-normalized path. Phase 2 should mention
+  both explicitly in the test plan.
+
 ### Phase 2 — Full Implementation (only on go)
 
 - Promote the prototype rule to a clean implementation with

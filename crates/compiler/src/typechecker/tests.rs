@@ -3981,6 +3981,288 @@ fn test_if_combinator_branch_mismatch() {
     );
 }
 
+// =============================================================================
+// Issue #471: row-polymorphic refinement inside quotation bodies.
+//
+// Before the polymorphic_pop fix, a combinator (dip/keep/bi/if) that needs to
+// pop a value from below a quotation would fail when the surrounding stack was
+// a bare row variable — which is the case inside any quotation body whose
+// incoming stack is unconstrained. These tests pin the new behavior down: the
+// flexible row variable refines to "row + fresh T", letting nested combinators
+// type-check, while the rigid `..rest` row variable from a declared signature
+// stays rigid so genuine underflow is still rejected.
+// =============================================================================
+
+#[test]
+fn test_nested_dip_in_dip_body() {
+    // : test ( Int Int Int -- Int Int Int )  [ [ 1 i.+ ] dip ] dip ;
+    // The outer dip preserves the top Int; the inner dip (inside the
+    // outer quotation body, where the stack starts as a row variable)
+    // must polymorphic-pop its preserved value out of that row.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![WordDef {
+            name: "test".to_string(),
+            effect: Some(Effect::new(
+                StackType::Empty
+                    .push(Type::Int)
+                    .push(Type::Int)
+                    .push(Type::Int),
+                StackType::Empty
+                    .push(Type::Int)
+                    .push(Type::Int)
+                    .push(Type::Int),
+            )),
+            body: vec![
+                Statement::Quotation {
+                    id: 0,
+                    body: vec![
+                        Statement::Quotation {
+                            id: 1,
+                            body: vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall {
+                                    name: "i.+".to_string(),
+                                    span: None,
+                                },
+                            ],
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "dip".to_string(),
+                            span: None,
+                        },
+                    ],
+                    span: None,
+                },
+                Statement::WordCall {
+                    name: "dip".to_string(),
+                    span: None,
+                },
+            ],
+            source: None,
+            allowed_lints: vec![],
+        }],
+    };
+
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program).is_ok());
+}
+
+#[test]
+fn test_keep_inside_dip_body() {
+    // : test ( Int Int -- Int Int Int )  [ [ 1 i.+ ] keep ] dip ;
+    // Outer dip preserves top Int; body uses `keep`, which both passes
+    // its value to the quotation and preserves it. Body effect:
+    // ( ..r Int -- ..r Int Int ).
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![WordDef {
+            name: "test".to_string(),
+            effect: Some(Effect::new(
+                StackType::Empty.push(Type::Int).push(Type::Int),
+                StackType::Empty
+                    .push(Type::Int)
+                    .push(Type::Int)
+                    .push(Type::Int),
+            )),
+            body: vec![
+                Statement::Quotation {
+                    id: 0,
+                    body: vec![
+                        Statement::Quotation {
+                            id: 1,
+                            body: vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall {
+                                    name: "i.+".to_string(),
+                                    span: None,
+                                },
+                            ],
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "keep".to_string(),
+                            span: None,
+                        },
+                    ],
+                    span: None,
+                },
+                Statement::WordCall {
+                    name: "dip".to_string(),
+                    span: None,
+                },
+            ],
+            source: None,
+            allowed_lints: vec![],
+        }],
+    };
+
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program).is_ok());
+}
+
+#[test]
+fn test_dip_inside_keep_body() {
+    // : test ( Int Int -- Int Int Int )  [ [ 1 i.+ ] dip ] keep ;
+    // Keep's quotation runs on a stack that still has the preserved
+    // value on top; the inner dip preserves that value while running
+    // [ 1 i.+ ] on what's below.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![WordDef {
+            name: "test".to_string(),
+            effect: Some(Effect::new(
+                StackType::Empty.push(Type::Int).push(Type::Int),
+                StackType::Empty
+                    .push(Type::Int)
+                    .push(Type::Int)
+                    .push(Type::Int),
+            )),
+            body: vec![
+                Statement::Quotation {
+                    id: 0,
+                    body: vec![
+                        Statement::Quotation {
+                            id: 1,
+                            body: vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall {
+                                    name: "i.+".to_string(),
+                                    span: None,
+                                },
+                            ],
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "dip".to_string(),
+                            span: None,
+                        },
+                    ],
+                    span: None,
+                },
+                Statement::WordCall {
+                    name: "keep".to_string(),
+                    span: None,
+                },
+            ],
+            source: None,
+            allowed_lints: vec![],
+        }],
+    };
+
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program).is_ok());
+}
+
+#[test]
+fn test_bi_inside_dip_body() {
+    // : test ( Int Int -- Int Int Int )  [ [ 1 i.+ ] [ 2 i.+ ] bi ] dip ;
+    // Body uses `bi` on the row-variable input the outer dip exposed.
+    // `bi` peeks a preserved value out of that row, just like dip/keep.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![WordDef {
+            name: "test".to_string(),
+            effect: Some(Effect::new(
+                StackType::Empty.push(Type::Int).push(Type::Int),
+                StackType::Empty
+                    .push(Type::Int)
+                    .push(Type::Int)
+                    .push(Type::Int),
+            )),
+            body: vec![
+                Statement::Quotation {
+                    id: 0,
+                    body: vec![
+                        Statement::Quotation {
+                            id: 1,
+                            body: vec![
+                                Statement::IntLiteral(1),
+                                Statement::WordCall {
+                                    name: "i.+".to_string(),
+                                    span: None,
+                                },
+                            ],
+                            span: None,
+                        },
+                        Statement::Quotation {
+                            id: 2,
+                            body: vec![
+                                Statement::IntLiteral(2),
+                                Statement::WordCall {
+                                    name: "i.+".to_string(),
+                                    span: None,
+                                },
+                            ],
+                            span: None,
+                        },
+                        Statement::WordCall {
+                            name: "bi".to_string(),
+                            span: None,
+                        },
+                    ],
+                    span: None,
+                },
+                Statement::WordCall {
+                    name: "dip".to_string(),
+                    span: None,
+                },
+            ],
+            source: None,
+            allowed_lints: vec![],
+        }],
+    };
+
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program).is_ok());
+}
+
+#[test]
+fn test_dip_rigid_rest_underflow_still_rejected() {
+    // : test ( -- )  [ ] dip ;
+    // The outer signature is `( -- )` — `..rest` is rigid (user
+    // declared no inputs). `polymorphic_pop` must refuse to refine
+    // a rigid row variable; this is the soundness boundary. Without
+    // the rigidity check the prototype silently accepted this, so
+    // the test pins the contract down.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![WordDef {
+            name: "test".to_string(),
+            effect: Some(Effect::new(StackType::Empty, StackType::Empty)),
+            body: vec![
+                Statement::Quotation {
+                    id: 0,
+                    body: vec![],
+                    span: None,
+                },
+                Statement::WordCall {
+                    name: "dip".to_string(),
+                    span: None,
+                },
+            ],
+            source: None,
+            allowed_lints: vec![],
+        }],
+    };
+
+    let mut checker = TypeChecker::new();
+    let result = checker.check_program(&program);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("stack underflow"),
+        "Expected underflow error at rigid signature boundary, got: {}",
+        err
+    );
+}
+
 #[test]
 fn test_if_combinator_non_bool_condition() {
     // : test ( Int -- ?? )  [ 1 ] [ 2 ] if ;

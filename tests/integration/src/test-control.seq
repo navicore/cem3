@@ -140,8 +140,12 @@ include std:control
   # literal-quotation triple is lowered to `Statement::If`, which
   # accepts Yield-bearing branches — matching the keyword form's
   # behaviour and unlike `dip`/`keep`/`bi` which reject Yield.
-  # `chan.yield` is the cooperative scheduler yield, no channel
-  # state needed.
+  # `chan.yield` is the cooperative scheduler yield; under the
+  # `unreachable-chan-yield` lint it requires a spawn peer, so we
+  # spawn a no-op peer to keep the if-lowering acceptance test
+  # honest about the property it claims (yielding bodies in branches).
+  [ ] strand.spawn drop
+
   true  [ chan.yield 1 ] [ chan.yield 2 ] if
   1 test.assert-eq
 

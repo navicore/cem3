@@ -150,8 +150,8 @@ pub(crate) fn run_lint(
 
 fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::LintDiagnostic>) {
     use seqc::{
-        ErrorFlagAnalyzer, Parser, ProgramResourceAnalyzer, TypeChecker, call_graph, lint,
-        resolver::Resolver,
+        ChanYieldAnalyzer, ErrorFlagAnalyzer, Parser, ProgramResourceAnalyzer, TypeChecker,
+        call_graph, lint, resolver::Resolver,
     };
     use std::fs;
 
@@ -232,6 +232,15 @@ fn lint_file(path: &PathBuf, linter: &seqc::Linter, diagnostics: &mut Vec<seqc::
     resolved.program.fixup_union_types();
 
     let call_graph = call_graph::CallGraph::build(&resolved.program);
+
+    // Phase 2c: `chan.yield` reachability — must run on the resolved
+    // program (so spawn roots in included files are visible) and needs
+    // the call graph for transitive closure over user words.
+    let chan_yield_analyzer = ChanYieldAnalyzer::new(path);
+    let chan_yield_diagnostics =
+        chan_yield_analyzer.analyze_program(&resolved.program, &call_graph);
+    diagnostics.extend(chan_yield_diagnostics);
+
     let mut type_checker = TypeChecker::new();
     type_checker.set_call_graph(call_graph);
 

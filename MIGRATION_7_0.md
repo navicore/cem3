@@ -152,6 +152,13 @@ union TokenList { TNil, TCons { head: String, tail: TokenList } }
 : tokenize ( String -- TokenList ) ... ;
 ```
 
+For the conceptual distinction between **type variables** (`T`, single
+uppercase letter, polymorphic over one type) and **row variables**
+(`..a`, polymorphic over a sequence of types), see
+[language-guide.md → Names in Stack Effects](docs/language-guide.md#names-in-stack-effects)
+and the longer treatment in
+[TYPE_SYSTEM_GUIDE.md → Row Polymorphism vs Traditional Generics](docs/TYPE_SYSTEM_GUIDE.md#row-polymorphism-vs-traditional-generics).
+
 ---
 
 ## Rule 5 — Networking builtins moved under `net.*`

@@ -974,6 +974,30 @@ Operations are grouped by functionality:
 | `i.` | Integer operations | `i.+`, `i.-`, `i.*`, `i./`, `i.=`, `i.<` |
 | `f.` | Float operations | `f.+`, `f.-`, `f.*`, `f./`, `f.=`, `f.<` |
 
+### Names in Stack Effects
+
+Three kinds of name appear inside `( ... -- ... )`. They look similar but
+behave very differently — keep the distinction in mind, especially when
+writing or migrating word signatures.
+
+| Kind | Form | Meaning |
+|------|------|---------|
+| **Concrete type** | `Int`, `Float`, `Bool`, `String`, `Symbol`, `Channel`, `Socket`, `Variant`, or a registered `union` name | A specific type. The type checker enforces it. |
+| **Type variable (generic)** | A *single* uppercase letter: `T`, `U`, `V`, `K`, `M`, … | A polymorphic placeholder for *one* type slot on the stack. `dup ( ..a T -- ..a T T )` works for any single value. |
+| **Row variable** | Two dots and a lowercase name: `..a`, `..rest`, `..b` | A polymorphic placeholder for *zero or more* values below. Implicit on every stack effect — you only write it when you need to *name* it (e.g. so two effects share the same row). |
+
+```seq
+: dup ( ..a T -- ..a T T )       # ..a = "anything below"; T = "any one type"
+: net.tcp.write ( ..a String Socket -- ..a Bool )   # all named: row + concretes
+```
+
+Multi-character uppercase identifiers in stack effects must be a known
+concrete type or a registered union — `Acc`, `Ctx`, `Handle` etc. are
+**not** type variables. See [TYPE_SYSTEM_GUIDE.md](TYPE_SYSTEM_GUIDE.md#row-polymorphism-vs-traditional-generics)
+for the deeper "row polymorphism vs traditional generics" treatment, and
+[GLOSSARY.md](GLOSSARY.md#type-variable) / [Row Variable](GLOSSARY.md#row-variable)
+for one-line definitions.
+
 ### Suffixes
 
 | Suffix | Meaning | Example |

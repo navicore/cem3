@@ -260,15 +260,21 @@ The `..a` means "whatever else is on the stack stays unchanged." You can't expre
 
 ### Type Variables
 
-- **T, U, V, ...**: Polymorphic type variables (uppercase)
-- Can unify with any concrete type
-- Example: `dup` works for `T` where T can be Int, String, etc.
+- **A single uppercase letter** — `T`, `U`, `V`, `K`, `M`, etc. — is a
+  polymorphic type variable, abstracting over *one* concrete type slot.
+- Multi-character uppercase identifiers (`Acc`, `Ctx`, `Handle`, `Sokcet`)
+  are **not** type variables. They must be a registered concrete type or
+  union, otherwise the type checker rejects them with a "did you mean"
+  hint. This catches typos that previously masqueraded as polymorphism.
+- Example: `dup ( ..a T -- ..a T T )` works for any one value type T.
 
 ### Row Variables
 
 - **..a, ..b, ..rest**: Row variables (lowercase with `..` prefix)
-- Represent "rest of stack"
-- Enable polymorphism over stack depth
+- Represent "rest of stack" — *zero or more* values, in order
+- Enable polymorphism over stack depth, not over a single type
+- Implicit on every stack effect; write them explicitly only when you
+  need two effects to share the same row variable
 
 ---
 

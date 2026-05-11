@@ -184,6 +184,13 @@ replacement = ""
 message = "`i.modulo` returns (Int Bool) - dropping the Bool hides division-by-zero"
 severity = "warning"
 
+[[lint]]
+id = "unchecked-i-pow"
+pattern = "i.pow drop"
+replacement = ""
+message = "`i.pow` returns (Int Bool) - dropping the Bool hides negative exponent or overflow"
+severity = "warning"
+
 # --- String Parsing ---
 
 [[lint]]

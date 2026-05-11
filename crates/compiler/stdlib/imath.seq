@@ -17,7 +17,6 @@
 # - max: ( Int Int -- Int ) - Maximum of two values
 # - min: ( Int Int -- Int ) - Minimum of two values
 # - gcd: ( Int Int -- Int ) - Greatest common divisor (Euclidean algorithm)
-# - pow: ( Int Int -- Int ) - Power (base^exp) - WARNING: Not tail-recursive
 # - sign: ( Int -- Int ) - Sign function: returns -1, 0, or 1
 # - square: ( Int -- Int ) - Square a number
 # - clamp: ( Int min max -- Int ) - Clamp value between min and max
@@ -29,7 +28,7 @@
 # ## Notes
 #
 # - All operations use wrapping integer arithmetic (i64)
-# - Recursive functions (gcd, pow) may stack overflow for very large inputs
+# - Recursive functions (gcd) may stack overflow for very large inputs
 # - Division by zero will panic at runtime
 # - int->bits and int->bits-padded are defined for non-negative ints only.
 #   Negative inputs terminate (the runtime's `shr` clamps to 0 once the
@@ -44,7 +43,6 @@
 # ## Examples
 #
 #   48 18 gcd                   # Returns 6
-#   2 10 pow                    # Returns 1024
 #   15 0 100 clamp              # Returns 15 (within range)
 #   -5 abs                      # Returns 5
 #   10 int->bits                # Returns "1010"
@@ -96,22 +94,6 @@
     drop               # drop success flag (divisor non-zero, see base case)
     rot drop           # ( b r )
     gcd
-  ] if
-;
-
-# Power (base^exp using recursion)
-: pow ( Int Int -- Int )
-  dup 0 i.= [
-    drop drop 1
-  ] [
-    dup 1 i.= [
-      drop
-    ] [
-      over
-      swap 1 i.subtract
-      pow
-      i.multiply
-    ] if
   ] if
 ;
 

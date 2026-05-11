@@ -20,6 +20,10 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     builtin!(sigs, "i./", (a Int Int -- a Int Bool));
     builtin!(sigs, "i.%", (a Int Int -- a Int Bool));
 
+    // Power: ( a Int Int -- a Int Bool ). Bool is false for negative
+    // exponent, exponent above u32::MAX, or overflow.
+    builtin!(sigs, "i.pow", (a Int Int -- a Int Bool));
+
     // =========================================================================
     // Integer Comparison ( a Int Int -- a Bool )
     // =========================================================================
@@ -67,6 +71,10 @@ pub(super) fn add_docs(docs: &mut HashMap<&'static str, &'static str>) {
     docs.insert(
         "i.%",
         "Integer modulo. Returns (result Bool) -- Bool is false on division by zero.",
+    );
+    docs.insert(
+        "i.pow",
+        "Integer power (base^exp). Returns (result Bool) -- Bool is false when exp is negative, exp exceeds u32::MAX, or the result overflows i64. 0^0 = 1 by convention.",
     );
 
     // Integer Comparison

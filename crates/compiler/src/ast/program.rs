@@ -157,6 +157,7 @@ impl Program {
             "i.multiply",
             "i.divide",
             "i.modulo",
+            "i.pow",
             // Terse integer arithmetic
             "i.+",
             "i.-",

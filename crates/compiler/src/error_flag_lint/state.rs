@@ -114,6 +114,7 @@ pub(super) fn fallible_op_info(name: &str) -> Option<FallibleOpInfo> {
         // Division — ( Int Int -- Int Bool )
         "i./" | "i.divide" => (2, 1, "division by zero"),
         "i.%" | "i.modulo" => (2, 1, "modulo by zero"),
+        "i.pow" => (2, 1, "negative exponent or overflow"),
 
         // File I/O
         "file.slurp" => (1, 1, "file read failure"),

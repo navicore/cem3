@@ -108,6 +108,44 @@ pub unsafe extern "C" fn patch_seq_divide(stack: Stack) -> Stack {
     }
 }
 
+/// Integer power (base^exp)
+///
+/// Stack effect: ( base exp -- result success )
+///
+/// Returns the result and a Bool success flag.
+/// Success returns (base^exp, true) using O(log exp) exponentiation.
+/// Failure returns (0, false) in three cases: exp < 0, exp > u32::MAX,
+/// or the result overflows i64.
+///
+/// By convention, 0^0 = 1 (matching Rust's `i64::pow`, Python, JS).
+///
+/// # Safety
+/// Stack must have two Int values on top
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_pow(stack: Stack) -> Stack {
+    let (rest, a, b) = unsafe { pop_two(stack, "pow") };
+    match (a, b) {
+        (Value::Int(base), Value::Int(exp)) => {
+            let result = if (0..=i64::from(u32::MAX)).contains(&exp) {
+                base.checked_pow(exp as u32)
+            } else {
+                None
+            };
+            match result {
+                Some(v) => {
+                    let stack = unsafe { push(rest, Value::Int(v)) };
+                    unsafe { push(stack, Value::Bool(true)) }
+                }
+                None => {
+                    let stack = unsafe { push(rest, Value::Int(0)) };
+                    unsafe { push(stack, Value::Bool(false)) }
+                }
+            }
+        }
+        _ => panic!("pow: expected two integers on stack"),
+    }
+}
+
 /// Modulo (remainder) of two integers (a % b)
 ///
 /// Stack effect: ( a b -- result success )

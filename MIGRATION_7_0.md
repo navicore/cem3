@@ -203,3 +203,80 @@ The rename table is removed in v8.0.
 The `seq:allow(unchecked-tcp-write)` lint allow-list IDs are unchanged
 — only the patterns they match against were updated. Existing
 suppressions keep working.
+
+---
+
+## Rule 6 — `pow` is removed; call `i.pow` directly
+
+The stdlib word `pow` was a naive O(n) recursive multiplier that
+quietly ignored two real failure modes — negative exponents and
+i64 overflow. It is deleted from `std:imath` in 7.0 and replaced by
+a new builtin `i.pow` that uses `i64::checked_pow` (O(log n)) and
+surfaces failures through the project's standard `(value Bool)`
+error idiom, matching `i.modulo`.
+
+### Signature change
+
+| Before (stdlib) | After (builtin) |
+|--------|--------|
+| `pow ( Int Int -- Int )` | `i.pow ( Int Int -- Int Bool )` |
+
+### Migration
+
+```
+a b pow
+```
+
+becomes
+
+```
+a b i.pow
+```
+
+…plus you must consume the trailing `Bool`. The three patterns:
+
+```
+# 1. Trust the inputs — assert success (panics at runtime if false).
+2 10 i.pow
+test.assert        # or: drop after a seq:allow comment
+
+# 2. Branch on success.
+base exp i.pow [
+  # ok branch — Int is on top
+  ...
+] [
+  # failure branch — Int is 0 here
+  drop
+] if
+
+# 3. Propagate the (value Bool) pair upward unchanged.
+: my-pow ( Int Int -- Int Bool ) i.pow ;
+```
+
+If you imported `std:imath` only for `pow`, you may also drop the
+`include std:imath` line.
+
+### Failure semantics
+
+`i.pow` returns `(0, false)` in three cases:
+
+| Case | Result | Bool |
+|------|--------|------|
+| `exp == 0` (any base, including `0^0`) | `1` | `true` |
+| `exp < 0` | `0` | `false` |
+| `exp > u32::MAX` | `0` | `false` |
+| Overflow (e.g. `2 63 i.pow`) | `0` | `false` |
+
+`0^0 = 1` by convention, matching Rust's `i64::pow`, Python, and JS.
+
+### Lint
+
+A new warning lint `unchecked-i-pow` flags `i.pow drop`:
+
+```
+`i.pow` returns (Int Bool) - dropping the Bool hides negative exponent or overflow
+```
+
+Suppress per call site with `seq:allow(unchecked-i-pow)` when the
+caller has already proven the exponent is non-negative and the
+result cannot overflow.

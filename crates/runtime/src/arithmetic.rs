@@ -50,6 +50,7 @@ pub use patch_seq_peek_bool_value as peek_bool_value;
 pub use patch_seq_peek_int_value as peek_int_value;
 pub use patch_seq_pop_stack as pop_stack;
 pub use patch_seq_popcount as popcount;
+pub use patch_seq_pow as pow;
 pub use patch_seq_push_bool as push_bool;
 pub use patch_seq_push_int as push_int;
 pub use patch_seq_shl as shl;

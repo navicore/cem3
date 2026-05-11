@@ -120,6 +120,7 @@ This document covers:
 | `i.multiply` / `i.*` | `( Int Int -- Int )` | Multiply two integers (wrapping on overflow) |
 | `i.divide` / `i./` | `( Int Int -- Int Bool )` | Integer division with success flag |
 | `i.modulo` / `i.%` | `( Int Int -- Int Bool )` | Integer modulo with success flag |
+| `i.pow` | `( Int Int -- Int Bool )` | Integer power `base^exp` with success flag (false on negative exp, exp > u32::MAX, or overflow; `0^0 = 1`) |
 
 ### Division and Modulo Behavior
 
@@ -683,7 +684,6 @@ include std:imath
 
 -5 abs            # 5
 48 18 gcd         # 6
-2 10 pow          # 1024
 15 0 100 clamp    # 15
 ```
 
@@ -693,12 +693,11 @@ include std:imath
 | `max` | `( Int Int -- Int )` | Maximum |
 | `min` | `( Int Int -- Int )` | Minimum |
 | `gcd` | `( Int Int -- Int )` | Greatest common divisor |
-| `pow` | `( Int Int -- Int )` | Power (base^exp) |
 | `sign` | `( Int -- Int )` | Sign (-1, 0, or 1) |
 | `square` | `( Int -- Int )` | Square |
 | `clamp` | `( Int Int Int -- Int )` | Clamp between min and max |
 
-For modulo, use the `i.modulo` builtin directly (`( Int Int -- Int Bool )`).
+For modulo and power, use the `i.modulo` and `i.pow` builtins directly (`( Int Int -- Int Bool )` — see the Integer Arithmetic section above).
 
 ---
 

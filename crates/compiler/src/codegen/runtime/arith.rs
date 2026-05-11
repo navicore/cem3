@@ -26,6 +26,10 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         decl: "declare ptr @patch_seq_modulo(ptr)",
         category: None,
     },
+    RuntimeDecl {
+        decl: "declare ptr @patch_seq_pow(ptr)",
+        category: None,
+    },
     // Integer comparisons
     RuntimeDecl {
         decl: "declare ptr @patch_seq_eq(ptr)",
@@ -135,6 +139,7 @@ pub(super) static SYMBOLS: &[(&str, &str)] = &[
     ("i.multiply", "patch_seq_multiply"),
     ("i.divide", "patch_seq_divide"),
     ("i.modulo", "patch_seq_modulo"),
+    ("i.pow", "patch_seq_pow"),
     // Terse integer arithmetic aliases
     ("i.+", "patch_seq_add"),
     ("i.-", "patch_seq_subtract"),

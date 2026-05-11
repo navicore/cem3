@@ -27,9 +27,37 @@ include std:imath
 ;
 
 : test-pow ( -- )
-  2 0 pow 1 test.assert-eq
-  2 3 pow 8 test.assert-eq
-  2 10 pow 1024 test.assert-eq
+  2 0 i.pow
+  test.assert
+  1 test.assert-eq
+
+  2 3 i.pow
+  test.assert
+  8 test.assert-eq
+
+  2 10 i.pow
+  test.assert
+  1024 test.assert-eq
+
+  # 0^0 = 1 by convention (matches Rust, Python, JS)
+  0 0 i.pow
+  test.assert
+  1 test.assert-eq
+
+  # Negative exponent: (0, false)
+  2 -1 i.pow
+  not test.assert
+  0 test.assert-eq
+
+  # Exponent above u32::MAX: (0, false)
+  2 4294967296 i.pow
+  not test.assert
+  0 test.assert-eq
+
+  # Overflow: 2^63 doesn't fit in i64 → (0, false)
+  2 63 i.pow
+  not test.assert
+  0 test.assert-eq
 ;
 
 : test-sign ( -- )

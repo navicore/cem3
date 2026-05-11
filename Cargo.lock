@@ -293,9 +293,9 @@ dependencies = [
 
 [[package]]
 name = "clap_complete"
-version = "4.6.3"
+version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "660c0520455b1013b9bcb0393d5f643d7e4454fb69c915b8d6d2aa0e9a45acc3"
+checksum = "e3e962dae2b1e5007fe9e3db363ddc43a8bf25546d279f7a8a4401204690e80c"
 dependencies = [
  "clap",
 ]
@@ -986,9 +986,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.17.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "heck"
@@ -1154,7 +1154,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
- "hashbrown 0.17.0",
+ "hashbrown 0.17.1",
  "serde",
  "serde_core",
 ]
@@ -2104,7 +2104,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "seq-compiler"
-version = "6.6.2"
+version = "7.0.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "6.6.2"
+version = "7.0.0"
 dependencies = [
  "bumpalo",
  "may",
@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "6.6.2"
+version = "7.0.0"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2140,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "6.6.2"
+version = "7.0.0"
 dependencies = [
  "clap",
  "crossterm",
@@ -2157,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "6.6.2"
+version = "7.0.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2961,7 +2961,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "6.6.2"
+version = "7.0.0"
 
 [[package]]
 name = "vtparse"

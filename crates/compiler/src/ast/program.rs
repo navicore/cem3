@@ -258,6 +258,8 @@ impl Program {
             "net.udp.close",
             // DNS operations
             "net.dns.resolve",
+            // TLS operations
+            "net.tls.client",
             // OS operations
             "os.getenv",
             "os.home-dir",

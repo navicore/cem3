@@ -23,6 +23,7 @@ This document covers:
 - [Networking — net.tcp.*](#networking--nettcp)
 - [Networking — net.udp.*](#networking--netudp)
 - [Networking — net.dns.*](#networking--netdns)
+- [Networking — net.tls.*](#networking--nettls)
 - [Networking — Socket type](#networking--socket-type)
 - [OS Operations](#os-operations)
 - [Terminal Operations](#terminal-operations)
@@ -310,6 +311,48 @@ follow-up.
 [ "first IP: " io.write list.first
   [ io.write-line ] [ drop "no addresses" io.write-line ] if ]
 [ "resolution failed" io.write-line ]
+if
+```
+
+## Networking — net.tls.*
+
+TLS client upgrade for an already-connected `Socket`. The handshake
+runs eagerly inside the builtin (via `rustls::ClientConnection::complete_io`
+over the underlying may-aware TCP stream) so transport errors, bad
+certificates, hostname mismatches, and any other TLS-layer failure
+surface as `(0, false)` — matching every other fallible networking
+word. After a successful upgrade, the existing `net.tcp.read` /
+`net.tcp.write` / `net.tcp.close` operate on the returned Socket
+transparently — the runtime dispatches reads and writes through
+rustls. Trust roots come from `webpki-roots`.
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `net.tls.client` | `( Socket String -- Socket Bool )` | Upgrade a connected Socket to TLS. `String` is the hostname (drives SNI and certificate validation; IP literals accepted). Returns a fresh Socket id; the original is consumed (freed on failure, replaced on success). |
+
+**Known limitations (v1):**
+
+- **No client-certificate authentication (mTLS).** A `with_no_client_auth()` config is used unconditionally. mTLS is a planned follow-up.
+- **No caller-side ALPN selection.** Whatever rustls defaults negotiate (typically `h2` / `http/1.1` if the peer offers them) is what you get; there's no way to ask for or reject a specific protocol.
+- **No peer-certificate or cipher inspection from Seq.** Once the handshake succeeds, only the upgraded Socket is exposed — the negotiated suite, peer cert chain, SNI accepted, etc., are not surfaced.
+- **No session resumption knobs.** rustls's default in-process session cache applies; there's no Seq-level control.
+
+```seq
+"example.com" 443 net.tcp.connect
+[ # ( socket )
+  "example.com" net.tls.client
+  [ # ( socket )
+    "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n" over net.tcp.write drop
+    dup net.tcp.read
+    [ io.write-line ]
+    [ drop "read failed" io.write-line ]
+    if
+    net.tcp.close drop
+  ]
+  [ drop "TLS handshake failed" io.write-line ]
+  if
+]
+[ drop "connect failed" io.write-line ]
 if
 ```
 

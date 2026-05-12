@@ -155,6 +155,9 @@ pub(super) fn fallible_op_info(name: &str) -> Option<FallibleOpInfo> {
         // DNS (net.dns.*) — ( String -- List Bool )
         "net.dns.resolve" => (1, 1, "DNS resolution failure"),
 
+        // TLS (net.tls.*) — ( Socket String -- Socket Bool )
+        "net.tls.client" => (2, 1, "TLS handshake failure"),
+
         // OS
         "os.getenv" => (1, 1, "env var not set"),
         "os.home-dir" => (0, 1, "home dir not available"),

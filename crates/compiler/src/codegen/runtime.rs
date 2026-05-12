@@ -28,6 +28,7 @@ mod stdio;
 mod tcp;
 mod test_time;
 mod text;
+mod tls;
 mod udp;
 
 use super::error::CodeGenError;
@@ -58,6 +59,7 @@ pub static RUNTIME_DECLARATIONS: LazyLock<Vec<&'static RuntimeDecl>> = LazyLock:
         tcp::DECLS,
         udp::DECLS,
         dns::DECLS,
+        tls::DECLS,
         http::DECLS,
         os::DECLS,
         text::DECLS,
@@ -87,6 +89,7 @@ pub static BUILTIN_SYMBOLS: LazyLock<HashMap<&'static str, &'static str>> = Lazy
         tcp::SYMBOLS,
         udp::SYMBOLS,
         dns::SYMBOLS,
+        tls::SYMBOLS,
         http::SYMBOLS,
         os::SYMBOLS,
         text::SYMBOLS,

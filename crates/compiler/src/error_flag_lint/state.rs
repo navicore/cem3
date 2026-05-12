@@ -146,6 +146,7 @@ pub(super) fn fallible_op_info(name: &str) -> Option<FallibleOpInfo> {
 
         // TCP (net.tcp.*)
         "net.tcp.listen" => (1, 1, "listen failure"),
+        "net.tcp.connect" => (2, 1, "TCP connect failure"),
         "net.tcp.accept" => (1, 1, "accept failure"),
         "net.tcp.read" => (1, 1, "read failure"),
         "net.tcp.write" => (2, 0, "write failure"),

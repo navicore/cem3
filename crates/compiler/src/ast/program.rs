@@ -243,6 +243,7 @@ impl Program {
             "cond",
             // TCP operations
             "net.tcp.listen",
+            "net.tcp.connect",
             "net.tcp.accept",
             "net.tcp.read",
             "net.tcp.write",

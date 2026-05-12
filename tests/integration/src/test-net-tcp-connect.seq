@@ -1,0 +1,83 @@
+# Integration test for net.tcp.connect.
+#
+# net.tcp.connect resolves a hostname via net.dns.resolve (which goes
+# through the may-aware worker pool), then connects with
+# may::net::TcpStream::connect. The strand yields on every step.
+#
+# This test exercises the full round-trip against a same-process
+# server so no external network is required. A worker strand accepts
+# one connection and replies with "pong"; the main strand connects via
+# net.tcp.connect, sends "ping", and asserts "pong" comes back.
+
+: tcp-test-port ( -- Int )
+  # High port in the dynamic/private range to minimise collision with
+  # locally bound services. If the bind fails on a CI box, the listen
+  # test fails loudly with an explicit message.
+  54321
+;
+
+# -----------------------------------------------------------------------------
+# Happy path: client + same-process server exchange one request/response.
+# -----------------------------------------------------------------------------
+
+: server-body ( Socket -- )
+  # Accepts one connection, expects "ping", replies "pong", closes
+  # the client socket. The listener id is consumed by accept; the
+  # parent retains its own copy from before strand.spawn (which
+  # cloned the stack) and closes it at the end of the test.
+  net.tcp.accept                               # ( client bool )
+  [ ] [ "server: accept failed" io.write-line 1 os.exit ] if
+  dup net.tcp.read                             # ( client req bool )
+  [ "ping" test.assert-eq-str ]
+  [ drop "server: read failed" io.write-line 1 os.exit ]
+  if
+  "pong" over net.tcp.write                    # ( client bool )
+  test.assert
+  net.tcp.close test.assert
+;
+
+: test-net-tcp-connect-round-trip ( -- )
+  tcp-test-port net.tcp.listen                 # ( listener bool )
+  [ ] [ "listen failed (port already in use?)" io.write-line 1 os.exit ] if
+  # strand.spawn clones the stack to the child, so both parent and
+  # child see the listener id. The child consumes it via accept; the
+  # parent retains its copy for the final close.
+  [ server-body ] strand.spawn drop            # ( listener )
+
+  "127.0.0.1" tcp-test-port net.tcp.connect    # ( listener client bool )
+  [ ] [ "connect failed" io.write-line 1 os.exit ] if
+  "ping" over net.tcp.write                    # ( listener client bool )
+  test.assert
+  dup net.tcp.read                             # ( listener client resp bool )
+  [ "pong" test.assert-eq-str ]
+  [ drop "client: read failed" io.write-line 1 os.exit ]
+  if
+  net.tcp.close test.assert                    # close client
+  net.tcp.close test.assert                    # close listener
+;
+
+# -----------------------------------------------------------------------------
+# Failure paths — exercised without going through the worker pool.
+# -----------------------------------------------------------------------------
+
+: test-net-tcp-connect-empty-host-fails ( -- )
+  # Empty hostname short-circuits before DNS — defensive fast-fail.
+  "" 80 net.tcp.connect                        # ( socket bool )
+  test.assert-not                              # bool false
+  drop                                         # discard the 0 socket
+;
+
+: test-net-tcp-connect-invalid-port-fails ( -- )
+  # Port 0 and negative ports are rejected.
+  "127.0.0.1" 0 net.tcp.connect
+  test.assert-not
+  drop
+;
+
+: test-net-tcp-connect-unresolvable-fails ( -- )
+  # .invalid is reserved by RFC 2606 and must not resolve. The DNS
+  # worker returns an empty Vec quickly so the test stays fast.
+  "no-such-host.invalid" 80 net.tcp.connect
+  test.assert-not
+  drop
+;

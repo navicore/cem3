@@ -8,6 +8,10 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         category: Some("; TCP operations"),
     },
     RuntimeDecl {
+        decl: "declare ptr @patch_seq_tcp_connect(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
         decl: "declare ptr @patch_seq_tcp_accept(ptr)",
         category: None,
     },
@@ -31,6 +35,7 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
 
 pub(super) static SYMBOLS: &[(&str, &str)] = &[
     ("net.tcp.listen", "patch_seq_tcp_listen"),
+    ("net.tcp.connect", "patch_seq_tcp_connect"),
     ("net.tcp.accept", "patch_seq_tcp_accept"),
     ("net.tcp.read", "patch_seq_tcp_read"),
     ("net.tcp.write", "patch_seq_tcp_write"),

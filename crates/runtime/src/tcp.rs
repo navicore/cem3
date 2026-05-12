@@ -14,7 +14,12 @@ use std::sync::Mutex;
 // Maximum number of concurrent connections to prevent unbounded growth
 const MAX_SOCKETS: usize = 10_000;
 
-// Maximum bytes to read from a socket to prevent memory exhaustion attacks
+// Maximum bytes to read from a socket to prevent memory exhaustion attacks.
+// patch_seq_tcp_read currently performs a single 4 KB read per call, so the
+// cap is not load-bearing on that path; it's retained as the architectural
+// ceiling that future read-N or full-body variants (e.g. an HTTP-client
+// migration off ureq) will enforce.
+#[allow(dead_code)]
 const MAX_READ_SIZE: usize = 1_048_576; // 1 MB
 
 // Socket registry with ID reuse via free list
@@ -110,6 +115,90 @@ pub unsafe extern "C" fn patch_seq_tcp_listen(stack: Stack) -> Stack {
         match listeners.allocate(listener) {
             Ok(listener_id) => {
                 let stack = push(stack, Value::Int(listener_id));
+                push(stack, Value::Bool(true))
+            }
+            Err(_) => {
+                let stack = push(stack, Value::Int(0));
+                push(stack, Value::Bool(false))
+            }
+        }
+    }
+}
+
+/// TCP connect to a remote endpoint.
+///
+/// Stack effect: ( host:String port:Int -- Socket Bool )
+///
+/// Resolves `host` through the may-aware DNS layer (cache + worker
+/// pool — no `getaddrinfo` ever runs on a may carrier), then tries
+/// each resolved address in order until one connects via
+/// `may::net::TcpStream::connect`. Yields the strand on every step.
+///
+/// Returns `(0, false)` on resolution failure, every-address-failed,
+/// invalid port, or socket-registry exhaustion.
+///
+/// # Safety
+/// Stack must have a String (host) and Int (port) on top — port topmost.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_tcp_connect(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, port_val) = pop(stack);
+        let port = match port_val {
+            Value::Int(p) => p,
+            _ => {
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
+        };
+        if !(1..=65535).contains(&port) {
+            let stack = push(stack, Value::Int(0));
+            return push(stack, Value::Bool(false));
+        }
+
+        let (stack, host_val) = pop(stack);
+        let host = match host_val {
+            Value::String(s) => s,
+            _ => {
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
+        };
+        let hostname = host.as_str_or_empty();
+        if hostname.is_empty() {
+            let stack = push(stack, Value::Int(0));
+            return push(stack, Value::Bool(false));
+        }
+
+        let addrs = crate::dns::resolve(hostname);
+        if addrs.is_empty() {
+            let stack = push(stack, Value::Int(0));
+            return push(stack, Value::Bool(false));
+        }
+
+        let mut connected: Option<TcpStream> = None;
+        for ip in &addrs {
+            let target = format!("{ip}:{port}");
+            // The address is always an IP literal here, so may's
+            // internal `to_socket_addrs` parses it without a second
+            // `getaddrinfo`. connect() yields the strand on the
+            // SYN/SYN-ACK round-trip.
+            if let Ok(s) = TcpStream::connect(&target) {
+                connected = Some(s);
+                break;
+            }
+        }
+        let stream = match connected {
+            Some(s) => s,
+            None => {
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
+        };
+
+        let mut streams = STREAMS.lock().unwrap();
+        match streams.allocate(stream) {
+            Ok(id) => {
+                let stack = push(stack, Value::Int(id));
                 push(stack, Value::Bool(true))
             }
             Err(_) => {
@@ -225,53 +314,23 @@ pub unsafe extern "C" fn patch_seq_tcp_read(stack: Stack) -> Stack {
         };
         // Registry lock is now released
 
-        // Read available data (this yields the strand, doesn't block OS thread)
-        // Reads all currently available data up to MAX_READ_SIZE
-        // Returns when: data is available and read, EOF, or WouldBlock
+        // One read per call. may::net::TcpStream::read suspends the
+        // strand until at least one byte is available (or the peer
+        // closes), then returns whatever the kernel had ready in one
+        // batch. Returning here lets a caller wait for client data
+        // without our own read holding the socket past the first
+        // payload — request/response framing happens in user code.
+        //
+        // The chunk size caps a single batch at 4 KB, well under
+        // MAX_READ_SIZE, so a size check is unnecessary at the
+        // per-read level.
         let mut buffer = Vec::new();
         let mut chunk = [0u8; 4096];
         let mut read_error = false;
-
-        // Read until we get data, EOF, or error
-        // For HTTP: Read once and return immediately to avoid blocking when client waits for response
-        loop {
-            // Check size limit to prevent memory exhaustion
-            if buffer.len() >= MAX_READ_SIZE {
-                read_error = true;
-                break;
-            }
-
-            match stream.read(&mut chunk) {
-                Ok(0) => {
-                    break;
-                }
-                Ok(n) => {
-                    // Don't exceed max size even with partial chunk
-                    let bytes_to_add = n.min(MAX_READ_SIZE.saturating_sub(buffer.len()));
-                    buffer.extend_from_slice(&chunk[..bytes_to_add]);
-                    if bytes_to_add < n {
-                        break; // Hit limit
-                    }
-                    // Return immediately after reading data
-                    // May's cooperative I/O would block on next read() if no more data available
-                    // Client might be waiting for our response, so don't wait for more
-                    break;
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No data available yet - yield and wait for May's scheduler to wake us
-                    // when data arrives, or connection closes
-                    if buffer.is_empty() {
-                        may::coroutine::yield_now();
-                        continue;
-                    }
-                    // If we already have some data, return it
-                    break;
-                }
-                Err(_) => {
-                    read_error = true;
-                    break;
-                }
-            }
+        match stream.read(&mut chunk) {
+            Ok(0) => {} // EOF — return empty payload, success=true
+            Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+            Err(_) => read_error = true,
         }
 
         // Put the stream back
@@ -376,24 +435,42 @@ pub unsafe extern "C" fn patch_seq_tcp_close(stack: Stack) -> Stack {
             }
         };
 
-        // Check if socket exists before freeing
-        let mut streams = STREAMS.lock().unwrap();
-        let existed = streams
-            .get_mut(socket_id)
-            .map(|slot| slot.is_some())
-            .unwrap_or(false);
-
-        if existed {
-            streams.free(socket_id);
+        // A user-visible `Socket` unifies listeners and connected
+        // streams, so close has to look in both registries. Streams
+        // are checked first because they're far more common at
+        // shutdown time. Ids are not globally unique across the two
+        // registries (each starts at 0); for finite servers that
+        // close exactly one of each that's fine, but multi-socket
+        // shutdowns with id-aliasing across registries remain an
+        // open design wart.
+        {
+            let mut streams = STREAMS.lock().unwrap();
+            if streams
+                .get_mut(socket_id)
+                .is_some_and(|slot| slot.is_some())
+            {
+                streams.free(socket_id);
+                return push(stack, Value::Bool(true));
+            }
         }
-
-        push(stack, Value::Bool(existed))
+        {
+            let mut listeners = LISTENERS.lock().unwrap();
+            if listeners
+                .get_mut(socket_id)
+                .is_some_and(|slot| slot.is_some())
+            {
+                listeners.free(socket_id);
+                return push(stack, Value::Bool(true));
+            }
+        }
+        push(stack, Value::Bool(false))
     }
 }
 
 // Public re-exports with short names for internal use
 pub use patch_seq_tcp_accept as tcp_accept;
 pub use patch_seq_tcp_close as tcp_close;
+pub use patch_seq_tcp_connect as tcp_connect;
 pub use patch_seq_tcp_listen as tcp_listen;
 pub use patch_seq_tcp_read as tcp_read;
 pub use patch_seq_tcp_write as tcp_write;

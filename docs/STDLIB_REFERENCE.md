@@ -217,16 +217,36 @@ Division and modulo operations return a result and a success flag:
 ## Networking — net.tcp.*
 
 All TCP operations return a Bool success flag for error handling. The fd
-slot is typed as `Socket` (a phantom over Int) — `net.net.tcp.write` will not
+slot is typed as `Socket` (a phantom over Int) — `net.tcp.write` will not
 accept an arbitrary integer.
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `net.net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success) |
-| `net.net.tcp.accept` | `( Socket -- Socket Bool )` | Accept connection. Returns (client, success) |
-| `net.net.tcp.read` | `( Socket -- String Bool )` | Read from socket. Returns (data, success) |
-| `net.net.tcp.write` | `( String Socket -- Bool )` | Write to socket. Returns success |
-| `net.net.tcp.close` | `( Socket -- Bool )` | Close socket. Returns success |
+| `net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success) |
+| `net.tcp.connect` | `( String Int -- Socket Bool )` | Connect to host:port. Returns (socket, success) |
+| `net.tcp.accept` | `( Socket -- Socket Bool )` | Accept connection. Returns (client, success) |
+| `net.tcp.read` | `( Socket -- String Bool )` | Read from socket. Returns (data, success) |
+| `net.tcp.write` | `( String Socket -- Bool )` | Write to socket. Returns success |
+| `net.tcp.close` | `( Socket -- Bool )` | Close socket. Returns success |
+
+`net.tcp.connect` resolves the hostname through [net.dns.resolve](#networking--netdns) —
+the lookup runs on the DNS worker pool, not the may carrier, and tries
+each returned address in order until one connects (or all fail). IP
+literals work as hostnames (they round-trip through `getaddrinfo`
+without touching DNS). Bool is false on resolution failure,
+every-address-failed, invalid port (must be 1..65535), or
+socket-registry exhaustion.
+
+```seq
+"example.com" 443 net.tcp.connect
+[ # ( socket )
+  "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n" over net.tcp.write drop
+  dup net.tcp.read [ io.write-line ] [ drop ] if
+  net.tcp.close drop
+]
+[ drop "connect failed" io.write-line ]
+if
+```
 
 ## Networking — net.udp.*
 
@@ -235,10 +255,10 @@ success Bool on top so callers can `[ ... ] [ ... ] if`.
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `net.net.udp.bind` | `( Int -- Socket Int Bool )` | Bind to local port. Returns (socket, bound-port, success). port=0 lets the OS pick. |
-| `net.net.udp.send-to` | `( String String Int Socket -- Bool )` | Send a datagram. (bytes, host, port, socket) |
-| `net.net.udp.receive-from` | `( Socket -- String String Int Bool )` | Receive (yields). Returns (bytes, host, port, success) |
-| `net.net.udp.close` | `( Socket -- Bool )` | Release the socket |
+| `net.udp.bind` | `( Int -- Socket Int Bool )` | Bind to local port. Returns (socket, bound-port, success). port=0 lets the OS pick. |
+| `net.udp.send-to` | `( String String Int Socket -- Bool )` | Send a datagram. (bytes, host, port, socket) |
+| `net.udp.receive-from` | `( Socket -- String String Int Bool )` | Receive (yields). Returns (bytes, host, port, success) |
+| `net.udp.close` | `( Socket -- Bool )` | Release the socket |
 
 ## Networking — net.dns.*
 
@@ -282,7 +302,7 @@ if
 
 `Socket` is a compile-time-only nominal wrapper over the `Int` file
 descriptor; the runtime representation stays `Value::Int(fd)`. This means
-the type checker rejects `42 net.net.tcp.write`. Two escape hatches exist
+the type checker rejects `42 net.tcp.write`. Two escape hatches exist
 for FFI / debugging:
 
 | Word | Stack Effect | Description |
@@ -376,10 +396,10 @@ provides server-side response/parsing helpers (`http-ok`, `http-request-path`,
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `net.net.http.get` | `( String -- Map )` | GET request. Map has status, body, ok, error |
-| `net.net.http.post` | `( String String String -- Map )` | POST request. (url, body, content-type) |
-| `net.net.http.put` | `( String String String -- Map )` | PUT request. (url, body, content-type) |
-| `net.net.http.delete` | `( String -- Map )` | DELETE request |
+| `net.http.get` | `( String -- Map )` | GET request. Map has status, body, ok, error |
+| `net.http.post` | `( String String String -- Map )` | POST request. (url, body, content-type) |
+| `net.http.put` | `( String String String -- Map )` | PUT request. (url, body, content-type) |
+| `net.http.delete` | `( String -- Map )` | DELETE request |
 
 ## Regular Expressions
 

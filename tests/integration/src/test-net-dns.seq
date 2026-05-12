@@ -32,6 +32,10 @@
   # First call seeds the cache; second call hits the cache path and
   # must return the same address. We compare the first IP of each
   # result with assert-eq-str.
+  #
+  # Note: this verifies equality, not that the second call actually
+  # hit the cache. A genuine cache-path assertion needs a hit/miss
+  # counter exposed via debug-stats (planned follow-up).
   "localhost" net.dns.resolve
   [ ] [ "first localhost lookup failed" io.write-line 1 os.exit ] if
   list.first
@@ -54,25 +58,34 @@
   test.assert-eq-str                  # second equals first
 ;
 
-: resolve-and-drop ( -- )
-  # Helper: spawned strand body. Exercises the worker pool and
-  # validates the (value Bool) shape under cooperative concurrency.
-  # Both branches must consume the list so the if balances.
+: spawn-resolver-body ( Channel -- Channel )
+  # Helper for the fanout test. Resolves localhost, then sends a
+  # completion token on the channel so the parent can join. The
+  # parent's channel stays on the stack (the strand owns its copy).
   "localhost" net.dns.resolve
-  [ drop ]
-  [ drop "concurrent net.dns.resolve failed" io.write-line 1 os.exit ]
-  if
+  [ drop ] [ drop "fanout failed" io.write-line 1 os.exit ] if
+  dup 1 swap chan.send test.assert
 ;
 
 : test-net-dns-concurrent-fanout ( -- )
-  # Spawn several strands all resolving the same hostname. The first
-  # to hit the worker pool fills the cache; later strands hit the
-  # cache path. spawner-self rule keeps the chan-yield lint happy
-  # if any future implementation introduces a yield in resolve.
-  [ resolve-and-drop ] strand.spawn drop
-  [ resolve-and-drop ] strand.spawn drop
-  [ resolve-and-drop ] strand.spawn drop
-  [ resolve-and-drop ] strand.spawn drop
+  # Spawn four strands all resolving the same hostname. The first to
+  # hit the worker pool fills the cache; later strands hit the cache
+  # path. Each strand sends a completion token; main joins on all
+  # four before returning. Without the join, the test would pass
+  # whether or not the spawned bodies ever ran.
+  chan.make                                                              # ( c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c c c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c c c c )
+  # Five channel copies on the parent (one original + four duplicates
+  # that weren't dropped after each spawn). Each chan.receive
+  # consumes one; the trailing drop releases the original.
+  chan.receive test.assert drop
+  chan.receive test.assert drop
+  chan.receive test.assert drop
+  chan.receive test.assert drop
+  drop
 ;
 
 : test-net-dns-empty-string-fails ( -- )

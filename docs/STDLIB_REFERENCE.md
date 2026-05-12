@@ -257,6 +257,18 @@ The list contains IP-string representations (`"127.0.0.1"`,
 touching DNS.
 
 Worker count is configurable via `SEQ_DNS_WORKERS` (default 8, max 64).
+`SEQ_DNS_WORKERS=0` is treated as unset and falls back to the default —
+disabling the pool makes no architectural sense since the syscall has
+to run somewhere off the may carrier.
+
+**Known limitation — no single-flight.** The cache deduplicates
+*sequential* fanout: once one strand fills the cache, later resolves
+of the same host hit the fast path. It does **not** deduplicate
+*concurrent* first-resolves — N strands racing to resolve the same
+uncached host each enqueue a separate worker job. Wasted work under
+bursty load (e.g., connection-pool warm-up); not a correctness issue.
+Single-flight via an in-flight map keyed by hostname is a planned
+follow-up.
 
 ```seq
 "api.example.com" net.dns.resolve

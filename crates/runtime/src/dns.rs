@@ -14,6 +14,17 @@
 //! `net.dns.resolve ( String -- List Bool )` returns a list of IP-string
 //! representations. On unresolvable name or empty result, pushes
 //! `(empty-list, false)`.
+//!
+//! ## Known limitation: no single-flight
+//!
+//! The cache collapses *sequential* fanout — repeated resolves of the
+//! same host after one has filled the cache hit the fast path. It does
+//! *not* deduplicate *concurrent* first-resolves: N strands racing to
+//! resolve the same uncached host enqueue N worker jobs, each running
+//! its own `getaddrinfo` and writing the cache on return. Wasted work
+//! under bursty load (e.g., connection-pool warm-up), but not a
+//! correctness issue. Single-flight via an in-flight map keyed by
+//! hostname is a planned follow-up.
 
 use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
@@ -86,7 +97,15 @@ struct Job {
 
 /// Lazy job queue. First send spawns the worker pool. Workers live for
 /// the lifetime of the process; the static sender drops only at shutdown.
-static JOB_QUEUE: LazyLock<std_mpsc::Sender<Job>> = LazyLock::new(|| {
+///
+/// `None` means every requested worker failed to spawn (resource
+/// starvation, ulimit, etc.). In that case the FFI fast-fails to
+/// `(empty-list, false)` instead of panicking forever.
+///
+/// Note: `SEQ_DNS_WORKERS=0` silently falls back to `DEFAULT_WORKERS`
+/// — disabling the pool makes no architectural sense (the syscall has
+/// to run *somewhere*), so we treat 0 as "unset" rather than rejecting.
+static JOB_QUEUE: LazyLock<Option<std_mpsc::Sender<Job>>> = LazyLock::new(|| {
     let (tx, rx) = std_mpsc::channel::<Job>();
     let rx = Arc::new(Mutex::new(rx));
 
@@ -97,14 +116,21 @@ static JOB_QUEUE: LazyLock<std_mpsc::Sender<Job>> = LazyLock::new(|| {
         .unwrap_or(DEFAULT_WORKERS)
         .min(MAX_WORKERS);
 
+    let mut spawned = 0usize;
     for i in 0..workers {
         let rx = rx.clone();
-        thread::Builder::new()
-            .name(format!("seq-dns-{}", i))
+        if thread::Builder::new()
+            .name(format!("seq-dns-{i}"))
             .spawn(move || worker_loop(rx))
-            .expect("spawn DNS worker thread");
+            .is_ok()
+        {
+            spawned += 1;
+        }
+        // Spawn failures degrade the pool gracefully — we keep
+        // whatever workers the OS allowed. A poisoned LazyLock would
+        // turn a soft starvation event into permanent FFI panics.
     }
-    tx
+    if spawned == 0 { None } else { Some(tx) }
 });
 
 fn worker_loop(rx: Arc<Mutex<std_mpsc::Receiver<Job>>>) {
@@ -179,12 +205,16 @@ pub unsafe extern "C" fn patch_seq_dns_resolve(stack: Stack) -> Stack {
 
         // Slow path: queue on the worker pool. The may-channel recv()
         // yields the strand until a worker thread sends the reply.
+        let sender = match JOB_QUEUE.as_ref() {
+            Some(s) => s,
+            None => return push_failure(stack), // pool failed to start
+        };
         let (reply_tx, reply_rx) = may::sync::mpsc::channel::<Vec<String>>();
         let job = Job {
             hostname: hostname.clone(),
             reply: reply_tx,
         };
-        if JOB_QUEUE.send(job).is_err() {
+        if sender.send(job).is_err() {
             return push_failure(stack);
         }
         let addrs = match reply_rx.recv() {
@@ -223,5 +253,3 @@ unsafe fn push_failure(stack: Stack) -> Stack {
         push(stack, Value::Bool(false))
     }
 }
-
-pub use patch_seq_dns_resolve as dns_resolve;

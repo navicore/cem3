@@ -71,6 +71,14 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }  # Ed25519 digital
 ureq = { version = "2.12", features = ["tls"] }
 url = "2.5"  # URL parsing for SSRF validation
 
+# TLS — used by net.tls.client and (eventually) the may-aware HTTP rewrite.
+# Pinned to the same major as ureq's transitive rustls so the build doesn't
+# end up with two copies. Default features pull aws_lc_rs *in addition to*
+# ring (which ureq enables), so we disable defaults and pick only the
+# crypto provider that's already being built.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "0.26"
+
 # Regular expressions
 regex = "1.11"
 

@@ -28,6 +28,7 @@ mod os;
 mod stack;
 mod tcp;
 mod text;
+mod tls;
 mod udp;
 
 #[cfg(test)]
@@ -55,6 +56,7 @@ const CATEGORIES: &[(&str, AddSigsFn, AddDocsFn)] = &[
     ("tcp", tcp::add_signatures, tcp::add_docs),
     ("udp", udp::add_signatures, udp::add_docs),
     ("dns", dns::add_signatures, dns::add_docs),
+    ("tls", tls::add_signatures, tls::add_docs),
     ("http", http::add_signatures, http::add_docs),
     ("os", os::add_signatures, os::add_docs),
     ("text", text::add_signatures, text::add_docs),

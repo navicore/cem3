@@ -8,9 +8,54 @@
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use may::net::{TcpListener, TcpStream};
+use rustls::{ClientConnection, StreamOwned};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
+
+/// What a Socket id actually points at in the STREAMS registry.
+///
+/// `Tcp` is a connected plain stream (the only kind PR1/PR2 produced).
+/// `Tls` is a connected stream that has been upgraded via
+/// `net.tls.client` — every read/write goes through rustls over the
+/// same may-aware TcpStream. Both arms implement `Read + Write`, so
+/// `net.tcp.read` / `net.tcp.write` / `net.tcp.close` dispatch over
+/// either variant without the caller knowing the difference.
+///
+/// The TLS arm is boxed not to shrink the *enum* (size_of TcpStream is
+/// non-trivial and tends to dominate the discriminant size anyway) but
+/// to keep the `StreamOwned<ClientConnection, _>` payload — which
+/// embeds rustls's per-connection record buffers — off the registry
+/// allocation. Without the box, every plain-TCP allocation would have
+/// to find a contiguous chunk large enough for the TLS variant.
+pub(crate) enum StreamKind {
+    Tcp(TcpStream),
+    Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
+}
+
+impl Read for StreamKind {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            StreamKind::Tcp(s) => s.read(buf),
+            StreamKind::Tls(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for StreamKind {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            StreamKind::Tcp(s) => s.write(buf),
+            StreamKind::Tls(s) => s.write(buf),
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            StreamKind::Tcp(s) => s.flush(),
+            StreamKind::Tls(s) => s.flush(),
+        }
+    }
+}
 
 // Maximum number of concurrent connections to prevent unbounded growth
 const MAX_SOCKETS: usize = 10_000;
@@ -23,20 +68,20 @@ const MAX_SOCKETS: usize = 10_000;
 const MAX_READ_SIZE: usize = 1_048_576; // 1 MB
 
 // Socket registry with ID reuse via free list
-struct SocketRegistry<T> {
+pub(crate) struct SocketRegistry<T> {
     sockets: Vec<Option<T>>,
     free_ids: Vec<usize>,
 }
 
 impl<T> SocketRegistry<T> {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             sockets: Vec::new(),
             free_ids: Vec::new(),
         }
     }
 
-    fn allocate(&mut self, socket: T) -> Result<i64, &'static str> {
+    pub(crate) fn allocate(&mut self, socket: T) -> Result<i64, &'static str> {
         // Try to reuse a free ID first
         if let Some(id) = self.free_ids.pop() {
             self.sockets[id] = Some(socket);
@@ -54,11 +99,11 @@ impl<T> SocketRegistry<T> {
         Ok(id as i64)
     }
 
-    fn get_mut(&mut self, id: usize) -> Option<&mut Option<T>> {
+    pub(crate) fn get_mut(&mut self, id: usize) -> Option<&mut Option<T>> {
         self.sockets.get_mut(id)
     }
 
-    fn free(&mut self, id: usize) {
+    pub(crate) fn free(&mut self, id: usize) {
         if let Some(slot) = self.sockets.get_mut(id)
             && slot.is_some()
         {
@@ -68,9 +113,11 @@ impl<T> SocketRegistry<T> {
     }
 }
 
-// Global registry for TCP listeners and streams
+// Global registry for TCP listeners and streams. STREAMS holds a
+// StreamKind so that plain-TCP and TLS-wrapped sockets share one id
+// space (and one set of read/write/close builtins).
 static LISTENERS: Mutex<SocketRegistry<TcpListener>> = Mutex::new(SocketRegistry::new());
-static STREAMS: Mutex<SocketRegistry<TcpStream>> = Mutex::new(SocketRegistry::new());
+pub(crate) static STREAMS: Mutex<SocketRegistry<StreamKind>> = Mutex::new(SocketRegistry::new());
 
 /// TCP listen on a port
 ///
@@ -198,7 +245,7 @@ pub unsafe extern "C" fn patch_seq_tcp_connect(stack: Stack) -> Stack {
         };
 
         let mut streams = STREAMS.lock().unwrap();
-        match streams.allocate(stream) {
+        match streams.allocate(StreamKind::Tcp(stream)) {
             Ok(id) => {
                 let stack = push(stack, Value::Int(id));
                 push(stack, Value::Bool(true))
@@ -269,7 +316,7 @@ pub unsafe extern "C" fn patch_seq_tcp_accept(stack: Stack) -> Stack {
 
         // Store stream and get ID
         let mut streams = STREAMS.lock().unwrap();
-        match streams.allocate(stream) {
+        match streams.allocate(StreamKind::Tcp(stream)) {
             Ok(client_id) => {
                 let stack = push(stack, Value::Int(client_id));
                 push(stack, Value::Bool(true))

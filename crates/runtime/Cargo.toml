@@ -75,6 +75,11 @@ ed25519-dalek = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
+# TLS — always-on. Underpins net.tls.client (PR3) and the planned
+# may-aware HTTP rewrite (PR4) that retires ureq.
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
+
 # Regular expressions (optional via "regex" feature)
 regex = { workspace = true, optional = true }
 

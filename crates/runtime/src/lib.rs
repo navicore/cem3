@@ -44,6 +44,7 @@ pub mod tcp_test;
 pub mod terminal;
 pub mod test;
 pub mod time_ops;
+pub mod tls;
 pub mod udp;
 pub mod variant_ops;
 pub mod watchdog;
@@ -266,6 +267,9 @@ pub use udp::{
 
 // DNS operations (exported for LLVM linking)
 pub use dns::patch_seq_dns_resolve as dns_resolve;
+
+// TLS operations (exported for LLVM linking)
+pub use tls::patch_seq_tls_client as tls_client;
 
 // OS operations (exported for LLVM linking)
 pub use os::{

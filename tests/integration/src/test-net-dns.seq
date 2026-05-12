@@ -1,0 +1,84 @@
+# Integration test for net.dns.resolve.
+#
+# The runtime offloads getaddrinfo to a worker thread pool so may
+# carriers never park. Cache collapses fanout to the same host. These
+# tests exercise the FFI surface, the cache hit path, and the worker
+# pool under cooperative concurrency.
+#
+# All hostnames used here resolve via /etc/hosts or are IP literals, so
+# the test does not require network access.
+
+: test-net-dns-localhost-resolves ( -- )
+  # localhost is in /etc/hosts on every supported platform.
+  "localhost" net.dns.resolve         # ( list bool )
+  [ ] [ "net.dns.resolve localhost failed" io.write-line 1 os.exit ] if
+  list.empty?
+  test.assert-not                     # list must be non-empty
+;
+
+: test-net-dns-ip-literal-round-trips ( -- )
+  # IP literals fast-path through getaddrinfo without touching DNS.
+  "127.0.0.1" net.dns.resolve         # ( list bool )
+  [ ] [ "net.dns.resolve 127.0.0.1 failed" io.write-line 1 os.exit ] if
+  list.first                          # ( first bool )
+  # Then-branch consumes the first element via assert-eq-str;
+  # else-branch drops it and exits. Both reduce T to nothing.
+  [ "127.0.0.1" test.assert-eq-str ]
+  [ drop "list.first empty on 127.0.0.1" io.write-line 1 os.exit ]
+  if
+;
+
+: test-net-dns-cache-second-lookup ( -- )
+  # First call seeds the cache; second call hits the cache path and
+  # must return the same address. We compare the first IP of each
+  # result with assert-eq-str.
+  "localhost" net.dns.resolve
+  [ ] [ "first localhost lookup failed" io.write-line 1 os.exit ] if
+  list.first
+  # Both branches must leave the popped T on the stack — the
+  # then-branch keeps it (we'll consume it below); the else-branch
+  # leaves it untouched because os.exit terminates.
+  [ ]
+  [ "first localhost list empty" io.write-line 1 os.exit ]
+  if
+  >aux                                # stash first IP
+
+  "localhost" net.dns.resolve
+  [ ] [ "second localhost lookup failed" io.write-line 1 os.exit ] if
+  list.first
+  [ ]
+  [ "second localhost list empty" io.write-line 1 os.exit ]
+  if
+
+  aux>                                # ( second first )
+  test.assert-eq-str                  # second equals first
+;
+
+: resolve-and-drop ( -- )
+  # Helper: spawned strand body. Exercises the worker pool and
+  # validates the (value Bool) shape under cooperative concurrency.
+  # Both branches must consume the list so the if balances.
+  "localhost" net.dns.resolve
+  [ drop ]
+  [ drop "concurrent net.dns.resolve failed" io.write-line 1 os.exit ]
+  if
+;
+
+: test-net-dns-concurrent-fanout ( -- )
+  # Spawn several strands all resolving the same hostname. The first
+  # to hit the worker pool fills the cache; later strands hit the
+  # cache path. spawner-self rule keeps the chan-yield lint happy
+  # if any future implementation introduces a yield in resolve.
+  [ resolve-and-drop ] strand.spawn drop
+  [ resolve-and-drop ] strand.spawn drop
+  [ resolve-and-drop ] strand.spawn drop
+  [ resolve-and-drop ] strand.spawn drop
+;
+
+: test-net-dns-empty-string-fails ( -- )
+  # Empty hostname returns (empty-list false) without enqueuing a
+  # worker job — defensive fast-fail path.
+  "" net.dns.resolve                  # ( list bool )
+  test.assert-not                     # bool must be false
+  list.empty? test.assert             # list must be empty
+;

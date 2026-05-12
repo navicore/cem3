@@ -9,16 +9,16 @@ use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use may::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 
 // Maximum number of concurrent connections to prevent unbounded growth
 const MAX_SOCKETS: usize = 10_000;
 
-// Maximum bytes to read from a socket to prevent memory exhaustion attacks.
-// patch_seq_tcp_read currently performs a single 4 KB read per call, so the
-// cap is not load-bearing on that path; it's retained as the architectural
-// ceiling that future read-N or full-body variants (e.g. an HTTP-client
-// migration off ureq) will enforce.
+// Architectural cap for any future read-N or full-body socket reader
+// (e.g. an HTTP-client migration off ureq). The current `tcp.read` does
+// one 4 KB read per call and so doesn't need to consult this; it stays
+// here as the ceiling that bounded-buffer variants must respect.
 #[allow(dead_code)]
 const MAX_READ_SIZE: usize = 1_048_576; // 1 MB
 
@@ -175,19 +175,21 @@ pub unsafe extern "C" fn patch_seq_tcp_connect(stack: Stack) -> Stack {
             return push(stack, Value::Bool(false));
         }
 
-        let mut connected: Option<TcpStream> = None;
-        for ip in &addrs {
-            let target = format!("{ip}:{port}");
-            // The address is always an IP literal here, so may's
-            // internal `to_socket_addrs` parses it without a second
-            // `getaddrinfo`. connect() yields the strand on the
-            // SYN/SYN-ACK round-trip.
-            if let Ok(s) = TcpStream::connect(&target) {
-                connected = Some(s);
-                break;
-            }
-        }
-        let stream = match connected {
+        // Build SocketAddr directly from the parsed IpAddr — avoids
+        // the `"::1:80"` IPv6 trap of formatting `ip:port` as a string
+        // (an IPv6 literal needs square brackets in that form, but a
+        // typed SocketAddr bypasses parsing entirely). Resolver only
+        // emits IP-string forms produced by `SocketAddr::ip().to_string()`,
+        // so a parse failure here would mean a runtime invariant
+        // violation — treat it as "skip this address" rather than
+        // panicking the carrier. connect() yields the strand on the
+        // SYN/SYN-ACK round-trip.
+        let port_u16 = port as u16;
+        let stream = addrs.iter().find_map(|ip| {
+            let ip_addr = ip.parse::<IpAddr>().ok()?;
+            TcpStream::connect(SocketAddr::new(ip_addr, port_u16)).ok()
+        });
+        let stream = match stream {
             Some(s) => s,
             None => {
                 let stack = push(stack, Value::Int(0));

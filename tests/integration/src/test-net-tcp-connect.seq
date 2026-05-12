@@ -16,6 +16,12 @@
   54321
 ;
 
+: tcp-test-port-2 ( -- Int )
+  # Second port for the localhost / dual-stack test so it doesn't
+  # race against tcp-test-port even if a prior teardown is slow.
+  54322
+;
+
 # -----------------------------------------------------------------------------
 # Happy path: client + same-process server exchange one request/response.
 # -----------------------------------------------------------------------------
@@ -54,6 +60,32 @@
   if
   net.tcp.close test.assert                    # close client
   net.tcp.close test.assert                    # close listener
+;
+
+: test-net-tcp-connect-multi-ip-fallback ( -- )
+  # localhost resolves to both ::1 and 127.0.0.1 on a stock Linux
+  # box. Our listener binds to 0.0.0.0 (IPv4 only), so the connect
+  # loop tries ::1 first (fails — no v6 listener), falls through to
+  # 127.0.0.1 (succeeds). This exercises three things at once:
+  #   (a) IPv6 addresses survive the IpAddr+SocketAddr path without
+  #       being mangled into "::1:port" strings,
+  #   (b) the for-each-address fallback walks the list,
+  #   (c) connect via a hostname (not an IP literal) still works
+  #       end-to-end through the DNS worker pool.
+  tcp-test-port-2 net.tcp.listen
+  [ ] [ "listen failed on tcp-test-port-2" io.write-line 1 os.exit ] if
+  [ server-body ] strand.spawn drop
+
+  "localhost" tcp-test-port-2 net.tcp.connect
+  [ ] [ "connect via localhost failed" io.write-line 1 os.exit ] if
+  "ping" over net.tcp.write
+  test.assert
+  dup net.tcp.read
+  [ "pong" test.assert-eq-str ]
+  [ drop "localhost: read failed" io.write-line 1 os.exit ]
+  if
+  net.tcp.close test.assert
+  net.tcp.close test.assert
 ;
 
 # -----------------------------------------------------------------------------

@@ -237,11 +237,26 @@ without touching DNS). Bool is false on resolution failure,
 every-address-failed, invalid port (must be 1..65535), or
 socket-registry exhaustion.
 
+**Known limitations — connect.** Two gaps inherited from the v1 surface:
+
+- **No connect timeout.** `connect` parks the strand for the full kernel
+  SYN timeout (≈60–130 s on Linux) against a silent peer. There is no
+  caller-side bound; if you need one, wrap the call in `strand.spawn` and
+  cancel from another strand, or use a non-blocking pattern at a higher
+  layer. A timeout argument is a planned follow-up.
+- **Serial fallback, no happy-eyeballs.** Addresses are tried in resolver
+  order. If AAAA (IPv6) points somewhere unreachable on a misconfigured
+  network, you eat one full SYN timeout per dead address before falling
+  back to A (IPv4). RFC 8305 happy-eyeballs is a planned follow-up.
+
 ```seq
 "example.com" 443 net.tcp.connect
 [ # ( socket )
   "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n" over net.tcp.write drop
-  dup net.tcp.read [ io.write-line ] [ drop ] if
+  dup net.tcp.read
+  [ io.write-line ]
+  [ drop "read failed" io.write-line ]
+  if
   net.tcp.close drop
 ]
 [ drop "connect failed" io.write-line ]

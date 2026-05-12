@@ -176,6 +176,36 @@ fn resolve_blocking(hostname: &str) -> Vec<String> {
 
 /// Resolve a hostname to a list of IP-address strings.
 ///
+/// Cooperative: yields the strand via the may-channel recv() while a
+/// worker thread runs `getaddrinfo`. Returns an empty Vec on any
+/// failure (empty hostname, worker pool failed to start, send/recv
+/// error, or unresolvable name). Other runtime modules call this
+/// directly so they share the cache and worker pool with the FFI
+/// surface instead of opening a parallel path to `getaddrinfo`.
+pub fn resolve(hostname: &str) -> Vec<String> {
+    if hostname.is_empty() {
+        return Vec::new();
+    }
+    if let Some(addrs) = CACHE.lock().unwrap().get(hostname) {
+        return addrs;
+    }
+    let sender = match JOB_QUEUE.as_ref() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    let (reply_tx, reply_rx) = may::sync::mpsc::channel::<Vec<String>>();
+    let job = Job {
+        hostname: hostname.to_string(),
+        reply: reply_tx,
+    };
+    if sender.send(job).is_err() {
+        return Vec::new();
+    }
+    reply_rx.recv().unwrap_or_default()
+}
+
+/// Resolve a hostname to a list of IP-address strings.
+///
 /// Stack effect: `( String -- Variant Bool )`
 ///
 /// The Variant is a `List` (tag `"List"`) of IP-string `Value::String`s.
@@ -194,33 +224,7 @@ pub unsafe extern "C" fn patch_seq_dns_resolve(stack: Stack) -> Stack {
             _ => return push_failure(stack),
         };
         let hostname = host.as_str_or_empty().to_string();
-        if hostname.is_empty() {
-            return push_failure(stack);
-        }
-
-        // Fast path: cache hit.
-        if let Some(addrs) = CACHE.lock().unwrap().get(&hostname) {
-            return push_result(stack, addrs);
-        }
-
-        // Slow path: queue on the worker pool. The may-channel recv()
-        // yields the strand until a worker thread sends the reply.
-        let sender = match JOB_QUEUE.as_ref() {
-            Some(s) => s,
-            None => return push_failure(stack), // pool failed to start
-        };
-        let (reply_tx, reply_rx) = may::sync::mpsc::channel::<Vec<String>>();
-        let job = Job {
-            hostname: hostname.clone(),
-            reply: reply_tx,
-        };
-        if sender.send(job).is_err() {
-            return push_failure(stack);
-        }
-        let addrs = match reply_rx.recv() {
-            Ok(a) => a,
-            Err(_) => return push_failure(stack),
-        };
+        let addrs = resolve(&hostname);
         push_result(stack, addrs)
     }
 }

@@ -22,10 +22,12 @@ use std::sync::Mutex;
 /// `net.tcp.read` / `net.tcp.write` / `net.tcp.close` dispatch over
 /// either variant without the caller knowing the difference.
 ///
-/// The TLS arm is boxed because `StreamOwned<ClientConnection, _>`
-/// embeds rustls's per-connection buffers and is significantly larger
-/// than a bare TcpStream — without the box, every plain TCP slot
-/// would pay the TLS-sized footprint.
+/// The TLS arm is boxed not to shrink the *enum* (size_of TcpStream is
+/// non-trivial and tends to dominate the discriminant size anyway) but
+/// to keep the `StreamOwned<ClientConnection, _>` payload — which
+/// embeds rustls's per-connection record buffers — off the registry
+/// allocation. Without the box, every plain-TCP allocation would have
+/// to find a contiguous chunk large enough for the TLS variant.
 pub(crate) enum StreamKind {
     Tcp(TcpStream),
     Tls(Box<StreamOwned<ClientConnection, TcpStream>>),

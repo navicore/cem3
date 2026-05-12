@@ -21,58 +21,122 @@
 
 : tls-test-port-bad ( -- Int ) 54332 ;
 
-# -----------------------------------------------------------------------------
-# Empty hostname fast-fails before any IO.
-# -----------------------------------------------------------------------------
-
-: test-net-tls-client-empty-host-fails ( -- )
-  # Pre-condition: a Socket on the stack. We grab one from
-  # net.tcp.listen since the type checker requires Socket, not Int.
-  # Empty hostname short-circuits inside net.tls.client without
-  # touching the listener's registry slot, so we can close it
-  # afterwards.
-  tls-test-port net.tcp.listen
-  [ ] [ "listen failed (port in use?)" io.write-line 1 os.exit ] if
-  # ( listener )
-  dup ""                                # ( listener listener "" )
-  net.tls.client                        # ( listener new bool )
-  test.assert-not                       # must be false
-  drop                                  # discard the 0 socket sentinel
-  net.tcp.close test.assert
-;
+: tls-test-port-dns ( -- Int ) 54333 ;
 
 # -----------------------------------------------------------------------------
-# TLS handshake against a plain-TCP listener fails.
+# Shared bad-server: accepts one TCP connection and closes it without
+# speaking TLS. Used by every handshake-failure test below.
 # -----------------------------------------------------------------------------
 
 : bad-server-body ( Socket -- )
-  # Accepts one connection and immediately closes it. The rustls
-  # ClientHello goes out; the peer responds with FIN; rustls reports
-  # a transport error from complete_io. net.tls.client returns
-  # (0, false).
   net.tcp.accept
   [ ] [ "bad-server: accept failed" io.write-line 1 os.exit ] if
   net.tcp.close test.assert
 ;
 
-: test-net-tls-client-handshake-fails ( -- )
+# Same shape as bad-server-body but for a server that handles two
+# connections — the empty-host test needs a live stream after the
+# rejected TLS call to prove the slot wasn't disturbed, so the server
+# echoes "pong" on a second read-write exchange.
+: echo-server-body ( Socket -- )
+  net.tcp.accept
+  [ ] [ "echo-server: accept failed" io.write-line 1 os.exit ] if
+  dup net.tcp.read                             # ( client req bool )
+  [ "ping" test.assert-eq-str ]
+  [ drop "echo-server: read failed" io.write-line 1 os.exit ]
+  if
+  "pong" over net.tcp.write
+  test.assert
+  net.tcp.close test.assert
+;
+
+# -----------------------------------------------------------------------------
+# Empty hostname fast-fails AND leaves the input socket usable.
+#
+# The previous version of this test passed a *listener* id (which
+# lives in LISTENERS, not STREAMS) and so couldn't possibly observe a
+# regression where the empty-host short-circuit started touching
+# STREAMS. This version uses a real connected stream and proves the
+# slot is untouched by completing a ping/pong round-trip *after* the
+# rejected upgrade.
+# -----------------------------------------------------------------------------
+
+: test-net-tls-client-empty-host-leaves-socket-usable ( -- )
+  tls-test-port net.tcp.listen
+  [ ] [ "listen failed (port in use?)" io.write-line 1 os.exit ] if
+  [ echo-server-body ] strand.spawn drop
+
+  "127.0.0.1" tls-test-port net.tcp.connect
+  [ ] [ "connect to echo-server failed" io.write-line 1 os.exit ] if
+  # ( listener client )
+
+  # Attempt TLS upgrade with empty hostname — must fail without
+  # disturbing the client socket's registry slot.
+  dup ""                                       # ( listener client client "" )
+  net.tls.client                               # ( listener client new bool )
+  test.assert-not                              # bool must be false
+  drop                                         # discard 0 sentinel
+  # ( listener client )
+
+  # Prove the original client socket is still alive and the slot still
+  # holds a Tcp variant by completing the ping/pong with the server.
+  "ping" over net.tcp.write
+  test.assert
+  dup net.tcp.read
+  [ "pong" test.assert-eq-str ]
+  [ drop "client: read after rejected TLS upgrade failed" io.write-line 1 os.exit ]
+  if
+  net.tcp.close test.assert
+  net.tcp.close test.assert
+;
+
+# -----------------------------------------------------------------------------
+# TLS handshake against a plain-TCP listener fails with an IP-literal SNI.
+# Isolates the failure to the transport-error path (peer FINs before
+# any TLS bytes arrive); IP-literal ServerName parses cleanly.
+# -----------------------------------------------------------------------------
+
+: test-net-tls-client-handshake-fails-ip-sni ( -- )
   tls-test-port-bad net.tcp.listen
   [ ] [ "bad-server: listen failed" io.write-line 1 os.exit ] if
   [ bad-server-body ] strand.spawn drop
 
   "127.0.0.1" tls-test-port-bad net.tcp.connect
   [ ] [ "connect to bad-server failed" io.write-line 1 os.exit ] if
-  # ( listener client )
 
-  # Use an IP literal as the SNI/hostname — rustls accepts IP-form
-  # ServerName, so the failure here is the *handshake*, not name
-  # validation. That isolates the test to the transport-error path.
-  "127.0.0.1" net.tls.client            # ( listener new bool )
-  test.assert-not                       # handshake must fail
-  drop                                  # discard 0 sentinel
+  "127.0.0.1" net.tls.client                   # ( listener new bool )
+  test.assert-not
+  drop
 
-  # The original client Socket was consumed by the failed tls.client
-  # (build_tls drops the TcpStream on Err, which closes the underlying
-  # socket and frees the registry slot). Only the listener remains.
+  # The original client Socket was consumed: build_tls dropped the
+  # TcpStream on Err (closing the underlying socket), and tls.client
+  # then released the id back to the free list. Only the listener
+  # remains.
+  net.tcp.close test.assert
+;
+
+# -----------------------------------------------------------------------------
+# TLS handshake against a plain-TCP listener fails with a DNS-form SNI.
+# Confirms the DNS-name ServerName parse path reaches the handshake
+# before the transport-error path fails it (separate code path inside
+# rustls's ServerName::try_from from the IP-literal case above).
+# -----------------------------------------------------------------------------
+
+: test-net-tls-client-handshake-fails-dns-sni ( -- )
+  tls-test-port-dns net.tcp.listen
+  [ ] [ "dns-bad-server: listen failed" io.write-line 1 os.exit ] if
+  [ bad-server-body ] strand.spawn drop
+
+  "127.0.0.1" tls-test-port-dns net.tcp.connect
+  [ ] [ "connect to dns-bad-server failed" io.write-line 1 os.exit ] if
+
+  # .invalid is RFC 2606; ServerName parses it (it's a syntactically
+  # valid DNS name), so the failure path is complete_io reporting the
+  # peer FIN — same transport-error path as the IP-SNI test above,
+  # reached via the DNS-name branch of ServerName::try_from.
+  "no-such-host.invalid" net.tls.client
+  test.assert-not
+  drop
+
   net.tcp.close test.assert
 ;

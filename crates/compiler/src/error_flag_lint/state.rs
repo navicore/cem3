@@ -151,6 +151,9 @@ pub(super) fn fallible_op_info(name: &str) -> Option<FallibleOpInfo> {
         "net.tcp.write" => (2, 0, "write failure"),
         "net.tcp.close" => (1, 0, "close failure"),
 
+        // DNS (net.dns.*) — ( String -- List Bool )
+        "net.dns.resolve" => (1, 1, "DNS resolution failure"),
+
         // OS
         "os.getenv" => (1, 1, "env var not set"),
         "os.home-dir" => (0, 1, "home dir not available"),

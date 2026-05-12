@@ -24,6 +24,7 @@ pub mod closures;
 pub mod combinators;
 pub mod cond;
 pub mod diagnostics;
+pub mod dns;
 pub mod encoding;
 pub mod exit_code;
 pub mod file;
@@ -262,6 +263,9 @@ pub use udp::{
     patch_seq_udp_bind as udp_bind, patch_seq_udp_close as udp_close,
     patch_seq_udp_receive_from as udp_receive_from, patch_seq_udp_send_to as udp_send_to,
 };
+
+// DNS operations (exported for LLVM linking)
+pub use dns::patch_seq_dns_resolve as dns_resolve;
 
 // OS operations (exported for LLVM linking)
 pub use os::{

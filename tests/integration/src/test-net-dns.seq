@@ -1,0 +1,97 @@
+# Integration test for net.dns.resolve.
+#
+# The runtime offloads getaddrinfo to a worker thread pool so may
+# carriers never park. Cache collapses fanout to the same host. These
+# tests exercise the FFI surface, the cache hit path, and the worker
+# pool under cooperative concurrency.
+#
+# All hostnames used here resolve via /etc/hosts or are IP literals, so
+# the test does not require network access.
+
+: test-net-dns-localhost-resolves ( -- )
+  # localhost is in /etc/hosts on every supported platform.
+  "localhost" net.dns.resolve         # ( list bool )
+  [ ] [ "net.dns.resolve localhost failed" io.write-line 1 os.exit ] if
+  list.empty?
+  test.assert-not                     # list must be non-empty
+;
+
+: test-net-dns-ip-literal-round-trips ( -- )
+  # IP literals fast-path through getaddrinfo without touching DNS.
+  "127.0.0.1" net.dns.resolve         # ( list bool )
+  [ ] [ "net.dns.resolve 127.0.0.1 failed" io.write-line 1 os.exit ] if
+  list.first                          # ( first bool )
+  # Then-branch consumes the first element via assert-eq-str;
+  # else-branch drops it and exits. Both reduce T to nothing.
+  [ "127.0.0.1" test.assert-eq-str ]
+  [ drop "list.first empty on 127.0.0.1" io.write-line 1 os.exit ]
+  if
+;
+
+: test-net-dns-cache-second-lookup ( -- )
+  # First call seeds the cache; second call hits the cache path and
+  # must return the same address. We compare the first IP of each
+  # result with assert-eq-str.
+  #
+  # Note: this verifies equality, not that the second call actually
+  # hit the cache. A genuine cache-path assertion needs a hit/miss
+  # counter exposed via debug-stats (planned follow-up).
+  "localhost" net.dns.resolve
+  [ ] [ "first localhost lookup failed" io.write-line 1 os.exit ] if
+  list.first
+  # Both branches must leave the popped T on the stack — the
+  # then-branch keeps it (we'll consume it below); the else-branch
+  # leaves it untouched because os.exit terminates.
+  [ ]
+  [ "first localhost list empty" io.write-line 1 os.exit ]
+  if
+  >aux                                # stash first IP
+
+  "localhost" net.dns.resolve
+  [ ] [ "second localhost lookup failed" io.write-line 1 os.exit ] if
+  list.first
+  [ ]
+  [ "second localhost list empty" io.write-line 1 os.exit ]
+  if
+
+  aux>                                # ( second first )
+  test.assert-eq-str                  # second equals first
+;
+
+: spawn-resolver-body ( Channel -- Channel )
+  # Helper for the fanout test. Resolves localhost, then sends a
+  # completion token on the channel so the parent can join. The
+  # parent's channel stays on the stack (the strand owns its copy).
+  "localhost" net.dns.resolve
+  [ drop ] [ drop "fanout failed" io.write-line 1 os.exit ] if
+  dup 1 swap chan.send test.assert
+;
+
+: test-net-dns-concurrent-fanout ( -- )
+  # Spawn four strands all resolving the same hostname. The first to
+  # hit the worker pool fills the cache; later strands hit the cache
+  # path. Each strand sends a completion token; main joins on all
+  # four before returning. Without the join, the test would pass
+  # whether or not the spawned bodies ever ran.
+  chan.make                                                              # ( c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c c c )
+  dup [ spawn-resolver-body drop ] strand.spawn drop                     # ( c c c c c )
+  # Five channel copies on the parent (one original + four duplicates
+  # that weren't dropped after each spawn). Each chan.receive
+  # consumes one; the trailing drop releases the original.
+  chan.receive test.assert drop
+  chan.receive test.assert drop
+  chan.receive test.assert drop
+  chan.receive test.assert drop
+  drop
+;
+
+: test-net-dns-empty-string-fails ( -- )
+  # Empty hostname returns (empty-list false) without enqueuing a
+  # worker job — defensive fast-fail path.
+  "" net.dns.resolve                  # ( list bool )
+  test.assert-not                     # bool must be false
+  list.empty? test.assert             # list must be empty
+;

@@ -255,6 +255,8 @@ impl Program {
             "net.udp.send-to",
             "net.udp.receive-from",
             "net.udp.close",
+            // DNS operations
+            "net.dns.resolve",
             // OS operations
             "os.getenv",
             "os.home-dir",

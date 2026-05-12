@@ -22,6 +22,7 @@ This document covers:
 - [Channel Operations](#channel-operations)
 - [Networking — net.tcp.*](#networking--nettcp)
 - [Networking — net.udp.*](#networking--netudp)
+- [Networking — net.dns.*](#networking--netdns)
 - [Networking — Socket type](#networking--socket-type)
 - [OS Operations](#os-operations)
 - [Terminal Operations](#terminal-operations)
@@ -238,6 +239,44 @@ success Bool on top so callers can `[ ... ] [ ... ] if`.
 | `net.net.udp.send-to` | `( String String Int Socket -- Bool )` | Send a datagram. (bytes, host, port, socket) |
 | `net.net.udp.receive-from` | `( Socket -- String String Int Bool )` | Receive (yields). Returns (bytes, host, port, success) |
 | `net.net.udp.close` | `( Socket -- Bool )` | Release the socket |
+
+## Networking — net.dns.*
+
+Hostname resolution offloaded to a dedicated OS-thread pool so may
+carriers never park on `getaddrinfo`. A small TTL cache (60s, max 256
+entries) collapses fanout to the same host. Inherits all
+platform-correct resolution behaviour (`/etc/hosts`, systemd-resolved,
+VPN/corp DNS, mDNS) from libc.
+
+| Word | Stack Effect | Description |
+|------|--------------|-------------|
+| `net.dns.resolve` | `( String -- V Bool )` | Resolve hostname to a list of IP-address strings. On failure (unresolvable, empty result, empty input) returns (empty-list, false). |
+
+The list contains IP-string representations (`"127.0.0.1"`,
+`"::1"`, …). IP literals fast-path through `getaddrinfo` without
+touching DNS.
+
+Worker count is configurable via `SEQ_DNS_WORKERS` (default 8, max 64).
+`SEQ_DNS_WORKERS=0` is treated as unset and falls back to the default —
+disabling the pool makes no architectural sense since the syscall has
+to run somewhere off the may carrier.
+
+**Known limitation — no single-flight.** The cache deduplicates
+*sequential* fanout: once one strand fills the cache, later resolves
+of the same host hit the fast path. It does **not** deduplicate
+*concurrent* first-resolves — N strands racing to resolve the same
+uncached host each enqueue a separate worker job. Wasted work under
+bursty load (e.g., connection-pool warm-up); not a correctness issue.
+Single-flight via an in-flight map keyed by hostname is a planned
+follow-up.
+
+```seq
+"api.example.com" net.dns.resolve
+[ "first IP: " io.write list.first
+  [ io.write-line ] [ drop "no addresses" io.write-line ] if ]
+[ "resolution failed" io.write-line ]
+if
+```
 
 ## Networking — Socket type
 

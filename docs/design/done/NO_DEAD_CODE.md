@@ -162,6 +162,82 @@ of code. The integration test
 (`crates/compiler/tests/no_dead_code.rs`) is `#[ignore]`d on
 macOS for this reason; on Linux it is part of `just ci`.
 
+### Linux residue from PR4 (HTTP rewrite)
+
+Updated post-PR4: Linux is no longer strictly 0 leaks for the
+`rustls` substring. The HTTP-client rewrite introduced a small
+fixed residue that survives `--gc-sections`:
+
+- **1 symbol**, 17 bytes, contributing **2 "rustls" substring
+  matches** because its demangled name lists the type twice:
+  `core::ptr::drop_in_place::<std::io::default_write_fmt::Adapter<rustls::stream::StreamOwned<rustls::client::client_conn::ClientConnection, may::net::TcpStream>>>`.
+- The function body is `if let Some(err) = self.error { drop(err) }`
+  — a std::io::Error trampoline. There is no rustls *code* in this
+  symbol, only rustls *names* in its type parameter.
+
+The integration test (`no_dead_code.rs`) allows up to 4 "rustls"
+substring matches with this rationale; going over budget still
+fails the test. See `TOLERATED_FOR_HELLO` in that file.
+
+#### Mechanism
+
+In PR3, the only place a rustls type appeared in any reachable
+monomorphization was inside `patch_seq_tls_client`. When
+`--gc-sections` stripped that function, its unwind tables and
+drop chains went with it.
+
+In PR4, `request::dial_fresh` calls `tls::dial_tls`, which
+performs `Box::new(stream) as Box<dyn HttpStream + Send>`. That
+cast materializes a vtable for `StreamOwned<ClientConnection,
+TcpStream>` as a `dyn HttpStream`. The vtable references
+`StreamOwned`'s `Write` impl, whose default `write_fmt`
+monomorphizes `std::io::default_write_fmt::Adapter<StreamOwned<...>>`.
+The drop function for that Adapter is what leaks.
+
+The puzzling part: `patch_seq_http_get` (the FFI entry point
+that reaches `dial_tls`) IS stripped from a hello-world binary
+— `nm` confirms it's not present. Yet the Adapter drop survives.
+Bisect (PR4 review thread) showed:
+- Removing ureq from Cargo: leak still present (not a feature-
+  resolution artifact).
+- Stubbing `pool::checkout`/`release` to no-op (no static `POOL`,
+  no `Conn` fields anywhere persistent): leak still present.
+- Replacing `patch_seq_http_get`'s body with a no-op: **leak gone**.
+- Adding new modules without wiring the FFI to them: **leak gone**.
+
+Disassembly traces the drop's callers to
+`drop_in_place<std::thread::lifecycle::ThreadInit>` and
+`generator::gen_impl::GeneratorImpl::raw_cancel`, both of which
+are reachable from the may scheduler's thread-spawn machinery
+that initialises in every Seq binary. The exact monomorphization
+chain that keeps the Adapter drop alive crosses generic
+boundaries the bisect didn't fully untangle — it appears to be
+an interaction between rustc's drop-glue emission, LLVM's
+function-section model, and lld's `--gc-sections` not following
+all comdat-group reachability for generic instantiations.
+
+#### Cost
+
+~17 bytes of code, monotonic in shape. Won't grow unless:
+- A new `SideData` type (e.g., adding server-side TLS would
+  introduce `Box<dyn State<ServerConnectionData>>`) is reached
+  from the same code-section pattern.
+- A new generic trampoline shape appears (e.g., adding
+  `write_all` calls or panic-formatter usage on a `StreamOwned`
+  could surface a sibling Adapter monomorphization).
+
+A future cleanup could:
+- Try `linker-plugin-lto` on Linux too (currently only the macOS
+  block above documents that path; it's plausibly the only way
+  to fully strip these LLVM-emitted drop trampolines without
+  rustc upstream changes).
+- Or: move the `Box::new(_) as Box<dyn HttpStream>` cast behind
+  a separate codegen unit boundary by feature-gating the HTTP
+  client. The cgu split might let `--gc-sections` finish the job.
+
+Tracked: the test bound provides early warning if the residue
+grows; revisit once `linker-plugin-lto` is on the table.
+
 ### Cross-language LTO was attempted and ruled out
 
 Cross-language LTO via `-C linker-plugin-lto` was investigated as

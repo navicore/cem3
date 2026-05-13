@@ -35,9 +35,7 @@ impl HttpStream for may::net::TcpStream {
     }
 }
 
-impl HttpStream
-    for rustls::StreamOwned<rustls::ClientConnection, may::net::TcpStream>
-{
+impl HttpStream for rustls::StreamOwned<rustls::ClientConnection, may::net::TcpStream> {
     fn raw_fd(&self) -> RawFd {
         use std::os::fd::AsRawFd;
         self.sock.as_raw_fd()

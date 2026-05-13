@@ -1,213 +1,84 @@
-//! HTTP client operations for Seq
+//! HTTP client operations for Seq.
 //!
-//! These functions are exported with C ABI for LLVM codegen to call.
+//! Replaces the ureq-era client with a hand-rolled HTTP/1.1
+//! implementation that yields the strand on every IO step. Sits on
+//! top of the may-aware DNS, TCP, and TLS layers from PR1-PR3 and
+//! maintains its own connection pool keyed by `(scheme, host, port)`.
 //!
-//! # API
+//! ## API (unchanged from the ureq-era surface)
 //!
 //! ```seq
-//! # GET request
-//! "https://api.example.com/users" http.get
+//! "https://api.example.com/users" net.http.get
 //! # Stack: ( Map ) where Map = { "status": 200, "body": "...", "ok": true }
 //!
-//! # POST request
-//! "https://api.example.com/users" "{\"name\":\"Alice\"}" "application/json" http.post
+//! "https://api.example.com/users" "{\"name\":\"Alice\"}" "application/json" net.http.post
 //! # Stack: ( Map ) where Map = { "status": 201, "body": "...", "ok": true }
 //!
-//! # Check response
 //! dup "ok" map.get if
-//!   "body" map.get json.decode  # Process JSON body
+//!   "body" map.get json.decode
 //! else
-//!   "error" map.get io.write-line  # Handle error
+//!   "error" map.get io.write-line
 //! then
 //! ```
 //!
-//! # Response Map
+//! ## Response Map
 //!
-//! All HTTP operations return a Map with:
-//! - `"status"` (Int): HTTP status code (200, 404, 500, etc.) or 0 on connection error
-//! - `"body"` (String): Response body as text
-//! - `"ok"` (Bool): true if status is 2xx, false otherwise
-//! - `"error"` (String): Error message (only present on failure)
+//! - `"status"` (Int): HTTP status code, or 0 on connection-level error.
+//! - `"body"` (String): response body as raw bytes (byte-clean — binary downloads round-trip intact).
+//! - `"ok"` (Bool): true iff status is 2xx.
+//! - `"error"` (String): error message; present only on failure.
 //!
-//! # Security: SSRF Protection
+//! ## Security: SSRF protection
 //!
-//! This HTTP client includes built-in protection against Server-Side Request Forgery
-//! (SSRF) attacks. The following are automatically blocked:
+//! Requests are blocked when the URL's host resolves to a private,
+//! loopback, link-local (cloud metadata), or unique-local IP. The
+//! check uses the may-aware DNS layer (see `crate::dns::resolve`) and
+//! passes its resolved address list to the connect path, so there is
+//! exactly one `getaddrinfo` per request and it runs on a dedicated
+//! worker thread — never on a may carrier.
 //!
-//! - **Localhost**: `localhost`, `*.localhost`, `127.x.x.x`
-//! - **Private networks**: `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`
-//! - **Link-local/Cloud metadata**: `169.254.x.x` (blocks AWS/GCP/Azure metadata endpoints)
-//! - **IPv6 private**: loopback (`::1`), link-local (`fe80::/10`), unique local (`fc00::/7`)
-//! - **Non-HTTP schemes**: `file://`, `ftp://`, `gopher://`, etc.
+//! ## v1 limitations
 //!
-//! Blocked requests return an error response with `ok=false` and an explanatory message.
-//!
-//! **Additional recommendations for defense in depth**:
-//! - Use domain allowlists for sensitive applications
-//! - Apply network-level egress filtering
-//!
-//! # Resource Limits
-//!
-//! - **Timeout**: 30 seconds per request (prevents indefinite hangs)
-//! - **Max body size**: 10 MB (prevents memory exhaustion)
-//! - **TLS**: Enabled by default via rustls (no OpenSSL dependency)
-//! - **Connection pooling**: Enabled via shared agent instance
+//! - No redirect following: 3xx is returned to the caller as-is.
+//! - No automatic decompression: we send `Accept-Encoding: identity`.
+//!   Use `compress.gunzip` etc. on the body if you ask for an encoded
+//!   transfer manually.
+//! - No per-request timeout (a deadline pass is planned across all
+//!   networking layers).
+//! - No client certificate authentication, ALPN selection, or
+//!   peer-cert inspection — inherited from `net.tls.client`.
+//! - No header customisation beyond `Content-Type` (set automatically
+//!   for POST/PUT).
+
+pub(crate) mod conn;
+mod pool;
+mod request;
+mod ssrf;
+mod wire;
 
 use crate::seqstring::{global_bytes, global_string};
 use crate::stack::{Stack, pop, push};
 use crate::value::{MapKey, Value};
-
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
-use std::sync::LazyLock;
-use std::time::Duration;
 
-/// Default timeout for HTTP requests (30 seconds)
-const DEFAULT_TIMEOUT_SECS: u64 = 30;
+// Re-export for the existing unit tests that pre-date the submodule
+// split.
+#[cfg(test)]
+pub(crate) use ssrf::{is_dangerous_ipv4, is_dangerous_ipv6, validate_url_for_ssrf};
 
-/// Maximum response body size (10 MB)
-const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
-
-/// Global HTTP agent for connection pooling
-/// Using LazyLock for thread-safe lazy initialization
-static HTTP_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-        .build()
-});
-
-/// Check if an IPv4 address is in a private/dangerous range
-fn is_dangerous_ipv4(ip: Ipv4Addr) -> bool {
-    // Loopback: 127.0.0.0/8
-    if ip.is_loopback() {
-        return true;
-    }
-    // Private: 10.0.0.0/8
-    if ip.octets()[0] == 10 {
-        return true;
-    }
-    // Private: 172.16.0.0/12
-    if ip.octets()[0] == 172 && (ip.octets()[1] >= 16 && ip.octets()[1] <= 31) {
-        return true;
-    }
-    // Private: 192.168.0.0/16
-    if ip.octets()[0] == 192 && ip.octets()[1] == 168 {
-        return true;
-    }
-    // Link-local: 169.254.0.0/16 (includes cloud metadata endpoints)
-    if ip.octets()[0] == 169 && ip.octets()[1] == 254 {
-        return true;
-    }
-    // Broadcast
-    if ip.is_broadcast() {
-        return true;
-    }
-    false
-}
-
-/// Check if an IPv6 address is in a private/dangerous range
-fn is_dangerous_ipv6(ip: Ipv6Addr) -> bool {
-    // Loopback: ::1
-    if ip.is_loopback() {
-        return true;
-    }
-    // Link-local: fe80::/10
-    let segments = ip.segments();
-    if (segments[0] & 0xffc0) == 0xfe80 {
-        return true;
-    }
-    // Unique local: fc00::/7
-    if (segments[0] & 0xfe00) == 0xfc00 {
-        return true;
-    }
-    // IPv4-mapped IPv6 addresses: check the embedded IPv4
-    if let Some(ipv4) = ip.to_ipv4_mapped() {
-        return is_dangerous_ipv4(ipv4);
-    }
-    false
-}
-
-/// Check if an IP address is dangerous (private, loopback, link-local, etc.)
-fn is_dangerous_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => is_dangerous_ipv4(v4),
-        IpAddr::V6(v6) => is_dangerous_ipv6(v6),
-    }
-}
-
-/// Validate URL for SSRF protection
-/// Returns Ok(()) if safe, Err(message) if blocked
-fn validate_url_for_ssrf(url: &str) -> Result<(), String> {
-    // Parse the URL
-    let parsed = match url::Url::parse(url) {
-        Ok(u) => u,
-        Err(e) => return Err(format!("Invalid URL: {}", e)),
-    };
-
-    // Only allow http and https schemes
-    match parsed.scheme() {
-        "http" | "https" => {}
-        scheme => {
-            return Err(format!(
-                "Blocked scheme '{}': only http/https allowed",
-                scheme
-            ));
-        }
-    }
-
-    // Get the host
-    let host = match parsed.host_str() {
-        Some(h) => h,
-        None => return Err("URL has no host".to_string()),
-    };
-
-    // Block obvious localhost variants
-    let host_lower = host.to_lowercase();
-    if host_lower == "localhost"
-        || host_lower == "localhost.localdomain"
-        || host_lower.ends_with(".localhost")
-    {
-        return Err("Blocked: localhost access not allowed".to_string());
-    }
-
-    // Get port (default to 80/443)
-    let port = parsed
-        .port()
-        .unwrap_or(if parsed.scheme() == "https" { 443 } else { 80 });
-
-    // Resolve hostname to IP addresses and check each one
-    let addr_str = format!("{}:{}", host, port);
-    match addr_str.to_socket_addrs() {
-        Ok(addrs) => {
-            for addr in addrs {
-                if is_dangerous_ip(addr.ip()) {
-                    return Err(format!(
-                        "Blocked: {} resolves to private/internal IP {}",
-                        host,
-                        addr.ip()
-                    ));
-                }
-            }
-        }
-        Err(_) => {
-            // DNS resolution failed - allow the request to proceed
-            // (ureq will handle the DNS error appropriately)
-        }
-    }
-
-    Ok(())
-}
-
-/// Build a response map from status, body, ok flag, and optional error.
+/// Build the response Map shape that user code consumes.
 ///
 /// `body` is the raw response payload — HTTP bodies are arbitrary
-/// octets per RFC 7230, so we store them in a byte-clean SeqString
-/// without UTF-8 validation. Seq programs that need text decode
-/// the bytes themselves; programs handling binary downloads keep
-/// the original bytes intact.
-fn build_response_map(status: i64, body: Vec<u8>, ok: bool, error: Option<String>) -> Value {
+/// octets per RFC 9110, so we store them in a byte-clean SeqString
+/// without UTF-8 validation. Seq programs that need text decode the
+/// bytes themselves; binary downloads keep the original bytes intact.
+pub(crate) fn build_response_map(
+    status: i64,
+    body: Vec<u8>,
+    ok: bool,
+    error: Option<String>,
+) -> Value {
     let mut map: HashMap<MapKey, Value> = HashMap::new();
-
     map.insert(
         MapKey::String(global_string("status".to_string())),
         Value::Int(status),
@@ -220,238 +91,107 @@ fn build_response_map(status: i64, body: Vec<u8>, ok: bool, error: Option<String
         MapKey::String(global_string("ok".to_string())),
         Value::Bool(ok),
     );
-
     if let Some(err) = error {
         map.insert(
             MapKey::String(global_string("error".to_string())),
             Value::String(global_string(err)),
         );
     }
-
     Value::Map(Box::new(map))
 }
 
-/// Build an error response map
-fn error_response(error: String) -> Value {
+/// Build an error response Map (status=0, ok=false).
+pub(crate) fn error_response(error: String) -> Value {
     build_response_map(0, Vec::new(), false, Some(error))
 }
 
-/// Perform HTTP GET request
-///
-/// Stack effect: ( url -- response )
-///
-/// Returns a Map with status, body, ok, and optionally error.
+/// HTTP GET. `( url -- response )`.
 ///
 /// # Safety
-/// Stack must have a String (URL) on top
+/// Stack must have a String (URL) on top.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_http_get(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "http.get: stack is empty");
-
     let (stack, url_value) = unsafe { pop(stack) };
-
     match url_value {
         Value::String(url) => {
-            let response = perform_get(url.as_str_or_empty());
+            let response = request::perform_request("GET", url.as_str_or_empty(), None);
             unsafe { push(stack, response) }
         }
-        _ => panic!(
-            "http.get: expected String (URL) on stack, got {:?}",
-            url_value
-        ),
+        _ => panic!("http.get: expected String (URL), got {:?}", url_value),
     }
 }
 
-/// Perform HTTP POST request
-///
-/// Stack effect: ( url body content-type -- response )
-///
-/// Returns a Map with status, body, ok, and optionally error.
+/// HTTP POST. `( url body content-type -- response )`.
 ///
 /// # Safety
-/// Stack must have three String values on top (url, body, content-type)
+/// Stack must have three Strings on top: url, body, content-type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_http_post(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "http.post: stack is empty");
-
     let (stack, content_type_value) = unsafe { pop(stack) };
     let (stack, body_value) = unsafe { pop(stack) };
     let (stack, url_value) = unsafe { pop(stack) };
-
     match (url_value, body_value, content_type_value) {
         (Value::String(url), Value::String(body), Value::String(content_type)) => {
-            // Body is byte-clean; URL and Content-Type stay text.
-            let response = perform_post(
+            let response = request::perform_request(
+                "POST",
                 url.as_str_or_empty(),
-                body.as_bytes(),
-                content_type.as_str_or_empty(),
+                Some((content_type.as_str_or_empty(), body.as_bytes())),
             );
             unsafe { push(stack, response) }
         }
         (url, body, ct) => panic!(
-            "http.post: expected (String, String, String) on stack, got ({:?}, {:?}, {:?})",
+            "http.post: expected (String, String, String), got ({:?}, {:?}, {:?})",
             url, body, ct
         ),
     }
 }
 
-/// Perform HTTP PUT request
-///
-/// Stack effect: ( url body content-type -- response )
-///
-/// Returns a Map with status, body, ok, and optionally error.
+/// HTTP PUT. `( url body content-type -- response )`.
 ///
 /// # Safety
-/// Stack must have three String values on top (url, body, content-type)
+/// Stack must have three Strings on top: url, body, content-type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_http_put(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "http.put: stack is empty");
-
     let (stack, content_type_value) = unsafe { pop(stack) };
     let (stack, body_value) = unsafe { pop(stack) };
     let (stack, url_value) = unsafe { pop(stack) };
-
     match (url_value, body_value, content_type_value) {
         (Value::String(url), Value::String(body), Value::String(content_type)) => {
-            // Body is byte-clean (see http.post); URL and Content-Type stay text.
-            let response = perform_put(
+            let response = request::perform_request(
+                "PUT",
                 url.as_str_or_empty(),
-                body.as_bytes(),
-                content_type.as_str_or_empty(),
+                Some((content_type.as_str_or_empty(), body.as_bytes())),
             );
             unsafe { push(stack, response) }
         }
         (url, body, ct) => panic!(
-            "http.put: expected (String, String, String) on stack, got ({:?}, {:?}, {:?})",
+            "http.put: expected (String, String, String), got ({:?}, {:?}, {:?})",
             url, body, ct
         ),
     }
 }
 
-/// Perform HTTP DELETE request
-///
-/// Stack effect: ( url -- response )
-///
-/// Returns a Map with status, body, ok, and optionally error.
+/// HTTP DELETE. `( url -- response )`.
 ///
 /// # Safety
-/// Stack must have a String (URL) on top
+/// Stack must have a String (URL) on top.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn patch_seq_http_delete(stack: Stack) -> Stack {
     assert!(!stack.is_null(), "http.delete: stack is empty");
-
     let (stack, url_value) = unsafe { pop(stack) };
-
     match url_value {
         Value::String(url) => {
-            let response = perform_delete(url.as_str_or_empty());
+            let response = request::perform_request("DELETE", url.as_str_or_empty(), None);
             unsafe { push(stack, response) }
         }
-        _ => panic!(
-            "http.delete: expected String (URL) on stack, got {:?}",
-            url_value
-        ),
+        _ => panic!("http.delete: expected String (URL), got {:?}", url_value),
     }
 }
 
-/// Read up to `MAX_BODY_SIZE` bytes from a ureq response. Returns the
-/// raw byte buffer on success — callers wrap it in a byte-clean
-/// SeqString so binary response bodies (image downloads, Protobuf,
-/// MessagePack, etc.) round-trip intact.
-fn read_response_bytes(response: ureq::Response) -> Result<Vec<u8>, std::io::Error> {
-    use std::io::Read;
-    let mut reader = response.into_reader().take((MAX_BODY_SIZE as u64) + 1);
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf)?;
-    Ok(buf)
-}
-
-/// Handle HTTP response result and convert to Value
-fn handle_response(result: Result<ureq::Response, ureq::Error>) -> Value {
-    match result {
-        Ok(response) => {
-            let status = response.status() as i64;
-            let ok = (200..300).contains(&response.status());
-
-            match read_response_bytes(response) {
-                Ok(body) => {
-                    if body.len() > MAX_BODY_SIZE {
-                        error_response(format!(
-                            "Response body too large ({} bytes, max {})",
-                            body.len(),
-                            MAX_BODY_SIZE
-                        ))
-                    } else {
-                        build_response_map(status, body, ok, None)
-                    }
-                }
-                Err(e) => error_response(format!("Failed to read response body: {}", e)),
-            }
-        }
-        Err(ureq::Error::Status(code, response)) => {
-            // HTTP error status (4xx, 5xx) — body might still be useful.
-            let body = read_response_bytes(response).unwrap_or_default();
-            build_response_map(
-                code as i64,
-                body,
-                false,
-                Some(format!("HTTP error: {}", code)),
-            )
-        }
-        Err(ureq::Error::Transport(e)) => {
-            // Connection/transport error
-            error_response(format!("Connection error: {}", e))
-        }
-    }
-}
-
-/// Internal: Perform GET request
-fn perform_get(url: &str) -> Value {
-    // SSRF protection: validate URL before making request
-    if let Err(msg) = validate_url_for_ssrf(url) {
-        return error_response(msg);
-    }
-    handle_response(HTTP_AGENT.get(url).call())
-}
-
-/// Internal: Perform POST request. Body is byte-clean — HTTP request
-/// bodies are arbitrary octets per RFC 7230, so binary content
-/// (Protobuf, MessagePack, image uploads) flows through unchanged.
-fn perform_post(url: &str, body: &[u8], content_type: &str) -> Value {
-    // SSRF protection: validate URL before making request
-    if let Err(msg) = validate_url_for_ssrf(url) {
-        return error_response(msg);
-    }
-    handle_response(
-        HTTP_AGENT
-            .post(url)
-            .set("Content-Type", content_type)
-            .send_bytes(body),
-    )
-}
-
-/// Internal: Perform PUT request. Body is byte-clean (see `perform_post`).
-fn perform_put(url: &str, body: &[u8], content_type: &str) -> Value {
-    // SSRF protection: validate URL before making request
-    if let Err(msg) = validate_url_for_ssrf(url) {
-        return error_response(msg);
-    }
-    handle_response(
-        HTTP_AGENT
-            .put(url)
-            .set("Content-Type", content_type)
-            .send_bytes(body),
-    )
-}
-
-/// Internal: Perform DELETE request
-fn perform_delete(url: &str) -> Value {
-    // SSRF protection: validate URL before making request
-    if let Err(msg) = validate_url_for_ssrf(url) {
-        return error_response(msg);
-    }
-    handle_response(HTTP_AGENT.delete(url).call())
-}
-
+#[cfg(test)]
+mod integration_tests;
 #[cfg(test)]
 mod tests;

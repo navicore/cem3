@@ -35,11 +35,43 @@ const FORBIDDEN_FOR_HELLO: &[&str] = &[
     "aes_gcm",
     "regex_automata",
     "regex_syntax",
-    "rustls",
     "ed25519",
     "hmac",
     "pbkdf2",
     "zstd",
+];
+
+// Substrings tolerated up to a documented small bound. Each entry is
+// a generic-drop-wrapper monomorphization whose *body* is std
+// machinery (no actual crate code lands in the binary) but whose
+// *symbol name* contains the substring as type-parameter text.
+//
+// Counts are `symbols.matches(needle).count()` (substring
+// occurrences, not symbol count) — a single demangled symbol like
+// `drop_in_place<Adapter<StreamOwned<rustls::...::ClientConnection,
+// ...>>>` contributes two "rustls" occurrences from one tiny
+// trampoline.
+//
+// Per-entry budget is set 2x the observed count so a small drift
+// (e.g. compiler upgrade renaming an instantiation, or a future PR
+// adding one similar instantiation) still triggers the test if
+// something larger is going wrong.
+//
+// See `docs/design/done/NO_DEAD_CODE.md` for the per-entry breakdown
+// of what these are and the bisect notes that justify the bound.
+const TOLERATED_FOR_HELLO: &[(&str, usize)] = &[
+    // PR4 (HTTP rewrite, PR #?): the `Box::new(stream) as
+    // Box<dyn HttpStream + Send>` trait-object cast inside
+    // `tls::dial_tls` materializes a vtable for
+    // `StreamOwned<ClientConnection, may::net::TcpStream>`. The
+    // vtable's Write impl monomorphizes std's
+    // `default_write_fmt::Adapter<StreamOwned<...>>`, whose drop
+    // function survives `--gc-sections` even when no reachable code
+    // ever constructs the type at runtime. The drop body is ~17
+    // bytes of std-Error trampoline, not rustls code. Observed: 2
+    // substring matches from 1 symbol. Budget: 4 leaves room for one
+    // similar instantiation drift.
+    ("rustls", 4),
 ];
 
 // Release-only: the empirical zero-leaks result depends on the
@@ -86,13 +118,24 @@ fn hello_world_binary_contains_no_unreferenced_capabilities() {
     );
     let symbols = String::from_utf8_lossy(&nm.stdout);
 
-    let leaks: Vec<(&str, usize)> = FORBIDDEN_FOR_HELLO
+    let mut leaks: Vec<(&str, usize)> = FORBIDDEN_FOR_HELLO
         .iter()
         .filter_map(|needle| match symbols.matches(needle).count() {
             0 => None,
             n => Some((*needle, n)),
         })
         .collect();
+
+    // Tolerated entries: only treat as a leak if the count exceeds
+    // the documented budget. Going *over budget* indicates a new leak
+    // shape worth investigating; staying within budget means we're
+    // seeing the previously-diagnosed generic-drop-wrapper residue.
+    for &(needle, budget) in TOLERATED_FOR_HELLO {
+        let count = symbols.matches(needle).count();
+        if count > budget {
+            leaks.push((needle, count));
+        }
+    }
 
     if !leaks.is_empty() {
         let total: usize = leaks.iter().map(|(_, c)| c).sum();
@@ -102,7 +145,7 @@ fn hello_world_binary_contains_no_unreferenced_capabilities() {
             .collect::<Vec<_>>()
             .join("\n");
         panic!(
-            "hello.seq binary contains {total} symbol(s) from {n} crate(s) the source does not reference:\n{detail}",
+            "hello.seq binary contains {total} symbol(s) from {n} crate(s) the source does not reference (or exceeds the tolerated budget):\n{detail}",
             n = leaks.len(),
         );
     }

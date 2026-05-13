@@ -119,6 +119,24 @@ impl<T> SocketRegistry<T> {
 static LISTENERS: Mutex<SocketRegistry<TcpListener>> = Mutex::new(SocketRegistry::new());
 pub(crate) static STREAMS: Mutex<SocketRegistry<StreamKind>> = Mutex::new(SocketRegistry::new());
 
+/// Connect to the first reachable address in `addrs` at `port`.
+///
+/// Walks the list in order, returning the first successful
+/// `may::net::TcpStream::connect`. Yields the strand on each
+/// SYN/SYN-ACK round-trip. Returns `None` if every address fails.
+///
+/// Building `SocketAddr` directly from the `IpAddr` avoids the
+/// IPv6 string-formatting trap (`"::1:80"` is not a parseable
+/// SocketAddr — brackets are required in that form).
+///
+/// Exposed to the crate so the HTTP client (which pre-resolves +
+/// SSRF-validates before connecting) can dial without re-resolving.
+pub(crate) fn connect_to_addrs(addrs: &[IpAddr], port: u16) -> Option<TcpStream> {
+    addrs
+        .iter()
+        .find_map(|ip| TcpStream::connect(SocketAddr::new(*ip, port)).ok())
+}
+
 /// TCP listen on a port
 ///
 /// Stack effect: ( port -- listener_id Bool )
@@ -216,27 +234,21 @@ pub unsafe extern "C" fn patch_seq_tcp_connect(stack: Stack) -> Stack {
             return push(stack, Value::Bool(false));
         }
 
-        let addrs = crate::dns::resolve(hostname);
-        if addrs.is_empty() {
+        let addr_strings = crate::dns::resolve(hostname);
+        if addr_strings.is_empty() {
             let stack = push(stack, Value::Int(0));
             return push(stack, Value::Bool(false));
         }
 
-        // Build SocketAddr directly from the parsed IpAddr — avoids
-        // the `"::1:80"` IPv6 trap of formatting `ip:port` as a string
-        // (an IPv6 literal needs square brackets in that form, but a
-        // typed SocketAddr bypasses parsing entirely). Resolver only
-        // emits IP-string forms produced by `SocketAddr::ip().to_string()`,
-        // so a parse failure here would mean a runtime invariant
-        // violation — treat it as "skip this address" rather than
-        // panicking the carrier. connect() yields the strand on the
-        // SYN/SYN-ACK round-trip.
-        let port_u16 = port as u16;
-        let stream = addrs.iter().find_map(|ip| {
-            let ip_addr = ip.parse::<IpAddr>().ok()?;
-            TcpStream::connect(SocketAddr::new(ip_addr, port_u16)).ok()
-        });
-        let stream = match stream {
+        // Resolver only emits IP-string forms produced by
+        // `SocketAddr::ip().to_string()`, so a parse failure here would
+        // mean a runtime invariant violation — skip the address rather
+        // than panicking the carrier.
+        let addrs: Vec<IpAddr> = addr_strings
+            .iter()
+            .filter_map(|s| s.parse::<IpAddr>().ok())
+            .collect();
+        let stream = match connect_to_addrs(&addrs, port as u16) {
             Some(s) => s,
             None => {
                 let stack = push(stack, Value::Int(0));

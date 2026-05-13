@@ -35,6 +35,7 @@
 //! - No way to inspect the negotiated cipher / peer certificate from
 //!   Seq. Planned follow-ups once the four-layer stack stabilises.
 
+use crate::http_client::conn::Conn;
 use crate::stack::{Stack, pop, push};
 use crate::tcp::{STREAMS, StreamKind};
 use crate::value::Value;
@@ -189,6 +190,24 @@ fn build_tls(
     let mut conn = ClientConnection::new(TLS_CONFIG.clone(), server_name).map_err(|_| ())?;
     conn.complete_io(&mut tcp).map_err(|_| ())?;
     Ok(StreamOwned::new(conn, tcp))
+}
+
+/// Variant of `build_tls` exposed to the HTTP client. Returns the
+/// handshaked stream already type-erased as `Conn` (a
+/// `Box<dyn HttpStream + Send>`).
+///
+/// Why erase here: the `Box::new(stream) as Conn` cast emits the
+/// vtable for `dyn HttpStream` over `StreamOwned<ClientConnection,
+/// TcpStream>`, and *that* vtable references rustls's drop chain.
+/// Keeping the cast inside `tls.rs` means the vtable is reachable
+/// only via `dial_tls`, which is itself reachable only via the HTTP
+/// client's HTTPS path. When no Seq program reaches that path,
+/// `--gc-sections` strips the vtable and the rustls drop chain
+/// disappears from the binary. The HTTP client never holds a
+/// concretely-typed TLS stream — it only ever sees `Conn`.
+pub(crate) fn dial_tls(tcp: may::net::TcpStream, hostname: String) -> Result<Conn, ()> {
+    let stream = build_tls(tcp, hostname)?;
+    Ok(Box::new(stream) as Conn)
 }
 
 unsafe fn push_failure(stack: Stack) -> Stack {

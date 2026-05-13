@@ -8,19 +8,9 @@
 # server so no external network is required. A worker strand accepts
 # one connection and replies with "pong"; the main strand connects via
 # net.tcp.connect, sends "ping", and asserts "pong" comes back.
-
-: tcp-test-port ( -- Int )
-  # High port in the dynamic/private range to minimise collision with
-  # locally bound services. If the bind fails on a CI box, the listen
-  # test fails loudly with an explicit message.
-  54321
-;
-
-: tcp-test-port-2 ( -- Int )
-  # Second port for the localhost / dual-stack test so it doesn't
-  # race against tcp-test-port even if a prior teardown is slow.
-  54322
-;
+#
+# Listens on port 0 (OS-assigned) and uses net.tcp.local-port to
+# discover the actual port — no hardcoded magic numbers.
 
 # -----------------------------------------------------------------------------
 # Happy path: client + same-process server exchange one request/response.
@@ -43,16 +33,19 @@
 ;
 
 : test-net-tcp-connect-round-trip ( -- )
-  tcp-test-port net.tcp.listen                 # ( listener bool )
-  [ ] [ "listen failed (port already in use?)" io.write-line 1 os.exit ] if
-  # strand.spawn clones the stack to the child, so both parent and
-  # child see the listener id. The child consumes it via accept; the
-  # parent retains its copy for the final close.
-  [ server-body ] strand.spawn drop            # ( listener )
+  0 net.tcp.listen                             # ( listener bool )
+  [ ] [ "listen failed" io.write-line 1 os.exit ] if
+  dup net.tcp.local-port                       # ( listener port bool )
+  [ ] [ "local-port failed" io.write-line 1 os.exit ] if
+  # ( listener port )
+  # strand.spawn clones the parent stack to the child. The child's
+  # quotation drops the port (it only needs the listener) before
+  # running server-body. The parent keeps both for the connect.
+  [ drop server-body ] strand.spawn drop       # ( listener port )
 
-  "127.0.0.1" tcp-test-port net.tcp.connect    # ( listener client bool )
+  "127.0.0.1" swap net.tcp.connect             # ( listener client bool )
   [ ] [ "connect failed" io.write-line 1 os.exit ] if
-  "ping" over net.tcp.write                    # ( listener client bool )
+  "ping" over net.tcp.write
   test.assert
   dup net.tcp.read                             # ( listener client resp bool )
   [ "pong" test.assert-eq-str ]
@@ -72,11 +65,13 @@
   #   (b) the for-each-address fallback walks the list,
   #   (c) connect via a hostname (not an IP literal) still works
   #       end-to-end through the DNS worker pool.
-  tcp-test-port-2 net.tcp.listen
-  [ ] [ "listen failed on tcp-test-port-2" io.write-line 1 os.exit ] if
-  [ server-body ] strand.spawn drop
+  0 net.tcp.listen
+  [ ] [ "listen failed" io.write-line 1 os.exit ] if
+  dup net.tcp.local-port
+  [ ] [ "local-port failed" io.write-line 1 os.exit ] if
+  [ drop server-body ] strand.spawn drop
 
-  "localhost" tcp-test-port-2 net.tcp.connect
+  "localhost" swap net.tcp.connect
   [ ] [ "connect via localhost failed" io.write-line 1 os.exit ] if
   "ping" over net.tcp.write
   test.assert

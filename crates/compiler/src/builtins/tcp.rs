@@ -14,12 +14,13 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     // TCP operations return Bool for error handling.
     // The fd slot is typed as `Socket` (a phantom over Int) so the type
     // checker rejects passing arbitrary integers to net.tcp.write / net.tcp.close.
-    builtin!(sigs, "net.tcp.listen",  (a Int    -- a Socket Bool));
-    builtin!(sigs, "net.tcp.connect", (a String Int -- a Socket Bool));
-    builtin!(sigs, "net.tcp.accept",  (a Socket -- a Socket Bool));
-    builtin!(sigs, "net.tcp.read",    (a Socket -- a String Bool));
-    builtin!(sigs, "net.tcp.write",   (a String Socket -- a Bool));
-    builtin!(sigs, "net.tcp.close",   (a Socket -- a Bool));
+    builtin!(sigs, "net.tcp.listen",     (a Int    -- a Socket Bool));
+    builtin!(sigs, "net.tcp.connect",    (a String Int -- a Socket Bool));
+    builtin!(sigs, "net.tcp.accept",     (a Socket -- a Socket Bool));
+    builtin!(sigs, "net.tcp.local-port", (a Socket -- a Int Bool));
+    builtin!(sigs, "net.tcp.read",       (a Socket -- a String Bool));
+    builtin!(sigs, "net.tcp.write",      (a String Socket -- a Bool));
+    builtin!(sigs, "net.tcp.close",      (a Socket -- a Bool));
 
     // Escape hatches for FFI / debugging — at runtime both are identity
     // (Socket is a compile-time phantom over the same i64 fd).
@@ -44,6 +45,13 @@ pub(super) fn add_docs(docs: &mut HashMap<&'static str, &'static str>) {
     docs.insert(
         "net.tcp.accept",
         "Accept a connection. Returns (Socket Bool) -- Bool is false on failure.",
+    );
+    docs.insert(
+        "net.tcp.local-port",
+        "Get the local port a Socket is bound to. Works on listeners (handy when `0` \
+         was passed to `net.tcp.listen` to let the OS pick a port) and connected \
+         streams. Returns (Int Bool) -- Bool is false on invalid socket or kernel \
+         error.",
     );
     docs.insert(
         "net.tcp.read",

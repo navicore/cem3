@@ -245,6 +245,7 @@ impl Program {
             "net.tcp.listen",
             "net.tcp.connect",
             "net.tcp.accept",
+            "net.tcp.local-port",
             "net.tcp.read",
             "net.tcp.write",
             "net.tcp.close",

@@ -256,7 +256,8 @@ pub use exit_code::{
 pub use tcp::{
     patch_seq_tcp_accept as tcp_accept, patch_seq_tcp_close as tcp_close,
     patch_seq_tcp_connect as tcp_connect, patch_seq_tcp_listen as tcp_listen,
-    patch_seq_tcp_read as tcp_read, patch_seq_tcp_write as tcp_write,
+    patch_seq_tcp_local_port as tcp_local_port, patch_seq_tcp_read as tcp_read,
+    patch_seq_tcp_write as tcp_write,
 };
 
 // UDP operations (exported for LLVM linking)

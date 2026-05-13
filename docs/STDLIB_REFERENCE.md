@@ -313,14 +313,20 @@ Worker count is configurable via `SEQ_DNS_WORKERS` (default 8, max 64).
 disabling the pool makes no architectural sense since the syscall has
 to run somewhere off the may carrier.
 
-**Known limitation — no single-flight.** The cache deduplicates
-*sequential* fanout: once one strand fills the cache, later resolves
-of the same host hit the fast path. It does **not** deduplicate
-*concurrent* first-resolves — N strands racing to resolve the same
-uncached host each enqueue a separate worker job. Wasted work under
-bursty load (e.g., connection-pool warm-up); not a correctness issue.
-Single-flight via an in-flight map keyed by hostname is a planned
-follow-up.
+**Fanout collapsing.** Both *sequential* and *concurrent* fanout
+collapse to a single `getaddrinfo`. The TTL cache catches the
+sequential case. An in-flight map keyed by hostname catches the
+concurrent case: when N strands race to resolve the same uncached
+host, the first to arrive enqueues exactly one worker job and the
+others attach to the in-flight entry. When the worker returns it
+writes the cache and fans the result out to every attached strand.
+
+**IP-literal fast path.** Callers that go through `net.dns.resolve`
+indirectly (via `net.tcp.connect`, `net.udp.send-to`, or the HTTP
+client's SSRF validator) bypass the worker pool entirely when the
+host string is an IP literal — `dns::resolve_to_ips` parses the
+literal and returns it directly. The pool round-trip is reserved
+for actual DNS work.
 
 ```seq
 "api.example.com" net.dns.resolve

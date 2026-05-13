@@ -28,6 +28,10 @@ pub(super) static DECLS: &[RuntimeDecl] = &[
         category: None,
     },
     RuntimeDecl {
+        decl: "declare ptr @patch_seq_tcp_local_port(ptr)",
+        category: None,
+    },
+    RuntimeDecl {
         decl: "declare ptr @patch_seq_socket_cast(ptr)",
         category: Some("; Socket <-> Int casts (identity at runtime — Socket is a phantom)"),
     },
@@ -40,6 +44,7 @@ pub(super) static SYMBOLS: &[(&str, &str)] = &[
     ("net.tcp.read", "patch_seq_tcp_read"),
     ("net.tcp.write", "patch_seq_tcp_write"),
     ("net.tcp.close", "patch_seq_tcp_close"),
+    ("net.tcp.local-port", "patch_seq_tcp_local_port"),
     // Socket is a compile-time phantom over Int, so both casts share one
     // identity shim in the runtime.
     ("fd->socket", "patch_seq_socket_cast"),

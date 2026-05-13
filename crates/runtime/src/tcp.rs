@@ -28,7 +28,7 @@ use std::sync::Mutex;
 /// embeds rustls's per-connection record buffers — off the registry
 /// allocation. Without the box, every plain-TCP allocation would have
 /// to find a contiguous chunk large enough for the TLS variant.
-pub(crate) enum StreamKind {
+enum StreamKind {
     Tcp(TcpStream),
     Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
 }
@@ -67,21 +67,23 @@ const MAX_SOCKETS: usize = 10_000;
 #[allow(dead_code)]
 const MAX_READ_SIZE: usize = 1_048_576; // 1 MB
 
-// Socket registry with ID reuse via free list
-pub(crate) struct SocketRegistry<T> {
+// Socket registry with ID reuse via free list. Private — the only
+// cross-module operation is `upgrade_tcp_in_place`, which hides the
+// registry behind a callback.
+struct SocketRegistry<T> {
     sockets: Vec<Option<T>>,
     free_ids: Vec<usize>,
 }
 
 impl<T> SocketRegistry<T> {
-    pub(crate) const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             sockets: Vec::new(),
             free_ids: Vec::new(),
         }
     }
 
-    pub(crate) fn allocate(&mut self, socket: T) -> Result<i64, &'static str> {
+    fn allocate(&mut self, socket: T) -> Result<i64, &'static str> {
         // Try to reuse a free ID first
         if let Some(id) = self.free_ids.pop() {
             self.sockets[id] = Some(socket);
@@ -99,11 +101,11 @@ impl<T> SocketRegistry<T> {
         Ok(id as i64)
     }
 
-    pub(crate) fn get_mut(&mut self, id: usize) -> Option<&mut Option<T>> {
+    fn get_mut(&mut self, id: usize) -> Option<&mut Option<T>> {
         self.sockets.get_mut(id)
     }
 
-    pub(crate) fn free(&mut self, id: usize) {
+    fn free(&mut self, id: usize) {
         if let Some(slot) = self.sockets.get_mut(id)
             && slot.is_some()
         {
@@ -116,8 +118,94 @@ impl<T> SocketRegistry<T> {
 // Global registry for TCP listeners and streams. STREAMS holds a
 // StreamKind so that plain-TCP and TLS-wrapped sockets share one id
 // space (and one set of read/write/close builtins).
+//
+// The "free + allocate is dangerous across a strand yield" invariant
+// lives entirely inside this module — `tls::upgrade_tcp_to_tls` (the
+// only cross-module reason to touch STREAMS) goes through
+// `upgrade_tcp_in_place`, which holds the slot reserved (Some(None))
+// across the caller's yield-able TLS handshake so no concurrent
+// strand can grab the id.
 static LISTENERS: Mutex<SocketRegistry<TcpListener>> = Mutex::new(SocketRegistry::new());
-pub(crate) static STREAMS: Mutex<SocketRegistry<StreamKind>> = Mutex::new(SocketRegistry::new());
+static STREAMS: Mutex<SocketRegistry<StreamKind>> = Mutex::new(SocketRegistry::new());
+
+/// Take the underlying `TcpStream` out of `STREAMS[id]`, only if the
+/// slot holds a `Tcp` variant. A `Tls` variant or empty slot
+/// short-circuits to `None`; a wrong-kind variant is restored so a
+/// double-upgrade caller doesn't accidentally destroy the connection.
+///
+/// On `Some` return, the slot at `id` is left holding `None` —
+/// reserved for the caller. The caller MUST either reinstall a value
+/// into that slot or release the id via `free_stream`. The recommended
+/// way to do this safely across a strand-yielding operation (e.g. a
+/// TLS handshake) is `upgrade_tcp_in_place`, which handles the
+/// reinstall/free for you.
+fn take_tcp(id: usize) -> Option<may::net::TcpStream> {
+    let mut streams = STREAMS.lock().unwrap();
+    let slot = streams.get_mut(id)?;
+    match slot.take() {
+        Some(StreamKind::Tcp(t)) => Some(t),
+        Some(other) => {
+            *slot = Some(other);
+            None
+        }
+        None => None,
+    }
+}
+
+fn free_stream(id: usize) {
+    STREAMS.lock().unwrap().free(id);
+}
+
+/// In-place upgrade of a TCP socket to its TLS-wrapped form.
+///
+/// The flow:
+/// 1. Take the underlying `TcpStream` out of `STREAMS[id]` via
+///    `take_tcp`. The slot is now reserved (Some(None)) — concurrent
+///    strands can't allocate this id while the caller runs `f`.
+/// 2. Hand the stream to `f` (which is allowed to yield the strand —
+///    typically the TLS handshake).
+/// 3. On success, wrap the returned StreamOwned in `StreamKind::Tls`
+///    and reinstall into the same slot — the Socket id is preserved.
+/// 4. On failure, drop the (already-consumed) `TcpStream` and release
+///    the id back to the free list.
+///
+/// Returns `true` iff the slot was found, the upgrade succeeded, and
+/// the reinstall completed. The Socket id is unchanged on success.
+///
+/// Crate-internal entry point for `tls::patch_seq_tls_client`. Keeps
+/// the "reserve across yield" invariant inside this module.
+pub(crate) fn upgrade_tcp_in_place<F>(id: usize, f: F) -> bool
+where
+    F: FnOnce(
+        may::net::TcpStream,
+    )
+        -> Result<rustls::StreamOwned<rustls::ClientConnection, may::net::TcpStream>, ()>,
+{
+    let tcp = match take_tcp(id) {
+        Some(t) => t,
+        None => return false,
+    };
+    let stream = match f(tcp) {
+        Ok(s) => s,
+        Err(()) => {
+            // `f` consumed (and dropped) the TcpStream — socket closed.
+            // Release the reserved id back to the free list.
+            free_stream(id);
+            return false;
+        }
+    };
+    let mut streams = STREAMS.lock().unwrap();
+    match streams.get_mut(id) {
+        Some(slot) => {
+            *slot = Some(StreamKind::Tls(Box::new(stream)));
+            true
+        }
+        // Currently impossible with the append-only registry; future
+        // eviction would surface here as a clean false rather than a
+        // panic.
+        None => false,
+    }
+}
 
 /// Connect to the first reachable address in `addrs` at `port`.
 ///
@@ -234,20 +322,11 @@ pub unsafe extern "C" fn patch_seq_tcp_connect(stack: Stack) -> Stack {
             return push(stack, Value::Bool(false));
         }
 
-        let addr_strings = crate::dns::resolve(hostname);
-        if addr_strings.is_empty() {
+        let addrs = crate::dns::resolve_to_ips(hostname);
+        if addrs.is_empty() {
             let stack = push(stack, Value::Int(0));
             return push(stack, Value::Bool(false));
         }
-
-        // Resolver only emits IP-string forms produced by
-        // `SocketAddr::ip().to_string()`, so a parse failure here would
-        // mean a runtime invariant violation — skip the address rather
-        // than panicking the carrier.
-        let addrs: Vec<IpAddr> = addr_strings
-            .iter()
-            .filter_map(|s| s.parse::<IpAddr>().ok())
-            .collect();
         let stream = match connect_to_addrs(&addrs, port as u16) {
             Some(s) => s,
             None => {
@@ -533,8 +612,69 @@ pub use patch_seq_tcp_accept as tcp_accept;
 pub use patch_seq_tcp_close as tcp_close;
 pub use patch_seq_tcp_connect as tcp_connect;
 pub use patch_seq_tcp_listen as tcp_listen;
+pub use patch_seq_tcp_local_port as tcp_local_port;
 pub use patch_seq_tcp_read as tcp_read;
 pub use patch_seq_tcp_write as tcp_write;
+
+/// Get the local port a Socket is bound to.
+///
+/// Stack effect: `( Socket -- Int Bool )`
+///
+/// Works on both listeners (returns the port from `net.tcp.listen`,
+/// useful when `0` was passed to let the OS pick) and connected
+/// streams (returns the ephemeral local port the kernel chose for
+/// the connection). For TLS-wrapped sockets, returns the underlying
+/// TCP local port.
+///
+/// Returns `(0, false)` when the socket id is invalid or the OS
+/// can't report the local address.
+///
+/// # Safety
+/// Stack must have an Int (socket_id) on top.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn patch_seq_tcp_local_port(stack: Stack) -> Stack {
+    unsafe {
+        let (stack, socket_id_val) = pop(stack);
+        let socket_id = match socket_id_val {
+            Value::Int(id) => id as usize,
+            _ => {
+                let stack = push(stack, Value::Int(0));
+                return push(stack, Value::Bool(false));
+            }
+        };
+
+        // Streams first, then listeners — same dispatch order as close.
+        let port: Option<u16> = {
+            let mut streams = STREAMS.lock().unwrap();
+            streams
+                .get_mut(socket_id)
+                .and_then(|slot| slot.as_ref())
+                .and_then(|sk| match sk {
+                    StreamKind::Tcp(s) => s.local_addr().ok().map(|a| a.port()),
+                    StreamKind::Tls(s) => s.sock.local_addr().ok().map(|a| a.port()),
+                })
+        };
+        if let Some(port) = port {
+            let stack = push(stack, Value::Int(port as i64));
+            return push(stack, Value::Bool(true));
+        }
+        let port: Option<u16> = {
+            let mut listeners = LISTENERS.lock().unwrap();
+            listeners
+                .get_mut(socket_id)
+                .and_then(|slot| slot.as_ref())
+                .and_then(|l| l.local_addr().ok())
+                .map(|a| a.port())
+        };
+        if let Some(port) = port {
+            let stack = push(stack, Value::Int(port as i64));
+            return push(stack, Value::Bool(true));
+        }
+
+        let stack = push(stack, Value::Int(0));
+        push(stack, Value::Bool(false))
+    }
+}
 
 /// Cast between Socket and Int (both directions): identity at runtime.
 ///

@@ -1,0 +1,61 @@
+# Plain TCP echo server.
+#
+# Not all of networking is HTTP. This is a minimal TCP server: accept
+# a connection, read whatever the client sent, write it back, close.
+# Each connection runs in its own strand (green thread) so multiple
+# clients can be served concurrently — but the wire protocol is just
+# bytes, with no HTTP framing.
+#
+# Build: seqc build server.seq -o /tmp/tcp-server
+# Run:   /tmp/tcp-server
+#
+# In another terminal, point any TCP client at it:
+#   nc localhost 9000
+#   <type something, hit return — the server echoes it back and closes>
+#
+# Or use the companion client.seq if you adapt its port to 9000.
+#
+# Compare with ../tcp/http-routing.seq for the same accept-loop shape
+# with HTTP framing layered on top.
+
+# Real code should check the Bool that net.tcp.write returns and
+# decide whether to retry or give up; the example skips it for
+# readability via the lint allow below.
+# seq:allow(unchecked-tcp-write)
+: handle-conn ( Socket -- )
+  dup net.tcp.read              # ( socket data bool )
+  [ # then: bytes arrived
+    over net.tcp.write drop     # echo them back
+    net.tcp.close drop
+  ]
+  [ # else: read failed
+    drop net.tcp.close drop
+  ]
+  if
+;
+
+: accept-loop ( Socket -- )
+  dup net.tcp.accept            # ( listener client bool )
+  [ # then: connection accepted
+    # strand.spawn clones the stack to the child; child runs
+    # handle-conn on the client socket and exits with the leftover
+    # listener on its stack (harmless). Parent drops strand_id and
+    # client, then tail-calls back into the loop.
+    [ handle-conn ] strand.spawn drop drop
+    accept-loop
+  ]
+  [ # else: accept errored — drop the 0 sentinel and retry
+    drop accept-loop
+  ]
+  if
+;
+
+: main ( -- )
+  9000 net.tcp.listen
+  [ # ( listener )
+    "echo server listening on port 9000" io.write-line
+    accept-loop
+  ]
+  [ drop "listen failed (port already in use?)" io.write-line ]
+  if
+;

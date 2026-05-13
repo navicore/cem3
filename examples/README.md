@@ -10,7 +10,8 @@ The `examples/` directory contains programs demonstrating Seq's features, organi
 | [language/](language/) | Core language features - quotations, closures, recursion |
 | [paradigms/](paradigms/) | Programming paradigms - OOP, actors, functional |
 | [data/](data/) | Data formats - JSON, YAML, SON, zipper |
-| [io/](io/) | Input/output - HTTP, terminal, files, text processing |
+| [net/](net/) | Networking - DNS, TCP, UDP, TLS, HTTP |
+| [io/](io/) | Input/output - terminal, files, text processing, compression |
 | [projects/](projects/) | Complete applications - Lisp interpreter, crypto, algorithms |
 | [ffi/](ffi/) | Foreign function interface - SQLite, libedit |
 

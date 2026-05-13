@@ -1,0 +1,40 @@
+# net.tcp.connect — minimal TCP client.
+#
+# Connects to a remote host:port, sends a small request, reads
+# whatever the peer sends back, and closes. The connect path goes
+# through net.dns.resolve and net.tcp.connect, both cooperative.
+#
+# Build: seqc build client.seq -o /tmp/tcp-client
+# Run:   /tmp/tcp-client
+#
+# The example points at example.com:80 because plain TCP without TLS
+# is what this file demonstrates — see ../tls/client.seq for the
+# HTTPS variant, or ../http/client.seq for the high-level
+# net.http.* surface that handles framing for you.
+
+# Real code should check the Bool that net.tcp.write returns and
+# bail on failure; the example skips it for readability via the lint
+# allow below.
+# seq:allow(unchecked-tcp-write)
+: send-request ( Socket -- Socket )
+  "GET / HTTP/1.0\r\nHost: example.com\r\nConnection: close\r\n\r\n"
+  over net.tcp.write drop
+;
+
+: read-and-print ( Socket -- Socket )
+  dup net.tcp.read
+  [ io.write-line ]
+  [ drop "read failed" io.write-line ]
+  if
+;
+
+: main ( -- )
+  "example.com" 80 net.tcp.connect
+  [ # ( Socket )
+    send-request
+    read-and-print
+    net.tcp.close drop
+  ]
+  [ drop "connect failed" io.write-line ]
+  if
+;

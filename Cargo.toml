@@ -67,9 +67,10 @@ aes-gcm = "0.10"  # AES-256-GCM authenticated encryption
 pbkdf2 = "0.12"   # Password-based key derivation
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }  # Ed25519 digital signatures
 
-# HTTP client
-ureq = { version = "2.12", features = ["tls"] }
-url = "2.5"  # URL parsing for SSRF validation
+# URL parsing — used by the SSRF validator in net.http.* and by future
+# URL-handling layers. (The HTTP client itself is now hand-rolled over
+# TCP/TLS — see runtime/src/http_client/.)
+url = "2.5"
 
 # TLS — used by net.tls.client and (eventually) the may-aware HTTP rewrite.
 # Pinned to the same major as ureq's transitive rustls so the build doesn't

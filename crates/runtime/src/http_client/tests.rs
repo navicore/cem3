@@ -1,7 +1,22 @@
+use super::ssrf::{Scheme, ValidatedTarget};
+use super::wire::{read_response, write_request};
 use super::*;
+use std::io::Cursor;
+use std::net::IpAddr;
 
-// Note: HTTP tests require network access and a running server
-// Unit tests here focus on the response building logic
+// Unit tests focus on pure layers: response-map shape, SSRF
+// classification, and wire framing. Pool behaviour and end-to-end
+// request flow are covered by the integration tests.
+
+fn dummy_target(host: &str, port: u16, scheme: Scheme, path_and_query: &str) -> ValidatedTarget {
+    ValidatedTarget {
+        scheme,
+        host: host.to_string(),
+        port,
+        addrs: vec![IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))],
+        path_and_query: path_and_query.to_string(),
+    }
+}
 
 #[test]
 fn test_build_response_map_success() {
@@ -221,4 +236,163 @@ fn test_dangerous_ipv6() {
     assert!(!is_dangerous_ipv6(Ipv6Addr::new(
         0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
     ))); // Google DNS
+}
+
+// -----------------------------------------------------------------------------
+// Wire-format tests
+// -----------------------------------------------------------------------------
+
+fn assert_request_contains(out: &[u8], needles: &[&str]) {
+    let s = std::str::from_utf8(out).expect("request must be ASCII/UTF-8 here");
+    for needle in needles {
+        assert!(
+            s.contains(needle),
+            "expected request to contain {needle:?}, got:\n{s}"
+        );
+    }
+}
+
+#[test]
+fn wire_get_request_format() {
+    let target = dummy_target("example.com", 80, Scheme::Http, "/path?q=1");
+    let mut buf = Vec::new();
+    write_request(&mut buf, "GET", &target, None).unwrap();
+    assert_request_contains(
+        &buf,
+        &[
+            "GET /path?q=1 HTTP/1.1\r\n",
+            "Host: example.com\r\n",
+            "Accept-Encoding: identity\r\n",
+            "Connection: keep-alive\r\n",
+        ],
+    );
+    // Empty body — terminator is the only blank line.
+    assert!(buf.ends_with(b"\r\n\r\n"));
+}
+
+#[test]
+fn wire_get_https_default_port_omits_port_from_host() {
+    let target = dummy_target("example.com", 443, Scheme::Https, "/");
+    let mut buf = Vec::new();
+    write_request(&mut buf, "GET", &target, None).unwrap();
+    let s = std::str::from_utf8(&buf).unwrap();
+    assert!(
+        s.contains("Host: example.com\r\n"),
+        "default https port (443) must not appear in Host: {s}"
+    );
+}
+
+#[test]
+fn wire_get_nonstandard_port_includes_port_in_host() {
+    let target = dummy_target("example.com", 8080, Scheme::Http, "/");
+    let mut buf = Vec::new();
+    write_request(&mut buf, "GET", &target, None).unwrap();
+    assert_request_contains(&buf, &["Host: example.com:8080\r\n"]);
+}
+
+#[test]
+fn wire_post_request_includes_body_and_framing_headers() {
+    let target = dummy_target("api.example.com", 443, Scheme::Https, "/users");
+    let body = b"{\"name\":\"Alice\"}";
+    let mut buf = Vec::new();
+    write_request(&mut buf, "POST", &target, Some(("application/json", body))).unwrap();
+    assert_request_contains(
+        &buf,
+        &[
+            "POST /users HTTP/1.1\r\n",
+            "Host: api.example.com\r\n",
+            "Content-Type: application/json\r\n",
+            "Content-Length: 16\r\n",
+        ],
+    );
+    assert!(
+        buf.windows(body.len()).any(|w| w == body),
+        "request must include the literal body bytes"
+    );
+}
+
+#[test]
+fn wire_response_content_length() {
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Content-Length: 5\r\n\
+                Content-Type: text/plain\r\n\
+                \r\n\
+                hello";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let resp = read_response(&mut cursor).expect("parse");
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.body, b"hello");
+    assert!(resp.keep_alive);
+}
+
+#[test]
+fn wire_response_chunked() {
+    // Two chunks: "Wiki" (4 bytes) and "pedia" (5 bytes), then 0-chunk terminator.
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Transfer-Encoding: chunked\r\n\
+                \r\n\
+                4\r\nWiki\r\n\
+                5\r\npedia\r\n\
+                0\r\n\r\n";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let resp = read_response(&mut cursor).expect("parse");
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.body, b"Wikipedia");
+    assert!(resp.keep_alive);
+}
+
+#[test]
+fn wire_response_chunked_with_extensions_and_trailer() {
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Transfer-Encoding: chunked\r\n\
+                \r\n\
+                4;name=value\r\ndata\r\n\
+                0\r\n\
+                X-Trailer: ignored\r\n\
+                \r\n";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let resp = read_response(&mut cursor).expect("parse");
+    assert_eq!(resp.body, b"data");
+}
+
+#[test]
+fn wire_response_connection_close_eof_framed() {
+    // No Content-Length, no Transfer-Encoding, Connection: close.
+    // Body terminates at EOF; connection must not be pool-eligible.
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Connection: close\r\n\
+                \r\n\
+                streamed body bytes";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let resp = read_response(&mut cursor).expect("parse");
+    assert_eq!(resp.body, b"streamed body bytes");
+    assert!(!resp.keep_alive);
+}
+
+#[test]
+fn wire_response_404_status() {
+    let raw = b"HTTP/1.1 404 Not Found\r\n\
+                Content-Length: 9\r\n\
+                \r\n\
+                not found";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let resp = read_response(&mut cursor).expect("parse");
+    assert_eq!(resp.status, 404);
+    assert_eq!(resp.body, b"not found");
+}
+
+#[test]
+fn wire_response_content_length_too_large_rejected() {
+    let huge = super::wire::MAX_BODY_SIZE + 1;
+    let raw = format!("HTTP/1.1 200 OK\r\nContent-Length: {huge}\r\n\r\n");
+    let mut cursor = Cursor::new(raw.into_bytes());
+    let err = read_response(&mut cursor).expect_err("oversized body must be rejected");
+    assert!(err.contains("too large"), "got: {err}");
+}
+
+#[test]
+fn wire_response_invalid_status_line_rejected() {
+    let raw = b"NOT-AN-HTTP-RESPONSE\r\n\r\n";
+    let mut cursor = Cursor::new(raw.to_vec());
+    assert!(read_response(&mut cursor).is_err());
 }

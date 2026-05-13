@@ -36,7 +36,7 @@ crypto = [
     "dep:pbkdf2",
     "dep:ed25519-dalek",
 ]
-http = ["dep:ureq", "dep:url"]
+http = ["dep:url"]
 regex = ["dep:regex"]
 compression = ["dep:flate2", "dep:zstd"]
 
@@ -71,8 +71,8 @@ aes-gcm = { workspace = true, optional = true }
 pbkdf2 = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true, optional = true }
 
-# HTTP client (optional via "http" feature)
-ureq = { workspace = true, optional = true }
+# URL parsing for the http_client feature (SSRF validation and request-line target).
+# The HTTP client itself is hand-rolled over TCP/TLS now; ureq is gone.
 url = { workspace = true, optional = true }
 
 # TLS — always-on. Underpins net.tls.client (PR3) and the planned

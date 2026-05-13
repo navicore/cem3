@@ -454,12 +454,54 @@ The HTTP **client** lives under `net.http.*`. The `std:http` stdlib module
 provides server-side response/parsing helpers (`http-ok`, `http-request-path`,
 …) and is unrelated.
 
+The client is hand-rolled HTTP/1.1 over the may-aware TCP and TLS
+primitives (see [net.tcp.connect](#networking--nettcp), [net.tls.client](#networking--nettls)).
+Every IO step yields the strand cooperatively; the request never parks
+the carrier thread. Hostname resolution and SSRF validation run through
+the [net.dns.*](#networking--netdns) worker pool, so there is exactly
+one `getaddrinfo` per request and it runs off the may carrier.
+
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `net.http.get` | `( String -- Map )` | GET request. Map has status, body, ok, error |
-| `net.http.post` | `( String String String -- Map )` | POST request. (url, body, content-type) |
-| `net.http.put` | `( String String String -- Map )` | PUT request. (url, body, content-type) |
-| `net.http.delete` | `( String -- Map )` | DELETE request |
+| `net.http.get` | `( String -- Map )` | GET request. Map has `status`, `body`, `ok`, `error`. |
+| `net.http.post` | `( String String String -- Map )` | POST request. `(url, body, content-type)`. Body is byte-clean — binary payloads round-trip intact. |
+| `net.http.put` | `( String String String -- Map )` | PUT request. `(url, body, content-type)`. |
+| `net.http.delete` | `( String -- Map )` | DELETE request. |
+
+**Response Map shape:**
+
+- `"status"` (Int): HTTP status code, or `0` on connection-level error.
+- `"body"` (String): response body as raw bytes (byte-clean — binary downloads round-trip intact; decode as text yourself if you expected text).
+- `"ok"` (Bool): true iff status is in `200..300`.
+- `"error"` (String): error message; present only on failure.
+
+**Connection pool.** Keep-alive connections are pooled by `(scheme, host, port)`
+between requests. A second `net.http.get` against the same origin skips
+the TCP and TLS handshakes when an idle entry is available. Defaults:
+
+- 8 idle connections per `(scheme, host, port)`
+- 30s idle timeout
+- 256 idle connections globally
+- MRU checkout (freshest pooled connection used first)
+- Non-blocking half-closed peek on reuse: if the peer FIN'd the socket
+  while it sat idle, the entry is dropped and a fresh connection is
+  dialled.
+
+**SSRF protection.** Requests are blocked when the URL's host resolves
+to a loopback (`127.0.0.0/8`, `::1`), private (`10/8`, `172.16/12`,
+`192.168/16`), link-local (`169.254/16`, including cloud metadata
+endpoints), or unique-local (`fc00::/7`) IP. Schemes outside
+`http`/`https` are rejected. The check runs against the addresses the
+DNS layer already returned — no second resolution on the carrier.
+
+**v1 limitations:**
+
+- **No redirect following.** A 3xx response is returned to the caller as-is, with `Location` available in the body or via your own header parser.
+- **No automatic decompression.** The client sends `Accept-Encoding: identity`. If you want gzip transfer, set up your own request and decompress with `compress.gunzip`.
+- **No per-request timeout.** A deadline pass across the networking stack is a planned follow-up (alongside the connect-timeout gap inherited from PR2 and the handshake-timeout gap from PR3).
+- **No custom request headers.** Only `Host`, `User-Agent`, `Accept-Encoding`, `Connection`, and (for POST/PUT) `Content-Type` + `Content-Length` are sent. A header-bag API is a planned follow-up.
+- **No client certificate auth, ALPN selection, or peer-cert inspection.** Inherited from `net.tls.client`.
+- **POST is not auto-retried** on transient transport failure; GET/PUT/DELETE are (idempotent per RFC 9110). A POST that fails mid-flight surfaces as a connection error.
 
 ## Regular Expressions
 

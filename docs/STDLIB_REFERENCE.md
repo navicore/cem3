@@ -286,6 +286,12 @@ resolution returns multiple addresses (e.g. `localhost` →
 case of a v4-only socket reached through a name that resolves
 v6-first.
 
+Note: for UDP, `send_to` returning OK means the kernel accepted the
+datagram for the chosen address family — it does *not* confirm peer
+receipt. The multi-address walk therefore catches local-side errors
+(address-family mismatch, route-not-found) but cannot detect an
+unreachable peer past the first successful queue.
+
 ## Networking — net.dns.*
 
 Hostname resolution offloaded to a dedicated OS-thread pool so may

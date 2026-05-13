@@ -43,11 +43,15 @@
   # Same round-trip as above, but the destination is "localhost"
   # (a hostname, not an IP literal). PR5 routes hostname resolution
   # through net.dns.resolve so the may carrier never parks on a
-  # blocking getaddrinfo. On Linux, localhost resolves to ::1 and
-  # 127.0.0.1; the UDP socket is bound v4-only (0.0.0.0), so the
-  # send_to walk tries ::1 (fails, wrong family), falls through to
-  # 127.0.0.1 (succeeds). Verifies both the DNS path and the
-  # multi-address fallback added in PR5.
+  # blocking getaddrinfo.
+  #
+  # On dual-stack /etc/hosts configurations (the stock Linux setup
+  # — ::1 first, then 127.0.0.1) this also exercises the multi-
+  # address walk: the v6 send_to fails on the v4-only socket and
+  # the loop falls through to 127.0.0.1. On single-stack hosts
+  # (some minimal containers, Alpine variants, BSD-derived /etc/hosts)
+  # localhost resolves only to 127.0.0.1 and the walk has just one
+  # entry — the DNS-through-pool path is still verified.
   bind-localhost                            # ( a-sock a-port )
   bind-localhost                            # ( a-sock a-port b-sock b-port )
   drop                                      # ( a-sock a-port b-sock )

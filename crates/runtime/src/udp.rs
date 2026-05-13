@@ -237,6 +237,10 @@ pub unsafe extern "C" fn patch_seq_udp_send_to(stack: Stack) -> Stack {
             return push(stack, Value::Bool(false));
         }
         let port_u16 = port as u16;
+        // Resolver only emits IP-string forms produced by
+        // `SocketAddr::ip().to_string()`; a parse failure here would
+        // mean a runtime invariant violation — skip rather than panic
+        // the carrier. Same pattern as `tcp::patch_seq_tcp_connect`.
         let addrs: Vec<IpAddr> = crate::dns::resolve(hostname)
             .iter()
             .filter_map(|s| s.parse::<IpAddr>().ok())

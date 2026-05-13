@@ -18,6 +18,7 @@
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use may::net::UdpSocket;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 // Maximum number of concurrent sockets to prevent unbounded growth.
@@ -175,6 +176,16 @@ unsafe fn push_bind_failure(stack: Stack) -> Stack {
 /// is below all of them on entry). Returns `false` on type mismatch,
 /// invalid socket, address-resolution failure, or send error.
 ///
+/// Host resolution goes through `dns::resolve` (the may-aware DNS
+/// worker pool from PR1). Previously this path used
+/// `format!("{host}:{port}")` + may's `ToSocketAddrs`, which silently
+/// called blocking `getaddrinfo` on the calling may carrier whenever
+/// `host` was a DNS name — a latent hazard that PR5 closes. IP
+/// literals still work; they round-trip through the resolver's
+/// numeric-host fast path. If resolution returns multiple addresses
+/// (e.g. localhost → ::1, 127.0.0.1) we try them in order and stop at
+/// the first `send_to` that doesn't error.
+///
 /// # Safety
 /// Stack must have Int (socket), Int (port), String (host),
 /// String (bytes) — top-down — on entry.
@@ -221,9 +232,32 @@ pub unsafe extern "C" fn patch_seq_udp_send_to(stack: Stack) -> Stack {
             }
         };
 
-        let addr = format!("{}:{}", host.as_str_or_empty(), port);
-        let result = socket.send_to(bytes.as_bytes(), &addr);
-        push(stack, Value::Bool(result.is_ok()))
+        let hostname = host.as_str_or_empty();
+        if hostname.is_empty() {
+            return push(stack, Value::Bool(false));
+        }
+        let port_u16 = port as u16;
+        // Resolver only emits IP-string forms produced by
+        // `SocketAddr::ip().to_string()`; a parse failure here would
+        // mean a runtime invariant violation — skip rather than panic
+        // the carrier. Same pattern as `tcp::patch_seq_tcp_connect`.
+        let addrs: Vec<IpAddr> = crate::dns::resolve(hostname)
+            .iter()
+            .filter_map(|s| s.parse::<IpAddr>().ok())
+            .collect();
+        if addrs.is_empty() {
+            return push(stack, Value::Bool(false));
+        }
+        // Walk addresses; first send that doesn't error wins. UDP
+        // doesn't have a connect-handshake, so `send_to` failures are
+        // typically address-family mismatches (e.g. v6 IP on a v4-only
+        // socket) — the next address in the list usually clears it.
+        let sent = addrs.iter().any(|ip| {
+            socket
+                .send_to(bytes.as_bytes(), SocketAddr::new(*ip, port_u16))
+                .is_ok()
+        });
+        push(stack, Value::Bool(sent))
     }
 }
 

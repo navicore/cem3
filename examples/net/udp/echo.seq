@@ -1,0 +1,49 @@
+# UDP loopback round-trip.
+#
+# UDP is connectionless: bind a socket on each end, send a datagram,
+# receive it. This example does the whole round-trip in a single
+# program — bind a receiver socket A, bind a sender socket B, fire a
+# datagram from B to A, receive on A, print what arrived.
+#
+# Mirrors the shape of the test-udp-loopback-round-trip integration
+# test; the only difference is that this runs as a standalone
+# program you can build and execute directly.
+#
+# Build: seqc build echo.seq -o /tmp/udp-echo
+# Run:   /tmp/udp-echo
+
+: bind-localhost ( -- Socket Int )
+  # Bind a UDP socket on an OS-assigned port. Returns ( socket port ).
+  0 net.udp.bind                # ( socket port success )
+  [ ] [ "net.udp.bind failed" io.write-line 1 os.exit ] if
+;
+
+: main ( -- )
+  # Bind the receiver (A) on an OS-assigned port.
+  bind-localhost                # ( a-sock a-port )
+
+  # Bind the sender (B); we don't need its port.
+  bind-localhost                # ( a-sock a-port b-sock b-port )
+  drop                          # ( a-sock a-port b-sock )
+
+  # Stash a-port + b-sock so we can build send-to args bottom-up:
+  # send-to expects ( bytes host port socket ).
+  >aux                          # ( a-sock a-port ) aux: ( b-sock )
+  >aux                          # ( a-sock )       aux: ( b-sock a-port )
+
+  "hello over UDP" "127.0.0.1"  # ( a-sock bytes host )
+  aux>                          # ( a-sock bytes host port )
+  aux>                          # ( a-sock bytes host port b-sock )
+  net.udp.send-to               # ( a-sock success )
+  [ ] [ "send-to failed" io.write-line 1 os.exit ] if
+
+  # Receive on A. Returns ( bytes host port success ).
+  net.udp.receive-from
+  [ # ( bytes host port )
+    drop drop                   # discard source host + port
+    "received: " io.write
+    io.write-line
+  ]
+  [ drop drop drop "receive-from failed" io.write-line ]
+  if
+;

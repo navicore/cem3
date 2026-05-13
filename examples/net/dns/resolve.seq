@@ -1,0 +1,27 @@
+# net.dns.resolve — hostname resolution via the may-aware worker pool.
+#
+# Resolves a hostname through Seq's DNS layer. The lookup runs on a
+# dedicated OS-thread pool, so the cooperative carrier never parks
+# on `getaddrinfo`. Prints each IP address the resolver returns.
+#
+# Build: seqc build resolve.seq -o /tmp/dns-resolve
+# Run:   /tmp/dns-resolve
+#
+# Try a few hostnames to see what the resolver returns:
+#   - "localhost"     usually two entries on Linux (::1 and 127.0.0.1)
+#   - "example.com"   one or two public IPs
+#   - "1.1.1.1"       round-trips as an IP literal (numeric-host path)
+
+: print-ip ( String -- )
+  "  " io.write io.write-line
+;
+
+: main ( -- )
+  "example.com" net.dns.resolve
+  [ # ( V ) — Variant containing the resolved IP strings
+    "example.com resolves to:" io.write-line
+    [ print-ip ] list.each
+  ]
+  [ drop "resolution failed" io.write-line ]
+  if
+;

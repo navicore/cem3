@@ -1,0 +1,47 @@
+# net.tls.client — TLS-over-TCP minimal client.
+#
+# Three steps:
+#   1. net.tcp.connect to host:443
+#   2. net.tls.client upgrades the Socket to a TLS-wrapped Socket
+#      (the registry slot is upgraded in place — same id, now TLS).
+#   3. net.tcp.read / net.tcp.write dispatch through rustls
+#      transparently — the rest of the code looks identical to plain
+#      TCP.
+#
+# Trust roots come from webpki-roots. The hostname argument drives
+# both SNI and certificate validation.
+#
+# Build: seqc build client.seq -o /tmp/tls-client
+# Run:   /tmp/tls-client
+
+# Real code should check the Bool that net.tcp.write returns and
+# bail on failure; the example skips it for readability via the lint
+# allow below.
+# seq:allow(unchecked-tcp-write)
+: send-request ( Socket -- Socket )
+  "GET / HTTP/1.0\r\nHost: example.com\r\nConnection: close\r\n\r\n"
+  over net.tcp.write drop
+;
+
+: read-and-print ( Socket -- Socket )
+  dup net.tcp.read
+  [ io.write-line ]
+  [ drop "read failed" io.write-line ]
+  if
+;
+
+: main ( -- )
+  "example.com" 443 net.tcp.connect
+  [ # ( Socket )
+    "example.com" net.tls.client
+    [ # ( Socket ) — same id, now TLS-wrapped
+      send-request
+      read-and-print
+      net.tcp.close drop
+    ]
+    [ drop "TLS handshake failed" io.write-line ]
+    if
+  ]
+  [ drop "connect failed" io.write-line ]
+  if
+;

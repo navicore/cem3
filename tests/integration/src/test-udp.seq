@@ -39,6 +39,35 @@
   "ping" test.assert-eq-str
 ;
 
+: test-udp-send-to-resolves-hostname ( -- )
+  # Same round-trip as above, but the destination is "localhost"
+  # (a hostname, not an IP literal). PR5 routes hostname resolution
+  # through net.dns.resolve so the may carrier never parks on a
+  # blocking getaddrinfo. On Linux, localhost resolves to ::1 and
+  # 127.0.0.1; the UDP socket is bound v4-only (0.0.0.0), so the
+  # send_to walk tries ::1 (fails, wrong family), falls through to
+  # 127.0.0.1 (succeeds). Verifies both the DNS path and the
+  # multi-address fallback added in PR5.
+  bind-localhost                            # ( a-sock a-port )
+  bind-localhost                            # ( a-sock a-port b-sock b-port )
+  drop                                      # ( a-sock a-port b-sock )
+
+  >aux                                      # ( a-sock a-port )       aux: ( b-sock )
+  >aux                                      # ( a-sock )              aux: ( b-sock a-port )
+
+  "pong" "localhost"                        # ( a-sock "pong" "localhost" )
+  aux>                                      # ( a-sock "pong" "localhost" a-port )
+  aux>                                      # ( a-sock "pong" "localhost" a-port b-sock )
+  net.udp.send-to
+  test.assert
+
+  net.udp.receive-from
+  test.assert
+  drop                                      # drop source port
+  drop                                      # drop source host
+  "pong" test.assert-eq-str
+;
+
 : test-udp-bind-invalid-port ( -- )
   # A port outside [0, 65535] returns ( 0 0 false ).
   -1 net.udp.bind                               # ( socket bound-port false )

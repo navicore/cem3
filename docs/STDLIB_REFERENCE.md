@@ -276,6 +276,16 @@ success Bool on top so callers can `[ ... ] [ ... ] if`.
 | `net.udp.receive-from` | `( Socket -- String String Int Bool )` | Receive (yields). Returns (bytes, host, port, success) |
 | `net.udp.close` | `( Socket -- Bool )` | Release the socket |
 
+**`net.udp.send-to` host resolution.** Hostnames in the `host` argument
+are resolved through [net.dns.resolve](#networking--netdns) — the
+may-aware DNS worker pool — so the carrier thread does not park on a
+blocking `getaddrinfo`. IP literals work without DNS round-trip. If
+resolution returns multiple addresses (e.g. `localhost` →
+`::1, 127.0.0.1`) the addresses are tried in order; the first
+`send_to` that doesn't error wins, which transparently handles the
+case of a v4-only socket reached through a name that resolves
+v6-first.
+
 ## Networking — net.dns.*
 
 Hostname resolution offloaded to a dedicated OS-thread pool so may

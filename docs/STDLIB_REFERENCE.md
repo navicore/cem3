@@ -498,8 +498,8 @@ DNS layer already returned — no second resolution on the carrier.
 
 - **No redirect following.** A 3xx response is returned to the caller as-is, with `Location` available in the body or via your own header parser.
 - **No automatic decompression.** The client sends `Accept-Encoding: identity`. If you want gzip transfer, set up your own request and decompress with `compress.gunzip`.
-- **No per-request timeout.** A deadline pass across the networking stack is a planned follow-up (alongside the connect-timeout gap inherited from PR2 and the handshake-timeout gap from PR3).
-- **No custom request headers.** Only `Host`, `User-Agent`, `Accept-Encoding`, `Connection`, and (for POST/PUT) `Content-Type` + `Content-Length` are sent. A header-bag API is a planned follow-up.
+- **No per-request timeout.** A deadline pass across the networking stack is a planned follow-up (alongside the connect-timeout gap inherited from PR2 and the handshake-timeout gap from PR3). The worst-case shape under this gap is a response with neither `Content-Length` nor `Transfer-Encoding: chunked` (EOF-framed body): the client reads until EOF, which an attacker-controlled server can stretch indefinitely. `Content-Length` and chunked responses are bounded by their own framing and by `MAX_BODY_SIZE` (10 MB).
+- **No custom request headers.** Only `Host`, `User-Agent`, `Accept`, `Accept-Encoding`, `Connection`, and (for POST/PUT) `Content-Type` + `Content-Length` are sent. `Content-Type` rejects control characters in the value to prevent header injection. A header-bag API is a planned follow-up.
 - **No client certificate auth, ALPN selection, or peer-cert inspection.** Inherited from `net.tls.client`.
 - **POST is not auto-retried** on transient transport failure; GET/PUT/DELETE are (idempotent per RFC 9110). A POST that fails mid-flight surfaces as a connection error.
 

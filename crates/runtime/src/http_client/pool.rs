@@ -89,8 +89,13 @@ pub(crate) fn checkout(key: &PoolKey) -> Option<Conn> {
 }
 
 /// Return a connection to the pool. Drops it (= closes the underlying
-/// socket) when the per-host or global cap is reached, or when the
-/// caller passes `keep_alive=false`.
+/// socket) when the global cap is reached, when the per-host cap is
+/// reached, or when the caller passes `keep_alive=false`. Note: the
+/// global cap is checked *first*, so a host with an empty per-host
+/// queue can still be refused if the process-wide pool is full
+/// elsewhere — same shape as Go's `http.DefaultTransport`. Operators
+/// tuning these knobs should raise `MAX_GLOBAL` before `MAX_PER_HOST`
+/// to widen the most-likely bottleneck.
 pub(crate) fn release(key: PoolKey, stream: Conn, keep_alive: bool) {
     if !keep_alive {
         return;
@@ -129,6 +134,18 @@ fn is_alive(fd: std::os::fd::RawFd) -> bool {
     if pfd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
         return false;
     }
+    // Reached by elimination: rc > 0 and revents indicates POLLIN with
+    // no error flag. An idle keep-alive should have nothing to say
+    // until we send the next request; readable bytes here mean either
+    // (a) the peer sent FIN (read would return 0) or (b) the server
+    // pushed unsolicited bytes that would corrupt our framing of the
+    // next request. Both shapes mean "discard, dial fresh."
+    //
+    // This check covers TCP-layer liveness only; a TLS connection
+    // with a pending close_notify alert that hasn't surfaced at the
+    // transport layer can still slip through. The idempotent-retry
+    // path in request::perform_validated catches that case by
+    // redialing on the next write/read failure.
     false
 }
 

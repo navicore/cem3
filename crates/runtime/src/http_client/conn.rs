@@ -38,6 +38,11 @@ impl HttpStream for may::net::TcpStream {
 impl HttpStream for rustls::StreamOwned<rustls::ClientConnection, may::net::TcpStream> {
     fn raw_fd(&self) -> RawFd {
         use std::os::fd::AsRawFd;
+        // `StreamOwned.sock` is a public field per rustls 0.23
+        // (`pub sock: T`). If a future rustls release ever makes it
+        // private, this access breaks compilation and we replace it
+        // with a sock-accessor wrapper. Documented here so a future
+        // bump doesn't trigger a confused-error hunt.
         self.sock.as_raw_fd()
     }
 }

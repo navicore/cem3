@@ -83,10 +83,12 @@ pub(crate) fn validate_url(url: &str) -> Result<ValidatedTarget, String> {
         }
     }
 
+    // `url::Url::path()` for any hierarchical (http/https) URL is
+    // guaranteed to start with `/` and is never empty — `url`
+    // normalises bare `http://example.com` to `path = "/"`. So the
+    // two arms below are exhaustive.
     let path_and_query = match parsed.query() {
-        Some(q) if !parsed.path().is_empty() => format!("{}?{q}", parsed.path()),
-        Some(q) => format!("/?{q}"),
-        None if parsed.path().is_empty() => "/".to_string(),
+        Some(q) => format!("{}?{q}", parsed.path()),
         None => parsed.path().to_string(),
     };
 

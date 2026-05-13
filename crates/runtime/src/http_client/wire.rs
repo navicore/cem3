@@ -41,6 +41,23 @@ pub(crate) fn write_request<W: Write>(
     target: &ValidatedTarget,
     body: Option<(&str, &[u8])>,
 ) -> std::io::Result<()> {
+    // Any user-supplied header value that lands in the request must be
+    // free of control characters — otherwise a `\r\n` in `ct` lets the
+    // caller inject arbitrary headers and pull off classic HTTP request
+    // smuggling against intermediaries. URL pieces are safe (url crate
+    // percent-encodes controls); body bytes go via write_all (no
+    // framing interpretation). Content-Type is the one user-string
+    // that lands directly in the header block today, so we guard it
+    // here. When the header-bag API lands, every supplied value needs
+    // the same check.
+    if let Some((ct, _)) = body
+        && !header_value_safe(ct)
+    {
+        return Err(std::io::Error::other(
+            "invalid byte in Content-Type (control characters not allowed)",
+        ));
+    }
+
     let host_header = match (target.scheme, target.port) {
         (Scheme::Http, 80) | (Scheme::Https, 443) => target.host.clone(),
         _ => format!("{}:{}", target.host, target.port),
@@ -50,6 +67,7 @@ pub(crate) fn write_request<W: Write>(
     write!(w, "{method} {} HTTP/1.1\r\n", target.path_and_query)?;
     write!(w, "Host: {host_header}\r\n")?;
     write!(w, "User-Agent: {user_agent}\r\n")?;
+    write!(w, "Accept: */*\r\n")?;
     write!(w, "Accept-Encoding: identity\r\n")?;
     write!(w, "Connection: keep-alive\r\n")?;
     if let Some((ct, bytes)) = body {
@@ -63,12 +81,38 @@ pub(crate) fn write_request<W: Write>(
     w.flush()
 }
 
+/// Reject ASCII control characters in a header value. RFC 9110 §5.5
+/// allows visible US-ASCII plus HTAB/SP; everything below 0x20 except
+/// HTAB is forbidden, as is 0x7F. We're strict and reject HTAB too —
+/// no current caller has a reason to embed it, and tightening here
+/// avoids a known smuggling vector via TAB-prefixed continuation
+/// lines (RFC 9112 deprecated those but some intermediaries still
+/// honour them).
+fn header_value_safe(v: &str) -> bool {
+    !v.bytes().any(|b| b < 0x20 || b == 0x7F)
+}
+
 /// Parse a complete HTTP/1.1 response.
 ///
-/// Order of body framing precedence (RFC 9112 §6.3): `Transfer-Encoding`
+/// Body framing precedence (RFC 9112 §6.3): `Transfer-Encoding`
 /// (chunked) wins over `Content-Length`. If neither is present the
 /// body terminates at EOF — a connection in that mode is not eligible
 /// for the keep-alive pool.
+///
+/// Anti-smuggling guards (also RFC 9112 §6.3): a response that
+/// declares *both* chunked transfer-encoding and Content-Length, or
+/// that lists multiple disagreeing Content-Length values, is
+/// rejected outright. These shapes are how request-smuggling attacks
+/// fool intermediaries; we don't trust the framing of a server that
+/// emits them.
+///
+/// Note: `BufReader` adds 8 KB of read-ahead. On HTTP/1.1 without
+/// pipelining the server must not send bytes past the end of this
+/// response on the same connection, so any read-ahead lands strictly
+/// inside the current message. If pipelining is ever added, those
+/// buffered bytes would be lost across a BufReader-drop boundary —
+/// the implementation must change to thread the buffer state through
+/// the pool, not just the underlying stream.
 pub(crate) fn read_response<R: Read>(r: &mut R) -> Result<Response, String> {
     let mut reader = BufReader::new(r);
 
@@ -92,10 +136,25 @@ pub(crate) fn read_response<R: Read>(r: &mut R) -> Result<Response, String> {
                 chunked = true;
             }
             "content-length" => {
-                content_length = value.trim().parse::<usize>().ok();
+                let parsed = parse_content_length(value)?;
+                if let Some(prev) = content_length
+                    && prev != parsed
+                {
+                    return Err(format!(
+                        "smuggling guard: conflicting Content-Length values ({prev} vs {parsed})"
+                    ));
+                }
+                content_length = Some(parsed);
             }
             _ => {}
         }
+    }
+
+    if chunked && content_length.is_some() {
+        return Err(
+            "smuggling guard: response declares both Transfer-Encoding: chunked and Content-Length"
+                .to_string(),
+        );
     }
 
     let body = if chunked {
@@ -128,6 +187,34 @@ pub(crate) fn read_response<R: Read>(r: &mut R) -> Result<Response, String> {
         body,
         keep_alive,
     })
+}
+
+/// Parse a `Content-Length` header value.
+///
+/// RFC 9112 §6.3 allows the value to be a single integer OR a
+/// comma-separated list of integers that must all agree. A list with
+/// any mismatched entry is a smuggling-shaped framing error; reject
+/// it. A list with all-agreeing entries reduces to the same single
+/// value.
+fn parse_content_length(value: &str) -> Result<usize, String> {
+    let mut parts = value.split(',').map(|p| p.trim());
+    let first = parts
+        .next()
+        .ok_or_else(|| "smuggling guard: empty Content-Length".to_string())?;
+    let head: usize = first
+        .parse()
+        .map_err(|_| format!("invalid Content-Length: {first:?}"))?;
+    for rest in parts {
+        let n: usize = rest
+            .parse()
+            .map_err(|_| format!("invalid Content-Length: {rest:?}"))?;
+        if n != head {
+            return Err(format!(
+                "smuggling guard: conflicting Content-Length list entries ({head} vs {n})"
+            ));
+        }
+    }
+    Ok(head)
 }
 
 /// Read one line terminated by `\r\n`. The terminator is stripped.

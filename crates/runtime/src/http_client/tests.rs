@@ -396,3 +396,100 @@ fn wire_response_invalid_status_line_rejected() {
     let mut cursor = Cursor::new(raw.to_vec());
     assert!(read_response(&mut cursor).is_err());
 }
+
+// -----------------------------------------------------------------------------
+// Anti-smuggling: header-injection and conflicting framing
+// -----------------------------------------------------------------------------
+
+#[test]
+fn wire_content_type_with_crlf_rejected() {
+    // Classic header-injection payload: a CRLF in the Content-Type
+    // value lets the caller append arbitrary headers and (with the
+    // right Content-Length manipulation) smuggle a follow-up request
+    // through an intermediary. write_request must reject before the
+    // bytes hit the wire.
+    let target = dummy_target("example.com", 443, Scheme::Https, "/");
+    let bad_ct = "text/plain\r\nX-Injected: pwn";
+    let mut buf = Vec::new();
+    let result = write_request(&mut buf, "POST", &target, Some((bad_ct, b"body")));
+    assert!(result.is_err(), "CRLF in Content-Type must be rejected");
+    assert!(
+        buf.is_empty()
+            || !std::str::from_utf8(&buf)
+                .unwrap_or("")
+                .contains("X-Injected"),
+        "rejected request must not have written the injected header"
+    );
+}
+
+#[test]
+fn wire_content_type_with_lf_only_rejected() {
+    let target = dummy_target("example.com", 443, Scheme::Https, "/");
+    let bad_ct = "text/plain\nX-Sneaky: 1";
+    let mut buf = Vec::new();
+    assert!(write_request(&mut buf, "POST", &target, Some((bad_ct, b"body"))).is_err());
+}
+
+#[test]
+fn wire_content_type_with_null_byte_rejected() {
+    let target = dummy_target("example.com", 443, Scheme::Https, "/");
+    let bad_ct = "text/plain\0";
+    let mut buf = Vec::new();
+    assert!(write_request(&mut buf, "POST", &target, Some((bad_ct, b"body"))).is_err());
+}
+
+#[test]
+fn wire_response_conflicting_content_length_rejected() {
+    // Two Content-Length headers with different values — classic
+    // request-smuggling shape. The server side of this is "malicious
+    // server" but we still must not pick one and proceed.
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Content-Length: 5\r\n\
+                Content-Length: 7\r\n\
+                \r\n\
+                hello";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let err = read_response(&mut cursor).expect_err("must reject conflicting CL");
+    assert!(err.contains("smuggling"), "got: {err}");
+}
+
+#[test]
+fn wire_response_conflicting_content_length_list_rejected() {
+    // Single Content-Length header whose value is a comma-separated
+    // list with disagreeing entries — same RFC 9112 §6.3 rule.
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Content-Length: 5, 7\r\n\
+                \r\n\
+                hello";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let err = read_response(&mut cursor).expect_err("must reject conflicting CL list");
+    assert!(err.contains("smuggling"), "got: {err}");
+}
+
+#[test]
+fn wire_response_content_length_list_all_agreeing_accepted() {
+    // Same value repeated — RFC allows this; treat as the single
+    // value.
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Content-Length: 5, 5\r\n\
+                \r\n\
+                hello";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let resp = read_response(&mut cursor).expect("agreeing CL list must parse");
+    assert_eq!(resp.body, b"hello");
+}
+
+#[test]
+fn wire_response_chunked_with_content_length_rejected() {
+    // Both framings simultaneously — the canonical request-smuggling
+    // setup. Reject; don't quietly prefer one.
+    let raw = b"HTTP/1.1 200 OK\r\n\
+                Transfer-Encoding: chunked\r\n\
+                Content-Length: 5\r\n\
+                \r\n\
+                4\r\nWiki\r\n0\r\n\r\n";
+    let mut cursor = Cursor::new(raw.to_vec());
+    let err =
+        read_response(&mut cursor).expect_err("must reject chunked + Content-Length combination");
+    assert!(err.contains("smuggling"), "got: {err}");
+}

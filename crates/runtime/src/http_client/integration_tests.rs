@@ -10,19 +10,34 @@ use super::ssrf::{Scheme, ValidatedTarget};
 use crate::seqstring::global_string;
 use crate::value::{MapKey, Value};
 use may::net::TcpListener;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Server response shape selector. Each integration test picks the
+/// flavour that exercises the wire path it cares about.
+#[derive(Clone, Copy)]
+enum ServerMode {
+    /// Read request headers only, ignore any body, reply `world` with
+    /// `Content-Length: 5` and `Connection: keep-alive`.
+    FixedBody,
+    /// Read Content-Length bytes after the request blank line, echo
+    /// them back in the response body. Used by the POST round-trip
+    /// test to verify the body bytes actually reach the wire.
+    Echo,
+    /// Reply with `Transfer-Encoding: chunked`, two data chunks plus
+    /// the terminator. Used by the chunked-decode integration test.
+    Chunked,
+}
+
 /// Run a minimal HTTP/1.1 server strand on `listener` that loops
-/// per-connection, replying with a canned 200 response. Keep-alive
-/// is honoured (multiple requests on one connection are supported
-/// so the pool-reuse test can observe accept_count=1, req_count>=2).
+/// per-connection. Keep-alive is honoured for multi-request tests.
 fn spawn_test_server(
     listener: TcpListener,
     accept_count: Arc<AtomicUsize>,
     req_count: Arc<AtomicUsize>,
+    mode: ServerMode,
 ) {
     unsafe {
         may::coroutine::spawn(move || {
@@ -33,7 +48,6 @@ fn spawn_test_server(
                 };
                 accept_count.fetch_add(1, Ordering::SeqCst);
                 let req_count = req_count.clone();
-                // Per-connection loop: read one request, write one response.
                 may::coroutine::spawn(move || {
                     let stream_clone = match stream.try_clone() {
                         Ok(s) => s,
@@ -42,12 +56,14 @@ fn spawn_test_server(
                     let mut reader = BufReader::new(stream_clone);
                     loop {
                         // Read request lines until the blank-line terminator.
-                        // GET requests have no body, so this is sufficient.
+                        // Capture Content-Length so we can read the body
+                        // for the echo mode.
                         let mut saw_request = false;
+                        let mut content_length: usize = 0;
                         loop {
                             let mut line = String::new();
                             match reader.read_line(&mut line) {
-                                Ok(0) => return, // client closed
+                                Ok(0) => return,
                                 Ok(_) => {}
                                 Err(_) => return,
                             }
@@ -55,25 +71,71 @@ fn spawn_test_server(
                                 if saw_request {
                                     break;
                                 }
-                                // ignore stray blank lines before request line
                                 continue;
                             }
                             saw_request = true;
+                            if let Some(rest) = line.strip_prefix("Content-Length:") {
+                                content_length = rest.trim().parse::<usize>().unwrap_or(0);
+                            } else if let Some(rest) = line.strip_prefix("content-length:") {
+                                content_length = rest.trim().parse::<usize>().unwrap_or(0);
+                            }
                         }
                         req_count.fetch_add(1, Ordering::SeqCst);
-                        let body = b"world";
-                        let header = format!(
-                            "HTTP/1.1 200 OK\r\n\
-                             Content-Type: text/plain\r\n\
-                             Content-Length: {}\r\n\
-                             Connection: keep-alive\r\n\
-                             \r\n",
-                            body.len()
-                        );
-                        if stream.write_all(header.as_bytes()).is_err() {
-                            return;
-                        }
-                        if stream.write_all(body).is_err() {
+
+                        let body_in: Vec<u8> =
+                            if content_length > 0 && matches!(mode, ServerMode::Echo) {
+                                let mut buf = vec![0u8; content_length];
+                                if reader.read_exact(&mut buf).is_err() {
+                                    return;
+                                }
+                                buf
+                            } else {
+                                Vec::new()
+                            };
+
+                        let write_ok = match mode {
+                            ServerMode::FixedBody => {
+                                let body = b"world";
+                                let header = format!(
+                                    "HTTP/1.1 200 OK\r\n\
+                                     Content-Type: text/plain\r\n\
+                                     Content-Length: {}\r\n\
+                                     Connection: keep-alive\r\n\
+                                     \r\n",
+                                    body.len()
+                                );
+                                stream.write_all(header.as_bytes()).is_ok()
+                                    && stream.write_all(body).is_ok()
+                            }
+                            ServerMode::Echo => {
+                                let header = format!(
+                                    "HTTP/1.1 200 OK\r\n\
+                                     Content-Type: application/octet-stream\r\n\
+                                     Content-Length: {}\r\n\
+                                     Connection: keep-alive\r\n\
+                                     \r\n",
+                                    body_in.len()
+                                );
+                                stream.write_all(header.as_bytes()).is_ok()
+                                    && stream.write_all(&body_in).is_ok()
+                            }
+                            ServerMode::Chunked => {
+                                // Two chunks ("Hello" + " world") followed by
+                                // the 0-terminator. Exercises chunk-size hex
+                                // parsing, multi-chunk accumulation, and the
+                                // trailer-section drain on the client side.
+                                let payload = b"HTTP/1.1 200 OK\r\n\
+                                     Content-Type: text/plain\r\n\
+                                     Transfer-Encoding: chunked\r\n\
+                                     Connection: keep-alive\r\n\
+                                     \r\n\
+                                     5\r\nHello\r\n\
+                                     6\r\n world\r\n\
+                                     0\r\n\r\n";
+                                stream.write_all(payload).is_ok()
+                            }
+                        };
+                        if !write_ok {
                             return;
                         }
                     }
@@ -123,7 +185,12 @@ fn http_get_end_to_end_against_local_server() {
 
     let accept_count = Arc::new(AtomicUsize::new(0));
     let req_count = Arc::new(AtomicUsize::new(0));
-    spawn_test_server(listener, accept_count.clone(), req_count.clone());
+    spawn_test_server(
+        listener,
+        accept_count.clone(),
+        req_count.clone(),
+        ServerMode::FixedBody,
+    );
 
     let target = loopback_target(port, "/hello");
     let resp = perform_request_with_target("GET", target, None);
@@ -145,7 +212,12 @@ fn http_pool_reuses_connection_for_second_request() {
 
     let accept_count = Arc::new(AtomicUsize::new(0));
     let req_count = Arc::new(AtomicUsize::new(0));
-    spawn_test_server(listener, accept_count.clone(), req_count.clone());
+    spawn_test_server(
+        listener,
+        accept_count.clone(),
+        req_count.clone(),
+        ServerMode::FixedBody,
+    );
 
     let target1 = loopback_target(port, "/first");
     let r1 = perform_request_with_target("GET", target1, None);
@@ -176,17 +248,51 @@ fn http_post_with_body_round_trips() {
     let port = listener.local_addr().unwrap().port();
     let accept_count = Arc::new(AtomicUsize::new(0));
     let req_count = Arc::new(AtomicUsize::new(0));
-    spawn_test_server(listener, accept_count.clone(), req_count.clone());
+    // Echo mode reads Content-Length bytes after the request blank
+    // line and echoes them back. That makes this test actually prove
+    // the body bytes traversed the wire — a regression in
+    // `wire::write_request` that silently dropped the body would
+    // surface here as a mismatch instead of a misleading 200 OK.
+    spawn_test_server(
+        listener,
+        accept_count.clone(),
+        req_count.clone(),
+        ServerMode::Echo,
+    );
 
-    // Note: our test server only reads up to the blank line, so a
-    // POST body would be left in the socket buffer. For this test we
-    // assert that perform_request *issues* the POST correctly — the
-    // status came back, which means the request was framed validly.
     let target = loopback_target(port, "/create");
     let body = b"{\"name\":\"alice\"}";
     let resp =
         perform_request_with_target("POST", target, Some(("application/json", body.as_slice())));
-    let (status, _, ok) = unwrap_response(&resp);
+    let (status, echoed, ok) = unwrap_response(&resp);
     assert_eq!(status, 200);
     assert!(ok);
+    assert_eq!(echoed, body, "POST body must round-trip byte-for-byte");
+}
+
+#[test]
+fn http_chunked_response_decodes_end_to_end() {
+    unsafe { crate::scheduler::scheduler_init() };
+    pool::clear_for_test();
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let accept_count = Arc::new(AtomicUsize::new(0));
+    let req_count = Arc::new(AtomicUsize::new(0));
+    spawn_test_server(
+        listener,
+        accept_count.clone(),
+        req_count.clone(),
+        ServerMode::Chunked,
+    );
+
+    let target = loopback_target(port, "/chunked");
+    let resp = perform_request_with_target("GET", target, None);
+    let (status, body, ok) = unwrap_response(&resp);
+    assert_eq!(status, 200);
+    assert!(ok);
+    // Server emits two chunks: "Hello" (5) + " world" (6). The client
+    // must concatenate them in order.
+    assert_eq!(body, b"Hello world");
+    assert_eq!(req_count.load(Ordering::SeqCst), 1);
 }

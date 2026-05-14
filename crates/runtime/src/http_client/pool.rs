@@ -156,3 +156,24 @@ pub(crate) fn clear_for_test() {
     pool.idle.clear();
     pool.total = 0;
 }
+
+/// How many idle entries the pool holds for `key`, right now.
+///
+/// Test-only accessor. Lets a test assert directly on the
+/// release-path behaviour (entry pooled / entry dropped) without
+/// relying on a downstream check like `is_reusable`'s FIN detection.
+/// On localhost, kernel FIN propagation is sub-microsecond, so
+/// `is_reusable` will rescue a doomed entry from a buggy `release`
+/// before the next `checkout` would notice — meaning a regression
+/// where `release` ignores `keep_alive=false` would silently pass
+/// any test that only counts accepts. Asserting on `idle_count`
+/// directly closes that gap.
+#[cfg(test)]
+pub(crate) fn idle_count_for_test(key: &PoolKey) -> usize {
+    POOL.lock()
+        .unwrap()
+        .idle
+        .get(key)
+        .map(|q| q.len())
+        .unwrap_or(0)
+}

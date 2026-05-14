@@ -338,28 +338,46 @@ fn http_connection_close_response_evicts_from_pool() {
         ServerMode::CloseOnce,
     );
 
+    let key = pool::PoolKey {
+        scheme: Scheme::Http,
+        host: "127.0.0.1".to_string(),
+        port,
+    };
+
     let target1 = loopback_target(port, "/first");
     let r1 = perform_request_with_target("GET", target1, None);
     assert_eq!(unwrap_response(&r1).0, 200);
+
+    // The critical assertion: after r1's release, the
+    // `Connection: close` entry must NOT be in the pool. This pins
+    // the release-path behaviour directly. The accept-count check
+    // below catches a similar shape but can be rescued by
+    // `is_reusable`'s POLLIN/FIN detection on localhost (FIN
+    // propagation is sub-microsecond), so a regression where
+    // `release` ignores `keep_alive=false` would silently slip past
+    // it. Asserting on pool state closes that gap.
+    assert_eq!(
+        pool::idle_count_for_test(&key),
+        0,
+        "Connection: close response must not survive pool::release. \
+         An entry here means release ignored keep_alive=false."
+    );
 
     let target2 = loopback_target(port, "/second");
     let r2 = perform_request_with_target("GET", target2, None);
     assert_eq!(unwrap_response(&r2).0, 200);
 
-    // Server emits Connection: close and actually closes after each
-    // response. The client's pool::release must see keep_alive=false
-    // and drop the entry; the second request must dial a fresh TCP
-    // connection (accept_count == 2). accept_count == 1 would mean
-    // the pool tried to reuse a doomed entry — exactly the
-    // regression this test exists to catch.
+    // The second request must dial fresh — accept_count == 2 is the
+    // observable consequence of the pool-drop above. (On localhost
+    // this also catches compound regressions where both release and
+    // is_reusable misbehave; the idle_count_for_test assertion above
+    // is the primary anchor for the targeted property.)
     assert_eq!(req_count.load(Ordering::SeqCst), 2);
     assert_eq!(
         accept_count.load(Ordering::SeqCst),
         2,
         "Connection: close response must NOT be pooled: each request \
-         should trigger a fresh accept on the server. \
-         accept_count=1 means the pool ignored keep_alive=false and \
-         reused a doomed entry."
+         should trigger a fresh accept on the server."
     );
 }
 
@@ -515,13 +533,37 @@ fn spawn_tls_test_server(
     });
 }
 
+/// RAII guard that clears the process-wide test TLS config on drop.
+///
+/// The HTTPS test installs a `ClientConfig` whose trust roots only
+/// include the test's self-signed CA. If a panic between `install`
+/// and the explicit `clear` leaks the override, other tests that
+/// later use TLS would fail validation against real servers.
+/// Dropping the guard unconditionally clears the override even on
+/// the panic path.
+struct TestTlsConfigGuard;
+impl Drop for TestTlsConfigGuard {
+    fn drop(&mut self) {
+        crate::tls::clear_test_tls_config();
+    }
+}
+
 #[test]
+// Serialised against any future test that touches `TEST_TLS_CONFIG`.
+// No other test currently does — but once a second one lands, this
+// tag prevents the two from clobbering each other's overrides.
+#[serial_test::serial(tls_global_state)]
 fn https_round_trip_against_same_process_rustls_server() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
 
     let (server_config, client_config) = build_tls_test_pair();
     crate::tls::install_test_tls_config(client_config);
+    // The guard fires on every exit from this function, including
+    // panic. Must be created AFTER install (so a build_tls_test_pair
+    // failure isn't preceded by a no-op clear) and BEFORE any
+    // panicking code below.
+    let _tls_guard = TestTlsConfigGuard;
 
     // std::net::TcpListener here — the server runs on its own OS
     // thread to avoid may-scheduler congestion (see
@@ -545,11 +587,13 @@ fn https_round_trip_against_same_process_rustls_server() {
     let resp = perform_request_with_target("GET", target, None);
     let (status, body, ok) = unwrap_response(&resp);
 
-    // Always clear the test config before asserting so a panic doesn't
-    // leak state across tests.
-    crate::tls::clear_test_tls_config();
-
     assert_eq!(status, 200, "HTTPS round-trip status");
     assert!(ok, "HTTPS round-trip ok flag");
     assert_eq!(body, b"hello-over-tls", "HTTPS round-trip body");
+
+    // Defensive — the server emits Connection: close so nothing
+    // should be pooled, but clear anyway so a future failure mode
+    // doesn't leak a TLS-wrapped Socket into another test's pool.
+    pool::clear_for_test();
+    // _tls_guard drops here, restoring the production TLS config.
 }

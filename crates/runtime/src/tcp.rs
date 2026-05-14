@@ -259,6 +259,27 @@ static TCP_CONNECT_TIMEOUT: std::sync::LazyLock<std::time::Duration> =
         std::time::Duration::from_millis(ms)
     });
 
+/// Test-only override for `TCP_CONNECT_TIMEOUT`. When `Some`, takes
+/// precedence over the LazyLock-cached value (which can't be reset
+/// once initialised). Mirrors the TLS-handshake and HTTP-request
+/// override hooks so the connect-timeout integration test can drive a
+/// deterministic short deadline without depending on env-var read order.
+#[cfg(test)]
+static TCP_CONNECT_TIMEOUT_OVERRIDE: Mutex<Option<std::time::Duration>> = Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn set_test_tcp_connect_timeout(dur: Option<std::time::Duration>) {
+    *TCP_CONNECT_TIMEOUT_OVERRIDE.lock().unwrap() = dur;
+}
+
+fn tcp_connect_timeout() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(dur) = *TCP_CONNECT_TIMEOUT_OVERRIDE.lock().unwrap() {
+        return dur;
+    }
+    *TCP_CONNECT_TIMEOUT
+}
+
 /// Connect to the first reachable address in `addrs` at `port`.
 ///
 /// Walks the list in order, returning the first successful
@@ -278,7 +299,7 @@ static TCP_CONNECT_TIMEOUT: std::sync::LazyLock<std::time::Duration> =
 /// Exposed to the crate so the HTTP client (which pre-resolves +
 /// SSRF-validates before connecting) can dial without re-resolving.
 pub(crate) fn connect_to_addrs(addrs: &[IpAddr], port: u16) -> Option<TcpStream> {
-    let timeout = *TCP_CONNECT_TIMEOUT;
+    let timeout = tcp_connect_timeout();
     addrs
         .iter()
         .find_map(|ip| TcpStream::connect_timeout(&SocketAddr::new(*ip, port), timeout).ok())

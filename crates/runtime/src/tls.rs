@@ -211,6 +211,16 @@ fn build_tls(
     // from a different env var — leaving the handshake's short
     // deadline in place would cap every subsequent read/write at the
     // handshake's bound, which is the wrong budget for app traffic.
+    //
+    // Errors from set_*_timeout(None) are intentionally swallowed.
+    // `setsockopt(SO_*TIMEO)` on a healthy fd that just completed a
+    // handshake essentially can't fail; the only realistic failure
+    // mode is the fd being closed concurrently, in which case the
+    // returned stream is already dead and the next read/write will
+    // surface that. Propagating the clear-failure here would mask the
+    // underlying state with a synthetic handshake error. HTTP-client
+    // callers also re-set the timeout per request in `run_once`, so
+    // a stale handshake deadline can't leak into their app IO.
     let _ = tcp.set_read_timeout(None);
     let _ = tcp.set_write_timeout(None);
     Ok(StreamOwned::new(conn, tcp))

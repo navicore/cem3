@@ -201,6 +201,14 @@ fn unwrap_response(value: &Value) -> (i64, Vec<u8>, bool) {
 }
 
 #[test]
+// Every test in this file that calls `perform_request*` reads the
+// process-wide HTTP_REQUEST_TIMEOUT_OVERRIDE (so the deadline-pass
+// timeout test can drive a short deadline). Tag them all into the
+// same serial group so the override set by
+// `http_request_timeout_fires_on_silent_server` can't leak into
+// concurrent HTTP reads. The cost is intra-file parallelism; the
+// benefit is no override-leak flakes under loaded CI.
+#[serial_test::serial(http_global_state)]
 fn http_get_end_to_end_against_local_server() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -228,6 +236,7 @@ fn http_get_end_to_end_against_local_server() {
 }
 
 #[test]
+#[serial_test::serial(http_global_state)]
 fn http_pool_reuses_connection_for_second_request() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -265,6 +274,7 @@ fn http_pool_reuses_connection_for_second_request() {
 }
 
 #[test]
+#[serial_test::serial(http_global_state)]
 fn http_post_with_body_round_trips() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -296,6 +306,7 @@ fn http_post_with_body_round_trips() {
 }
 
 #[test]
+#[serial_test::serial(http_global_state)]
 fn http_chunked_response_decodes_end_to_end() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -323,6 +334,7 @@ fn http_chunked_response_decodes_end_to_end() {
 }
 
 #[test]
+#[serial_test::serial(http_global_state)]
 fn http_connection_close_response_evicts_from_pool() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -549,10 +561,14 @@ impl Drop for TestTlsConfigGuard {
 }
 
 #[test]
-// Serialised against any future test that touches `TEST_TLS_CONFIG`.
-// No other test currently does — but once a second one lands, this
-// tag prevents the two from clobbering each other's overrides.
+// Two serial groups stacked: `tls_global_state` against any future
+// test that touches `TEST_TLS_CONFIG`, and `http_global_state` because
+// this test reaches `run_once` and so reads `HTTP_REQUEST_TIMEOUT_OVERRIDE`.
+// Without the second tag, the deadline-pass timeout test could race
+// in (set override = 200ms) while this test is mid read_response and
+// flip it to a wire error.
 #[serial_test::serial(tls_global_state)]
+#[serial_test::serial(http_global_state)]
 fn https_round_trip_against_same_process_rustls_server() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -617,6 +633,7 @@ impl Drop for HttpRequestTimeoutGuard {
 }
 
 #[test]
+#[serial_test::serial(http_global_state)]
 fn http_request_timeout_fires_on_silent_server() {
     unsafe { crate::scheduler::scheduler_init() };
     pool::clear_for_test();
@@ -727,4 +744,70 @@ fn tls_handshake_timeout_fires_on_silent_peer() {
     );
 
     pool::clear_for_test();
+}
+
+// -----------------------------------------------------------------------------
+// TCP connect timeout: dialing a routable but silent IP must surface as a
+// connect failure within the configured deadline, not the kernel's default
+// SYN retry budget (~60s on Linux). Pins the connect_timeout plumbed through
+// `tcp::connect_to_addrs`.
+// -----------------------------------------------------------------------------
+
+/// RAII guard restoring the TCP connect timeout override on drop.
+struct TcpConnectTimeoutGuard;
+impl Drop for TcpConnectTimeoutGuard {
+    fn drop(&mut self) {
+        crate::tcp::set_test_tcp_connect_timeout(None);
+    }
+}
+
+#[test]
+#[serial_test::serial(http_global_state)]
+fn tcp_connect_timeout_fires_on_silent_route() {
+    unsafe { crate::scheduler::scheduler_init() };
+    pool::clear_for_test();
+
+    // Drop the connect deadline to 200ms.
+    crate::tcp::set_test_tcp_connect_timeout(Some(std::time::Duration::from_millis(200)));
+    let _connect_guard = TcpConnectTimeoutGuard;
+
+    // 192.0.2.1 — TEST-NET-1 (RFC 5737). Reserved for documentation,
+    // not announced. On a box with a default gateway, SYN to this IP
+    // is routed and silently dropped at the upstream; the kernel
+    // would normally retry until tcp_syn_retries exhausts (~60s on
+    // Linux defaults). With our override applied, connect_timeout
+    // returns ETIMEDOUT in ~200ms.
+    //
+    // SSRF doesn't block 192.0.2.x (see `is_dangerous_ipv4`); we use
+    // `perform_request_with_target` to bypass SSRF anyway and dial
+    // the address directly through `connect_to_addrs`.
+    //
+    // Caveat: a CI host with no default route to 192.0.2.x will get
+    // ENETUNREACH in microseconds instead of the slow-SYN we're
+    // measuring. The test still passes on such hosts (elapsed < 2s)
+    // but doesn't actually exercise the timeout. The bound here
+    // catches a regression where someone drops connect_timeout
+    // entirely and falls back to plain `connect` — on a box with the
+    // SYN-drop shape, that would balloon to 60s+.
+    let target = ValidatedTarget {
+        scheme: Scheme::Http,
+        host: "192.0.2.1".to_string(),
+        port: 80,
+        addrs: vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))],
+        path_and_query: "/".to_string(),
+    };
+    let start = std::time::Instant::now();
+    let resp = perform_request_with_target("GET", target, None);
+    let elapsed = start.elapsed();
+
+    let (status, _body, ok) = unwrap_response(&resp);
+
+    assert_eq!(status, 0, "silent-route connect must surface as error");
+    assert!(!ok, "ok flag must be false");
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "TCP connect must respect the configured timeout (elapsed={elapsed:?}). \
+         Above 2s suggests connect_to_addrs is calling plain connect, \
+         not connect_timeout."
+    );
 }

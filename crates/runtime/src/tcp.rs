@@ -241,22 +241,47 @@ where
     }
 }
 
+/// Per-connect timeout in milliseconds. Default 10 000ms.
+///
+/// Bounds the kernel SYN timeout against silent peers. Read once via
+/// `LazyLock`; override per-process with `SEQ_TCP_CONNECT_TIMEOUT_MS`.
+/// Zero or a missing value falls back to the default — disabling
+/// the timeout would re-introduce the original 60–130s hazard.
+const DEFAULT_TCP_CONNECT_TIMEOUT_MS: u64 = 10_000;
+
+static TCP_CONNECT_TIMEOUT: std::sync::LazyLock<std::time::Duration> =
+    std::sync::LazyLock::new(|| {
+        let ms = std::env::var("SEQ_TCP_CONNECT_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(DEFAULT_TCP_CONNECT_TIMEOUT_MS);
+        std::time::Duration::from_millis(ms)
+    });
+
 /// Connect to the first reachable address in `addrs` at `port`.
 ///
 /// Walks the list in order, returning the first successful
-/// `may::net::TcpStream::connect`. Yields the strand on each
-/// SYN/SYN-ACK round-trip. Returns `None` if every address fails.
+/// `may::net::TcpStream::connect_timeout`. Yields the strand on each
+/// SYN/SYN-ACK round-trip. Returns `None` if every address fails or
+/// every connect attempt exceeds the configured timeout.
 ///
 /// Building `SocketAddr` directly from the `IpAddr` avoids the
 /// IPv6 string-formatting trap (`"::1:80"` is not a parseable
 /// SocketAddr — brackets are required in that form).
 ///
+/// Each individual connect attempt is bounded by `TCP_CONNECT_TIMEOUT`
+/// (default 10s, overridable via `SEQ_TCP_CONNECT_TIMEOUT_MS`). A
+/// peer that silently drops SYNs surfaces as `None` in seconds, not
+/// minutes.
+///
 /// Exposed to the crate so the HTTP client (which pre-resolves +
 /// SSRF-validates before connecting) can dial without re-resolving.
 pub(crate) fn connect_to_addrs(addrs: &[IpAddr], port: u16) -> Option<TcpStream> {
+    let timeout = *TCP_CONNECT_TIMEOUT;
     addrs
         .iter()
-        .find_map(|ip| TcpStream::connect(SocketAddr::new(*ip, port)).ok())
+        .find_map(|ip| TcpStream::connect_timeout(&SocketAddr::new(*ip, port), timeout).ok())
 }
 
 /// TCP listen on a port

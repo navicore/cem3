@@ -251,17 +251,19 @@ without touching DNS). Bool is false on resolution failure,
 every-address-failed, invalid port (must be 1..65535), or
 socket-registry exhaustion.
 
-**Known limitations — connect.** Two gaps inherited from the v1 surface:
+**Connect timeout.** Each connect attempt is bounded by a default
+**10s** deadline. A peer that silently drops SYNs surfaces as a connect
+failure in seconds, not the kernel's full SYN timeout (~60–130s on
+Linux). Override per-process with `SEQ_TCP_CONNECT_TIMEOUT_MS` (read
+once on first use; setting `0` falls back to the default). The bound
+applies per address — a multi-IP fallback that walks dead addresses
+sees `N × timeout` total wall time before giving up.
 
-- **No connect timeout.** `connect` parks the strand for the full kernel
-  SYN timeout (≈60–130 s on Linux) against a silent peer. There is no
-  caller-side bound; if you need one, wrap the call in `strand.spawn` and
-  cancel from another strand, or use a non-blocking pattern at a higher
-  layer. A timeout argument is a planned follow-up.
-- **Serial fallback, no happy-eyeballs.** Addresses are tried in resolver
-  order. If AAAA (IPv6) points somewhere unreachable on a misconfigured
-  network, you eat one full SYN timeout per dead address before falling
-  back to A (IPv4). RFC 8305 happy-eyeballs is a planned follow-up.
+**Known limitation — no happy-eyeballs.** Addresses are tried in
+resolver order. If AAAA (IPv6) points somewhere unreachable on a
+misconfigured network, the connect-timeout fires per address before
+falling back to A (IPv4). RFC 8305 happy-eyeballs would parallelise
+this; it's a planned follow-up.
 
 ```seq
 "example.com" 443 net.tcp.connect
@@ -364,6 +366,15 @@ rustls. Trust roots come from `webpki-roots`.
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `net.tls.client` | `( Socket String -- Socket Bool )` | Upgrade a connected Socket to TLS. `String` is the hostname (drives SNI and certificate validation). Returns the *same* Socket id with its registry slot replaced in place (caller-side maps keyed on the id remain valid). On failure (handshake error, bad cert, empty hostname, etc.) returns `(0, false)`; if the failure happened after the original stream was taken out of the registry, the slot's id is released and the underlying socket is closed. |
+
+**Handshake timeout.** Each individual read/write inside the rustls
+handshake is bounded by a default **10s** deadline. A peer that
+accepts the TCP connection but goes silent mid-handshake surfaces as
+a handshake failure within that bound, rather than parking the strand
+indefinitely. Override with `SEQ_TLS_HANDSHAKE_TIMEOUT_MS`. (The
+per-IO budget applies to each round of the handshake, not the entire
+exchange — a slow but progressing handshake completes; a stalled one
+fails.)
 
 **Known limitations (v1):**
 
@@ -533,7 +544,7 @@ DNS layer already returned — no second resolution on the carrier.
 
 - **No redirect following.** A 3xx response is returned to the caller as-is, with `Location` available in the body or via your own header parser.
 - **No automatic decompression.** The client sends `Accept-Encoding: identity`. If you want gzip transfer, set up your own request and decompress with `compress.gunzip`.
-- **No per-request timeout.** A deadline pass across the networking stack is a planned follow-up (alongside the connect-timeout gap inherited from PR2 and the handshake-timeout gap from PR3). The worst-case shape under this gap is a response with neither `Content-Length` nor `Transfer-Encoding: chunked` (EOF-framed body): the client reads until EOF, which an attacker-controlled server can stretch indefinitely. `Content-Length` and chunked responses are bounded by their own framing and by `MAX_BODY_SIZE` (10 MB).
+- **Per-IO request/response timeout** (default 30s). Each individual read/write inside the wire layer (request send, response header read, every chunk read for chunked transfers, every read for EOF-framed bodies) is bounded by this deadline. A peer that goes silent mid-response — including the slow-trickle / never-EOF case — surfaces as a wire error within the bound. Override with `SEQ_HTTP_REQUEST_TIMEOUT_MS`. The deadline is *per-IO*, not total — a slow but steadily-progressing response is allowed to take longer than the bound in aggregate.
 - **No custom request headers.** Only `Host`, `User-Agent`, `Accept`, `Accept-Encoding`, `Connection`, and (for POST/PUT) `Content-Type` + `Content-Length` are sent. `Content-Type` rejects control characters in the value to prevent header injection. A header-bag API is a planned follow-up.
 - **No client certificate auth, ALPN selection, or peer-cert inspection.** Inherited from `net.tls.client`.
 - **POST is not auto-retried** on transient transport failure; GET/PUT/DELETE are (idempotent per RFC 9110). A POST that fails mid-flight surfaces as a connection error.

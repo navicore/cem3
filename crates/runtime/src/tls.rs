@@ -152,13 +152,67 @@ pub unsafe extern "C" fn patch_seq_tls_client(stack: Stack) -> Stack {
 /// closes the socket). The hostname is moved in: rustls's
 /// `ServerName<'static>` takes an owned `String`, so threading the
 /// caller's owned hostname through avoids a redundant clone.
+/// Per-handshake read/write timeout in milliseconds. Default 10 000ms.
+///
+/// Bounds each individual read/write inside `complete_io`. rustls
+/// has no native deadline knob; the underlying stream's per-op
+/// timeout is what catches a peer that stops responding mid-handshake.
+/// A handshake with many small rounds takes at most N × timeout, but
+/// any single stall lasting longer than `TLS_HANDSHAKE_TIMEOUT`
+/// surfaces as a handshake error.
+const DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
+
+static TLS_HANDSHAKE_TIMEOUT: LazyLock<std::time::Duration> = LazyLock::new(|| {
+    let ms = std::env::var("SEQ_TLS_HANDSHAKE_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_TLS_HANDSHAKE_TIMEOUT_MS);
+    std::time::Duration::from_millis(ms)
+});
+
+/// Test-only override for `TLS_HANDSHAKE_TIMEOUT`. When `Some`, takes
+/// precedence over the LazyLock-cached value. Mirrors the HTTP-side
+/// hook in `request::set_test_http_request_timeout`.
+#[cfg(test)]
+static TLS_HANDSHAKE_TIMEOUT_OVERRIDE: Mutex<Option<std::time::Duration>> = Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn set_test_tls_handshake_timeout(dur: Option<std::time::Duration>) {
+    *TLS_HANDSHAKE_TIMEOUT_OVERRIDE.lock().unwrap() = dur;
+}
+
+fn tls_handshake_timeout() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(dur) = *TLS_HANDSHAKE_TIMEOUT_OVERRIDE.lock().unwrap() {
+        return dur;
+    }
+    *TLS_HANDSHAKE_TIMEOUT
+}
+
 fn build_tls(
     mut tcp: may::net::TcpStream,
     hostname: String,
 ) -> Result<StreamOwned<ClientConnection, may::net::TcpStream>, ()> {
+    // Bound each individual read/write inside the handshake. rustls's
+    // complete_io calls plain `read`/`write` on the wrapped stream,
+    // so a may::net read/write timeout is what catches a peer that
+    // goes silent partway through.
+    let handshake_timeout = Some(tls_handshake_timeout());
+    tcp.set_read_timeout(handshake_timeout).map_err(|_| ())?;
+    tcp.set_write_timeout(handshake_timeout).map_err(|_| ())?;
+
     let server_name = ServerName::try_from(hostname).map_err(|_| ())?;
     let mut conn = ClientConnection::new(current_tls_config(), server_name).map_err(|_| ())?;
     conn.complete_io(&mut tcp).map_err(|_| ())?;
+
+    // Reset timeouts before handing the stream over. The application
+    // IO phase (HTTP request / response) sets its own per-op timeout
+    // from a different env var — leaving the handshake's short
+    // deadline in place would cap every subsequent read/write at the
+    // handshake's bound, which is the wrong budget for app traffic.
+    let _ = tcp.set_read_timeout(None);
+    let _ = tcp.set_write_timeout(None);
     Ok(StreamOwned::new(conn, tcp))
 }
 

@@ -62,9 +62,9 @@ Conditionals, pattern matching, and loops:
 
 ```seq
 : fizzbuzz ( Int -- String )
-  dup 15 i.mod 0 i.= if drop "FizzBuzz"
-  else dup 3 i.mod 0 i.= if drop "Fizz"
-  else dup 5 i.mod 0 i.= if drop "Buzz"
+  dup 15 i.modulo drop 0 i.= if drop "FizzBuzz"
+  else dup 3 i.modulo drop 0 i.= if drop "Fizz"
+  else dup 5 i.modulo drop 0 i.= if drop "Buzz"
   else int->string
   then then then ;
 ```
@@ -230,13 +230,12 @@ YAML parsing with support for:
 **zipper-demo.seq** - Functional list navigation with O(1) cursor movement:
 
 ```seq
-include std:list
 include std:zipper
 
-list-of 1 lv 2 lv 3 lv 4 lv 5 lv zipper.from-list
+{ 1 2 3 4 5 } list->zipper
 zipper.right zipper.right  # Move to element 3
 100 zipper.set             # Replace with 100
-zipper.to-list             # list contents: 1 2 100 4 5
+zipper.to-list             # { 1 2 100 4 5 }
 ```
 
 ### Encoding (encoding.seq)
@@ -458,40 +457,11 @@ cargo run --release -- examples/yaml/yaml_multiline.seq -o /tmp/yaml_multi
 
 ## Input/Output
 
-Networking, file I/O, terminal, and text processing.
+File I/O, terminal, OS, text processing, compression. The non-network
+side of I/O.
 
-### HTTP Server (http/)
-
-**http_server.seq** — TCP server with HTTP routing. Uses the `net.tcp.*`
-builtins for the transport layer and `std:http` for response/parsing
-helpers:
-
-```seq
-include std:http        # http-ok / http-request-path / etc.
-
-: handle-request ( Socket -- )
-  dup net.tcp.read drop          # ( socket request )
-  http-request-path              # ( socket path )
-  "/" string.equal? [
-    drop "Hello from Seq!" http-ok
-  ] [
-    drop "Not Found" http-not-found
-  ] if
-  over net.tcp.write drop
-  net.tcp.close drop ;
-```
-
-**test_simple.seq** — Basic HTTP request/response testing.
-
-### HTTP Client (http-client.seq)
-
-Making HTTP requests with the built-in `net.http.*` words. (No `include`
-required — `net.http.*` is a builtin, not part of `std:http`.)
-
-```seq
-"https://api.example.com/data" net.http.get
-"body" map.get drop io.write-line
-```
+For networking examples (TCP, UDP, TLS, DNS, HTTP) see
+[`../net/`](../net/README.md).
 
 ### Terminal (terminal/)
 
@@ -512,103 +482,122 @@ required — `net.http.*` is a builtin, not part of `std:http`.)
 Zstd compression and decompression for efficient data storage.
 
 
-### HTTP Server Example for Seq
+## Networking
 
-A complete concurrent HTTP server demonstrating Seq's capabilities:
-- TCP socket operations
-- Concurrent request handling with strands (green threads)
-- Channel-based communication (CSP)
-- Closure capture for spawned workers
-- HTTP routing with pattern matching
+Five layers, bottom to top: DNS → TCP → UDP → TLS → HTTP. Each subfolder
+has runnable example(s) using the corresponding `net.*` builtins.
 
-#### Prerequisites
+The stack is **may-aware end to end**: every IO step yields the
+cooperative carrier instead of blocking it. Hostnames resolve through
+a dedicated worker pool so `getaddrinfo` runs off the carrier. See
+`docs/STDLIB_REFERENCE.md` for the full word reference, or
+`docs/design/done/NONBLOCKING_NETWORKING.md` for the design rationale.
 
-Build the compiler:
-```bash
-cargo build --release
+### Examples
+
+#### `dns/resolve.seq` — `net.dns.resolve`
+
+Resolves a hostname and prints each IP returned. Demonstrates the
+worker-pool-offload path; useful as a one-liner for "what does this
+hostname actually resolve to from inside Seq."
+
+```
+seqc build dns/resolve.seq -o /tmp/dns-resolve
+/tmp/dns-resolve
 ```
 
-#### Running the Server
+#### `tcp/client.seq` — `net.tcp.connect`
 
-```bash
-./target/release/seqc --output /tmp/http_server examples/http/http_server.seq
-/tmp/http_server
+Minimal TCP client: connect to `example.com:80`, send an HTTP/1.0
+request, read the response, close. Plain TCP — no framing helpers —
+to show what `net.tcp.*` looks like on its own.
+
+```
+seqc build tcp/client.seq -o /tmp/tcp-client
+/tmp/tcp-client
 ```
 
-The server listens on port 8080 and handles multiple concurrent connections.
+#### `tcp/server.seq` — plain TCP echo server
 
-#### Testing
+Not all networking is HTTP. Accepts a TCP connection, echoes whatever
+the client sent back, closes. Each connection runs in its own strand
+(green thread) so the server handles concurrent clients cooperatively.
 
-In another terminal:
+```
+seqc build tcp/server.seq -o /tmp/tcp-server
+/tmp/tcp-server &
+echo hello | nc localhost 9000
+```
 
-```bash
-### Test root endpoint
+#### `tcp/http-routing.seq` — HTTP server on top of `net.tcp.*`
+
+The companion to `tcp/server.seq`: same accept-loop shape, with
+HTTP/1.1 request parsing and a `cond`-driven router on top. Doubles as
+a tutorial on concatenative programming (the source is heavily
+commented). Lives under `tcp/` because `net.http.*` is client-only —
+the server is hand-rolled over `net.tcp.read` / `net.tcp.write`.
+
+```
+seqc build tcp/http-routing.seq -o /tmp/http-routing
+/tmp/http-routing &
 curl http://localhost:8080/
-### Output: Hello from Seq!
-
-### Test health endpoint
 curl http://localhost:8080/health
-### Output: OK
-
-### Test echo endpoint
 curl http://localhost:8080/echo
-### Output: Echo!
-
-### Test 404 handling
-curl http://localhost:8080/invalid
-### Output: 404 Not Found
+curl http://localhost:8080/invalid   # 404
 ```
 
-#### How It Works
+#### `udp/echo.seq` — `net.udp.bind` + `net.udp.send-to` + `net.udp.receive-from`
 
-The server demonstrates several Seq features:
-
-1. **TCP Operations**: `tcp-listen`, `tcp-accept`, `tcp-read`, `tcp-write`, `tcp-close`
-2. **Routing**: Uses `cond` combinator for multi-way branching on request paths
-3. **Concurrency**: Each connection is handled in a separate strand (green thread)
-4. **Channels**: Spawned workers receive socket IDs via channels
-5. **Closures**: The `[ worker ]` quotation captures the channel ID when spawned
-
-##### Architecture
+Single-program UDP loopback: bind two sockets, send a datagram from
+one to the other, receive it, print. Mirrors the round-trip pattern
+the integration test uses.
 
 ```
-main
-  ├─ tcp-listen (creates listener socket)
-  └─ accept-loop (infinite)
-       ├─ tcp-accept (waits for connection)
-       ├─ make-channel (creates communication channel)
-       ├─ spawn [ worker ] (launches handler strand with channel)
-       └─ send (passes socket ID to worker via channel)
-
-worker strand
-  ├─ receive (gets socket ID from channel)
-  └─ handle-connection
-       ├─ tcp-read (reads HTTP request)
-       ├─ route (pattern matches to response)
-       ├─ tcp-write (sends HTTP response)
-       └─ tcp-close (cleanup)
+seqc build udp/echo.seq -o /tmp/udp-echo
+/tmp/udp-echo
 ```
 
-#### Key Features
+#### `tls/client.seq` — `net.tls.client`
 
-**Non-blocking I/O**: All TCP operations cooperate with May's coroutine scheduler, yielding instead of blocking OS threads.
+The TCP client above with one extra step: after `net.tcp.connect`
+returns the Socket, `net.tls.client` upgrades it in place to a
+TLS-wrapped Socket. Subsequent `net.tcp.read` / `net.tcp.write` calls
+dispatch through rustls transparently — the rest of the code looks
+exactly like the plain-TCP version.
 
-**Efficient Concurrency**: The server can handle thousands of concurrent connections using lightweight strands.
+```
+seqc build tls/client.seq -o /tmp/tls-client
+/tmp/tls-client
+```
 
-**Stack-based Routing**: HTTP routing is implemented using Seq's `cond` combinator, demonstrating clean concatenative style.
+#### `http/client.seq` — `net.http.get` / `.post` / `.put` / `.delete`
 
-#### Next Steps
+High-level HTTP/1.1 client: hand `net.http.get` a URL, get a response
+Map back (`status`, `body`, `ok`, `error`). The client handles DNS
+resolution, SSRF validation against the resolved IPs, connection
+pooling keyed on `(scheme, host, port)`, TLS for `https://`, and
+HTTP/1.1 framing — all the layers below are still there, just
+composed into one builtin. Exercises GET, POST, PUT, DELETE against
+httpbin.org.
 
-This example serves as a foundation for:
-- RESTful APIs with JSON
-- WebSocket servers
-- HTTP client implementations
-- More sophisticated routing (path parameters, query strings)
+```
+seqc build http/client.seq -o /tmp/http-client
+/tmp/http-client
+```
 
-#### References
+### Reading order
 
-- [Seq Roadmap](../../docs/ROADMAP.md)
-- [Concatenative Design](../../docs/CLEAN_CONCATENATIVE_DESIGN.md)
+For a layered tour, read top-to-bottom: `dns/resolve.seq` →
+`tcp/client.seq` → `tcp/server.seq` → `tls/client.seq` →
+`http/client.seq`. The HTTP-routing server (`tcp/http-routing.seq`)
+is the "everything on top of TCP" deep dive once the rest clicks.
+
+### What's not here yet
+
+- mTLS, ALPN selection, peer-cert inspection (planned follow-ups —
+  see issue #483 for the test anchors).
+- Per-request timeouts (planned — see issue #484).
+- A header-bag API for custom HTTP request headers.
 
 
 ## Complete Projects

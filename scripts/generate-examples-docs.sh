@@ -26,7 +26,7 @@ cat > "$OUTPUT" << 'HEADER'
 HEADER
 
 # Categories in display order (top-level only)
-CATEGORIES="basics language paradigms data io projects ffi"
+CATEGORIES="basics language paradigms data io net projects ffi"
 
 # Function to adjust header levels
 # $1 = number of levels to increase (1 for category, 2 for subcategory)

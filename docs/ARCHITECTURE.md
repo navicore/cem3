@@ -81,8 +81,11 @@ patch-seq/
 │   │       ├── list_ops.rs     # List operations
 │   │       ├── map_ops.rs      # Map operations
 │   │       ├── file.rs         # File I/O
-│   │       ├── tcp.rs          # TCP networking
-│   │       ├── http_client.rs  # HTTP client
+│   │       ├── dns.rs          # DNS worker pool (may-aware)
+│   │       ├── tcp.rs          # TCP (may-aware: listen/accept/connect/read/write)
+│   │       ├── udp.rs          # UDP (bind/send-to/recv-from)
+│   │       ├── tls.rs          # TLS client (rustls + ring)
+│   │       ├── http_client.rs  # HTTP/1.1 client (hand-rolled over may + rustls)
 │   │       └── ...             # + diagnostics, watchdog, signal, etc.
 │   ├── lsp/            # Rust - seq-lsp language server
 │   ├── repl/           # Rust - seqr TUI REPL (ratatui-based)

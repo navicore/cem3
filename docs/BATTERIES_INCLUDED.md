@@ -25,7 +25,7 @@ Seq can leverage Rust's ecosystem directly:
 | **HMAC** | `hmac` | RustCrypto, audited |
 | **Encryption** | `aes-gcm` | RustCrypto, audited |
 | **Signatures** | `ed25519-dalek` | Audited, widely used |
-| **HTTP client** | `ureq` | Pure Rust, minimal |
+| **HTTP client** | hand-rolled over `may` + `rustls` | Strand-yielding HTTP/1.1, no `ureq` dependency |
 | **TLS** | `rustls` | Memory-safe, modern |
 | **Regex** | `regex` | Fastest in class |
 | **Compression** | `flate2`, `zstd` | Fast, well-maintained |
@@ -101,7 +101,7 @@ runtime imposes no cost on programs that do not call it.
 | **Strings** | Concat, split, trim, case conversion, JSON escape |
 | **I/O** | stdin/stdout, file read/write, path operations |
 | **Concurrency** | Channels, strands (green threads), weave (coroutines) |
-| **Networking** | TCP listen/accept/connect/read/write |
+| **Networking** | TCP (listen/accept/connect/read/write/close/local-port), UDP (bind/send-to/recv-from), TLS client upgrade, HTTP client (GET/POST/PUT/DELETE), DNS resolve |
 | **Time** | Unix timestamp, high-res time, sleep |
 | **Testing** | Assertions, test runner, pass/fail counts |
 | **Serialization** | SON format (Seq Object Notation) |
@@ -160,7 +160,7 @@ Located in `crates/compiler/stdlib/` (~2900 lines):
 |----------|--------|----------|
 | **HTTP client** | **Complete** | High |
 | **Regex** | **Complete** | Medium |
-| **TLS/HTTPS** | **Complete** (via ureq) | Medium |
+| **TLS/HTTPS** | **Complete** (via `rustls`) | Medium |
 | **Templates** | Not started | Medium |
 | **`seq fmt`** | Not started | Medium |
 | **`seq.toml`** | Not started | Medium |
@@ -192,7 +192,7 @@ Located in `crates/compiler/stdlib/` (~2900 lines):
 
 ## Priority 1: HTTP Client
 
-The HTTP client is implemented using the `ureq` Rust crate.
+The HTTP client is a hand-rolled HTTP/1.1 implementation sitting on the may-aware TCP/TLS/DNS layers — every IO step yields the cooperative carrier instead of blocking it. It keeps its own connection pool keyed on `(scheme, host, port)`.
 
 ### API
 
@@ -236,11 +236,13 @@ then
 
 ### Implementation Details
 
-- **Crate**: `ureq` (pure Rust, blocking, minimal dependencies)
-- **TLS**: Built-in via `rustls` (no OpenSSL dependency)
-- **Timeout**: 30 seconds default
+- **Transport**: hand-rolled HTTP/1.1 over `may`-aware TCP / `rustls` TLS
+- **TLS**: Built-in via `rustls` with `ring` crypto provider (no OpenSSL dependency)
+- **Per-IO request/response timeout**: 30s default, override with `SEQ_HTTP_REQUEST_TIMEOUT_MS`
+- **TLS handshake timeout**: 10s default, override with `SEQ_TLS_HANDSHAKE_TIMEOUT_MS`
+- **TCP connect timeout**: 10s default, override with `SEQ_TCP_CONNECT_TIMEOUT_MS`
 - **Max body size**: 10 MB
-- **Connection pooling**: Enabled via shared agent instance
+- **Connection pooling**: Process-wide pool keyed on `(scheme, host, port)`; idle entries return via `Connection: keep-alive`
 
 ### Security: SSRF Protection
 

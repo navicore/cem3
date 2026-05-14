@@ -40,6 +40,8 @@ use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::{Arc, LazyLock};
 
 /// Process-wide TLS client config. Trust roots are the Mozilla CA
@@ -63,6 +65,40 @@ static TLS_CONFIG: LazyLock<Arc<ClientConfig>> = LazyLock::new(|| {
         .with_no_client_auth();
     Arc::new(config)
 });
+
+// -----------------------------------------------------------------------------
+// Test-only trust-root override
+// -----------------------------------------------------------------------------
+//
+// Lets the happy-path TLS integration test install a `ClientConfig`
+// whose trust roots include the test's self-signed CA. Without the
+// override, the handshake would fail validation (the CA isn't in
+// webpki-roots). Production builds never see this hook.
+
+#[cfg(test)]
+static TEST_TLS_CONFIG: LazyLock<Mutex<Option<Arc<ClientConfig>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+#[cfg(test)]
+pub(crate) fn install_test_tls_config(cfg: Arc<ClientConfig>) {
+    *TEST_TLS_CONFIG.lock().unwrap() = Some(cfg);
+}
+
+#[cfg(test)]
+pub(crate) fn clear_test_tls_config() {
+    *TEST_TLS_CONFIG.lock().unwrap() = None;
+}
+
+/// Returns whichever `ClientConfig` should drive the next handshake:
+/// the test override if one is installed, otherwise the
+/// `webpki-roots`-backed production config.
+fn current_tls_config() -> Arc<ClientConfig> {
+    #[cfg(test)]
+    if let Some(cfg) = TEST_TLS_CONFIG.lock().unwrap().as_ref() {
+        return cfg.clone();
+    }
+    TLS_CONFIG.clone()
+}
 
 /// Upgrade a connected Socket to TLS.
 ///
@@ -121,7 +157,7 @@ fn build_tls(
     hostname: String,
 ) -> Result<StreamOwned<ClientConnection, may::net::TcpStream>, ()> {
     let server_name = ServerName::try_from(hostname).map_err(|_| ())?;
-    let mut conn = ClientConnection::new(TLS_CONFIG.clone(), server_name).map_err(|_| ())?;
+    let mut conn = ClientConnection::new(current_tls_config(), server_name).map_err(|_| ())?;
     conn.complete_io(&mut tcp).map_err(|_| ())?;
     Ok(StreamOwned::new(conn, tcp))
 }

@@ -99,6 +99,47 @@ fn perform_validated(
     }
 }
 
+/// Per-IO timeout for HTTP request/response in milliseconds.
+/// Default 30 000ms (matches ureq's old default).
+///
+/// Bounds each individual read/write inside the wire layer. Catches
+/// silent-server stalls and the EOF-framed-body slow-trickle attack
+/// — any single read taking longer than this surfaces as a wire
+/// error. Read once via LazyLock; override per-process with
+/// `SEQ_HTTP_REQUEST_TIMEOUT_MS`.
+const DEFAULT_HTTP_REQUEST_TIMEOUT_MS: u64 = 30_000;
+
+static HTTP_REQUEST_TIMEOUT: std::sync::LazyLock<std::time::Duration> =
+    std::sync::LazyLock::new(|| {
+        let ms = std::env::var("SEQ_HTTP_REQUEST_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(DEFAULT_HTTP_REQUEST_TIMEOUT_MS);
+        std::time::Duration::from_millis(ms)
+    });
+
+/// Test-only override for `HTTP_REQUEST_TIMEOUT`. When `Some`, takes
+/// precedence over the LazyLock-cached value (which can't be reset
+/// once initialised). Lets timeout tests drive deterministic short
+/// deadlines without depending on env-var read order.
+#[cfg(test)]
+static HTTP_REQUEST_TIMEOUT_OVERRIDE: std::sync::Mutex<Option<std::time::Duration>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn set_test_http_request_timeout(dur: Option<std::time::Duration>) {
+    *HTTP_REQUEST_TIMEOUT_OVERRIDE.lock().unwrap() = dur;
+}
+
+fn http_request_timeout() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(dur) = *HTTP_REQUEST_TIMEOUT_OVERRIDE.lock().unwrap() {
+        return dur;
+    }
+    *HTTP_REQUEST_TIMEOUT
+}
+
 /// One write+read round-trip on an existing stream. Returns the
 /// response and the stream (so a successful caller can return it to
 /// the pool).
@@ -108,9 +149,30 @@ fn run_once(
     target: &ssrf::ValidatedTarget,
     body: Option<(&str, &[u8])>,
 ) -> Result<(wire::Response, Conn), String> {
-    wire::write_request(&mut stream, method, target, body)
-        .map_err(|e| format!("write request: {e}"))?;
-    let resp = wire::read_response(&mut stream)?;
+    // Bound each individual read/write inside this round-trip. Each
+    // wire-layer call (write_request, read_response, and every
+    // intermediate read for chunked / EOF-framed bodies) is capped at
+    // HTTP_REQUEST_TIMEOUT. A peer that goes silent mid-response or
+    // sends a byte-per-N-seconds slow-trickle hits the per-op limit
+    // and surfaces as a wire error.
+    //
+    // Reset to None after the round-trip so a connection returned to
+    // the pool doesn't carry a stale per-op deadline for the next
+    // user. The next caller will set its own.
+    let timeout = Some(http_request_timeout());
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+
+    let result = (|| {
+        wire::write_request(&mut stream, method, target, body)
+            .map_err(|e| format!("write request: {e}"))?;
+        wire::read_response(&mut stream)
+    })();
+
+    let _ = stream.set_read_timeout(None);
+    let _ = stream.set_write_timeout(None);
+
+    let resp = result?;
     Ok((resp, stream))
 }
 

@@ -19,19 +19,36 @@
 
 use std::io::{Read, Write};
 use std::os::fd::RawFd;
+use std::time::Duration;
 
 /// What the HTTP client needs from a connection: byte stream IO plus
-/// the underlying TCP fd (for the pool's half-closed peek).
+/// the underlying TCP fd (for the pool's half-closed peek) plus the
+/// ability to set per-operation timeouts on the underlying may
+/// TcpStream (for the request/response deadline pass).
 pub(crate) trait HttpStream: Read + Write + Send {
     /// Underlying TCP file descriptor, even for TLS-wrapped streams.
     /// Used by the pool's non-blocking `poll(POLLIN, 0)` reuse check.
     fn raw_fd(&self) -> RawFd;
+
+    /// Set the underlying may TcpStream's per-read timeout. Returns
+    /// any IO error from the syscall verbatim. `None` clears the
+    /// deadline (read can block indefinitely).
+    fn set_read_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()>;
+
+    /// Set the underlying may TcpStream's per-write timeout.
+    fn set_write_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()>;
 }
 
 impl HttpStream for may::net::TcpStream {
     fn raw_fd(&self) -> RawFd {
         use std::os::fd::AsRawFd;
         self.as_raw_fd()
+    }
+    fn set_read_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()> {
+        may::net::TcpStream::set_read_timeout(self, dur)
+    }
+    fn set_write_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()> {
+        may::net::TcpStream::set_write_timeout(self, dur)
     }
 }
 
@@ -44,6 +61,12 @@ impl HttpStream for rustls::StreamOwned<rustls::ClientConnection, may::net::TcpS
         // with a sock-accessor wrapper. Documented here so a future
         // bump doesn't trigger a confused-error hunt.
         self.sock.as_raw_fd()
+    }
+    fn set_read_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_read_timeout(dur)
+    }
+    fn set_write_timeout(&mut self, dur: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_write_timeout(dur)
     }
 }
 

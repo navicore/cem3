@@ -17,7 +17,7 @@
 //!
 //! ## Reuse safety
 //!
-//! Before reusing a pooled connection, `is_alive` does a non-blocking
+//! Before reusing a pooled connection, `is_reusable` does a non-blocking
 //! `poll(POLLIN, 0)` on the underlying TCP fd. If the socket is
 //! readable but has 0 bytes pending the peer has sent FIN (graceful
 //! close); if `POLLHUP/POLLERR` is set the connection is broken;
@@ -82,7 +82,7 @@ pub(crate) fn checkout(key: &PoolKey) -> Option<Conn> {
         if now.duration_since(conn.inserted) > IDLE_TIMEOUT {
             continue;
         }
-        if is_alive(conn.stream.raw_fd()) {
+        if is_reusable(conn.stream.raw_fd()) {
             return Some(conn.stream);
         }
     }
@@ -115,9 +115,10 @@ pub(crate) fn release(key: PoolKey, stream: Conn, keep_alive: bool) {
     pool.total += 1;
 }
 
-/// Non-blocking liveness check on the underlying TCP fd. `false` means
-/// "discard this connection."
-fn is_alive(fd: std::os::fd::RawFd) -> bool {
+/// Non-blocking liveness check on the underlying TCP fd. Returns
+/// `true` iff the socket is safe to reuse for the next request —
+/// the kernel reports no readable bytes, no FIN, no error.
+fn is_reusable(fd: std::os::fd::RawFd) -> bool {
     let mut pfd = libc::pollfd {
         fd,
         events: libc::POLLIN,

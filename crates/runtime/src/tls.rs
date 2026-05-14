@@ -37,7 +37,6 @@
 
 use crate::http_client::conn::Conn;
 use crate::stack::{Stack, pop, push};
-use crate::tcp::{STREAMS, StreamKind};
 use crate::value::Value;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
@@ -98,82 +97,17 @@ pub unsafe extern "C" fn patch_seq_tls_client(stack: Stack) -> Stack {
             return push_failure(stack);
         }
 
-        // Pull the underlying TcpStream out of the registry. If the
-        // id refers to a TLS-wrapped stream (double-upgrade) or
-        // doesn't exist, fail without disturbing the slot.
-        //
-        // Critically, we do NOT call free(socket_id) here. The slot
-        // is now Some-but-None (the Vec entry exists, but holds an
-        // empty Option) — which reserves the id for the upgrade.
-        // Freeing would push id onto the free list, and the handshake
-        // below yields the strand on every network round-trip; another
-        // strand could allocate that id in the interim, leaving the
-        // user holding a Socket integer that now refers to someone
-        // else's stream.
-        let tcp = match take_tcp(socket_id) {
-            Some(t) => t,
-            None => return push_failure(stack),
-        };
-
-        // Build the rustls ClientConnection and run the handshake to
-        // completion. complete_io drives reads/writes on the
-        // underlying may TcpStream, which yields the strand
-        // cooperatively while waiting on the network.
-        let stream = match build_tls(tcp, hostname) {
-            Ok(s) => s,
-            Err(()) => {
-                // Handshake (or earlier setup) failed. build_tls
-                // dropped the TcpStream, so the socket is closed.
-                // Release the id back to the free list so it can be
-                // reused.
-                STREAMS.lock().unwrap().free(socket_id);
-                return push_failure(stack);
-            }
-        };
-
-        // Reinstall under the *same* id. The slot has been reserved
-        // for us since take_tcp; no other strand could have claimed
-        // it across the handshake yield.
-        let installed = {
-            let mut streams = STREAMS.lock().unwrap();
-            match streams.get_mut(socket_id) {
-                Some(slot) => {
-                    *slot = Some(StreamKind::Tls(Box::new(stream)));
-                    true
-                }
-                None => false,
-            }
-        };
-        if !installed {
-            // The Vec shrunk under us — currently impossible with the
-            // append-only registry, but treated as a failure rather
-            // than a panic so a future eviction policy doesn't blow up
-            // the process.
+        // The take/reinstall/free dance against the STREAMS registry
+        // lives inside tcp.rs so the "slot is reserved across a
+        // strand-yielding operation" invariant stays co-located with
+        // the registry itself. We just provide the callback that
+        // produces the TLS-wrapped stream.
+        let ok = crate::tcp::upgrade_tcp_in_place(socket_id, |tcp| build_tls(tcp, hostname));
+        if !ok {
             return push_failure(stack);
         }
         let stack = push(stack, Value::Int(socket_id as i64));
         push(stack, Value::Bool(true))
-    }
-}
-
-/// Take the underlying TcpStream out of STREAMS at `id`, only if the
-/// slot holds a `Tcp` variant. A `Tls` variant or empty slot
-/// short-circuits to `None`; a wrong-kind variant is restored so
-/// `tls.client` on a TLS socket doesn't accidentally destroy it.
-///
-/// On `Some` return, the slot at `id` is left holding `None` (i.e.
-/// reserved for the caller). The caller MUST either reinstall a
-/// value into that slot or call `free(id)`.
-fn take_tcp(id: usize) -> Option<may::net::TcpStream> {
-    let mut streams = STREAMS.lock().unwrap();
-    let slot = streams.get_mut(id)?;
-    match slot.take() {
-        Some(StreamKind::Tcp(t)) => Some(t),
-        Some(other) => {
-            *slot = Some(other);
-            None
-        }
-        None => None,
     }
 }
 

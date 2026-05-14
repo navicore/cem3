@@ -223,12 +223,25 @@ accept an arbitrary integer.
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success) |
+| `net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success). Pass `0` to let the OS pick. |
 | `net.tcp.connect` | `( String Int -- Socket Bool )` | Connect to host:port. Returns (socket, success) |
 | `net.tcp.accept` | `( Socket -- Socket Bool )` | Accept connection. Returns (client, success) |
+| `net.tcp.local-port` | `( Socket -- Int Bool )` | Read the OS-assigned local port. Works on both listeners (after `listen 0`) and connected streams. Returns (port, success). |
 | `net.tcp.read` | `( Socket -- String Bool )` | Read from socket. Returns (data, success) |
 | `net.tcp.write` | `( String Socket -- Bool )` | Write to socket. Returns success |
 | `net.tcp.close` | `( Socket -- Bool )` | Close socket. Returns success |
+
+> **Note on `net.tcp.local-port` and Socket id aliasing.** Listeners
+> and connected streams live in separate registries that each start
+> their id sequence at 0, so the same `Socket` integer can refer to
+> different resources depending on which registry holds it. Dispatch
+> for `local-port` (and for `close`) is streams-first, then
+> listeners. The practical implication: if you intend to read a
+> listener's local port, call `net.tcp.local-port` on it *before*
+> allocating any connected streams (or stash the result eagerly),
+> otherwise an id that aliases between the two registries will
+> return the stream's port. Tracked as a broader follow-up; in the
+> meantime treat `Socket` ids as resource-local, not globally unique.
 
 `net.tcp.connect` resolves the hostname through [net.dns.resolve](#networking--netdns) —
 the lookup runs on the DNS worker pool, not the may carrier, and tries
@@ -313,14 +326,20 @@ Worker count is configurable via `SEQ_DNS_WORKERS` (default 8, max 64).
 disabling the pool makes no architectural sense since the syscall has
 to run somewhere off the may carrier.
 
-**Known limitation — no single-flight.** The cache deduplicates
-*sequential* fanout: once one strand fills the cache, later resolves
-of the same host hit the fast path. It does **not** deduplicate
-*concurrent* first-resolves — N strands racing to resolve the same
-uncached host each enqueue a separate worker job. Wasted work under
-bursty load (e.g., connection-pool warm-up); not a correctness issue.
-Single-flight via an in-flight map keyed by hostname is a planned
-follow-up.
+**Fanout collapsing.** Both *sequential* and *concurrent* fanout
+collapse to a single `getaddrinfo`. The TTL cache catches the
+sequential case. An in-flight map keyed by hostname catches the
+concurrent case: when N strands race to resolve the same uncached
+host, the first to arrive enqueues exactly one worker job and the
+others attach to the in-flight entry. When the worker returns it
+writes the cache and fans the result out to every attached strand.
+
+**IP-literal fast path.** Callers that go through `net.dns.resolve`
+indirectly (via `net.tcp.connect`, `net.udp.send-to`, or the HTTP
+client's SSRF validator) bypass the worker pool entirely when the
+host string is an IP literal — `dns::resolve_to_ips` parses the
+literal and returns it directly. The pool round-trip is reserved
+for actual DNS work.
 
 ```seq
 "api.example.com" net.dns.resolve

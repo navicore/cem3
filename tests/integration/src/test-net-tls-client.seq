@@ -7,21 +7,12 @@
 #
 # Offline integration tests only cover failure paths: a happy-path
 # round-trip would need either a real HTTPS endpoint (not allowed in
-# CI) or a same-process TLS server (which is PR-5+ scope — we don't
-# expose TLS server primitives yet). The happy path is verified
-# manually against https://example.com and via the upcoming PR4 HTTP
-# rewrite which exercises real TLS end-to-end.
-
-: tls-test-port ( -- Int )
-  # Distinct from tcp-test-port / tcp-test-port-2 used by the
-  # net.tcp.connect tests so parallel collisions are impossible even
-  # if cleanup is slow.
-  54331
-;
-
-: tls-test-port-bad ( -- Int ) 54332 ;
-
-: tls-test-port-dns ( -- Int ) 54333 ;
+# CI) or a same-process TLS server (tracked in issue #483). The
+# happy path is verified manually against https://example.com and
+# via the PR4 HTTP rewrite which exercises real TLS end-to-end.
+#
+# Each test binds on port 0 and uses net.tcp.local-port to discover
+# the OS-assigned port — no hardcoded magic numbers.
 
 # -----------------------------------------------------------------------------
 # Shared bad-server: accepts one TCP connection and closes it without
@@ -34,10 +25,8 @@
   net.tcp.close test.assert
 ;
 
-# Same shape as bad-server-body but for a server that handles two
-# connections — the empty-host test needs a live stream after the
-# rejected TLS call to prove the slot wasn't disturbed, so the server
-# echoes "pong" on a second read-write exchange.
+# Echo server for the empty-host test, which needs a live stream
+# after the rejected TLS call to prove the slot wasn't disturbed.
 : echo-server-body ( Socket -- )
   net.tcp.accept
   [ ] [ "echo-server: accept failed" io.write-line 1 os.exit ] if
@@ -53,22 +42,22 @@
 # -----------------------------------------------------------------------------
 # Empty hostname fast-fails AND leaves the input socket usable.
 #
-# The previous version of this test passed a *listener* id (which
-# lives in LISTENERS, not STREAMS) and so couldn't possibly observe a
-# regression where the empty-host short-circuit started touching
-# STREAMS. This version uses a real connected stream and proves the
-# slot is untouched by completing a ping/pong round-trip *after* the
-# rejected upgrade.
+# Uses a real connected stream from a same-process listen+connect.
+# Empty hostname must short-circuit inside net.tls.client without
+# touching the client socket's registry slot — proven here by
+# completing the ping/pong round-trip *after* the rejected upgrade.
 # -----------------------------------------------------------------------------
 
 : test-net-tls-client-empty-host-leaves-socket-usable ( -- )
-  tls-test-port net.tcp.listen
-  [ ] [ "listen failed (port in use?)" io.write-line 1 os.exit ] if
-  [ echo-server-body ] strand.spawn drop
+  0 net.tcp.listen
+  [ ] [ "listen failed" io.write-line 1 os.exit ] if
+  dup net.tcp.local-port
+  [ ] [ "local-port failed" io.write-line 1 os.exit ] if
+  # ( listener port )
+  [ drop echo-server-body ] strand.spawn drop  # ( listener port )
 
-  "127.0.0.1" tls-test-port net.tcp.connect
+  "127.0.0.1" swap net.tcp.connect             # ( listener client bool )
   [ ] [ "connect to echo-server failed" io.write-line 1 os.exit ] if
-  # ( listener client )
 
   # Attempt TLS upgrade with empty hostname — must fail without
   # disturbing the client socket's registry slot.
@@ -97,11 +86,13 @@
 # -----------------------------------------------------------------------------
 
 : test-net-tls-client-handshake-fails-ip-sni ( -- )
-  tls-test-port-bad net.tcp.listen
-  [ ] [ "bad-server: listen failed" io.write-line 1 os.exit ] if
-  [ bad-server-body ] strand.spawn drop
+  0 net.tcp.listen
+  [ ] [ "listen failed" io.write-line 1 os.exit ] if
+  dup net.tcp.local-port
+  [ ] [ "local-port failed" io.write-line 1 os.exit ] if
+  [ drop bad-server-body ] strand.spawn drop
 
-  "127.0.0.1" tls-test-port-bad net.tcp.connect
+  "127.0.0.1" swap net.tcp.connect
   [ ] [ "connect to bad-server failed" io.write-line 1 os.exit ] if
 
   "127.0.0.1" net.tls.client                   # ( listener new bool )
@@ -123,12 +114,14 @@
 # -----------------------------------------------------------------------------
 
 : test-net-tls-client-handshake-fails-dns-sni ( -- )
-  tls-test-port-dns net.tcp.listen
-  [ ] [ "dns-bad-server: listen failed" io.write-line 1 os.exit ] if
-  [ bad-server-body ] strand.spawn drop
+  0 net.tcp.listen
+  [ ] [ "listen failed" io.write-line 1 os.exit ] if
+  dup net.tcp.local-port
+  [ ] [ "local-port failed" io.write-line 1 os.exit ] if
+  [ drop bad-server-body ] strand.spawn drop
 
-  "127.0.0.1" tls-test-port-dns net.tcp.connect
-  [ ] [ "connect to dns-bad-server failed" io.write-line 1 os.exit ] if
+  "127.0.0.1" swap net.tcp.connect
+  [ ] [ "connect to bad-server failed" io.write-line 1 os.exit ] if
 
   # .invalid is RFC 2606; ServerName parses it (it's a syntactically
   # valid DNS name), so the failure path is complete_io reporting the

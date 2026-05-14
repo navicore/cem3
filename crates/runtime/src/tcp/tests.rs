@@ -218,3 +218,50 @@ fn test_max_read_size_limit() {
     // with "read size limit exceeded". Testing this requires a real socket
     // with more than 1 MB of data, which is impractical for unit tests.
 }
+
+#[test]
+fn test_socket_registry_release_reserved_round_trip() {
+    // Pins the round-trip semantics that the TLS-handshake-failure
+    // path silently broke until #486 review: after a successful
+    // `take_tcp`, the slot's inner Option is None, which makes
+    // plain `free()` a no-op. Without `release_reserved`, the id
+    // would leak — the Vec grows but the free list never sees the
+    // id again. This test allocates, takes, releases-reserved, and
+    // allocates a second time, asserting we get the same id back.
+    let mut reg: SocketRegistry<i32> = SocketRegistry::new();
+
+    // Allocate, get id 0.
+    let id = reg.allocate(42).expect("allocate") as usize;
+    assert_eq!(id, 0, "first allocation should give id 0");
+
+    // Simulate take_tcp: pull the value out, leaving the slot
+    // Some(None). This is the shape upgrade_tcp_in_place sees on
+    // entry before it hands the stream to its callback.
+    let slot = reg.get_mut(id).expect("slot exists");
+    let _value = slot.take().expect("slot was occupied");
+    assert!(slot.is_none(), "slot should be reserved after take");
+
+    // Release the reserved id and confirm the round-trip.
+    reg.release_reserved(id);
+    let id2 = reg.allocate(99).expect("second allocate") as usize;
+    assert_eq!(
+        id2, id,
+        "release_reserved must put the id back on the free list \
+         so the next allocate reuses it (otherwise the id leaks)"
+    );
+
+    // Double-release of the same id must not double-push onto the
+    // free list — if it did, the next two allocations would get
+    // the same id and we'd have a use-after-free in disguise.
+    let slot = reg.get_mut(id2).expect("slot exists");
+    let _value = slot.take().expect("slot was occupied");
+    reg.release_reserved(id2);
+    reg.release_reserved(id2); // duplicate
+    let id3 = reg.allocate(7).expect("third allocate") as usize;
+    let id4 = reg.allocate(8).expect("fourth allocate") as usize;
+    assert_ne!(
+        id3, id4,
+        "double release_reserved must not cause two allocations \
+         to receive the same id"
+    );
+}

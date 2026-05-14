@@ -71,10 +71,7 @@ pub(crate) fn validate_url(url: &str) -> Result<ValidatedTarget, String> {
         Scheme::Http => 80,
     });
 
-    let addrs: Vec<IpAddr> = crate::dns::resolve(&host)
-        .iter()
-        .filter_map(|s| s.parse::<IpAddr>().ok())
-        .collect();
+    let addrs = crate::dns::resolve_to_ips(&host);
     for ip in &addrs {
         if is_dangerous_ip(*ip) {
             return Err(format!(

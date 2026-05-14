@@ -15,16 +15,18 @@
 //! representations. On unresolvable name or empty result, pushes
 //! `(empty-list, false)`.
 //!
-//! ## Known limitation: no single-flight
+//! ## Fanout collapsing
 //!
-//! The cache collapses *sequential* fanout — repeated resolves of the
-//! same host after one has filled the cache hit the fast path. It does
-//! *not* deduplicate *concurrent* first-resolves: N strands racing to
-//! resolve the same uncached host enqueue N worker jobs, each running
-//! its own `getaddrinfo` and writing the cache on return. Wasted work
-//! under bursty load (e.g., connection-pool warm-up), but not a
-//! correctness issue. Single-flight via an in-flight map keyed by
-//! hostname is a planned follow-up.
+//! Both *sequential* and *concurrent* fanout collapse to a single
+//! `getaddrinfo`. The TTL cache (see `CACHE`) catches the sequential
+//! case. The in-flight map (see `IN_FLIGHT`) catches the concurrent
+//! case: when N strands race to resolve the same uncached host, the
+//! first to arrive enqueues exactly one worker job and the others
+//! attach their reply channels to the in-flight entry. When the
+//! worker returns, it writes the cache and fans the result out to
+//! every attached channel. Late arrivers that come in after the
+//! fanout pop see the freshly-written cache and short-circuit
+//! without ever touching the in-flight map.
 
 use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
@@ -90,9 +92,21 @@ impl DnsCache {
 
 static CACHE: LazyLock<Mutex<DnsCache>> = LazyLock::new(|| Mutex::new(DnsCache::new()));
 
+type InFlightSenders = Vec<may::sync::mpsc::Sender<Vec<String>>>;
+
+/// In-flight resolutions, keyed by hostname. The first strand that
+/// wants a hostname inserts an entry containing its reply channel,
+/// then enqueues a worker job; subsequent strands wanting the same
+/// hostname find the entry and *append* their reply channels instead
+/// of enqueuing duplicate work. When the worker returns, it removes
+/// the entry and fans the result out to every channel. Closes the
+/// "N concurrent first-resolves of the same uncached host enqueue N
+/// worker jobs" gap from PR1.
+static IN_FLIGHT: LazyLock<Mutex<HashMap<String, InFlightSenders>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 struct Job {
     hostname: String,
-    reply: may::sync::mpsc::Sender<Vec<String>>,
 }
 
 /// Lazy job queue. First send spawns the worker pool. Workers live for
@@ -151,7 +165,18 @@ fn worker_loop(rx: Arc<Mutex<std_mpsc::Receiver<Job>>>) {
                 .unwrap()
                 .put(job.hostname.clone(), addrs.clone());
         }
-        let _ = job.reply.send(addrs); // requester may have died — drop
+        // Cache is written before the IN_FLIGHT fanout so a late
+        // arriver that races the fanout (between this worker popping
+        // IN_FLIGHT and the senders firing) will see the cache hit and
+        // never need to attach.
+        let senders = IN_FLIGHT
+            .lock()
+            .unwrap()
+            .remove(&job.hostname)
+            .unwrap_or_default();
+        for s in senders {
+            let _ = s.send(addrs.clone()); // requester may have died — drop
+        }
     }
 }
 
@@ -174,6 +199,25 @@ fn resolve_blocking(hostname: &str) -> Vec<String> {
     }
 }
 
+/// Resolve a hostname to a `Vec<IpAddr>`, with an IP-literal fast path.
+///
+/// If `hostname` parses as an IP literal, returns `vec![that_ip]`
+/// without touching the worker pool or the cache. Otherwise falls
+/// back to `resolve(hostname)` and parses each returned string.
+///
+/// This is the preferred entry point for any caller that's going to
+/// build `SocketAddr`s from the result (TCP connect, UDP send-to,
+/// HTTP SSRF validation). Returns an empty Vec on resolution failure.
+pub fn resolve_to_ips(hostname: &str) -> Vec<std::net::IpAddr> {
+    if let Ok(ip) = hostname.parse::<std::net::IpAddr>() {
+        return vec![ip];
+    }
+    resolve(hostname)
+        .iter()
+        .filter_map(|s| s.parse::<std::net::IpAddr>().ok())
+        .collect()
+}
+
 /// Resolve a hostname to a list of IP-address strings.
 ///
 /// Cooperative: yields the strand via the may-channel recv() while a
@@ -182,6 +226,10 @@ fn resolve_blocking(hostname: &str) -> Vec<String> {
 /// error, or unresolvable name). Other runtime modules call this
 /// directly so they share the cache and worker pool with the FFI
 /// surface instead of opening a parallel path to `getaddrinfo`.
+///
+/// For callers that produce `IpAddr` values, prefer
+/// [`resolve_to_ips`] — it short-circuits IP-literal input to skip
+/// the worker round-trip.
 pub fn resolve(hostname: &str) -> Vec<String> {
     if hostname.is_empty() {
         return Vec::new();
@@ -189,18 +237,52 @@ pub fn resolve(hostname: &str) -> Vec<String> {
     if let Some(addrs) = CACHE.lock().unwrap().get(hostname) {
         return addrs;
     }
-    let sender = match JOB_QUEUE.as_ref() {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
+
     let (reply_tx, reply_rx) = may::sync::mpsc::channel::<Vec<String>>();
-    let job = Job {
-        hostname: hostname.to_string(),
-        reply: reply_tx,
+
+    // Attach our reply channel to the in-flight map. If we're the
+    // first arriver for this hostname we become the *leader* and
+    // enqueue a worker job; otherwise we attach to the existing entry
+    // and wait for the leader's worker to fan the result out.
+    let became_leader = {
+        let mut in_flight = IN_FLIGHT.lock().unwrap();
+        match in_flight.get_mut(hostname) {
+            Some(senders) => {
+                senders.push(reply_tx);
+                false
+            }
+            None => {
+                in_flight.insert(hostname.to_string(), vec![reply_tx]);
+                true
+            }
+        }
     };
-    if sender.send(job).is_err() {
-        return Vec::new();
+
+    if became_leader {
+        let enqueue_err = match JOB_QUEUE.as_ref() {
+            Some(s) => s
+                .send(Job {
+                    hostname: hostname.to_string(),
+                })
+                .is_err(),
+            None => true, // worker pool failed to start
+        };
+        if enqueue_err {
+            // No worker will pop this hostname; nothing will fan
+            // results out. Drain ourselves and any followers that
+            // raced us, signalling empty-result failure.
+            let senders = IN_FLIGHT
+                .lock()
+                .unwrap()
+                .remove(hostname)
+                .unwrap_or_default();
+            for s in senders {
+                let _ = s.send(Vec::new());
+            }
+            return Vec::new();
+        }
     }
+
     reply_rx.recv().unwrap_or_default()
 }
 

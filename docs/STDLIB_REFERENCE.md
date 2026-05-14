@@ -223,12 +223,25 @@ accept an arbitrary integer.
 
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
-| `net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success) |
+| `net.tcp.listen` | `( Int -- Socket Bool )` | Listen on port. Returns (socket, success). Pass `0` to let the OS pick. |
 | `net.tcp.connect` | `( String Int -- Socket Bool )` | Connect to host:port. Returns (socket, success) |
 | `net.tcp.accept` | `( Socket -- Socket Bool )` | Accept connection. Returns (client, success) |
+| `net.tcp.local-port` | `( Socket -- Int Bool )` | Read the OS-assigned local port. Works on both listeners (after `listen 0`) and connected streams. Returns (port, success). |
 | `net.tcp.read` | `( Socket -- String Bool )` | Read from socket. Returns (data, success) |
 | `net.tcp.write` | `( String Socket -- Bool )` | Write to socket. Returns success |
 | `net.tcp.close` | `( Socket -- Bool )` | Close socket. Returns success |
+
+> **Note on `net.tcp.local-port` and Socket id aliasing.** Listeners
+> and connected streams live in separate registries that each start
+> their id sequence at 0, so the same `Socket` integer can refer to
+> different resources depending on which registry holds it. Dispatch
+> for `local-port` (and for `close`) is streams-first, then
+> listeners. The practical implication: if you intend to read a
+> listener's local port, call `net.tcp.local-port` on it *before*
+> allocating any connected streams (or stash the result eagerly),
+> otherwise an id that aliases between the two registries will
+> return the stream's port. Tracked as a broader follow-up; in the
+> meantime treat `Socket` ids as resource-local, not globally unique.
 
 `net.tcp.connect` resolves the hostname through [net.dns.resolve](#networking--netdns) —
 the lookup runs on the DNS worker pool, not the may carrier, and tries

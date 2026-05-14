@@ -92,7 +92,7 @@ impl DnsCache {
 
 static CACHE: LazyLock<Mutex<DnsCache>> = LazyLock::new(|| Mutex::new(DnsCache::new()));
 
-type Replies = Vec<may::sync::mpsc::Sender<Vec<String>>>;
+type InFlightSenders = Vec<may::sync::mpsc::Sender<Vec<String>>>;
 
 /// In-flight resolutions, keyed by hostname. The first strand that
 /// wants a hostname inserts an entry containing its reply channel,
@@ -102,7 +102,7 @@ type Replies = Vec<may::sync::mpsc::Sender<Vec<String>>>;
 /// the entry and fans the result out to every channel. Closes the
 /// "N concurrent first-resolves of the same uncached host enqueue N
 /// worker jobs" gap from PR1.
-static IN_FLIGHT: LazyLock<Mutex<HashMap<String, Replies>>> =
+static IN_FLIGHT: LazyLock<Mutex<HashMap<String, InFlightSenders>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 struct Job {

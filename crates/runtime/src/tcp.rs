@@ -113,6 +113,33 @@ impl<T> SocketRegistry<T> {
             self.free_ids.push(id);
         }
     }
+
+    /// Release an id that was reserved by `take_tcp` but whose
+    /// caller never reinstalled a value into the slot.
+    ///
+    /// Symmetric pair to `take_tcp` for the failure path: after a
+    /// successful take the slot's inner Option is `None`, which
+    /// makes plain `free()` a silent no-op (its `slot.is_some()`
+    /// guard treats reserved-None the same as already-freed). This
+    /// method bypasses that guard to push the id back onto the
+    /// free list so subsequent allocations can reuse it.
+    ///
+    /// The `contains` check protects against double-release should
+    /// a buggy caller invoke this twice or against an already-freed
+    /// id. The free list is normally short, so the linear scan is
+    /// cheap.
+    ///
+    /// Only legitimate caller: `upgrade_tcp_in_place`'s Err branch.
+    fn release_reserved(&mut self, id: usize) {
+        let is_reserved = self
+            .sockets
+            .get(id)
+            .map(|slot| slot.is_none())
+            .unwrap_or(false);
+        if is_reserved && !self.free_ids.contains(&id) {
+            self.free_ids.push(id);
+        }
+    }
 }
 
 // Global registry for TCP listeners and streams. STREAMS holds a
@@ -152,8 +179,12 @@ fn take_tcp(id: usize) -> Option<may::net::TcpStream> {
     }
 }
 
-fn free_stream(id: usize) {
-    STREAMS.lock().unwrap().free(id);
+/// Release an id that `take_tcp` reserved but no caller reinstalled.
+/// Bypasses the `slot.is_some()` guard in plain `free()` (which
+/// would silently no-op against a reserved-None slot, leaking the
+/// id for the lifetime of the process).
+fn release_reserved_stream(id: usize) {
+    STREAMS.lock().unwrap().release_reserved(id);
 }
 
 /// In-place upgrade of a TCP socket to its TLS-wrapped form.
@@ -188,9 +219,12 @@ where
     let stream = match f(tcp) {
         Ok(s) => s,
         Err(()) => {
-            // `f` consumed (and dropped) the TcpStream — socket closed.
-            // Release the reserved id back to the free list.
-            free_stream(id);
+            // `f` consumed (and dropped) the TcpStream — socket
+            // closed. Release the reserved id back to the free list.
+            // Plain `free()` here would silently no-op because
+            // `take_tcp` already nulled the slot's inner Option;
+            // `release_reserved` bypasses that guard.
+            release_reserved_stream(id);
             return false;
         }
     };

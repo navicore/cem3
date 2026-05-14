@@ -173,7 +173,11 @@ fn test_ssrf_blocks_invalid_schemes() {
     assert!(validate_url_for_ssrf("gopher://example.com/").is_err());
 }
 
+// Serialised with the SSRF-rebinding test in integration_tests.rs:
+// both call into dns::resolve (which mutates the test-only counter
+// + scripted-response queue), so they can't run concurrently.
 #[test]
+#[serial_test::serial(dns_global_state)]
 fn test_ssrf_allows_public_urls() {
     // These should be allowed (public IPs)
     assert!(validate_url_for_ssrf("https://example.com/").is_ok());

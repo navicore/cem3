@@ -94,3 +94,6 @@ signal-hook = { workspace = true, optional = true }
 [dev-dependencies]
 tempfile.workspace = true
 serial_test.workspace = true
+# Test-only self-signed cert generation for the happy-path TLS
+# integration test. Never ships in release builds.
+rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }

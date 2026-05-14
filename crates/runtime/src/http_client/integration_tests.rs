@@ -5,7 +5,7 @@
 //! and the validator would correctly block that).
 
 use super::pool;
-use super::request::perform_request_with_target;
+use super::request::{perform_request, perform_request_with_target};
 use super::ssrf::{Scheme, ValidatedTarget};
 use crate::seqstring::global_string;
 use crate::value::{MapKey, Value};
@@ -29,6 +29,10 @@ enum ServerMode {
     /// Reply with `Transfer-Encoding: chunked`, two data chunks plus
     /// the terminator. Used by the chunked-decode integration test.
     Chunked,
+    /// Reply with `Connection: close` + Content-Length, then close
+    /// the socket from the server side. Used to verify the pool
+    /// drops close-marked entries instead of trying to reuse them.
+    CloseOnce,
 }
 
 /// Run a minimal HTTP/1.1 server strand on `listener` that loops
@@ -133,6 +137,27 @@ fn spawn_test_server(
                                      6\r\n world\r\n\
                                      0\r\n\r\n";
                                 stream.write_all(payload).is_ok()
+                            }
+                            ServerMode::CloseOnce => {
+                                // Reply with `Connection: close` + a fixed
+                                // body, then return from this per-connection
+                                // strand. Returning drops `stream`, which
+                                // sends FIN to the peer — the client's
+                                // pool::release call sees keep_alive=false
+                                // and drops the entry. The next request to
+                                // this listener must trigger a fresh accept.
+                                let body = b"closed";
+                                let header = format!(
+                                    "HTTP/1.1 200 OK\r\n\
+                                     Content-Type: text/plain\r\n\
+                                     Content-Length: {}\r\n\
+                                     Connection: close\r\n\
+                                     \r\n",
+                                    body.len()
+                                );
+                                let _ = stream.write_all(header.as_bytes());
+                                let _ = stream.write_all(body);
+                                return;
                             }
                         };
                         if !write_ok {
@@ -295,4 +320,236 @@ fn http_chunked_response_decodes_end_to_end() {
     // must concatenate them in order.
     assert_eq!(body, b"Hello world");
     assert_eq!(req_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn http_connection_close_response_evicts_from_pool() {
+    unsafe { crate::scheduler::scheduler_init() };
+    pool::clear_for_test();
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let accept_count = Arc::new(AtomicUsize::new(0));
+    let req_count = Arc::new(AtomicUsize::new(0));
+    spawn_test_server(
+        listener,
+        accept_count.clone(),
+        req_count.clone(),
+        ServerMode::CloseOnce,
+    );
+
+    let target1 = loopback_target(port, "/first");
+    let r1 = perform_request_with_target("GET", target1, None);
+    assert_eq!(unwrap_response(&r1).0, 200);
+
+    let target2 = loopback_target(port, "/second");
+    let r2 = perform_request_with_target("GET", target2, None);
+    assert_eq!(unwrap_response(&r2).0, 200);
+
+    // Server emits Connection: close and actually closes after each
+    // response. The client's pool::release must see keep_alive=false
+    // and drop the entry; the second request must dial a fresh TCP
+    // connection (accept_count == 2). accept_count == 1 would mean
+    // the pool tried to reuse a doomed entry — exactly the
+    // regression this test exists to catch.
+    assert_eq!(req_count.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        accept_count.load(Ordering::SeqCst),
+        2,
+        "Connection: close response must NOT be pooled: each request \
+         should trigger a fresh accept on the server. \
+         accept_count=1 means the pool ignored keep_alive=false and \
+         reused a doomed entry."
+    );
+}
+
+// -----------------------------------------------------------------------------
+// SSRF DNS-rebinding closure: the architectural property that perform_request
+// calls dns::resolve at most once per request, and that the validated address
+// list flows from SSRF straight into connect — not re-resolved downstream.
+// A regression that passes `host: String` to connect (and re-resolves) would
+// fail this loudly.
+// -----------------------------------------------------------------------------
+
+#[test]
+#[serial_test::serial(dns_global_state)]
+fn ssrf_dns_rebinding_closure_holds_at_most_one_resolve_per_request() {
+    unsafe { crate::scheduler::scheduler_init() };
+    pool::clear_for_test();
+    crate::dns::clear_scripted_responses();
+    crate::dns::reset_resolve_call_count();
+
+    // Scripted DNS response. We push a single address that SSRF
+    // *accepts* — 224.0.0.1 is an IPv4 multicast address (224.0.0.0/4
+    // per RFC 5771) and isn't in any of the SSRF-blocked ranges, so
+    // validate_url passes it through to connect. The TCP connect
+    // then fails fast with `ENETUNREACH` (Linux kernel rejects
+    // TCP-to-multicast in microseconds, not seconds) which keeps
+    // this test cheap. The exact failure mode is irrelevant; this
+    // test cares about call count, not connection outcome.
+    //
+    // Avoid TEST-NET-1 (192.0.2.0/24) here — that one takes the full
+    // OS SYN timeout (~60s) on boxes that route it through a default
+    // gateway, which would make the test prohibitively slow.
+    crate::dns::push_scripted_response(vec!["224.0.0.1".to_string()]);
+
+    // We don't care about the response body or status. Issue the
+    // request and let it fail at the connect stage.
+    let _resp = perform_request("GET", "http://example.com/", None);
+
+    let count = crate::dns::resolve_call_count();
+    assert_eq!(
+        count, 1,
+        "perform_request must call dns::resolve at most once per \
+         request. count={count} > 1 means the connect or pool path \
+         is re-resolving the hostname (DNS-rebinding regression): \
+         the SSRF-validated address list should flow into connect, \
+         not the original hostname string."
+    );
+}
+
+// -----------------------------------------------------------------------------
+// Happy-path TLS: end-to-end HTTPS request against a same-process rustls
+// server. The cert is self-signed at test time (via rcgen) and serves as its
+// own trust anchor; the runtime's TLS config is overridden for the duration
+// of the test to trust it. Pins:
+//
+//   - net.tls.client handshake against a real rustls server completes.
+//   - The TLS-wrapped Socket round-trips an HTTP/1.1 request and response.
+//   - StreamOwned<ClientConnection, may::net::TcpStream>'s Read/Write impls
+//     yield cooperatively through the may stream (test runs without
+//     deadlocking the carrier).
+// -----------------------------------------------------------------------------
+
+fn build_tls_test_pair() -> (Arc<rustls::ServerConfig>, Arc<rustls::ClientConfig>) {
+    // Self-signed cert with SAN=DNS:localhost. The CN matters because
+    // the client SNI is "localhost" (see the target below); rustls
+    // validates that one SAN entry covers the SNI.
+    let rcgen::CertifiedKey { cert, key_pair } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+            .expect("generate self-signed cert");
+
+    let cert_der: rustls::pki_types::CertificateDer<'static> = cert.der().clone();
+    let key_der: rustls::pki_types::PrivateKeyDer<'static> =
+        rustls::pki_types::PrivatePkcs8KeyDer::from(key_pair.serialize_der()).into();
+
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der.clone()], key_der)
+        .expect("server config");
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(cert_der).expect("add test cert as trust root");
+    let client_config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+
+    (Arc::new(server_config), Arc::new(client_config))
+}
+
+/// Spawn a TLS-speaking server on its own OS thread.
+///
+/// Deliberately uses `std::thread` + `std::net::TcpListener` rather
+/// than `may::coroutine::spawn` + `may::net::TcpListener`. The TLS
+/// handshake is a multi-round-trip dance: each round requires the
+/// server side to be scheduled, read the next message, and write a
+/// response. When `cargo test` runs the entire runtime suite in
+/// parallel, the may worker pool ends up saturated with coroutines
+/// from other tests and the handshake stalls. Putting the server on
+/// a dedicated OS thread sidesteps may's scheduler entirely — the
+/// kernel keeps the thread runnable as long as there's a CPU.
+fn spawn_tls_test_server(
+    listener: std::net::TcpListener,
+    server_config: Arc<rustls::ServerConfig>,
+) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let stream = match stream {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let server_config = server_config.clone();
+            std::thread::spawn(move || {
+                let conn = match rustls::ServerConnection::new(server_config) {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let mut tls = rustls::StreamOwned::new(conn, stream);
+
+                // Read request headers up to (and including) the
+                // blank-line terminator. The TLS handshake happens
+                // transparently on the first read; rustls drives
+                // it via complete_io internally.
+                let mut reader = BufReader::new(&mut tls);
+                let mut saw_request = false;
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => return,
+                        _ => {}
+                    }
+                    if line == "\r\n" || line == "\n" {
+                        if saw_request {
+                            break;
+                        }
+                        continue;
+                    }
+                    saw_request = true;
+                }
+                drop(reader); // releases the &mut tls borrow
+
+                let body = b"hello-over-tls";
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\n\
+                     Content-Type: text/plain\r\n\
+                     Content-Length: {}\r\n\
+                     Connection: close\r\n\
+                     \r\n",
+                    body.len()
+                );
+                let _ = tls.write_all(header.as_bytes());
+                let _ = tls.write_all(body);
+                let _ = tls.flush();
+            });
+        }
+    });
+}
+
+#[test]
+fn https_round_trip_against_same_process_rustls_server() {
+    unsafe { crate::scheduler::scheduler_init() };
+    pool::clear_for_test();
+
+    let (server_config, client_config) = build_tls_test_pair();
+    crate::tls::install_test_tls_config(client_config);
+
+    // std::net::TcpListener here — the server runs on its own OS
+    // thread to avoid may-scheduler congestion (see
+    // spawn_tls_test_server's doc).
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    spawn_tls_test_server(listener, server_config);
+
+    // Build the target by hand so we can drive HTTPS against a
+    // loopback address (SSRF would otherwise block 127.0.0.1).
+    // host=localhost matches the cert's SAN; addrs=127.0.0.1 is the
+    // actual dial target. perform_validated takes the addrs verbatim
+    // and the host string flows into the TLS handshake as SNI.
+    let target = ValidatedTarget {
+        scheme: Scheme::Https,
+        host: "localhost".to_string(),
+        port,
+        addrs: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        path_and_query: "/hello".to_string(),
+    };
+    let resp = perform_request_with_target("GET", target, None);
+    let (status, body, ok) = unwrap_response(&resp);
+
+    // Always clear the test config before asserting so a panic doesn't
+    // leak state across tests.
+    crate::tls::clear_test_tls_config();
+
+    assert_eq!(status, 200, "HTTPS round-trip status");
+    assert!(ok, "HTTPS round-trip ok flag");
+    assert_eq!(body, b"hello-over-tls", "HTTPS round-trip body");
 }

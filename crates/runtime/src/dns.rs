@@ -34,10 +34,15 @@ use crate::value::{Value, VariantData};
 
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use std::collections::VecDeque;
 
 const DEFAULT_WORKERS: usize = 8;
 const MAX_WORKERS: usize = 64;
@@ -107,6 +112,53 @@ static IN_FLIGHT: LazyLock<Mutex<HashMap<String, InFlightSenders>>> =
 
 struct Job {
     hostname: String,
+}
+
+// -----------------------------------------------------------------------------
+// Test-only instrumentation
+// -----------------------------------------------------------------------------
+//
+// Two hooks let tests pin architectural properties without touching
+// the network:
+//
+//   - `RESOLVE_CALL_COUNT` is incremented on every `resolve()`. Tests
+//     can snapshot it before/after a request to assert at-most-N DNS
+//     lookups happened (the SSRF DNS-rebinding closure test uses
+//     this to lock in "at most one resolve per HTTP request").
+//
+//   - `SCRIPTED_RESPONSES` lets tests push canned answers that
+//     `resolve()` returns instead of going through the cache or the
+//     worker pool. Useful for deterministic tests where the answer
+//     to a hostname needs to be controlled.
+//
+// Both are gated behind `#[cfg(test)]` so they vanish from release
+// builds — no production overhead, no shipping surface.
+
+#[cfg(test)]
+static RESOLVE_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+static SCRIPTED_RESPONSES: LazyLock<Mutex<VecDeque<Vec<String>>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+#[cfg(test)]
+pub(crate) fn reset_resolve_call_count() {
+    RESOLVE_CALL_COUNT.store(0, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(crate) fn resolve_call_count() -> usize {
+    RESOLVE_CALL_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(crate) fn push_scripted_response(addrs: Vec<String>) {
+    SCRIPTED_RESPONSES.lock().unwrap().push_back(addrs);
+}
+
+#[cfg(test)]
+pub(crate) fn clear_scripted_responses() {
+    SCRIPTED_RESPONSES.lock().unwrap().clear();
 }
 
 /// Lazy job queue. First send spawns the worker pool. Workers live for
@@ -231,9 +283,22 @@ pub fn resolve_to_ips(hostname: &str) -> Vec<std::net::IpAddr> {
 /// [`resolve_to_ips`] — it short-circuits IP-literal input to skip
 /// the worker round-trip.
 pub fn resolve(hostname: &str) -> Vec<String> {
+    #[cfg(test)]
+    RESOLVE_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+
     if hostname.is_empty() {
         return Vec::new();
     }
+
+    // Test-only short-circuit: if a scripted response is pending, pop
+    // and return it directly, skipping cache, in-flight map, and the
+    // worker pool. Lets unit tests drive deterministic resolution
+    // behaviour without touching the network or the static state.
+    #[cfg(test)]
+    if let Some(scripted) = SCRIPTED_RESPONSES.lock().unwrap().pop_front() {
+        return scripted;
+    }
+
     if let Some(addrs) = CACHE.lock().unwrap().get(hostname) {
         return addrs;
     }

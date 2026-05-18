@@ -325,9 +325,7 @@ impl Widget for &ReplPane<'_> {
         // (input prompt) scrolls below the visible area and looks like
         // the REPL has stopped accepting input.
         let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-        let display_height = paragraph
-            .line_count(area.width)
-            .min(u16::MAX as usize) as u16;
+        let display_height = paragraph.line_count(area.width).min(u16::MAX as usize) as u16;
         let scroll = display_height.saturating_sub(area.height);
 
         paragraph.scroll((scroll, 0)).render(area, buf);

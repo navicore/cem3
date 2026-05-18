@@ -39,7 +39,7 @@ tower-lsp = "0.20"
 lsp-types = "0.97"
 
 # TUI
-ratatui = "0.30"
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 crossterm = "0.29"
 
 # Logging/tracing

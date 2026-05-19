@@ -35,7 +35,14 @@ pub(crate) fn run_with_timeout(path: &Path) -> RunResult {
     let timeout = Duration::from_secs(timeout_secs);
 
     // Spawn the child process
+    //
+    // stdin is redirected to /dev/null so the child can't share fd 0
+    // with the REPL's raw-mode TTY. Without this, keystrokes typed
+    // while a slow child is alive (e.g. crypto first-call init) land
+    // in the child's stdin buffer and vanish when it exits — the
+    // REPL appears to freeze until Ctrl-C. See issue #491.
     let mut child = match Command::new(path)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -316,26 +316,19 @@ impl Widget for &ReplPane<'_> {
         // No border for REPL - it's the primary interface
         let lines = self.build_lines();
 
-        // Calculate wrapped content height for scroll
-        // Each line may wrap to multiple display lines
-        let width = area.width.max(1) as usize;
-        let wrapped_height: u16 = lines
-            .iter()
-            .map(|line| {
-                let line_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
-                // At least 1 line, or ceil(line_width / width), clamped to u16::MAX
-                line_width.max(1).div_ceil(width).min(u16::MAX as usize) as u16
-            })
-            .fold(0u16, |acc, h| acc.saturating_add(h));
+        // Ask the actual Paragraph how tall it will render at this width
+        // (issue #491). Our previous estimate was `ceil(chars/width)` per
+        // source line, which underestimates by one row each time a single
+        // word is too long to fit in the remaining space: ratatui's
+        // word-wrap pushes the long word to a fresh line first, then
+        // hard-breaks across columns. After enough such lines the bottom
+        // (input prompt) scrolls below the visible area and looks like
+        // the REPL has stopped accepting input.
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        let display_height = paragraph.line_count(area.width).min(u16::MAX as usize) as u16;
+        let scroll = display_height.saturating_sub(area.height);
 
-        let visible_height = area.height;
-        let scroll = wrapped_height.saturating_sub(visible_height);
-
-        let paragraph = Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0));
-
-        paragraph.render(area, buf);
+        paragraph.scroll((scroll, 0)).render(area, buf);
     }
 }
 

@@ -89,6 +89,63 @@ impl LintConfig {
     }
 }
 
+/// One lint ID known to the compiler, with metadata for editor surfaces.
+///
+/// Returned from [`known_lint_ids`] as the single source of truth for
+/// what `# seq:allow(<id>)` accepts. Adding a new lint — whether to
+/// `lints.toml` or as a hard-coded analyzer that honors `allowed_lints` —
+/// must flow through this function.
+#[derive(Debug, Clone)]
+pub struct KnownLint {
+    pub id: String,
+    pub message: String,
+    pub severity: Severity,
+}
+
+/// Every lint ID that `# seq:allow(<id>)` actually suppresses.
+///
+/// Suppression points today:
+/// - `Linter::lint_word` filters all TOML-pattern diagnostics plus
+///   `deep-nesting` by `word.allowed_lints` (`lint/linter.rs`).
+/// - `ErrorFlagAnalyzer::analyze_program` skips words allowing
+///   `unchecked-error-flag` (`error_flag_lint/analyzer.rs`).
+///
+/// Lint IDs that exist but ignore `allowed_lints` (`unreachable-chan-yield`,
+/// `resource-leak-*`, `resource-branch-inconsistent`) are intentionally
+/// omitted — listing them would let users write annotations that
+/// silently do nothing.
+pub fn known_lint_ids() -> Vec<KnownLint> {
+    let mut out = Vec::new();
+
+    if let Ok(config) = LintConfig::default_config() {
+        for rule in config.rules {
+            out.push(KnownLint {
+                id: rule.id,
+                message: rule.message,
+                severity: rule.severity,
+            });
+        }
+    }
+
+    out.push(KnownLint {
+        id: "deep-nesting".to_string(),
+        message: format!(
+            "deeply nested if/else ({}+ levels) - consider `cond` or extracting to helper words",
+            MAX_NESTING_DEPTH
+        ),
+        severity: Severity::Hint,
+    });
+
+    out.push(KnownLint {
+        id: "unchecked-error-flag".to_string(),
+        message: "operation returns a Bool success flag that is dropped without being checked"
+            .to_string(),
+        severity: Severity::Warning,
+    });
+
+    out
+}
+
 /// A compiled pattern for efficient matching
 #[derive(Debug, Clone)]
 pub struct CompiledPattern {

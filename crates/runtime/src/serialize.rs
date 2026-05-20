@@ -63,8 +63,10 @@ pub enum SerializeError {
     ClosureNotSerializable,
     /// Cannot serialize channels (runtime state)
     ChannelNotSerializable,
-    /// Bincode encoding/decoding error (preserves original error for debugging)
-    BincodeError(Box<bincode::Error>),
+    /// Bincode encoding error
+    BincodeEncodeError(bincode::error::EncodeError),
+    /// Bincode decoding error
+    BincodeDecodeError(bincode::error::DecodeError),
     /// Invalid data structure
     InvalidData(String),
     /// Non-finite float (NaN or Infinity)
@@ -83,7 +85,8 @@ impl std::fmt::Display for SerializeError {
             SerializeError::ChannelNotSerializable => {
                 write!(f, "Channels cannot be serialized - runtime state")
             }
-            SerializeError::BincodeError(e) => write!(f, "Bincode error: {}", e),
+            SerializeError::BincodeEncodeError(e) => write!(f, "Bincode encode error: {}", e),
+            SerializeError::BincodeDecodeError(e) => write!(f, "Bincode decode error: {}", e),
             SerializeError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
             SerializeError::NonFiniteFloat(v) => {
                 write!(f, "Cannot serialize non-finite float: {}", v)
@@ -95,15 +98,22 @@ impl std::fmt::Display for SerializeError {
 impl std::error::Error for SerializeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SerializeError::BincodeError(e) => Some(e.as_ref()),
+            SerializeError::BincodeEncodeError(e) => Some(e),
+            SerializeError::BincodeDecodeError(e) => Some(e),
             _ => None,
         }
     }
 }
 
-impl From<bincode::Error> for SerializeError {
-    fn from(e: bincode::Error) -> Self {
-        SerializeError::BincodeError(Box::new(e))
+impl From<bincode::error::EncodeError> for SerializeError {
+    fn from(e: bincode::error::EncodeError) -> Self {
+        SerializeError::BincodeEncodeError(e)
+    }
+}
+
+impl From<bincode::error::DecodeError> for SerializeError {
+    fn from(e: bincode::error::DecodeError) -> Self {
+        SerializeError::BincodeDecodeError(e)
     }
 }
 
@@ -261,12 +271,15 @@ impl TypedValue {
 
     /// Serialize to binary format (bincode)
     pub fn to_bytes(&self) -> Result<Vec<u8>, SerializeError> {
-        bincode::serialize(self).map_err(SerializeError::from)
+        bincode::serde::encode_to_vec(self, bincode::config::standard())
+            .map_err(SerializeError::from)
     }
 
     /// Deserialize from binary format (bincode)
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SerializeError> {
-        bincode::deserialize(bytes).map_err(SerializeError::from)
+        let (value, _read) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())
+            .map_err(SerializeError::from)?;
+        Ok(value)
     }
 
     /// Convert to human-readable debug string

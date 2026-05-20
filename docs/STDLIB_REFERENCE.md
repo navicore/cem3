@@ -210,9 +210,9 @@ Division and modulo operations return a result and a success flag:
 | Word | Stack Effect | Description |
 |------|--------------|-------------|
 | `chan.make` | `( -- Channel )` | Create new channel |
-| `chan.send` | `( T Channel -- Bool )` | Send value on channel. Returns success |
-| `chan.receive` | `( Channel -- T Bool )` | Receive from channel. Returns (value, success) |
-| `chan.close` | `( Channel -- )` | Close channel |
+| `chan.send` | `( T Channel -- Bool )` | Send value. Returns `false` once the channel has been closed |
+| `chan.receive` | `( Channel -- T Bool )` | Receive value. Returns `(default false)` once closed and drained |
+| `chan.close` | `( Channel -- )` | Mark the channel closed. Subsequent sends fail; receives drain buffered values and then return `(default false)` (issue #499) |
 | `chan.yield` | `( -- )` | Yield control to scheduler |
 
 ## Networking — net.tcp.*

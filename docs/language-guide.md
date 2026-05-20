@@ -1224,9 +1224,9 @@ Processes) model - similar to Go channels or Erlang message passing.
 | Word | Effect | Description |
 |------|--------|-------------|
 | `chan.make` | `( -- Channel )` | Create channel |
-| `chan.send` | `( T Channel -- Bool )` | Send value, returns true on success |
-| `chan.receive` | `( Channel -- T Bool )` | Receive value, returns (value, success) |
-| `chan.close` | `( Channel -- )` | Close the channel |
+| `chan.send` | `( T Channel -- Bool )` | Send value. Returns `false` once the channel has been closed |
+| `chan.receive` | `( Channel -- T Bool )` | Receive value. Buffered values still drain after close; subsequent receives return `(default false)` |
+| `chan.close` | `( Channel -- )` | Mark the channel closed. Idempotent across multiple callers; wakes all blocked receivers |
 
 Channel operations return status flags rather than panicking. Always check the boolean result:
 

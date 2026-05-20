@@ -93,9 +93,8 @@ fn verify_runtime_version() {
     let cargo_toml_content =
         fs::read_to_string("Cargo.toml").expect("Failed to read compiler/Cargo.toml");
 
-    let cargo_toml: toml::Value = cargo_toml_content
-        .parse()
-        .expect("Failed to parse Cargo.toml");
+    let cargo_toml: toml::Value =
+        toml::from_str(&cargo_toml_content).expect("Failed to parse Cargo.toml");
 
     // Extract the seq-runtime version from build-dependencies
     let runtime_version = cargo_toml

@@ -17,16 +17,40 @@ use may::sync::mpmc;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
-/// Channel data: holds sender and receiver for direct handle passing
+/// Message type for plain channels.
 ///
-/// Both sender and receiver are Clone (MPMC), so duplicating a Channel value
-/// just clones the Arc. Send/receive operations use the handles directly
-/// with zero mutex overhead.
+/// Mirrors `WeaveMessage`: wrapping the underlying `may::mpmc` queue
+/// in a typed enum lets lifecycle signals travel through the same
+/// channel as user data without any value collision. `chan.close`
+/// sends one `Closed` sentinel; receivers re-broadcast it so all
+/// blocked consumers in an MPMC fan-out wake up. See issue #499 and
+/// `docs/design/CHAN_CLOSE_SEMANTICS.md`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChannelMsg {
+    /// Normal value being sent through the channel.
+    Value(Value),
+    /// Channel-closed sentinel — `chan.close` sends one of these on
+    /// the first close; `chan.receive` re-sends it before returning
+    /// failure so the next blocked receiver also wakes.
+    Closed,
+}
+
+/// Channel data: holds sender, receiver, and a closed flag.
+///
+/// Both sender and receiver are Clone (MPMC), so duplicating a
+/// Channel value just clones the Arc. Send/receive operations use
+/// the handles directly with zero mutex overhead — the `closed`
+/// flag is a single atomic load on the send hot path, no locking.
 #[derive(Debug, Clone)]
 pub struct ChannelData {
-    pub sender: mpmc::Sender<Value>,
-    pub receiver: mpmc::Receiver<Value>,
+    pub sender: mpmc::Sender<ChannelMsg>,
+    pub receiver: mpmc::Receiver<ChannelMsg>,
+    /// Set by `chan.close`. Reads gate `chan.send`; the close itself
+    /// also enqueues one `ChannelMsg::Closed` sentinel to wake any
+    /// already-blocked receivers.
+    pub closed: Arc<AtomicBool>,
 }
 
 // PartialEq by identity (Arc pointer comparison)

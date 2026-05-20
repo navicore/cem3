@@ -1,0 +1,76 @@
+# End-to-end tests for chan.close semantics (issue #499).
+#
+# These exercise the close contract through the full Seq surface
+# rather than the Rust runtime alone:
+#   - close-then-receive returns ( default false )
+#   - send-after-close returns false
+#   - drain-then-fail (buffered values still received before close fires)
+#   - cross-strand fan-out (one chan.close wakes multiple consumers)
+
+# --------------------------------------------------------------------------
+# Single-strand: close, then receive returns (default false).
+# --------------------------------------------------------------------------
+
+: test-close-then-receive-fails ( -- )
+  chan.make
+  dup chan.close
+  chan.receive               # ( value Bool ) — Bool must be false
+  not test.assert            # assert success-flag is false
+  drop                       # discard the default value
+;
+
+# --------------------------------------------------------------------------
+# Send-after-close short-circuits to false.
+# --------------------------------------------------------------------------
+
+: test-send-after-close-fails ( -- )
+  chan.make
+  dup chan.close
+  42 swap chan.send          # ( Bool ) — must be false
+  not test.assert
+;
+
+# --------------------------------------------------------------------------
+# Drain-then-close: values sent before close are still receivable.
+# After drain, receive returns (default false).
+# --------------------------------------------------------------------------
+
+# seq:allow(unchecked-chan-send)
+: test-drain-then-close ( -- )
+  chan.make
+  dup 7 swap chan.send drop  # send 7 (drop the send-success flag — test focus is close)
+  dup chan.close             # close (sentinel goes in queue after the 7)
+  dup chan.receive           # ( ch value Bool ) — receives the 7
+  test.assert                # success
+  7 test.assert-eq
+  chan.receive               # closed + drained → ( default false )
+  not test.assert
+  drop
+;
+
+# --------------------------------------------------------------------------
+# Cross-strand fan-out: producer sends two values then closes; consumer
+# reads both, and a third receive returns ( default false ). This is the
+# canonical scenario from the issue.
+# --------------------------------------------------------------------------
+
+# seq:allow(unchecked-chan-send)
+: ch-499-producer ( Channel -- )
+  dup 10 swap chan.send drop
+  dup 20 swap chan.send drop
+  chan.close
+;
+
+: test-499-cross-strand ( -- )
+  chan.make
+  [ ch-499-producer ] strand.spawn drop
+  dup chan.receive           # ( ch value Bool ) — 10
+  test.assert
+  10 test.assert-eq
+  dup chan.receive           # ( ch value Bool ) — 20
+  test.assert
+  20 test.assert-eq
+  chan.receive               # closed + drained
+  not test.assert
+  drop
+;

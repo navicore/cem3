@@ -114,6 +114,180 @@ fn test_close_channel() {
     }
 }
 
+// =============================================================================
+// Issue #499: close-then-receive returns ( default false ), doesn't block.
+// The fix lives entirely in the runtime: ChannelMsg sentinel + closed flag.
+// User-facing API is unchanged — tests construct channels the usual way.
+// =============================================================================
+
+#[test]
+fn test_receive_after_close_returns_false() {
+    // Drop sender via chan.close, receive must return (Int(0), false) — no block.
+    unsafe {
+        let mut stack = crate::stack::alloc_test_stack();
+        stack = make_channel(stack);
+        let (_, channel_value) = pop(stack);
+
+        // Close the channel.
+        let mut stack = push(crate::stack::alloc_test_stack(), channel_value.clone());
+        stack = close_channel(stack);
+
+        // Receive from the closed (and never-sent-to) channel.
+        let mut stack = push(stack, channel_value);
+        stack = receive(stack);
+        let (stack, success) = pop(stack);
+        let (_, value) = pop(stack);
+        assert_eq!(success, Value::Bool(false));
+        assert_eq!(value, Value::Int(0));
+    }
+}
+
+#[test]
+fn test_drain_then_receive_after_close_returns_false() {
+    // Send a value, close, receive the buffered value (success), receive again (fail).
+    unsafe {
+        let mut stack = crate::stack::alloc_test_stack();
+        stack = make_channel(stack);
+        let (_, channel_value) = pop(stack);
+
+        // Send 42.
+        let mut stack = push(crate::stack::alloc_test_stack(), Value::Int(42));
+        stack = push(stack, channel_value.clone());
+        stack = send(stack);
+        let (_, ok) = pop(stack);
+        assert_eq!(ok, Value::Bool(true));
+
+        // Close.
+        let mut stack = push(crate::stack::alloc_test_stack(), channel_value.clone());
+        stack = close_channel(stack);
+
+        // Receive buffered 42.
+        let mut stack = push(stack, channel_value.clone());
+        stack = receive(stack);
+        let (stack, ok) = pop(stack);
+        let (_, value) = pop(stack);
+        assert_eq!(ok, Value::Bool(true));
+        assert_eq!(value, Value::Int(42));
+
+        // Receive after drain — must fail, not block.
+        let mut stack = push(stack, channel_value);
+        stack = receive(stack);
+        let (stack, ok) = pop(stack);
+        let (_, value) = pop(stack);
+        assert_eq!(ok, Value::Bool(false));
+        assert_eq!(value, Value::Int(0));
+    }
+}
+
+#[test]
+fn test_send_after_close_returns_false() {
+    // After close, chan.send short-circuits to false via the closed flag.
+    unsafe {
+        let mut stack = crate::stack::alloc_test_stack();
+        stack = make_channel(stack);
+        let (_, channel_value) = pop(stack);
+
+        let mut stack = push(crate::stack::alloc_test_stack(), channel_value.clone());
+        stack = close_channel(stack);
+
+        // Try to send on the closed channel.
+        let mut stack = push(stack, Value::Int(7));
+        stack = push(stack, channel_value);
+        stack = send(stack);
+        let (_, ok) = pop(stack);
+        assert_eq!(ok, Value::Bool(false));
+    }
+}
+
+#[test]
+fn test_close_is_idempotent() {
+    // Calling chan.close repeatedly is a no-op after the first call — the
+    // CAS guards the sentinel enqueue so receivers don't get a stream of
+    // Closed messages.
+    unsafe {
+        let mut stack = crate::stack::alloc_test_stack();
+        stack = make_channel(stack);
+        let (_, channel_value) = pop(stack);
+
+        // Close three times via three clones.
+        for _ in 0..3 {
+            let mut s = push(crate::stack::alloc_test_stack(), channel_value.clone());
+            s = close_channel(s);
+            let _ = s;
+        }
+
+        // Receive should fail cleanly (sentinel propagates once).
+        let mut stack = push(stack, channel_value);
+        stack = receive(stack);
+        let (stack, ok) = pop(stack);
+        let (_, _) = pop(stack);
+        assert_eq!(ok, Value::Bool(false));
+    }
+}
+
+#[test]
+fn test_mpmc_drain_on_close() {
+    // Multiple receivers blocked on the same channel must all wake when
+    // chan.close is called once. This is what the Closed-sentinel
+    // re-broadcast in chan.receive is for.
+    use crate::scheduler::{spawn_strand, wait_all_strands};
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicU32;
+
+    static WOKE_RECEIVERS: AtomicU32 = AtomicU32::new(0);
+    static CHANNEL: Mutex<Option<Value>> = Mutex::new(None);
+
+    const NUM_RECEIVERS: u32 = 4;
+
+    unsafe {
+        let mut stack = crate::stack::alloc_test_stack();
+        stack = make_channel(stack);
+        let (_, channel_value) = pop(stack);
+        *CHANNEL.lock().unwrap() = Some(channel_value.clone());
+
+        // Reset counter for repeated runs in the same process.
+        WOKE_RECEIVERS.store(0, Ordering::SeqCst);
+
+        extern "C" fn receiver_strand(_stack: Stack) -> Stack {
+            unsafe {
+                let ch = CHANNEL.lock().unwrap().as_ref().unwrap().clone();
+                let mut stack = push(crate::stack::alloc_test_stack(), ch);
+                stack = receive(stack);
+                let (stack, success) = pop(stack);
+                let (_, _value) = pop(stack);
+                if success == Value::Bool(false) {
+                    WOKE_RECEIVERS.fetch_add(1, Ordering::SeqCst);
+                }
+                std::ptr::null_mut()
+            }
+        }
+
+        for _ in 0..NUM_RECEIVERS {
+            spawn_strand(receiver_strand);
+        }
+
+        // Give the receivers time to block on recv() before we close.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Close once — all blocked receivers should wake via the
+        // re-broadcast propagation.
+        let mut stack = push(crate::stack::alloc_test_stack(), channel_value);
+        stack = close_channel(stack);
+        let _ = stack;
+
+        wait_all_strands();
+
+        assert_eq!(
+            WOKE_RECEIVERS.load(Ordering::SeqCst),
+            NUM_RECEIVERS,
+            "all receivers should have woken with success=false"
+        );
+
+        // Cleanup for next test.
+        *CHANNEL.lock().unwrap() = None;
+    }
+}
+
 #[test]
 fn test_arena_string_send_between_strands() {
     // Verify that arena-allocated strings are properly cloned to global storage

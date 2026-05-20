@@ -919,8 +919,12 @@ mod tests {
     fn test_channel_roundtrip() {
         unsafe {
             let stack = alloc_test_stack();
-            let (sender, receiver) = may::sync::mpmc::channel();
-            let ch = std::sync::Arc::new(crate::value::ChannelData { sender, receiver });
+            let (sender, receiver) = may::sync::mpmc::channel::<crate::value::ChannelMsg>();
+            let ch = std::sync::Arc::new(crate::value::ChannelData {
+                sender,
+                receiver,
+                closed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            });
             let stack = push(stack, Value::Channel(ch));
             let (_, val) = pop(stack);
             assert!(matches!(val, Value::Channel(_)));

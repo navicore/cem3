@@ -4,8 +4,9 @@
 
 use crate::includes::{IncludedWord, LocalWord};
 use seqc::builtins::builtin_signatures;
+use seqc::lint::{Severity, known_lint_ids};
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, MarkupContent, MarkupKind,
+    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
 };
 
 /// Standard library modules available via `include std:module`
@@ -47,6 +48,8 @@ enum ContextType {
     InString,
     /// Inside a comment - no completions
     InComment,
+    /// Inside the parentheses of a `# seq:allow(...)` annotation
+    LintAllow,
     /// After "include " - show modules
     IncludeModule,
     /// After "include std:" - show stdlib modules
@@ -72,6 +75,7 @@ pub(crate) fn get_completions(context: Option<CompletionContext<'_>>) -> Vec<Com
             // No completions in these contexts
             Vec::new()
         }
+        ContextType::LintAllow => get_lint_allow_completions(ctx.line_prefix),
         ContextType::IncludeModule => get_include_module_completions(ctx.line_prefix),
         ContextType::IncludeStdModule => get_include_std_completions(ctx.line_prefix),
         ContextType::InStackEffect => get_type_completions(),
@@ -100,6 +104,13 @@ fn detect_context(line_prefix: &str) -> ContextType {
     if let Some(hash_pos) = line_prefix.rfind('#') {
         let before_hash = &line_prefix[..hash_pos];
         if !is_in_string(before_hash) {
+            // Inside a comment — but if the cursor sits between the open
+            // paren of `seq:allow(` and the (missing) close paren, offer
+            // lint IDs. The annotation form is parsed in
+            // crates/compiler/src/parser/cursor.rs.
+            if is_in_seq_allow(&line_prefix[hash_pos..]) {
+                return ContextType::LintAllow;
+            }
             return ContextType::InComment;
         }
     }
@@ -139,6 +150,100 @@ fn count_unmatched_parens(text: &str) -> i32 {
     }
 
     count
+}
+
+/// `comment` is the slice from `#` to the cursor. Returns true if the
+/// cursor is somewhere the LSP should offer `seq:allow(...)` help.
+///
+/// Two cases trigger:
+/// 1. Cursor is *inside* the parens of `seq:allow(...)` (open, not yet
+///    closed) — we'll offer lint IDs.
+/// 2. Cursor sits on a non-empty *prefix* of `seq:allow(` (e.g. `# s`,
+///    `# seq:`, `# seq:allow`) — we'll offer the marker snippet so one
+///    completion scaffolds the whole annotation. `# seq:` is specific
+///    enough that this doesn't compete with regular comment prose.
+///
+/// Whitespace between `#` and `seq:allow` is tolerated to match the
+/// parser, which folds it away (`parser/cursor.rs`).
+fn is_in_seq_allow(comment: &str) -> bool {
+    let after_hash = comment.strip_prefix('#').unwrap_or(comment).trim_start();
+
+    // Case 1: inside the parens.
+    if let Some(after_marker) = after_hash.strip_prefix("seq:allow(") {
+        return !after_marker.contains(')');
+    }
+
+    // Case 2: on a non-empty prefix of `seq:allow(`. We deliberately
+    // exclude the empty prefix — opening a bare comment `# ` shouldn't
+    // pop the lint UI.
+    !after_hash.is_empty() && "seq:allow(".starts_with(after_hash)
+}
+
+/// Build completions for a `seq:allow` context. Two shapes:
+///
+/// - **Pre-paren** (`# seq:`, `# seq:allow`, etc.): a single snippet
+///   item that scaffolds `seq:allow(<cursor>)`. The user accepts it, the
+///   cursor lands inside the parens, and the next request hits the
+///   in-paren branch below.
+/// - **In-paren** (`# seq:allow(<partial>`): one item per known lint ID,
+///   prefix-filtered by what's been typed after the `(`.
+fn get_lint_allow_completions(line_prefix: &str) -> Vec<CompletionItem> {
+    // Distinguish pre-paren from in-paren by whether `seq:allow(` has
+    // appeared yet on the line.
+    if !line_prefix.contains("seq:allow(") {
+        return vec![lint_allow_snippet_item()];
+    }
+
+    let partial = line_prefix
+        .rfind('(')
+        .map(|i| &line_prefix[i + 1..])
+        .unwrap_or("");
+
+    known_lint_ids()
+        .into_iter()
+        .filter(|lint| lint.id.starts_with(partial))
+        .map(|lint| {
+            let severity = match lint.severity {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+                Severity::Hint => "hint",
+            };
+            CompletionItem {
+                label: lint.id.clone(),
+                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                detail: Some(severity.to_string()),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!("**{}** *({})*\n\n{}", lint.id, severity, lint.message),
+                })),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// The single pre-paren snippet item. Accepting it inserts
+/// `seq:allow(<cursor>)` so the next keystroke triggers the in-paren
+/// per-ID list.
+fn lint_allow_snippet_item() -> CompletionItem {
+    CompletionItem {
+        label: "seq:allow(...)".to_string(),
+        kind: Some(CompletionItemKind::SNIPPET),
+        detail: Some("suppress a specific lint for the next word".to_string()),
+        documentation: Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: "Annotate the next word definition to suppress a specific lint.\n\n\
+                    ```seq\n# seq:allow(lint-id)\n: my-word ( -- ) ... ;\n```"
+                .to_string(),
+        })),
+        insert_text: Some("seq:allow($0)".to_string()),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        // filter_text lets editors that match the typed prefix against
+        // the *filter text* (rather than the label) keep this item
+        // visible after the user types `seq:` or further.
+        filter_text: Some("seq:allow".to_string()),
+        ..Default::default()
+    }
 }
 
 /// Check if cursor position is inside a string literal
@@ -445,6 +550,115 @@ mod tests {
         assert_eq!(detect_context("dup # comment"), ContextType::InComment);
         // Hash inside string is not a comment
         assert_eq!(detect_context("\"#hashtag\""), ContextType::Code);
+    }
+
+    #[test]
+    fn test_detect_context_lint_allow_inside_parens() {
+        // Cursor inside the parens — LintAllow context.
+        assert_eq!(
+            detect_context("# seq:allow("),
+            ContextType::LintAllow,
+            "after the open paren"
+        );
+        assert_eq!(
+            detect_context("# seq:allow(unc"),
+            ContextType::LintAllow,
+            "partial id typed"
+        );
+        // No space between # and seq:allow — parser accepts it, LSP must too.
+        assert_eq!(
+            detect_context("#seq:allow("),
+            ContextType::LintAllow,
+            "no space after hash"
+        );
+        // Closing paren ends the LintAllow window — back to comment.
+        assert_eq!(
+            detect_context("# seq:allow(unchecked-tcp-write) "),
+            ContextType::InComment,
+            "after the close paren"
+        );
+        // Plain comments stay InComment.
+        assert_eq!(
+            detect_context("# seq:allow is great"),
+            ContextType::InComment,
+            "no parens at all"
+        );
+    }
+
+    #[test]
+    fn test_detect_context_lint_allow_marker_prefix() {
+        // Typing the marker itself — should also fire so the editor pops
+        // the snippet completion.
+        for prefix in &[
+            "# s",
+            "# se",
+            "# seq",
+            "# seq:",
+            "# seq:a",
+            "# seq:allow",
+            "#seq:",
+        ] {
+            assert_eq!(
+                detect_context(prefix),
+                ContextType::LintAllow,
+                "expected LintAllow at {:?}",
+                prefix
+            );
+        }
+        // Bare comment (no marker text yet) must NOT fire — we don't
+        // want a popup the moment someone opens a normal comment.
+        assert_eq!(detect_context("# "), ContextType::InComment);
+        assert_eq!(detect_context("#"), ContextType::InComment);
+        // Comments with unrelated text stay InComment.
+        assert_eq!(detect_context("# todo: fix this"), ContextType::InComment);
+        assert_eq!(detect_context("# fixme"), ContextType::InComment);
+    }
+
+    #[test]
+    fn test_lint_allow_completions_pre_paren_offers_snippet() {
+        // Before the user types `(`, we offer one snippet item that
+        // scaffolds the whole `seq:allow(...)` form.
+        let items = get_lint_allow_completions("# seq:");
+        assert_eq!(items.len(), 1, "expected single snippet item");
+        let item = &items[0];
+        assert_eq!(item.kind, Some(CompletionItemKind::SNIPPET));
+        assert_eq!(item.insert_text.as_deref(), Some("seq:allow($0)"));
+        assert_eq!(item.insert_text_format, Some(InsertTextFormat::SNIPPET));
+    }
+
+    #[test]
+    fn test_lint_allow_completions_include_known_ids() {
+        let items = get_lint_allow_completions("# seq:allow(");
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            labels.contains(&"unchecked-tcp-write"),
+            "expected unchecked-tcp-write in {:?}",
+            labels
+        );
+        assert!(
+            labels.contains(&"deep-nesting"),
+            "expected hard-coded deep-nesting in {:?}",
+            labels
+        );
+        assert!(
+            labels.contains(&"unchecked-error-flag"),
+            "expected hard-coded unchecked-error-flag in {:?}",
+            labels
+        );
+    }
+
+    #[test]
+    fn test_lint_allow_completions_filter_by_prefix() {
+        let items = get_lint_allow_completions("# seq:allow(unchecked-tcp");
+        // Every item must start with the typed prefix.
+        for item in &items {
+            assert!(
+                item.label.starts_with("unchecked-tcp"),
+                "{} doesn't match prefix",
+                item.label
+            );
+        }
+        assert!(!items.is_empty(), "expected at least one unchecked-tcp-*");
     }
 
     #[test]

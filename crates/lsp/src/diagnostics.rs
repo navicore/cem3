@@ -3,10 +3,11 @@
 
 use crate::includes::IncludeResolution;
 use seqc::ast::{Program, QuotationSpan, Statement};
+use seqc::lint::known_lint_ids;
 use seqc::types::Type;
 use seqc::{Parser, TypeChecker, lint};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, Diagnostic, DiagnosticSeverity, Position, Range, TextEdit, Url,
@@ -196,6 +197,9 @@ pub(crate) fn check_document_with_quotations(
             diagnostics.push(lint_to_diagnostic(&lint_diag, &source));
         }
     }
+
+    // Phase 4a: Flag unknown lint IDs in `# seq:allow(...)` annotations.
+    diagnostics.extend(unknown_seq_allow_diagnostics(&program, &source));
 
     // Phase 4b: Error flag tracking (unchecked Bool from fallible operations)
     {
@@ -515,6 +519,62 @@ fn parse_position_prefix(msg: &str) -> Option<(u32, u32)> {
     Some((line_1.checked_sub(1)?, col_1.checked_sub(1)?))
 }
 
+/// Walk `program.words` and emit a warning for every `# seq:allow(<id>)`
+/// where `<id>` isn't a lint the compiler honors.
+///
+/// We don't track the annotation comment's own source position (the
+/// parser folds it into the next word's `allowed_lints` without a span),
+/// so the diagnostic is pinned to the word definition's line. That's
+/// close enough for the editor to find via the lightbulb, and the
+/// message names the offending ID verbatim.
+fn unknown_seq_allow_diagnostics(program: &Program, source: &str) -> Vec<Diagnostic> {
+    let known: HashSet<String> = known_lint_ids().into_iter().map(|l| l.id).collect();
+    let mut out = Vec::new();
+
+    for word in &program.words {
+        for id in &word.allowed_lints {
+            if known.contains(id) {
+                continue;
+            }
+            let line = word
+                .source
+                .as_ref()
+                .map(|s| s.start_line as u32)
+                .unwrap_or(0);
+            let line_length = source
+                .lines()
+                .nth(line as usize)
+                .map(|l| l.len() as u32)
+                .unwrap_or(0);
+
+            out.push(Diagnostic {
+                range: Range {
+                    start: Position { line, character: 0 },
+                    end: Position {
+                        line,
+                        character: line_length,
+                    },
+                },
+                severity: Some(DiagnosticSeverity::WARNING),
+                code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                    "unknown-seq-allow".to_string(),
+                )),
+                code_description: None,
+                source: Some("seq-lint".to_string()),
+                message: format!(
+                    "`# seq:allow({})` references unknown lint id `{}` (annotation has no effect)",
+                    id, id
+                ),
+                related_information: None,
+                tags: None,
+                data: None,
+            });
+        }
+    }
+
+    out
+}
+
 /// Convert a lint diagnostic to an LSP diagnostic.
 fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnostic {
     let severity = match lint_diag.severity {
@@ -801,6 +861,55 @@ union Shape { Circle { radius: Int } Rectangle { width: Int, height: Int } }
             lint_diags.iter().any(|d| d.message.contains("cancel out")),
             "Expected swap swap warning, got: {:?}",
             lint_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_unknown_seq_allow_id_warns() {
+        // A misspelled lint id should produce an "unknown-seq-allow" warning.
+        let source = "# seq:allow(unckecked-tcp-write)\n: main ( -- Int ) 0 ;";
+        let diagnostics = check_document(source);
+        let unknown: Vec<&Diagnostic> = diagnostics
+            .iter()
+            .filter(|d| match &d.code {
+                Some(tower_lsp::lsp_types::NumberOrString::String(s)) => s == "unknown-seq-allow",
+                _ => false,
+            })
+            .collect();
+        assert_eq!(
+            unknown.len(),
+            1,
+            "expected one unknown-seq-allow warning, got {} diagnostics: {:?}",
+            unknown.len(),
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        assert_eq!(unknown[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert!(
+            unknown[0].message.contains("unckecked-tcp-write"),
+            "message should name the typo'd id, got: {}",
+            unknown[0].message
+        );
+    }
+
+    #[test]
+    fn test_known_seq_allow_ids_dont_warn() {
+        // Real IDs (from lints.toml and the hard-coded set) must not warn.
+        let source = "# seq:allow(unchecked-tcp-write)\n\
+                      # seq:allow(deep-nesting)\n\
+                      # seq:allow(unchecked-error-flag)\n\
+                      : main ( -- Int ) 0 ;";
+        let diagnostics = check_document(source);
+        let unknown: Vec<&Diagnostic> = diagnostics
+            .iter()
+            .filter(|d| match &d.code {
+                Some(tower_lsp::lsp_types::NumberOrString::String(s)) => s == "unknown-seq-allow",
+                _ => false,
+            })
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "real lint ids should not warn, got: {:?}",
+            unknown.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
     }
 

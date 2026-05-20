@@ -25,6 +25,6 @@ mod tests;
 
 pub use linter::Linter;
 pub use types::{
-    CompiledPattern, DEFAULT_LINTS, LintConfig, LintDiagnostic, LintRule, MAX_NESTING_DEPTH,
-    PatternElement, Severity, format_diagnostics,
+    CompiledPattern, DEFAULT_LINTS, KnownLint, LintConfig, LintDiagnostic, LintRule,
+    MAX_NESTING_DEPTH, PatternElement, Severity, format_diagnostics, known_lint_ids,
 };

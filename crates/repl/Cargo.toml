@@ -40,7 +40,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 # Safe shell command parsing for $EDITOR
-shlex = "1.3"
+shlex = "2.0"
 
 [package.metadata.docs.rs]
 # Ensure seq-compiler builds correctly on docs.rs

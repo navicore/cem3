@@ -251,16 +251,9 @@ impl TypeChecker {
         Ok((current_stack, accumulated_subst, accumulated_effects))
     }
 
-    /// Handle `n pick` where n is a literal integer
-    ///
-    /// pick(n) copies the value at position n to the top of the stack.
-    /// Position 0 is the top, 1 is below top, etc.
-    ///
-    /// Example: `2 pick` on stack ( A B C ) produces ( A B C A )
-    /// - Position 0: C (top)
-    /// - Position 1: B
-    /// - Position 2: A
-    /// - Result: copy A to top
+    /// Infer a statement sequence's full `Effect`, starting from a fresh
+    /// row-polymorphic `..input` and normalizing both ends by the accumulated
+    /// substitution. Used for quotation bodies.
     pub(super) fn infer_statements(&self, statements: &[Statement]) -> Result<Effect, String> {
         let start = StackType::RowVar("input".to_string());
         // Don't capture statement types for quotation bodies - only top-level word bodies
@@ -278,7 +271,7 @@ impl TypeChecker {
         ))
     }
 
-    /// Infer the stack effect of a match expression
+    /// Infer the resulting stack, substitution, and effects of a single statement.
     pub(super) fn infer_statement(
         &self,
         statement: &Statement,
@@ -307,7 +300,7 @@ impl TypeChecker {
         }
     }
 
-    /// Look up the effect of a word (built-in or user-defined)
+    /// Whether `inferred` matches any of `declared` by kind (Yield matches Yield).
     pub(super) fn effect_matches_any(
         &self,
         inferred: &SideEffect,

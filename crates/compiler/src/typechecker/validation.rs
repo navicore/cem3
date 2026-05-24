@@ -19,10 +19,13 @@ impl TypeChecker {
         }
     }
 
-    /// Check if a type name is a known valid type
+    /// Check whether `name` is valid as a *union field* type name.
     ///
-    /// Returns true for built-in types (Int, Float, Bool, String, Channel, Socket)
-    /// and registered union type names
+    /// Built-in field types (Int, Float, Bool, String, Channel, Socket) plus
+    /// registered union names. `Symbol` and `Variant` are intentionally not
+    /// declarable as union field types here (kept in sync with the 6-type set
+    /// in `parse_type_name`); they remain valid as already-formed `Type`s in
+    /// `validate_type`.
     pub(super) fn is_valid_type_name(&self, name: &str) -> bool {
         matches!(
             name,

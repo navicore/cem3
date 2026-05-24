@@ -143,6 +143,17 @@ pub(super) fn unescape_string(s: &str) -> Result<Vec<u8>, String> {
     Ok(result)
 }
 
+/// Push the accumulated token (if any) onto `tokens` and reset the buffer.
+fn flush_token(tokens: &mut Vec<Token>, current: &mut String, start_line: usize, start_col: usize) {
+    if !current.is_empty() {
+        tokens.push(Token::new(current.clone(), start_line, start_col));
+        current.clear();
+    }
+}
+
+/// Split source into tokens, tracking line/column and keeping string literals
+/// (with their escapes) intact. Newlines are emitted as `"\n"` tokens so the
+/// parser can handle line comments.
 pub(super) fn tokenize(source: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -183,14 +194,12 @@ pub(super) fn tokenize(source: &str) -> Vec<Token> {
                 col += 1;
             }
         } else if ch == '"' {
-            if !current.is_empty() {
-                tokens.push(Token::new(
-                    current.clone(),
-                    current_start_line,
-                    current_start_col,
-                ));
-                current.clear();
-            }
+            flush_token(
+                &mut tokens,
+                &mut current,
+                current_start_line,
+                current_start_col,
+            );
             in_string = true;
             current_start_line = line;
             current_start_col = col;
@@ -198,14 +207,12 @@ pub(super) fn tokenize(source: &str) -> Vec<Token> {
             prev_was_backslash = false;
             col += 1;
         } else if ch.is_whitespace() {
-            if !current.is_empty() {
-                tokens.push(Token::new(
-                    current.clone(),
-                    current_start_line,
-                    current_start_col,
-                ));
-                current.clear();
-            }
+            flush_token(
+                &mut tokens,
+                &mut current,
+                current_start_line,
+                current_start_col,
+            );
             // Preserve newlines for comment handling
             if ch == '\n' {
                 tokens.push(Token::new("\n".to_string(), line, col));
@@ -221,14 +228,12 @@ pub(super) fn tokenize(source: &str) -> Vec<Token> {
             // Without this split, `#comment` would accumulate into a
             // single identifier-shaped token and reach the parser as an
             // undefined word call.
-            if !current.is_empty() {
-                tokens.push(Token::new(
-                    current.clone(),
-                    current_start_line,
-                    current_start_col,
-                ));
-                current.clear();
-            }
+            flush_token(
+                &mut tokens,
+                &mut current,
+                current_start_line,
+                current_start_col,
+            );
             tokens.push(Token::new(ch.to_string(), line, col));
             col += 1;
         } else {

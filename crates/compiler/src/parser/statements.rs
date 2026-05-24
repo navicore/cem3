@@ -14,9 +14,8 @@ impl Parser {
 
         // Check if it looks like a float literal (contains . or scientific notation)
         // Must check this BEFORE integer parsing
-        if let Some(f) = is_float_literal(token)
-            .then(|| token.parse::<f64>().ok())
-            .flatten()
+        if is_float_literal(token)
+            && let Ok(f) = token.parse::<f64>()
         {
             return Ok(Statement::FloatLiteral(f));
         }
@@ -56,35 +55,7 @@ impl Parser {
 
         // Try to parse as symbol literal (:foo, :some-name)
         if token == ":" {
-            // Get the next token as the symbol name
-            let name_tok = self
-                .advance_token()
-                .ok_or("Expected symbol name after ':', got end of input")?;
-            let name = &name_tok.text;
-            // Validate symbol name (identifier-like, kebab-case allowed)
-            if name.is_empty() {
-                return Err("Symbol name cannot be empty".to_string());
-            }
-            if name.starts_with(|c: char| c.is_ascii_digit()) {
-                return Err(format!(
-                    "Symbol name cannot start with a digit: ':{}'\n  Hint: Symbol names must start with a letter",
-                    name
-                ));
-            }
-            if let Some(bad_char) = name.chars().find(|c| {
-                !c.is_alphanumeric()
-                    && *c != '-'
-                    && *c != '_'
-                    && *c != '.'
-                    && *c != '?'
-                    && *c != '!'
-            }) {
-                return Err(format!(
-                    "Symbol name contains invalid character '{}': ':{}'\n  Hint: Allowed: letters, digits, - _ . ? !",
-                    bad_char, name
-                ));
-            }
-            return Ok(Statement::Symbol(name.clone()));
+            return self.parse_symbol();
         }
 
         // Try to parse as string literal
@@ -135,6 +106,33 @@ impl Parser {
         })
     }
 
+    /// Parse a symbol literal after the leading `:` has been consumed.
+    /// Symbol names are identifier-like (kebab-case allowed).
+    fn parse_symbol(&mut self) -> Result<Statement, String> {
+        let name_tok = self
+            .advance_token()
+            .ok_or("Expected symbol name after ':', got end of input")?;
+        let name = &name_tok.text;
+        if name.is_empty() {
+            return Err("Symbol name cannot be empty".to_string());
+        }
+        if name.starts_with(|c: char| c.is_ascii_digit()) {
+            return Err(format!(
+                "Symbol name cannot start with a digit: ':{}'\n  Hint: Symbol names must start with a letter",
+                name
+            ));
+        }
+        if let Some(bad_char) = name.chars().find(|c| {
+            !c.is_alphanumeric() && *c != '-' && *c != '_' && *c != '.' && *c != '?' && *c != '!'
+        }) {
+            return Err(format!(
+                "Symbol name contains invalid character '{}': ':{}'\n  Hint: Allowed: letters, digits, - _ . ? !",
+                bad_char, name
+            ));
+        }
+        Ok(Statement::Symbol(name.clone()))
+    }
+
     pub(super) fn parse_quotation(
         &mut self,
         start_line: usize,
@@ -153,7 +151,7 @@ impl Parser {
             self.skip_comments();
 
             if self.check("]") {
-                let end_tok = self.advance_token().unwrap();
+                let end_tok = self.advance_token().expect("] just checked");
                 let end_line = end_tok.line;
                 let end_column = end_tok.column + 1; // exclusive
                 let id = self.next_quotation_id;
@@ -288,31 +286,41 @@ impl Parser {
             ));
         }
 
-        // Parse body until next pattern or 'end'
+        let body = self.parse_arm_body()?;
+
+        Ok(MatchArm {
+            pattern,
+            body,
+            span: Some(Span::new(arm_line, arm_column, arm_length)),
+        })
+    }
+
+    /// Parse a match-arm body: statements up to the next pattern or `end`.
+    ///
+    /// An arm ends at `end`, or when the next token looks like a new pattern —
+    /// an uppercase name followed by `->` or `{`. The lookahead is what keeps
+    /// an uppercase word call like `Make-Get` from being mistaken for the
+    /// start of the next arm.
+    fn parse_arm_body(&mut self) -> Result<Vec<Statement>, String> {
         let mut body = Vec::new();
         loop {
             self.skip_comments();
 
-            // Check for end of arm (next pattern starts with uppercase, or 'end')
             if self.check("end") {
                 break;
             }
 
-            // Check if next token looks like a match pattern (not just any uppercase word).
-            // A pattern is: UppercaseName followed by '->' or '{'
-            // This prevents confusing 'Make-Get' (constructor call) with a pattern.
             if let Some(token) = self.current_token()
                 && let Some(first_char) = token.text.chars().next()
                 && first_char.is_uppercase()
             {
-                // Peek at next token to see if this is a pattern (followed by -> or {)
+                // Uppercase name followed by '->' or '{' is the next pattern.
                 if let Some(next) = self.peek_at(1)
                     && (next == "->" || next == "{")
                 {
-                    // This is the next pattern
                     break;
                 }
-                // Otherwise it's just an uppercase word call (like Make-Get), continue parsing body
+                // Otherwise it's just an uppercase word call (like Make-Get).
             }
 
             if self.is_at_end() {
@@ -321,11 +329,6 @@ impl Parser {
 
             body.push(self.parse_statement()?);
         }
-
-        Ok(MatchArm {
-            pattern,
-            body,
-            span: Some(Span::new(arm_line, arm_column, arm_length)),
-        })
+        Ok(body)
     }
 }

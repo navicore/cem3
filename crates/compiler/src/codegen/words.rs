@@ -60,7 +60,6 @@ impl CodeGen {
         // For main (non-pure-inline): allocate the tagged stack and get base pointer
         // In pure_inline_test mode, main() allocates the stack, so seq_main just uses %stack
         let mut stack_var = if is_main && !self.pure_inline_test {
-            // Allocate tagged stack
             writeln!(
                 &mut self.output,
                 "  %tagged_stack = call ptr @seq_stack_new_default()"
@@ -110,13 +109,14 @@ impl CodeGen {
         // Generate code for all statements with pattern detection for inline loops
         stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
 
-        // Clear current word tracking
         self.current_word_name = None;
 
         // Only emit ret if the last statement wasn't a tail call
         // (tail calls emit their own ret)
-        if word.body.is_empty()
-            || !self.will_emit_tail_call(word.body.last().unwrap(), TailPosition::Tail)
+        if !word
+            .body
+            .last()
+            .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail))
         {
             // Spill any remaining virtual registers before return (Issue #189)
             let stack_var = self.spill_virtual_stack(&stack_var)?;
@@ -137,7 +137,6 @@ impl CodeGen {
                         exit_val
                     )?;
                 }
-                // Free the stack
                 writeln!(
                     &mut self.output,
                     "  call void @seq_stack_free(ptr %tagged_stack)"
@@ -338,7 +337,10 @@ impl CodeGen {
             };
             stack_var = self.codegen_statement(&stack_var, statement, position)?;
         }
-        if body.is_empty() || !self.will_emit_tail_call(body.last().unwrap(), TailPosition::Tail) {
+        if !body
+            .last()
+            .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail))
+        {
             let stack_var = self.spill_virtual_stack(&stack_var)?;
             writeln!(&mut self.output, "  ret ptr %{}", stack_var)?;
         }
@@ -423,7 +425,6 @@ impl CodeGen {
             }
         };
 
-        // Get value from environment
         let value_var = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -431,7 +432,6 @@ impl CodeGen {
             value_var, getter_type, getter, index
         )?;
 
-        // Push value onto stack
         let new_stack_var = self.fresh_temp();
         writeln!(
             &mut self.output,
@@ -682,7 +682,6 @@ impl CodeGen {
         stack_var: &str,
         n: i64,
     ) -> Result<String, CodeGenError> {
-        // Create an SSA variable for this integer value
         let ssa_var = self.fresh_temp();
         writeln!(&mut self.output, "  %{} = add i64 0, {}", ssa_var, n)?;
 
@@ -700,7 +699,6 @@ impl CodeGen {
         stack_var: &str,
         f: f64,
     ) -> Result<String, CodeGenError> {
-        // Create an SSA variable for this float value using bitcast
         let ssa_var = self.fresh_temp();
         let float_bits = f.to_bits();
         writeln!(
@@ -723,7 +721,6 @@ impl CodeGen {
         stack_var: &str,
         b: bool,
     ) -> Result<String, CodeGenError> {
-        // Create an SSA variable for this bool value
         let ssa_var = self.fresh_temp();
         let val = if b { 1 } else { 0 };
         writeln!(&mut self.output, "  %{} = add i64 0, {}", ssa_var, val)?;
@@ -778,7 +775,6 @@ impl CodeGen {
         // Spill virtual values before calling runtime (Issue #189)
         let stack_var = self.spill_virtual_stack(stack_var)?;
 
-        // Get interned symbol global (static SeqString structure)
         let sym_global = self.get_symbol_global(s)?;
 
         // Push the interned symbol - passes pointer to static SeqString structure

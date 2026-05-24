@@ -103,36 +103,25 @@ impl CallGraph {
     /// - Multi-word SCCs (mutual recursion)
     /// - Single-word SCCs where the word calls itself (direct recursion)
     fn find_sccs(&self) -> Vec<HashSet<String>> {
-        let mut index_counter = 0;
-        let mut stack: Vec<String> = Vec::new();
-        let mut on_stack: HashSet<String> = HashSet::new();
-        let mut indices: HashMap<String, usize> = HashMap::new();
-        let mut lowlinks: HashMap<String, usize> = HashMap::new();
-        let mut sccs: Vec<HashSet<String>> = Vec::new();
+        let mut state = TarjanState::new();
 
         for word in &self.words {
-            if !indices.contains_key(word) {
-                self.tarjan_visit(
-                    word,
-                    &mut index_counter,
-                    &mut stack,
-                    &mut on_stack,
-                    &mut indices,
-                    &mut lowlinks,
-                    &mut sccs,
-                );
+            if !state.indices.contains_key(word) {
+                self.tarjan_visit(word, &mut state);
             }
         }
 
         // Filter to only recursive SCCs
-        sccs.into_iter()
+        state
+            .sccs
+            .into_iter()
             .filter(|scc| {
                 if scc.len() > 1 {
                     // Multi-word SCC = mutual recursion
                     true
                 } else if scc.len() == 1 {
                     // Single-word SCC: check if it calls itself
-                    let word = scc.iter().next().unwrap();
+                    let word = scc.iter().next().expect("scc.len() == 1");
                     self.edges
                         .get(word)
                         .map(|callees| callees.contains(word))
@@ -145,23 +134,13 @@ impl CallGraph {
     }
 
     /// Tarjan's algorithm recursive visit.
-    #[allow(clippy::too_many_arguments)]
-    fn tarjan_visit(
-        &self,
-        word: &str,
-        index_counter: &mut usize,
-        stack: &mut Vec<String>,
-        on_stack: &mut HashSet<String>,
-        indices: &mut HashMap<String, usize>,
-        lowlinks: &mut HashMap<String, usize>,
-        sccs: &mut Vec<HashSet<String>>,
-    ) {
-        let index = *index_counter;
-        *index_counter += 1;
-        indices.insert(word.to_string(), index);
-        lowlinks.insert(word.to_string(), index);
-        stack.push(word.to_string());
-        on_stack.insert(word.to_string());
+    fn tarjan_visit(&self, word: &str, state: &mut TarjanState) {
+        let index = state.index_counter;
+        state.index_counter += 1;
+        state.indices.insert(word.to_string(), index);
+        state.lowlinks.insert(word.to_string(), index);
+        state.stack.push(word.to_string());
+        state.on_stack.insert(word.to_string());
 
         // Visit all callees
         if let Some(callees) = self.edges.get(word) {
@@ -170,42 +149,74 @@ impl CallGraph {
                     // External word (builtin), skip
                     continue;
                 }
-                if !indices.contains_key(callee) {
+                if !state.indices.contains_key(callee) {
                     // Not yet visited
-                    self.tarjan_visit(
-                        callee,
-                        index_counter,
-                        stack,
-                        on_stack,
-                        indices,
-                        lowlinks,
-                        sccs,
-                    );
-                    let callee_lowlink = *lowlinks.get(callee).unwrap();
-                    let word_lowlink = lowlinks.get_mut(word).unwrap();
-                    *word_lowlink = (*word_lowlink).min(callee_lowlink);
-                } else if on_stack.contains(callee) {
+                    self.tarjan_visit(callee, state);
+                    let callee_lowlink = *state
+                        .lowlinks
+                        .get(callee)
+                        .expect("Tarjan invariant: callee was just visited");
+                    state.relax_lowlink(word, callee_lowlink);
+                } else if state.on_stack.contains(callee) {
                     // Callee is on stack, part of current SCC
-                    let callee_index = *indices.get(callee).unwrap();
-                    let word_lowlink = lowlinks.get_mut(word).unwrap();
-                    *word_lowlink = (*word_lowlink).min(callee_index);
+                    let callee_index = *state
+                        .indices
+                        .get(callee)
+                        .expect("Tarjan invariant: on-stack callee is indexed");
+                    state.relax_lowlink(word, callee_index);
                 }
             }
         }
 
         // If word is a root node, pop the SCC
-        if lowlinks.get(word) == indices.get(word) {
+        if state.lowlinks.get(word) == state.indices.get(word) {
             let mut scc = HashSet::new();
             loop {
-                let w = stack.pop().unwrap();
-                on_stack.remove(&w);
+                let w = state
+                    .stack
+                    .pop()
+                    .expect("Tarjan invariant: stack non-empty until root");
+                state.on_stack.remove(&w);
                 scc.insert(w.clone());
                 if w == word {
                     break;
                 }
             }
-            sccs.push(scc);
+            state.sccs.push(scc);
         }
+    }
+}
+
+/// Mutable working state for Tarjan's SCC algorithm, threaded through the
+/// recursive `tarjan_visit`.
+struct TarjanState {
+    index_counter: usize,
+    stack: Vec<String>,
+    on_stack: HashSet<String>,
+    indices: HashMap<String, usize>,
+    lowlinks: HashMap<String, usize>,
+    sccs: Vec<HashSet<String>>,
+}
+
+impl TarjanState {
+    fn new() -> Self {
+        TarjanState {
+            index_counter: 0,
+            stack: Vec::new(),
+            on_stack: HashSet::new(),
+            indices: HashMap::new(),
+            lowlinks: HashMap::new(),
+            sccs: Vec::new(),
+        }
+    }
+
+    /// Lower `word`'s lowlink to `candidate` if it is smaller.
+    fn relax_lowlink(&mut self, word: &str, candidate: usize) {
+        let lowlink = self
+            .lowlinks
+            .get_mut(word)
+            .expect("Tarjan invariant: word has a lowlink");
+        *lowlink = (*lowlink).min(candidate);
     }
 }
 
@@ -214,12 +225,19 @@ impl CallGraph {
 /// This recursively descends into quotations, if branches, and match arms.
 fn extract_calls(statements: &[Statement], known_words: &HashSet<String>) -> HashSet<String> {
     let mut calls = HashSet::new();
-
-    for stmt in statements {
-        extract_calls_from_statement(stmt, known_words, &mut calls);
-    }
-
+    extract_each(statements, known_words, &mut calls);
     calls
+}
+
+/// Run `extract_calls_from_statement` over every statement in `statements`.
+fn extract_each(
+    statements: &[Statement],
+    known_words: &HashSet<String>,
+    calls: &mut HashSet<String>,
+) {
+    for stmt in statements {
+        extract_calls_from_statement(stmt, known_words, calls);
+    }
 }
 
 /// Extract word calls from a single statement.
@@ -240,25 +258,17 @@ fn extract_calls_from_statement(
             else_branch,
             span: _,
         } => {
-            for s in then_branch {
-                extract_calls_from_statement(s, known_words, calls);
-            }
+            extract_each(then_branch, known_words, calls);
             if let Some(else_stmts) = else_branch {
-                for s in else_stmts {
-                    extract_calls_from_statement(s, known_words, calls);
-                }
+                extract_each(else_stmts, known_words, calls);
             }
         }
         Statement::Quotation { body, .. } => {
-            for s in body {
-                extract_calls_from_statement(s, known_words, calls);
-            }
+            extract_each(body, known_words, calls);
         }
         Statement::Match { arms, span: _ } => {
             for arm in arms {
-                for s in &arm.body {
-                    extract_calls_from_statement(s, known_words, calls);
-                }
+                extract_each(&arm.body, known_words, calls);
             }
         }
         // Literals don't contain calls

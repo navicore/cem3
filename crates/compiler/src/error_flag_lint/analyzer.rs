@@ -127,9 +127,8 @@ impl ErrorFlagAnalyzer {
         state: &mut FlagStack,
         word: &WordDef,
     ) {
-        let line = span.map(|s| s.line).unwrap_or(0);
+        let line = span.map_or(0, |s| s.line);
 
-        // Check if this is a fallible operation
         if let Some(info) = fallible_op_info(name) {
             // Pop inputs consumed by the operation
             for _ in 0..info.inputs {
@@ -143,7 +142,6 @@ impl ErrorFlagAnalyzer {
             return;
         }
 
-        // Check if this is a checking consumer
         if is_checking_consumer(name) {
             // `cond` is a multi-way conditional that consumes quotation pairs
             // + a count from the stack. Its variable arity means we can't
@@ -154,35 +152,36 @@ impl ErrorFlagAnalyzer {
             return;
         }
 
-        // Stack operations — simulate movement
+        self.simulate_stack_op(name, line, state, word);
+    }
+
+    /// Simulate the abstract-stack effect of a word that is neither a known
+    /// fallible operation nor a checking consumer.
+    fn simulate_stack_op(
+        &mut self,
+        name: &str,
+        line: usize,
+        state: &mut FlagStack,
+        word: &WordDef,
+    ) {
         match name {
-            "drop" => {
-                if let Some(StackVal::Flag(flag)) = state.pop() {
-                    self.emit_warning(&flag, line, word);
-                }
-            }
+            "drop" => self.pop_and_warn(state, line, word),
             "nip" => {
                 // ( a b -- b ) — drops a (second from top)
                 let top = state.pop();
-                if let Some(StackVal::Flag(flag)) = state.pop() {
-                    self.emit_warning(&flag, line, word);
-                }
+                self.pop_and_warn(state, line, word);
                 if let Some(v) = top {
                     state.stack.push(v);
                 }
             }
             "3drop" => {
                 for _ in 0..3 {
-                    if let Some(StackVal::Flag(flag)) = state.pop() {
-                        self.emit_warning(&flag, line, word);
-                    }
+                    self.pop_and_warn(state, line, word);
                 }
             }
             "2drop" => {
                 for _ in 0..2 {
-                    if let Some(StackVal::Flag(flag)) = state.pop() {
-                        self.emit_warning(&flag, line, word);
-                    }
+                    self.pop_and_warn(state, line, word);
                 }
             }
             "dup" => {
@@ -331,6 +330,14 @@ impl ErrorFlagAnalyzer {
                 // This avoids false positives from user-defined words that
                 // properly handle the Bool internally.
             }
+        }
+    }
+
+    /// Pop one value; if it carries a tracked error flag, warn that the flag
+    /// was dropped without being checked.
+    fn pop_and_warn(&mut self, state: &mut FlagStack, line: usize, word: &WordDef) {
+        if let Some(StackVal::Flag(flag)) = state.pop() {
+            self.emit_warning(&flag, line, word);
         }
     }
 

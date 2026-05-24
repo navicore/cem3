@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 impl CodeGen {
     /// Generate a fresh temporary variable name
     pub(super) fn fresh_temp(&mut self) -> String {
-        let name = format!("{}", self.temp_counter);
+        let name = self.temp_counter.to_string();
         self.temp_counter += 1;
         name
     }

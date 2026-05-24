@@ -8,6 +8,9 @@ use crate::unification::{Subst, unify_types};
 use super::TypeChecker;
 
 impl TypeChecker {
+    /// Infer the type of a quotation literal: run body inference in its own
+    /// aux scope, then resolve it to a `Quotation` or (auto-captured)
+    /// `Closure` and push it onto the stack.
     pub(super) fn infer_quotation(
         &self,
         id: usize,
@@ -103,37 +106,19 @@ impl TypeChecker {
             Type::Closure {
                 captures, effect, ..
             } => {
-                // Pop captured values from the caller's stack.
-                // The capture COUNT comes from analyze_captures (based on
-                // body vs expected input comparison), but the capture TYPES
-                // come from the caller's stack — not from the body's inference.
-                //
-                // We intentionally do NOT call unify_types on the popped types.
-                // The body's inference may have constrained a type variable to
-                // Int/Float via its operations (e.g., i.+), even when the actual
-                // stack value is a Variant. unify_types(Var("V$nn"), Int) would
-                // succeed and propagate the wrong type to codegen, which would
-                // then emit env_get_int for a Variant value — a runtime crash.
-                // Using the caller's actual types directly ensures codegen emits
-                // the correct getter for the runtime Value type.
-                let mut stack = current_stack.clone();
-                let mut actual_captures: Vec<Type> = Vec::new();
-                for _ in (0..captures.len()).rev() {
-                    let (new_stack, actual_type) = self.pop_type(&stack, "closure capture")?;
-                    actual_captures.push(actual_type);
-                    stack = new_stack;
-                }
-                // actual_captures is in pop order (top-down), reverse to
-                // get bottom-to-top (matching calculate_captures convention)
-                actual_captures.reverse();
+                // The capture COUNT comes from analyze_captures; the capture
+                // TYPES come from the caller's actual stack (see
+                // pop_actual_capture_types for why we don't unify here).
+                let (stack, actual_captures) =
+                    self.pop_actual_capture_types(captures.len(), &current_stack)?;
 
-                // Rebuild the closure type with the actual capture types
+                // Rebuild the closure type with the actual capture types.
                 let corrected_quot_type = Type::Closure {
                     effect: effect.clone(),
                     captures: actual_captures,
                 };
 
-                // Update the type map so codegen sees the corrected types
+                // Update the type map so codegen sees the corrected types.
                 self.quotation_types
                     .borrow_mut()
                     .insert(id, corrected_quot_type.clone());
@@ -149,7 +134,36 @@ impl TypeChecker {
         Ok((result_stack, Subst::empty(), vec![]))
     }
 
-    /// Infer the stack effect of a word call
+    /// Pop `count` capture values off the caller's `stack`, returning the
+    /// remaining stack and the popped types bottom-to-top (matching
+    /// `calculate_captures`' convention).
+    ///
+    /// The types come from the caller's actual stack, NOT the body's
+    /// inference: the body may have constrained a type variable to Int/Float
+    /// via its operations (e.g. `i.+`) even when the runtime value is a
+    /// Variant. `unify_types(Var, Int)` would succeed and propagate the wrong
+    /// type to codegen, which would then emit `env_get_int` for a Variant — a
+    /// runtime crash. Using the caller's real types ensures the correct getter.
+    fn pop_actual_capture_types(
+        &self,
+        count: usize,
+        stack: &StackType,
+    ) -> Result<(StackType, Vec<Type>), String> {
+        let mut stack = stack.clone();
+        let mut actual_captures: Vec<Type> = Vec::new();
+        for _ in 0..count {
+            let (new_stack, actual_type) = self.pop_type(&stack, "closure capture")?;
+            actual_captures.push(actual_type);
+            stack = new_stack;
+        }
+        // Pop order is top-down; reverse to bottom-to-top.
+        actual_captures.reverse();
+        Ok((stack, actual_captures))
+    }
+
+    /// Convert a top-of-stack `Quotation` with non-empty inputs into a
+    /// `Closure` for `strand.spawn` (which expects `( -- )`), capturing the
+    /// values below it from the caller's stack.
     pub(super) fn adjust_stack_for_spawn(
         &self,
         current_stack: StackType,

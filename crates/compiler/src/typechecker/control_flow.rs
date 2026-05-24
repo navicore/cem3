@@ -75,7 +75,7 @@ impl TypeChecker {
             let first_aux = &aux_after_arms[0];
             for (i, arm_aux) in aux_after_arms.iter().enumerate().skip(1) {
                 if arm_aux != first_aux {
-                    let match_line = match_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+                    let match_line = span_line(match_span);
                     return Err(format!(
                         "at line {}: match arms have incompatible aux stack effects:\n\
                          \x20 arm 0 aux: {}\n\
@@ -95,9 +95,9 @@ impl TypeChecker {
         let mut final_result = arm_results[0].clone();
         for (i, arm_result) in arm_results.iter().enumerate().skip(1) {
             // Get line info for error reporting
-            let match_line = match_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
-            let arm0_line = arms[0].span.as_ref().map(|s| s.line + 1).unwrap_or(0);
-            let arm_i_line = arms[i].span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+            let match_line = span_line(match_span);
+            let arm0_line = span_line(&arms[0].span);
+            let arm_i_line = span_line(&arms[i].span);
 
             let arm_subst = unify_stacks(&final_result, arm_result).map_err(|e| {
                 if match_line > 0 && arm0_line > 0 && arm_i_line > 0 {
@@ -269,7 +269,7 @@ impl TypeChecker {
         // Verify aux stacks match between branches (Issue #350)
         // Skip check if one branch diverges (never returns)
         if !then_diverges && !else_diverges && aux_after_then != aux_after_else {
-            let if_line = if_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+            let if_line = span_line(if_span);
             return Err(format!(
                 "at line {}: if/else branches have incompatible aux stack effects:\n\
                  \x20 then branch aux: {}\n\
@@ -307,7 +307,7 @@ impl TypeChecker {
             (then_result, Subst::empty())
         } else {
             // Both branches must produce compatible stacks (normal case)
-            let if_line = if_span.as_ref().map(|s| s.line + 1).unwrap_or(0);
+            let if_line = span_line(if_span);
             let branch_subst = unify_stacks(&then_result, &else_result).map_err(|e| {
                 if if_line > 0 {
                     format!(
@@ -341,4 +341,9 @@ impl TypeChecker {
             .compose(&branch_subst);
         Ok((result, total_subst, merged_effects))
     }
+}
+
+/// Resolve a span to a 1-based line number for error messages, or 0 if absent.
+fn span_line(span: &Option<crate::ast::Span>) -> usize {
+    span.as_ref().map_or(0, |s| s.line + 1)
 }

@@ -4,6 +4,7 @@ use crate::types::{Effect, SideEffect, StackType, Type};
 use super::{Parser, Token};
 
 impl Parser {
+    /// Parse a full stack effect: `( inputs -- outputs | effects )`.
     pub(super) fn parse_stack_effect(&mut self) -> Result<Effect, String> {
         // Consume '('
         if !self.consume("(") {
@@ -139,12 +140,10 @@ impl Parser {
     /// Validate row variable name
     /// Row variables must start with a lowercase letter and contain only alphanumeric characters
     pub(super) fn validate_row_var_name(&self, name: &str) -> Result<(), String> {
-        if name.is_empty() {
-            return Err("Row variable must have a name after '..'".to_string());
-        }
-
         // Must start with lowercase letter
-        let first_char = name.chars().next().unwrap();
+        let Some(first_char) = name.chars().next() else {
+            return Err("Row variable must have a name after '..'".to_string());
+        };
         if !first_char.is_ascii_lowercase() {
             return Err(format!(
                 "Row variable '..{}' must start with a lowercase letter (a-z)",

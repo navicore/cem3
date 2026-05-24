@@ -32,6 +32,16 @@ struct ResolvedContent {
     unions: Vec<UnionDef>,
 }
 
+impl ResolvedContent {
+    /// An include that contributed no words or unions.
+    fn empty() -> Self {
+        ResolvedContent {
+            words: Vec::new(),
+            unions: Vec::new(),
+        }
+    }
+}
+
 /// Result of resolving an include - either embedded content or a file path
 #[derive(Debug)]
 enum ResolvedInclude {
@@ -86,22 +96,12 @@ impl Resolver {
         let mut all_unions = Vec::new();
 
         for mut word in program.words {
-            // Update source location with file path
-            if let Some(ref mut source) = word.source {
-                source.file = source_path.clone();
-            } else {
-                word.source = Some(SourceLocation::new(source_path.clone(), 0));
-            }
+            stamp_source(&mut word.source, &source_path);
             all_words.push(word);
         }
 
         for mut union_def in program.unions {
-            // Update source location with file path
-            if let Some(ref mut source) = union_def.source {
-                source.file = source_path.clone();
-            } else {
-                union_def.source = Some(SourceLocation::new(source_path.clone(), 0));
-            }
+            stamp_source(&mut union_def.source, &source_path);
             all_unions.push(union_def);
         }
 
@@ -151,10 +151,7 @@ impl Resolver {
                 self.ffi_includes.push(name.clone());
             }
             // FFI includes don't add words/unions directly
-            return Ok(ResolvedContent {
-                words: Vec::new(),
-                unions: Vec::new(),
-            });
+            return Ok(ResolvedContent::empty());
         }
 
         let resolved = self.resolve_include(include, source_dir)?;
@@ -176,10 +173,7 @@ impl Resolver {
     ) -> Result<ResolvedContent, String> {
         // Skip if already included
         if self.included_embedded.contains(name) {
-            return Ok(ResolvedContent {
-                words: Vec::new(),
-                unions: Vec::new(),
-            });
+            return Ok(ResolvedContent::empty());
         }
         self.included_embedded.insert(name.to_string());
 
@@ -192,25 +186,16 @@ impl Resolver {
         // Create a pseudo-path for source locations
         let pseudo_path = PathBuf::from(format!("<stdlib:{}>", name));
 
-        // Collect words with updated source locations
+        // Collect words and unions with updated source locations
         let mut all_words = Vec::new();
         for mut word in included_program.words {
-            if let Some(ref mut source) = word.source {
-                source.file = pseudo_path.clone();
-            } else {
-                word.source = Some(SourceLocation::new(pseudo_path.clone(), 0));
-            }
+            stamp_source(&mut word.source, &pseudo_path);
             all_words.push(word);
         }
 
-        // Collect unions with updated source locations
         let mut all_unions = Vec::new();
         for mut union_def in included_program.unions {
-            if let Some(ref mut source) = union_def.source {
-                source.file = pseudo_path.clone();
-            } else {
-                union_def.source = Some(SourceLocation::new(pseudo_path.clone(), 0));
-            }
+            stamp_source(&mut union_def.source, &pseudo_path);
             all_unions.push(union_def);
         }
 
@@ -235,10 +220,7 @@ impl Resolver {
             .map_err(|e| format!("Failed to canonicalize {}: {}", path.display(), e))?;
 
         if self.included_files.contains(&canonical) {
-            return Ok(ResolvedContent {
-                words: Vec::new(),
-                unions: Vec::new(),
-            });
+            return Ok(ResolvedContent::empty());
         }
 
         // Read and parse the included file
@@ -336,8 +318,15 @@ impl Resolver {
     }
 }
 
-/// Check for word name collisions across all definitions
-///
+/// Stamp `file` onto a definition's source location, creating one at line 0
+/// if the definition has none yet.
+fn stamp_source(source: &mut Option<SourceLocation>, file: &Path) {
+    match source {
+        Some(loc) => loc.file = file.to_path_buf(),
+        None => *source = Some(SourceLocation::new(file.to_path_buf(), 0)),
+    }
+}
+
 mod helpers;
 
 #[cfg(test)]

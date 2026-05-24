@@ -26,67 +26,37 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     builtin!(sigs, "list.first", (a V -- a T Bool));
     builtin!(sigs, "list.last",  (a V -- a T Bool));
 
-    // list.map: ( a Variant Quotation -- a Variant )
-    // Quotation: ( b T -- b U )
+    // list.map: ( a V [b T -- b U] -- a V2 )
     sigs.insert(
         "list.map".to_string(),
         Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
-                    StackType::RowVar("b".to_string()).push(Type::Var("U".to_string())),
-                )))),
-            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
+            stack!(a V).push(quot(stack!(b T), stack!(b U))),
+            stack!(a V2),
         ),
     );
 
-    // list.filter: ( a Variant Quotation -- a Variant )
-    // Quotation: ( b T -- b Bool )
+    // list.filter: ( a V [b T -- b Bool] -- a V2 )
     sigs.insert(
         "list.filter".to_string(),
         Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
-                    StackType::RowVar("b".to_string()).push(Type::Bool),
-                )))),
-            StackType::RowVar("a".to_string()).push(Type::Var("V2".to_string())),
+            stack!(a V).push(quot(stack!(b T), stack!(b Bool))),
+            stack!(a V2),
         ),
     );
 
-    // list.fold: ( a Variant init Quotation -- a result )
-    // Quotation: ( b Acc T -- b Acc )
+    // list.fold: ( a V Acc [b Acc T -- b Acc] -- a Acc )
     sigs.insert(
         "list.fold".to_string(),
         Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Var("Acc".to_string()))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("b".to_string())
-                        .push(Type::Var("Acc".to_string()))
-                        .push(Type::Var("T".to_string())),
-                    StackType::RowVar("b".to_string()).push(Type::Var("Acc".to_string())),
-                )))),
-            StackType::RowVar("a".to_string()).push(Type::Var("Acc".to_string())),
+            stack!(a V Acc).push(quot(stack!(b Acc T), stack!(b Acc))),
+            stack!(a Acc),
         ),
     );
 
-    // list.each: ( a Variant Quotation -- a )
-    // Quotation: ( b T -- b )
+    // list.each: ( a V [b T -- b] -- a )
     sigs.insert(
         "list.each".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("V".to_string()))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("b".to_string()).push(Type::Var("T".to_string())),
-                    StackType::RowVar("b".to_string()),
-                )))),
-            StackType::RowVar("a".to_string()),
-        ),
+        Effect::new(stack!(a V).push(quot(stack!(b T), stack!(b))), stack!(a)),
     );
 }
 

@@ -7,7 +7,27 @@ use super::{BranchResult, CodeGen, CodeGenError, TailPosition};
 use crate::ast::{MatchArm, Pattern, Statement};
 use std::fmt::Write as _;
 
+/// Per-arm bookkeeping built during match dispatch and consumed when
+/// emitting each arm body.
+pub(super) struct ArmInfo {
+    variant_name: String,
+    block: String,
+    field_count: usize,
+    field_names: Vec<String>,
+}
+
 impl CodeGen {
+    /// Emit `patch_seq_dup` and return the new stack SSA name.
+    fn emit_dup(&mut self, stack_var: &str) -> Result<String, CodeGenError> {
+        let dup_stack = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = call ptr @patch_seq_dup(ptr %{})",
+            dup_stack, stack_var
+        )?;
+        Ok(dup_stack)
+    }
+
     /// Generate code for an if statement with optional else branch
     ///
     /// Handles phi node merging for branches with different control flow.
@@ -36,7 +56,6 @@ impl CodeGen {
             cmp_temp, cond_val
         )?;
 
-        // Generate unique block labels
         let then_block = self.fresh_block("if_then");
         let else_block = self.fresh_block("if_else");
         let merge_block = self.fresh_block("if_merge");
@@ -139,12 +158,7 @@ impl CodeGen {
         }
 
         // Step 1: Duplicate the variant so we can get the tag without consuming it
-        let dup_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = call ptr @patch_seq_dup(ptr %{})",
-            dup_stack, stack_var
-        )?;
+        let dup_stack = self.emit_dup(stack_var)?;
 
         // Step 2: Call variant-tag on the duplicate to get the tag as Symbol
         let tagged_stack = self.fresh_temp();
@@ -160,8 +174,7 @@ impl CodeGen {
         let default_block = self.fresh_block("match_unreachable");
         let merge_block = self.fresh_block("match_merge");
 
-        // Collect arm info: (variant_name, block_name, field_count, field_names)
-        let mut arm_info: Vec<(String, String, usize, Vec<String>)> = Vec::new();
+        let mut arm_info: Vec<ArmInfo> = Vec::new();
         for (i, arm) in arms.iter().enumerate() {
             let block = self.fresh_block(&format!("match_arm_{}", i));
             let variant_name = match &arm.pattern {
@@ -169,7 +182,12 @@ impl CodeGen {
                 Pattern::VariantWithBindings { name, .. } => name.clone(),
             };
             let (_tag, field_count, field_names) = self.find_variant_info(&variant_name)?;
-            arm_info.push((variant_name, block, field_count, field_names));
+            arm_info.push(ArmInfo {
+                variant_name,
+                block,
+                field_count,
+                field_names,
+            });
         }
 
         // Step 4-5: Generate cascading if-else dispatch (Issue #215: extracted helper)
@@ -229,12 +247,7 @@ impl CodeGen {
         stack_var: &str,
         field_idx: usize,
     ) -> Result<String, CodeGenError> {
-        let dup_stack = self.fresh_temp();
-        writeln!(
-            &mut self.output,
-            "  %{} = call ptr @patch_seq_dup(ptr %{})",
-            dup_stack, stack_var
-        )?;
+        let dup_stack = self.emit_dup(stack_var)?;
 
         let idx_stack = self.fresh_temp();
         writeln!(
@@ -289,12 +302,12 @@ impl CodeGen {
     pub(super) fn codegen_match_dispatch(
         &mut self,
         tagged_stack: &str,
-        arm_info: &[(String, String, usize, Vec<String>)],
+        arm_info: &[ArmInfo],
         default_block: &str,
     ) -> Result<(), CodeGenError> {
         let mut current_tag_stack = tagged_stack.to_string();
 
-        for (i, (variant_name, arm_block, _, _)) in arm_info.iter().enumerate() {
+        for (i, arm) in arm_info.iter().enumerate() {
             let is_last = i == arm_info.len() - 1;
             let next_check = if is_last {
                 default_block.to_string()
@@ -305,19 +318,12 @@ impl CodeGen {
             // For all but last arm: dup the tag, compare, branch
             // For last arm: just compare (tag will be consumed)
             let compare_stack = if !is_last {
-                let dup = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = call ptr @patch_seq_dup(ptr %{})",
-                    dup, current_tag_stack
-                )?;
-                dup
+                self.emit_dup(&current_tag_stack)?
             } else {
                 current_tag_stack.clone()
             };
 
-            // Compare symbol with C string
-            let str_const = self.get_string_global(variant_name.as_bytes())?;
+            let str_const = self.get_string_global(arm.variant_name.as_bytes())?;
             let cmp_stack = self.fresh_temp();
             writeln!(
                 &mut self.output,
@@ -325,7 +331,6 @@ impl CodeGen {
                 cmp_stack, compare_stack, str_const
             )?;
 
-            // Peek the bool result
             let cmp_val = self.fresh_temp();
             writeln!(
                 &mut self.output,
@@ -333,7 +338,6 @@ impl CodeGen {
                 cmp_val, cmp_stack
             )?;
 
-            // Pop the bool
             let popped = self.fresh_temp();
             writeln!(
                 &mut self.output,
@@ -345,7 +349,7 @@ impl CodeGen {
             writeln!(
                 &mut self.output,
                 "  br i1 %{}, label %{}, label %{}",
-                cmp_val, arm_block, next_check
+                cmp_val, arm.block, next_check
             )?;
 
             // Start next check block (unless this was the last arm)
@@ -367,17 +371,14 @@ impl CodeGen {
         &mut self,
         stack_var: &str,
         arms: &[MatchArm],
-        arm_info: &[(String, String, usize, Vec<String>)],
+        arm_info: &[ArmInfo],
         position: TailPosition,
         merge_block: &str,
     ) -> Result<Vec<BranchResult>, CodeGenError> {
         let mut arm_results: Vec<BranchResult> = Vec::new();
-        for (i, (arm, (_variant_name, block, field_count, field_names))) in
-            arms.iter().zip(arm_info.iter()).enumerate()
-        {
-            writeln!(&mut self.output, "{}:", block)?;
+        for (i, (arm, info)) in arms.iter().zip(arm_info.iter()).enumerate() {
+            writeln!(&mut self.output, "{}:", info.block)?;
 
-            // Extract fields based on pattern type
             let unpacked_stack = match &arm.pattern {
                 Pattern::Variant(_) => {
                     // Stack-based: unpack all fields in declaration order
@@ -385,17 +386,16 @@ impl CodeGen {
                     writeln!(
                         &mut self.output,
                         "  %{} = call ptr @patch_seq_unpack_variant(ptr %{}, i64 {})",
-                        result, stack_var, field_count
+                        result, stack_var, info.field_count
                     )?;
                     result
                 }
                 Pattern::VariantWithBindings { bindings, .. } => {
                     // Issue #213: Extracted to helper to reduce nesting
-                    self.codegen_extract_variant_bindings(stack_var, bindings, field_names)?
+                    self.codegen_extract_variant_bindings(stack_var, bindings, &info.field_names)?
                 }
             };
 
-            // Generate the arm body
             let result = self.codegen_branch(
                 &arm.body,
                 &unpacked_stack,
@@ -414,7 +414,6 @@ impl CodeGen {
         arm_results: &[BranchResult],
         merge_block: &str,
     ) -> Result<String, CodeGenError> {
-        // Check if all arms emitted tail calls
         let all_tail_calls = arm_results.iter().all(|r| r.emitted_tail_call);
         if all_tail_calls {
             // All branches tail-called, no merge needed
@@ -424,7 +423,6 @@ impl CodeGen {
         writeln!(&mut self.output, "{}:", merge_block)?;
         let result_var = self.fresh_temp();
 
-        // Build phi node from non-tail-call branches
         let phi_entries: Vec<_> = arm_results
             .iter()
             .filter(|r| !r.emitted_tail_call)

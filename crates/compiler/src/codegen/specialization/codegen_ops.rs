@@ -3,20 +3,18 @@
 //! boolean logic, and comparisons. Safe-division/shift and recursive / cross-
 //! word calls live in `codegen_safe_math` and `codegen_calls`.
 
-use super::CodeGen;
+use super::codegen_word::SpecializedEmitter;
 use super::context::RegisterContext;
-use super::types::{RegisterType, SpecSignature};
+use super::types::RegisterType;
 use crate::codegen::CodeGenError;
 use std::fmt::Write as _;
 
-impl CodeGen {
+impl SpecializedEmitter<'_> {
     /// Dispatch a single word call in specialized mode.
-    pub(super) fn codegen_specialized_word_call(
+    pub(super) fn emit_word_call(
         &mut self,
         ctx: &mut RegisterContext,
         name: &str,
-        word_name: &str,
-        sig: &SpecSignature,
         is_last: bool,
         prev_int: Option<i64>,
     ) -> Result<(), CodeGenError> {
@@ -100,56 +98,20 @@ impl CodeGen {
 
             // Integer arithmetic - uses LLVM's default wrapping behavior (no nsw/nuw flags).
             // This matches the runtime's wrapping_add/sub/mul semantics for defined overflow.
-            "i.+" | "i.add" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = add i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
-            "i.-" | "i.subtract" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = sub i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
-            "i.*" | "i.multiply" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = mul i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
+            "i.+" | "i.add" => self.emit_binary(ctx, "add", RegisterType::I64)?,
+            "i.-" | "i.subtract" => self.emit_binary(ctx, "sub", RegisterType::I64)?,
+            "i.*" | "i.multiply" => self.emit_binary(ctx, "mul", RegisterType::I64)?,
             "i./" | "i.divide" => {
-                self.emit_specialized_safe_div(ctx, "sdiv")?;
+                self.emit_safe_div(ctx, "sdiv")?;
             }
             "i.%" | "i.mod" => {
-                self.emit_specialized_safe_div(ctx, "srem")?;
+                self.emit_safe_div(ctx, "srem")?;
             }
 
             // Bitwise operations
-            "band" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = and i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
-            "bor" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = or i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
-            "bxor" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = xor i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
+            "band" => self.emit_binary(ctx, "and", RegisterType::I64)?,
+            "bor" => self.emit_binary(ctx, "or", RegisterType::I64)?,
+            "bxor" => self.emit_binary(ctx, "xor", RegisterType::I64)?,
             "bnot" => {
                 let (a, _) = ctx.pop().unwrap();
                 let result = self.fresh_temp();
@@ -157,10 +119,10 @@ impl CodeGen {
                 ctx.push(result, RegisterType::I64);
             }
             "shl" => {
-                self.emit_specialized_safe_shift(ctx, true)?;
+                self.emit_safe_shift(ctx, true)?;
             }
             "shr" => {
-                self.emit_specialized_safe_shift(ctx, false)?;
+                self.emit_safe_shift(ctx, false)?;
             }
 
             // Bit counting operations — 63-bit-aware via shared helpers.
@@ -205,20 +167,8 @@ impl CodeGen {
             }
 
             // Boolean logical operations (Bool is i64 0 or 1)
-            "and" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = and i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
-            "or" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(&mut self.output, "  %{} = or i64 %{}, %{}", result, a, b)?;
-                ctx.push(result, RegisterType::I64);
-            }
+            "and" => self.emit_binary(ctx, "and", RegisterType::I64)?,
+            "or" => self.emit_binary(ctx, "or", RegisterType::I64)?,
             "not" => {
                 let (a, _) = ctx.pop().unwrap();
                 let result = self.fresh_temp();
@@ -227,75 +177,35 @@ impl CodeGen {
             }
 
             // Integer comparisons - return i64 0 or 1 (like Bool)
-            "i.<" | "i.lt" => self.emit_specialized_icmp(ctx, "slt")?,
-            "i.>" | "i.gt" => self.emit_specialized_icmp(ctx, "sgt")?,
-            "i.<=" | "i.lte" => self.emit_specialized_icmp(ctx, "sle")?,
-            "i.>=" | "i.gte" => self.emit_specialized_icmp(ctx, "sge")?,
-            "i.=" | "i.eq" => self.emit_specialized_icmp(ctx, "eq")?,
-            "i.<>" | "i.neq" => self.emit_specialized_icmp(ctx, "ne")?,
+            "i.<" | "i.lt" => self.emit_icmp(ctx, "slt")?,
+            "i.>" | "i.gt" => self.emit_icmp(ctx, "sgt")?,
+            "i.<=" | "i.lte" => self.emit_icmp(ctx, "sle")?,
+            "i.>=" | "i.gte" => self.emit_icmp(ctx, "sge")?,
+            "i.=" | "i.eq" => self.emit_icmp(ctx, "eq")?,
+            "i.<>" | "i.neq" => self.emit_icmp(ctx, "ne")?,
 
             // Float arithmetic
-            "f.+" | "f.add" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = fadd double %{}, %{}",
-                    result, a, b
-                )?;
-                ctx.push(result, RegisterType::Double);
-            }
-            "f.-" | "f.subtract" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = fsub double %{}, %{}",
-                    result, a, b
-                )?;
-                ctx.push(result, RegisterType::Double);
-            }
-            "f.*" | "f.multiply" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = fmul double %{}, %{}",
-                    result, a, b
-                )?;
-                ctx.push(result, RegisterType::Double);
-            }
-            "f./" | "f.divide" => {
-                let (b, _) = ctx.pop().unwrap();
-                let (a, _) = ctx.pop().unwrap();
-                let result = self.fresh_temp();
-                writeln!(
-                    &mut self.output,
-                    "  %{} = fdiv double %{}, %{}",
-                    result, a, b
-                )?;
-                ctx.push(result, RegisterType::Double);
-            }
+            "f.+" | "f.add" => self.emit_binary(ctx, "fadd", RegisterType::Double)?,
+            "f.-" | "f.subtract" => self.emit_binary(ctx, "fsub", RegisterType::Double)?,
+            "f.*" | "f.multiply" => self.emit_binary(ctx, "fmul", RegisterType::Double)?,
+            "f./" | "f.divide" => self.emit_binary(ctx, "fdiv", RegisterType::Double)?,
 
             // Float comparisons - return i64 0 or 1 (like Bool)
-            "f.<" | "f.lt" => self.emit_specialized_fcmp(ctx, "olt")?,
-            "f.>" | "f.gt" => self.emit_specialized_fcmp(ctx, "ogt")?,
-            "f.<=" | "f.lte" => self.emit_specialized_fcmp(ctx, "ole")?,
-            "f.>=" | "f.gte" => self.emit_specialized_fcmp(ctx, "oge")?,
-            "f.=" | "f.eq" => self.emit_specialized_fcmp(ctx, "oeq")?,
-            "f.<>" | "f.neq" => self.emit_specialized_fcmp(ctx, "one")?,
+            "f.<" | "f.lt" => self.emit_fcmp(ctx, "olt")?,
+            "f.>" | "f.gt" => self.emit_fcmp(ctx, "ogt")?,
+            "f.<=" | "f.lte" => self.emit_fcmp(ctx, "ole")?,
+            "f.>=" | "f.gte" => self.emit_fcmp(ctx, "oge")?,
+            "f.=" | "f.eq" => self.emit_fcmp(ctx, "oeq")?,
+            "f.<>" | "f.neq" => self.emit_fcmp(ctx, "one")?,
 
             // Recursive call to self
-            _ if name == word_name => {
-                self.emit_specialized_recursive_call(ctx, word_name, sig, is_last)?;
+            _ if name == self.word_name() => {
+                self.emit_recursive_call(ctx, is_last)?;
             }
 
             // Call to another specialized word
             _ if self.specialized_words.contains_key(name) => {
-                self.emit_specialized_word_dispatch(ctx, name)?;
+                self.emit_word_dispatch(ctx, name)?;
             }
 
             _ => {
@@ -308,12 +218,32 @@ impl CodeGen {
         Ok(())
     }
 
-    /// Emit a specialized integer comparison.
-    fn emit_specialized_icmp(
+    /// Emit a binary operation that pops two operands of `ty`, applies the
+    /// LLVM `op`, and pushes a result of the same type.
+    fn emit_binary(
         &mut self,
         ctx: &mut RegisterContext,
-        cmp_op: &str,
+        op: &str,
+        ty: RegisterType,
     ) -> Result<(), CodeGenError> {
+        let (b, _) = ctx.pop().unwrap();
+        let (a, _) = ctx.pop().unwrap();
+        let result = self.fresh_temp();
+        writeln!(
+            &mut self.output,
+            "  %{} = {} {} %{}, %{}",
+            result,
+            op,
+            ty.llvm_type(),
+            a,
+            b
+        )?;
+        ctx.push(result, ty);
+        Ok(())
+    }
+
+    /// Emit a specialized integer comparison.
+    fn emit_icmp(&mut self, ctx: &mut RegisterContext, cmp_op: &str) -> Result<(), CodeGenError> {
         let (b, _) = ctx.pop().unwrap();
         let (a, _) = ctx.pop().unwrap();
         let cmp_result = self.fresh_temp();
@@ -333,11 +263,7 @@ impl CodeGen {
     }
 
     /// Emit a specialized float comparison.
-    fn emit_specialized_fcmp(
-        &mut self,
-        ctx: &mut RegisterContext,
-        cmp_op: &str,
-    ) -> Result<(), CodeGenError> {
+    fn emit_fcmp(&mut self, ctx: &mut RegisterContext, cmp_op: &str) -> Result<(), CodeGenError> {
         let (b, _) = ctx.pop().unwrap();
         let (a, _) = ctx.pop().unwrap();
         let cmp_result = self.fresh_temp();

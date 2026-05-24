@@ -31,7 +31,8 @@ impl TypeChecker {
         }
     }
 
-    /// Record the top-of-stack type for a statement if it's trivially copyable (Issue #186)
+    /// Return the type at position `n` from the top of the stack (0 = top);
+    /// yields a fresh type variable if a row variable is reached before `n`.
     pub(super) fn get_type_at_position(
         &self,
         stack: &StackType,
@@ -147,9 +148,8 @@ impl TypeChecker {
         }
     }
 
-    /// Infer the stack effect of a sequence of statements
-    /// Returns an Effect with both inputs and outputs normalized by applying discovered substitutions
-    /// Also includes any computational side effects (Yield, etc.)
+    /// Look up a word's declared stack effect — built-ins first, then
+    /// user-defined words in the environment.
     pub(super) fn lookup_word_effect(&self, name: &str) -> Option<Effect> {
         // First check built-ins
         if let Some(effect) = builtin_signature(name) {
@@ -232,15 +232,10 @@ impl TypeChecker {
         Ok((result_stack, subst))
     }
 
-    /// Count the number of concrete (non-row-variable) types in a stack
+    /// Count the number of concrete (non-row-variable) types in a stack.
+    /// Equivalent to `stack_depth` — every concrete value is one `Cons` cell.
     pub(super) fn count_concrete_types(stack: &StackType) -> usize {
-        let mut count = 0;
-        let mut current = stack;
-        while let StackType::Cons { rest, top: _ } = current {
-            count += 1;
-            current = rest;
-        }
-        count
+        Self::stack_depth(stack)
     }
 
     /// Get the row variable name at the base of a stack, if any
@@ -311,10 +306,9 @@ impl TypeChecker {
         }
     }
 
-    /// Adjust stack for strand.spawn operation by converting Quotation to Closure if needed
-    ///
-    /// strand.spawn expects Quotation(Empty -- Empty), but if we have Quotation(T... -- U...)
-    /// with non-empty inputs, we auto-convert it to a Closure that captures those inputs.
+    /// Pop the top type off the stack; errors on underflow or a polymorphic
+    /// (row-variable) stack. Unlike `polymorphic_pop`, this does not refine
+    /// row variables.
     pub(super) fn pop_type(
         &self,
         stack: &StackType,

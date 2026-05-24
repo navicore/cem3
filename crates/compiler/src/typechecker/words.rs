@@ -5,6 +5,10 @@ use crate::unification::Subst;
 
 use super::TypeChecker;
 
+/// Arithmetic-sugar operators that `resolve_arithmetic_sugar` lowers to
+/// concrete `i.`/`f.`/`string.` ops based on the operand types.
+const SUGAR_OPS: &[&str] = &["+", "-", "*", "/", "%", "=", "<", ">", "<=", ">=", "<>"];
+
 impl TypeChecker {
     pub(super) fn infer_word_call(
         &self,
@@ -14,11 +18,7 @@ impl TypeChecker {
     ) -> Result<(StackType, Subst, Vec<SideEffect>), String> {
         // Arithmetic sugar resolution: resolve +, -, *, / etc. to concrete ops
         // based on the types currently on the stack.
-        let is_sugar = matches!(
-            name,
-            "+" | "-" | "*" | "/" | "%" | "=" | "<" | ">" | "<=" | ">=" | "<>"
-        );
-        if is_sugar {
+        if SUGAR_OPS.contains(&name) {
             if let Some(resolved) = self.resolve_arithmetic_sugar(name, &current_stack) {
                 // Record the resolution for codegen, keyed by source location (line, column)
                 if let Some(s) = span {
@@ -268,11 +268,7 @@ impl TypeChecker {
     /// the types on the stack. Returns `None` if the name is not a sugar op.
     pub(super) fn resolve_arithmetic_sugar(&self, name: &str, stack: &StackType) -> Option<String> {
         // Only handle known sugar operators
-        let is_binary = matches!(
-            name,
-            "+" | "-" | "*" | "/" | "%" | "=" | "<" | ">" | "<=" | ">=" | "<>"
-        );
-        if !is_binary {
+        if !SUGAR_OPS.contains(&name) {
             return None;
         }
 
@@ -280,39 +276,19 @@ impl TypeChecker {
         let (rest, top) = stack.clone().pop()?;
         let (_, second) = rest.pop()?;
 
-        match (name, &second, &top) {
-            // Int × Int operations
-            ("+", Type::Int, Type::Int) => Some("i.+".to_string()),
-            ("-", Type::Int, Type::Int) => Some("i.-".to_string()),
-            ("*", Type::Int, Type::Int) => Some("i.*".to_string()),
-            ("/", Type::Int, Type::Int) => Some("i./".to_string()),
-            ("%", Type::Int, Type::Int) => Some("i.%".to_string()),
-            ("=", Type::Int, Type::Int) => Some("i.=".to_string()),
-            ("<", Type::Int, Type::Int) => Some("i.<".to_string()),
-            (">", Type::Int, Type::Int) => Some("i.>".to_string()),
-            ("<=", Type::Int, Type::Int) => Some("i.<=".to_string()),
-            (">=", Type::Int, Type::Int) => Some("i.>=".to_string()),
-            ("<>", Type::Int, Type::Int) => Some("i.<>".to_string()),
-
-            // Float × Float operations
-            ("+", Type::Float, Type::Float) => Some("f.+".to_string()),
-            ("-", Type::Float, Type::Float) => Some("f.-".to_string()),
-            ("*", Type::Float, Type::Float) => Some("f.*".to_string()),
-            ("/", Type::Float, Type::Float) => Some("f./".to_string()),
-            ("=", Type::Float, Type::Float) => Some("f.=".to_string()),
-            ("<", Type::Float, Type::Float) => Some("f.<".to_string()),
-            (">", Type::Float, Type::Float) => Some("f.>".to_string()),
-            ("<=", Type::Float, Type::Float) => Some("f.<=".to_string()),
-            (">=", Type::Float, Type::Float) => Some("f.>=".to_string()),
-            ("<>", Type::Float, Type::Float) => Some("f.<>".to_string()),
-
-            // String operations (only + for concat, = for equality)
-            ("+", Type::String, Type::String) => Some("string.concat".to_string()),
-            ("=", Type::String, Type::String) => Some("string.equal?".to_string()),
-
-            // No match — not a sugar op for these types (will fall through
-            // to normal lookup, which will fail with "Unknown word: '+'" —
-            // giving the user a clear error that they need explicit types)
+        // Integer sugar lowers to `i.<op>`, float to `f.<op>` (no float modulo).
+        // String supports only `+` (concat) and `=` (equality).
+        match (&second, &top) {
+            (Type::Int, Type::Int) => Some(format!("i.{}", name)),
+            (Type::Float, Type::Float) if name != "%" => Some(format!("f.{}", name)),
+            (Type::String, Type::String) => match name {
+                "+" => Some("string.concat".to_string()),
+                "=" => Some("string.equal?".to_string()),
+                _ => None,
+            },
+            // No match — not a sugar op for these types (falls through to
+            // normal lookup, which fails with "Unknown word: '+'", giving the
+            // user a clear error that they need explicit types).
             _ => None,
         }
     }

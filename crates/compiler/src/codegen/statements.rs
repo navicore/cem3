@@ -152,13 +152,10 @@ impl CodeGen {
         stack_var: &str,
         name: &str,
     ) -> Result<Option<String>, CodeGenError> {
-        // Check if this word has a specialized version
-        let sig = match self.specialized_words.get(name) {
-            Some(sig) => sig.clone(),
-            None => return Ok(None),
+        let Some(sig) = self.specialized_words.get(name).cloned() else {
+            return Ok(None);
         };
 
-        // Check if we have enough values on the virtual stack
         let input_count = sig.inputs.len();
         if self.virtual_stack.len() < input_count {
             return Ok(None);
@@ -192,7 +189,10 @@ impl CodeGen {
         // Pop arguments from virtual stack (top first, so reverse order)
         let mut args = Vec::with_capacity(input_count);
         for _ in 0..input_count {
-            let arg = self.virtual_stack.pop().unwrap();
+            let arg = self
+                .virtual_stack
+                .pop()
+                .expect("checked virtual_stack.len() >= input_count above");
             let arg_var = match arg {
                 VirtualValue::Int { ssa_var, .. } => ssa_var,
                 VirtualValue::Float { ssa_var } => ssa_var,
@@ -202,10 +202,8 @@ impl CodeGen {
         }
         args.reverse(); // Now in bottom-to-top order (matches sig.inputs)
 
-        // Generate specialized function name
         let spec_name = format!("seq_{}{}", mangle_name(name), sig.suffix());
 
-        // Build argument list string
         let arg_strs: Vec<String> = sig
             .inputs
             .iter()
@@ -213,7 +211,6 @@ impl CodeGen {
             .map(|(ty, var)| format!("{} %{}", ty.llvm_type(), var))
             .collect();
 
-        // Emit the specialized call
         let result_var = self.fresh_temp();
         let return_type = sig.llvm_return_type();
 
@@ -226,7 +223,6 @@ impl CodeGen {
             arg_strs.join(", ")
         )?;
 
-        // Push results back to virtual stack
         let mut final_stack_var = stack_var.to_string();
 
         if sig.outputs.len() == 1 {
@@ -393,12 +389,10 @@ impl CodeGen {
 
             // Track the actual int value if previous was IntLiteral (Issue #192)
             // This enables optimized roll/pick with constant N (e.g., `2 roll` -> rot)
-            self.prev_stmt_int_value = if i > 0 {
-                if let Statement::IntLiteral(n) = &statements[i - 1] {
-                    Some(*n)
-                } else {
-                    None
-                }
+            self.prev_stmt_int_value = if i > 0
+                && let Statement::IntLiteral(n) = &statements[i - 1]
+            {
+                Some(*n)
             } else {
                 None
             };
@@ -410,7 +404,6 @@ impl CodeGen {
                 TailPosition::NonTail
             };
 
-            // Regular statement processing
             stack_var = self.codegen_statement(&stack_var, &statements[i], position)?;
             i += 1;
         }

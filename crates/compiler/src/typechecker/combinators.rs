@@ -6,6 +6,10 @@ use crate::unification::{Subst, unify_stacks};
 use super::TypeChecker;
 
 impl TypeChecker {
+    /// Infer the stack effect of `dip`: ( ..a x quot -- ..b x )
+    ///
+    /// Pop the quotation and the value below it, run the quotation on
+    /// the rest of the stack, then restore the value on top.
     pub(super) fn infer_dip(
         &self,
         span: &Option<crate::ast::Span>,
@@ -21,25 +25,17 @@ impl TypeChecker {
             )
         })?;
 
-        // Extract the quotation's effect
-        let quot_effect = match &quot_type {
-            Type::Quotation(effect) => (**effect).clone(),
-            Type::Closure { effect, .. } => (**effect).clone(),
-            Type::Var(_) => {
-                // Unknown quotation type — fall back to generic builtin signature
-                let effect = self
-                    .lookup_word_effect("dip")
-                    .ok_or_else(|| "Unknown word: 'dip'".to_string())?;
-                let fresh_effect = self.freshen_effect(&effect);
-                let (result_stack, subst) =
-                    self.apply_effect(&fresh_effect, current_stack, "dip", span)?;
+        let quot_effect = match self.extract_quotation_effect(
+            &quot_type,
+            "dip",
+            "on top of stack",
+            current_stack,
+            span,
+            &line_prefix,
+        )? {
+            QuotEffect::Concrete(effect) => effect,
+            QuotEffect::Fallback(result_stack, subst) => {
                 return Ok((result_stack, subst, vec![]));
-            }
-            _ => {
-                return Err(format!(
-                    "{}dip: expected quotation or closure on top of stack, got {}",
-                    line_prefix, quot_type
-                ));
             }
         };
 
@@ -99,24 +95,17 @@ impl TypeChecker {
             )
         })?;
 
-        // Extract the quotation's effect
-        let quot_effect = match &quot_type {
-            Type::Quotation(effect) => (**effect).clone(),
-            Type::Closure { effect, .. } => (**effect).clone(),
-            Type::Var(_) => {
-                let effect = self
-                    .lookup_word_effect("keep")
-                    .ok_or_else(|| "Unknown word: 'keep'".to_string())?;
-                let fresh_effect = self.freshen_effect(&effect);
-                let (result_stack, subst) =
-                    self.apply_effect(&fresh_effect, current_stack, "keep", span)?;
+        let quot_effect = match self.extract_quotation_effect(
+            &quot_type,
+            "keep",
+            "on top of stack",
+            current_stack,
+            span,
+            &line_prefix,
+        )? {
+            QuotEffect::Concrete(effect) => effect,
+            QuotEffect::Fallback(result_stack, subst) => {
                 return Ok((result_stack, subst, vec![]));
-            }
-            _ => {
-                return Err(format!(
-                    "{}keep: expected quotation or closure on top of stack, got {}",
-                    line_prefix, quot_type
-                ));
             }
         };
 
@@ -185,44 +174,31 @@ impl TypeChecker {
             )
         })?;
 
-        // Extract both quotation effects
-        let quot1_effect = match &quot1_type {
-            Type::Quotation(effect) => (**effect).clone(),
-            Type::Closure { effect, .. } => (**effect).clone(),
-            Type::Var(_) => {
-                let effect = self
-                    .lookup_word_effect("bi")
-                    .ok_or_else(|| "Unknown word: 'bi'".to_string())?;
-                let fresh_effect = self.freshen_effect(&effect);
-                let (result_stack, subst) =
-                    self.apply_effect(&fresh_effect, current_stack, "bi", span)?;
+        let quot1_effect = match self.extract_quotation_effect(
+            &quot1_type,
+            "bi",
+            "as first quotation",
+            current_stack.clone(),
+            span,
+            &line_prefix,
+        )? {
+            QuotEffect::Concrete(effect) => effect,
+            QuotEffect::Fallback(result_stack, subst) => {
                 return Ok((result_stack, subst, vec![]));
-            }
-            _ => {
-                return Err(format!(
-                    "{}bi: expected quotation or closure as first quotation, got {}",
-                    line_prefix, quot1_type
-                ));
             }
         };
 
-        let quot2_effect = match &quot2_type {
-            Type::Quotation(effect) => (**effect).clone(),
-            Type::Closure { effect, .. } => (**effect).clone(),
-            Type::Var(_) => {
-                let effect = self
-                    .lookup_word_effect("bi")
-                    .ok_or_else(|| "Unknown word: 'bi'".to_string())?;
-                let fresh_effect = self.freshen_effect(&effect);
-                let (result_stack, subst) =
-                    self.apply_effect(&fresh_effect, current_stack, "bi", span)?;
+        let quot2_effect = match self.extract_quotation_effect(
+            &quot2_type,
+            "bi",
+            "as second quotation",
+            current_stack,
+            span,
+            &line_prefix,
+        )? {
+            QuotEffect::Concrete(effect) => effect,
+            QuotEffect::Fallback(result_stack, subst) => {
                 return Ok((result_stack, subst, vec![]));
-            }
-            _ => {
-                return Err(format!(
-                    "{}bi: expected quotation or closure as second quotation, got {}",
-                    line_prefix, quot2_type
-                ));
             }
         };
 
@@ -317,28 +293,30 @@ impl TypeChecker {
         // if either quotation is a still-unresolved type variable, fall back
         // to the placeholder builtin signature so the caller gets *some*
         // shape rather than a hard failure.
-        let then_effect = match self.if_branch_effect(
+        let then_effect = match self.extract_quotation_effect(
             &then_quot_type,
-            "then-branch",
+            "if",
+            "as then-branch",
             current_stack.clone(),
             span,
             &line_prefix,
         )? {
-            IfBranchEffect::Concrete(effect) => effect,
-            IfBranchEffect::Fallback(result_stack, subst) => {
+            QuotEffect::Concrete(effect) => effect,
+            QuotEffect::Fallback(result_stack, subst) => {
                 return Ok((result_stack, subst, vec![]));
             }
         };
 
-        let else_effect = match self.if_branch_effect(
+        let else_effect = match self.extract_quotation_effect(
             &else_quot_type,
-            "else-branch",
+            "if",
+            "as else-branch",
             current_stack,
             span,
             &line_prefix,
         )? {
-            IfBranchEffect::Concrete(effect) => effect,
-            IfBranchEffect::Fallback(result_stack, subst) => {
+            QuotEffect::Concrete(effect) => effect,
+            QuotEffect::Fallback(result_stack, subst) => {
                 return Ok((result_stack, subst, vec![]));
             }
         };
@@ -404,47 +382,51 @@ impl TypeChecker {
         Ok((result_stack, subst, effects))
     }
 
-    /// Resolve a single `if` branch's effect, applying the same
-    /// type-variable fallback strategy used by `dip`/`keep`/`bi`:
+    /// Resolve a quotation slot's effect for a combinator
+    /// (`dip`/`keep`/`bi`/`if`), applying a uniform Var fallback:
     ///   - Concrete `Quotation` or `Closure` types yield their effect.
-    ///   - Unresolved `Var` types fall back to the placeholder signature
-    ///     so the surrounding word still has *some* inferred shape.
+    ///   - Unresolved `Var` types fall back to the placeholder builtin
+    ///     signature so the surrounding word still has *some* inferred
+    ///     shape.
     ///   - Anything else is a type error pinpointing the offending slot.
     ///
-    /// `slot_label` is "then-branch" or "else-branch" — used only in
-    /// the error message.
-    fn if_branch_effect(
+    /// `word_name` is the combinator (`"dip"`, `"bi"`, `"if"`, …) — used
+    /// both for the placeholder lookup and the error prefix.
+    /// `slot_label` is the slot-specific phrase appended to the type
+    /// error, e.g. `"on top of stack"` or `"as first quotation"`.
+    fn extract_quotation_effect(
         &self,
         quot_type: &Type,
+        word_name: &str,
         slot_label: &str,
         current_stack: StackType,
         span: &Option<crate::ast::Span>,
         line_prefix: &str,
-    ) -> Result<IfBranchEffect, String> {
+    ) -> Result<QuotEffect, String> {
         match quot_type {
-            Type::Quotation(effect) => Ok(IfBranchEffect::Concrete((**effect).clone())),
-            Type::Closure { effect, .. } => Ok(IfBranchEffect::Concrete((**effect).clone())),
+            Type::Quotation(effect) => Ok(QuotEffect::Concrete((**effect).clone())),
+            Type::Closure { effect, .. } => Ok(QuotEffect::Concrete((**effect).clone())),
             Type::Var(_) => {
                 let effect = self
-                    .lookup_word_effect("if")
-                    .ok_or_else(|| "Unknown word: 'if'".to_string())?;
+                    .lookup_word_effect(word_name)
+                    .ok_or_else(|| format!("Unknown word: '{}'", word_name))?;
                 let fresh_effect = self.freshen_effect(&effect);
                 let (result_stack, subst) =
-                    self.apply_effect(&fresh_effect, current_stack, "if", span)?;
-                Ok(IfBranchEffect::Fallback(result_stack, subst))
+                    self.apply_effect(&fresh_effect, current_stack, word_name, span)?;
+                Ok(QuotEffect::Fallback(result_stack, subst))
             }
             other => Err(format!(
-                "{}if: expected quotation or closure as {}, got {}",
-                line_prefix, slot_label, other
+                "{}{}: expected quotation or closure {}, got {}",
+                line_prefix, word_name, slot_label, other
             )),
         }
     }
 }
 
-/// Result of resolving an `if` branch's effect — either a concrete
-/// quotation/closure effect to feed into branch unification, or a
-/// caller-must-return placeholder result for the unresolved-var case.
-enum IfBranchEffect {
+/// Result of resolving a quotation slot's effect for a combinator —
+/// either a concrete effect to feed into the surrounding inference, or
+/// a caller-must-return placeholder result for the unresolved-Var case.
+enum QuotEffect {
     Concrete(crate::types::Effect),
     Fallback(StackType, Subst),
 }

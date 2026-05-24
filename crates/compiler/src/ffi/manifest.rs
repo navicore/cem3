@@ -234,24 +234,20 @@ pub(super) fn parse_stack_effect(s: &str) -> Result<Effect, String> {
         ));
     }
 
-    let inputs_str = parts[0].trim();
-    let outputs_str = parts[1].trim();
-
-    // Parse input types
-    let mut inputs = StackType::RowVar("a".to_string());
-    for type_name in inputs_str.split_whitespace() {
-        let ty = parse_type_name(type_name)?;
-        inputs = inputs.push(ty);
-    }
-
-    // Parse output types
-    let mut outputs = StackType::RowVar("a".to_string());
-    for type_name in outputs_str.split_whitespace() {
-        let ty = parse_type_name(type_name)?;
-        outputs = outputs.push(ty);
-    }
+    let inputs = parse_stack_side(parts[0].trim())?;
+    let outputs = parse_stack_side(parts[1].trim())?;
 
     Ok(Effect::new(inputs, outputs))
+}
+
+/// Parse one side of a stack effect (a whitespace-separated type list) into a
+/// row-polymorphic `StackType`, bottom-to-top.
+fn parse_stack_side(s: &str) -> Result<StackType, String> {
+    let mut stack = StackType::RowVar("a".to_string());
+    for type_name in s.split_whitespace() {
+        stack = stack.push(parse_type_name(type_name)?);
+    }
+    Ok(stack)
 }
 
 /// Parse a type name string into a Type

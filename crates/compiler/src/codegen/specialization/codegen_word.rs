@@ -3,6 +3,12 @@
 //! `if / else`, and emitting returns. The per-operation and per-call
 //! emitters live in sibling files (`codegen_ops`, `codegen_safe_math`,
 //! `codegen_calls`).
+//!
+//! All of the per-function work happens inside a [`SpecializedEmitter`],
+//! a short-lived wrapper that owns the function-level constants
+//! (`word_name`, `sig`) so they don't have to be threaded through every
+//! helper signature. It derefs to the underlying [`CodeGen`], so
+//! existing `self.output` / `self.fresh_temp()` access keeps working.
 
 use super::CodeGen;
 use super::context::RegisterContext;
@@ -11,6 +17,60 @@ use crate::ast::{Statement, WordDef};
 use crate::codegen::CodeGenError;
 use crate::codegen::mangle_name;
 use std::fmt::Write as _;
+use std::ops::{Deref, DerefMut};
+
+/// Wraps a [`CodeGen`] borrow with the constants that stay fixed for
+/// one specialized-function compilation. Methods on this type drop
+/// `word_name`/`sig`/`is_last` from the parameter parade — they're
+/// fields, not arguments.
+///
+/// `Deref<Target = CodeGen>` lets the borrowed codegen state (output
+/// buffer, fresh-name counters, side tables) be reached transparently
+/// from the emitter's methods, so the migration from `impl CodeGen` to
+/// `impl SpecializedEmitter` is a parameter cleanup, not a state rewire.
+pub(super) struct SpecializedEmitter<'a> {
+    codegen: &'a mut CodeGen,
+    word_name: &'a str,
+    sig: &'a SpecSignature,
+}
+
+impl<'a> SpecializedEmitter<'a> {
+    pub(super) fn new(
+        codegen: &'a mut CodeGen,
+        word_name: &'a str,
+        sig: &'a SpecSignature,
+    ) -> Self {
+        Self {
+            codegen,
+            word_name,
+            sig,
+        }
+    }
+
+    /// The name of the word being compiled. Set once per emitter.
+    pub(super) fn word_name(&self) -> &str {
+        self.word_name
+    }
+
+    /// The specialization signature of the word being compiled. Set
+    /// once per emitter.
+    pub(super) fn sig(&self) -> &SpecSignature {
+        self.sig
+    }
+}
+
+impl Deref for SpecializedEmitter<'_> {
+    type Target = CodeGen;
+    fn deref(&self) -> &CodeGen {
+        self.codegen
+    }
+}
+
+impl DerefMut for SpecializedEmitter<'_> {
+    fn deref_mut(&mut self) -> &mut CodeGen {
+        self.codegen
+    }
+}
 
 impl CodeGen {
     /// Generate a specialized version of a word.
@@ -28,20 +88,29 @@ impl CodeGen {
         word: &WordDef,
         sig: &SpecSignature,
     ) -> Result<(), CodeGenError> {
-        let base_name = format!("seq_{}", mangle_name(&word.name));
-        let spec_name = format!("{}{}", base_name, sig.suffix());
+        SpecializedEmitter::new(self, &word.name, sig).emit_word(word)
+    }
+}
+
+impl SpecializedEmitter<'_> {
+    /// Emit the full specialized function: signature, entry block,
+    /// statements, and register the word in `specialized_words`.
+    fn emit_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
+        let base_name = format!("seq_{}", mangle_name(self.word_name));
+        let spec_name = format!("{}{}", base_name, self.sig.suffix());
 
         // Generate function signature
         // For single output: define i64 @name(i64 %arg0) {
         // For multiple outputs: define { i64, i64 } @name(i64 %arg0, i64 %arg1) {
-        let return_type = if sig.outputs.len() == 1 {
-            sig.outputs[0].llvm_type().to_string()
+        let return_type = if self.sig.outputs.len() == 1 {
+            self.sig.outputs[0].llvm_type().to_string()
         } else {
-            let types: Vec<_> = sig.outputs.iter().map(|t| t.llvm_type()).collect();
+            let types: Vec<_> = self.sig.outputs.iter().map(|t| t.llvm_type()).collect();
             format!("{{ {} }}", types.join(", "))
         };
 
-        let params: Vec<String> = sig
+        let params: Vec<String> = self
+            .sig
             .inputs
             .iter()
             .enumerate()
@@ -57,7 +126,8 @@ impl CodeGen {
         )?;
         writeln!(&mut self.output, "entry:")?;
 
-        let initial_params: Vec<(String, RegisterType)> = sig
+        let initial_params: Vec<(String, RegisterType)> = self
+            .sig
             .inputs
             .iter()
             .enumerate()
@@ -69,33 +139,28 @@ impl CodeGen {
         let mut prev_int_literal: Option<i64> = None;
         for (i, stmt) in word.body.iter().enumerate() {
             let is_last = i == body_len - 1;
-            self.codegen_specialized_statement(
-                &mut ctx,
-                stmt,
-                &word.name,
-                sig,
-                is_last,
-                &mut prev_int_literal,
-            )?;
+            self.emit_statement(&mut ctx, stmt, is_last, &mut prev_int_literal)?;
         }
 
         writeln!(&mut self.output, "}}")?;
         writeln!(&mut self.output)?;
 
-        // Record that this word is specialized
-        self.specialized_words
-            .insert(word.name.clone(), sig.clone());
+        // Record that this word is specialized. (Bind locals first: the
+        // `insert` call needs `&mut self.specialized_words` via DerefMut,
+        // which clashes with reading `self.word_name`/`self.sig` in the
+        // same expression.)
+        let key = self.word_name.to_string();
+        let sig = self.sig.clone();
+        self.specialized_words.insert(key, sig);
 
         Ok(())
     }
 
-    /// Generate specialized code for a single statement
-    pub(super) fn codegen_specialized_statement(
+    /// Generate specialized code for a single statement.
+    pub(super) fn emit_statement(
         &mut self,
         ctx: &mut RegisterContext,
         stmt: &Statement,
-        word_name: &str,
-        sig: &SpecSignature,
         is_last: bool,
         prev_int_literal: &mut Option<i64>,
     ) -> Result<(), CodeGenError> {
@@ -134,7 +199,7 @@ impl CodeGen {
             }
 
             Statement::WordCall { name, .. } => {
-                self.codegen_specialized_word_call(ctx, name, word_name, sig, is_last, prev_int)?;
+                self.emit_word_call(ctx, name, is_last, prev_int)?;
             }
 
             Statement::If {
@@ -142,14 +207,7 @@ impl CodeGen {
                 else_branch,
                 span: _,
             } => {
-                self.codegen_specialized_if(
-                    ctx,
-                    then_branch,
-                    else_branch.as_ref(),
-                    word_name,
-                    sig,
-                    is_last,
-                )?;
+                self.emit_if(ctx, then_branch, else_branch.as_deref(), is_last)?;
             }
 
             // These shouldn't appear in specializable words (checked in can_specialize)
@@ -168,23 +226,19 @@ impl CodeGen {
         // that already emits returns (like if, or recursive calls)
         let already_returns = match stmt {
             Statement::If { .. } => true,
-            Statement::WordCall { name, .. } if name == word_name => true,
+            Statement::WordCall { name, .. } if name == self.word_name => true,
             _ => false,
         };
         if is_last && !already_returns {
-            self.emit_specialized_return(ctx, sig)?;
+            self.emit_return(ctx)?;
         }
 
         Ok(())
     }
 
-    /// Emit return statement for specialized function
-    pub(super) fn emit_specialized_return(
-        &mut self,
-        ctx: &RegisterContext,
-        sig: &SpecSignature,
-    ) -> Result<(), CodeGenError> {
-        let output_count = sig.outputs.len();
+    /// Emit return statement for specialized function.
+    pub(super) fn emit_return(&mut self, ctx: &RegisterContext) -> Result<(), CodeGenError> {
+        let output_count = self.sig.outputs.len();
 
         if output_count == 0 {
             writeln!(&mut self.output, "  ret void")?;
@@ -208,7 +262,7 @@ impl CodeGen {
             let start_idx = ctx.values.len() - output_count;
             let return_values: Vec<_> = ctx.values[start_idx..].to_vec();
 
-            let struct_type = sig.llvm_return_type();
+            let struct_type = self.sig.llvm_return_type();
 
             let mut current_struct = "undef".to_string();
             for (i, (var, ty)) in return_values.iter().enumerate() {
@@ -231,17 +285,53 @@ impl CodeGen {
         Ok(())
     }
 
-    /// Generate specialized if/else statement
-    pub(super) fn codegen_specialized_if(
+    /// Emit code for one branch of a specialized if-statement.
+    ///
+    /// Writes the branch's label, processes its statements on a cloned
+    /// context, and either lets the branch's last statement emit the
+    /// function's return (when `is_last`) or emits a `br` to
+    /// `merge_label`.
+    ///
+    /// Returns `(branch_ctx, predecessor)` — `predecessor` is `Some` if
+    /// the branch falls through to `merge_label` (and therefore feeds a
+    /// phi node), `None` if it already returned.
+    fn emit_branch(
+        &mut self,
+        parent_ctx: &RegisterContext,
+        branch: &[Statement],
+        branch_label: &str,
+        merge_label: &str,
+        is_last: bool,
+    ) -> Result<(RegisterContext, Option<String>), CodeGenError> {
+        writeln!(&mut self.output, "{}:", branch_label)?;
+        let mut branch_ctx = parent_ctx.clone();
+        let mut branch_prev_int: Option<i64> = None;
+        for (i, stmt) in branch.iter().enumerate() {
+            let is_stmt_last = i == branch.len() - 1 && is_last;
+            self.emit_statement(&mut branch_ctx, stmt, is_stmt_last, &mut branch_prev_int)?;
+        }
+        // Empty branch (or no-else) needs its return emitted explicitly:
+        // there was no last statement to do it via the in-statement path.
+        if is_last && branch.is_empty() {
+            self.emit_return(&branch_ctx)?;
+        }
+        let predecessor = if is_last {
+            None
+        } else {
+            writeln!(&mut self.output, "  br label %{}", merge_label)?;
+            Some(branch_label.to_string())
+        };
+        Ok((branch_ctx, predecessor))
+    }
+
+    /// Generate specialized if/else statement.
+    pub(super) fn emit_if(
         &mut self,
         ctx: &mut RegisterContext,
         then_branch: &[Statement],
-        else_branch: Option<&Vec<Statement>>,
-        word_name: &str,
-        sig: &SpecSignature,
+        else_branch: Option<&[Statement]>,
         is_last: bool,
     ) -> Result<(), CodeGenError> {
-        // Pop condition
         let (cond_var, _) = ctx
             .pop()
             .ok_or_else(|| CodeGenError::Logic("Empty context at if condition".to_string()))?;
@@ -263,62 +353,13 @@ impl CodeGen {
             cmp_result, then_label, else_label
         )?;
 
-        // Then branch
-        writeln!(&mut self.output, "{}:", then_label)?;
-        let mut then_ctx = ctx.clone();
-        let mut then_prev_int: Option<i64> = None;
-        for (i, stmt) in then_branch.iter().enumerate() {
-            let is_stmt_last = i == then_branch.len() - 1 && is_last;
-            self.codegen_specialized_statement(
-                &mut then_ctx,
-                stmt,
-                word_name,
-                sig,
-                is_stmt_last,
-                &mut then_prev_int,
-            )?;
-        }
-        // If the then branch is empty and this is the last statement, emit return
-        if is_last && then_branch.is_empty() {
-            self.emit_specialized_return(&then_ctx, sig)?;
-        }
-        let then_emitted_return = is_last;
-        let then_pred = if then_emitted_return {
-            None
-        } else {
-            writeln!(&mut self.output, "  br label %{}", merge_label)?;
-            Some(then_label.clone())
-        };
+        let (then_ctx, then_pred) =
+            self.emit_branch(ctx, then_branch, &then_label, &merge_label, is_last)?;
 
-        // Else branch
-        writeln!(&mut self.output, "{}:", else_label)?;
-        let mut else_ctx = ctx.clone();
-        let mut else_prev_int: Option<i64> = None;
-        if let Some(else_stmts) = else_branch {
-            for (i, stmt) in else_stmts.iter().enumerate() {
-                let is_stmt_last = i == else_stmts.len() - 1 && is_last;
-                self.codegen_specialized_statement(
-                    &mut else_ctx,
-                    stmt,
-                    word_name,
-                    sig,
-                    is_stmt_last,
-                    &mut else_prev_int,
-                )?;
-            }
-        }
-        // If the else branch is empty (or None) and this is the last statement, emit return
-        if is_last && (else_branch.is_none() || else_branch.as_ref().is_some_and(|b| b.is_empty()))
-        {
-            self.emit_specialized_return(&else_ctx, sig)?;
-        }
-        let else_emitted_return = is_last;
-        let else_pred = if else_emitted_return {
-            None
-        } else {
-            writeln!(&mut self.output, "  br label %{}", merge_label)?;
-            Some(else_label.clone())
-        };
+        // None or empty else is the same shape from the helper's view.
+        let else_slice: &[Statement] = else_branch.unwrap_or(&[]);
+        let (else_ctx, else_pred) =
+            self.emit_branch(ctx, else_slice, &else_label, &merge_label, is_last)?;
 
         // Merge block with phi nodes if either branch continues
         if then_pred.is_some() || else_pred.is_some() {
@@ -370,7 +411,7 @@ impl CodeGen {
             }
 
             if is_last && (then_pred.is_some() || else_pred.is_some()) {
-                self.emit_specialized_return(ctx, sig)?;
+                self.emit_return(ctx)?;
             }
         }
 

@@ -49,22 +49,15 @@ impl Linter {
         // Collect diagnostics locally first, then filter by allowed_lints
         let mut local_diagnostics = Vec::new();
 
-        // Extract word sequence from the body (with span info)
-        let word_infos = self.extract_word_sequence(&word.body);
+        self.lint_statement_list(
+            &word.body,
+            word,
+            file,
+            fallback_line,
+            &mut local_diagnostics,
+        );
 
-        // Try each pattern
-        for pattern in &self.patterns {
-            self.find_matches(
-                &word_infos,
-                pattern,
-                word,
-                file,
-                fallback_line,
-                &mut local_diagnostics,
-            );
-        }
-
-        // Check for deeply nested if/else chains
+        // Check for deeply nested if/else chains (top-level word body only)
         let max_depth = Self::max_if_nesting_depth(&word.body);
         if max_depth >= MAX_NESTING_DEPTH {
             local_diagnostics.push(LintDiagnostic {
@@ -85,9 +78,6 @@ impl Linter {
                 end_index: 0,
             });
         }
-
-        // Recursively lint nested structures (quotations, if branches)
-        self.lint_nested(&word.body, word, file, &mut local_diagnostics);
 
         // Filter out diagnostics that are allowed via # seq:allow(lint-id) annotation
         for diagnostic in local_diagnostics {
@@ -298,7 +288,29 @@ impl Linter {
         Some(word_idx - start)
     }
 
-    /// Recursively lint nested structures
+    /// Run all patterns against `statements`, then recurse into any
+    /// nested forms (quotations, if branches, match arms) within them.
+    /// Single source of truth for the "scan + descend" loop used by both
+    /// the top-level word body and every nested body.
+    fn lint_statement_list(
+        &self,
+        statements: &[Statement],
+        word: &WordDef,
+        file: &Path,
+        fallback_line: usize,
+        diagnostics: &mut Vec<LintDiagnostic>,
+    ) {
+        let word_infos = self.extract_word_sequence(statements);
+        for pattern in &self.patterns {
+            self.find_matches(&word_infos, pattern, word, file, fallback_line, diagnostics);
+        }
+        self.lint_nested(statements, word, file, diagnostics);
+    }
+
+    /// Walk `statements`, descending into any nested body (quotation,
+    /// if branch, match arm) by handing it back to `lint_statement_list`.
+    /// The combined recursion does extract → patterns → recurse on every
+    /// reachable body in the AST.
     fn lint_nested(
         &self,
         statements: &[Statement],
@@ -311,69 +323,27 @@ impl Linter {
         for stmt in statements {
             match stmt {
                 Statement::Quotation { body, .. } => {
-                    // Lint the quotation body
-                    let word_infos = self.extract_word_sequence(body);
-                    for pattern in &self.patterns {
-                        self.find_matches(
-                            &word_infos,
-                            pattern,
-                            word,
-                            file,
-                            fallback_line,
-                            diagnostics,
-                        );
-                    }
-                    // Recurse into nested quotations
-                    self.lint_nested(body, word, file, diagnostics);
+                    self.lint_statement_list(body, word, file, fallback_line, diagnostics);
                 }
                 Statement::If {
                     then_branch,
                     else_branch,
                     span: _,
                 } => {
-                    // Lint both branches
-                    let word_infos = self.extract_word_sequence(then_branch);
-                    for pattern in &self.patterns {
-                        self.find_matches(
-                            &word_infos,
-                            pattern,
+                    self.lint_statement_list(then_branch, word, file, fallback_line, diagnostics);
+                    if let Some(else_stmts) = else_branch {
+                        self.lint_statement_list(
+                            else_stmts,
                             word,
                             file,
                             fallback_line,
                             diagnostics,
                         );
                     }
-                    self.lint_nested(then_branch, word, file, diagnostics);
-
-                    if let Some(else_stmts) = else_branch {
-                        let word_infos = self.extract_word_sequence(else_stmts);
-                        for pattern in &self.patterns {
-                            self.find_matches(
-                                &word_infos,
-                                pattern,
-                                word,
-                                file,
-                                fallback_line,
-                                diagnostics,
-                            );
-                        }
-                        self.lint_nested(else_stmts, word, file, diagnostics);
-                    }
                 }
                 Statement::Match { arms, span: _ } => {
                     for arm in arms {
-                        let word_infos = self.extract_word_sequence(&arm.body);
-                        for pattern in &self.patterns {
-                            self.find_matches(
-                                &word_infos,
-                                pattern,
-                                word,
-                                file,
-                                fallback_line,
-                                diagnostics,
-                            );
-                        }
-                        self.lint_nested(&arm.body, word, file, diagnostics);
+                        self.lint_statement_list(&arm.body, word, file, fallback_line, diagnostics);
                     }
                 }
                 _ => {}

@@ -8,8 +8,7 @@ use crate::ast::{MatchArm, Pattern, UnionDef};
 use crate::types::Type;
 
 impl CodeGen {
-    /// Get the next quotation type (consumes it in DFS traversal order)
-    /// Get the inferred type for a quotation by its ID
+    /// Get the inferred type for a quotation by its ID.
     pub(super) fn get_quotation_type(&self, id: usize) -> Result<&Type, CodeGenError> {
         self.type_map.get(&id).ok_or_else(|| {
             CodeGenError::Logic(format!(
@@ -40,10 +39,9 @@ impl CodeGen {
         false
     }
 
-    /// Find variant info by name across all unions
+    /// Find variant info by name across all unions.
     ///
-    /// Returns (tag_index, field_count) for the variant
-    /// Returns (tag_index, field_count, field_names)
+    /// Returns (tag_index, field_count, field_names) for the variant.
     pub(super) fn find_variant_info(
         &self,
         variant_name: &str,
@@ -67,14 +65,9 @@ impl CodeGen {
     ///
     /// Returns the UnionDef reference if found
     pub(super) fn find_union_for_variant(&self, variant_name: &str) -> Option<&UnionDef> {
-        for union_def in &self.unions {
-            for variant in &union_def.variants {
-                if variant.name == variant_name {
-                    return Some(union_def);
-                }
-            }
-        }
-        None
+        self.unions
+            .iter()
+            .find(|u| u.variants.iter().any(|v| v.name == variant_name))
     }
 
     /// Check if a match expression is exhaustive for its union type
@@ -95,9 +88,9 @@ impl CodeGen {
         };
 
         // Find the union this variant belongs to
-        let union_def = match self.find_union_for_variant(first_variant) {
-            Some(u) => u,
-            None => return Ok(()), // Unknown variant, let find_variant_info handle error
+        let Some(union_def) = self.find_union_for_variant(first_variant) else {
+            // Unknown variant, let find_variant_info handle the error.
+            return Ok(());
         };
 
         // Collect all variant names in the match arms

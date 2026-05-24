@@ -21,39 +21,18 @@ pub(super) fn add_signatures(sigs: &mut HashMap<String, Effect>) {
     builtin!(sigs, "map.size", (a M -- a Int));
     builtin!(sigs, "map.empty?", (a M -- a Bool));
 
-    // map.each: ( a Map Quotation -- a )
-    // Quotation: ( b K V -- b )
+    // map.each: ( a M [b K V -- b] -- a )
     sigs.insert(
         "map.each".to_string(),
-        Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("b".to_string())
-                        .push(Type::Var("K".to_string()))
-                        .push(Type::Var("V".to_string())),
-                    StackType::RowVar("b".to_string()),
-                )))),
-            StackType::RowVar("a".to_string()),
-        ),
+        Effect::new(stack!(a M).push(quot(stack!(b K V), stack!(b))), stack!(a)),
     );
 
-    // map.fold: ( a Map Acc Quotation -- a Acc )
-    // Quotation: ( b Acc K V -- b Acc )
+    // map.fold: ( a M Acc [b Acc K V -- b Acc] -- a Acc )
     sigs.insert(
         "map.fold".to_string(),
         Effect::new(
-            StackType::RowVar("a".to_string())
-                .push(Type::Var("M".to_string()))
-                .push(Type::Var("Acc".to_string()))
-                .push(Type::Quotation(Box::new(Effect::new(
-                    StackType::RowVar("b".to_string())
-                        .push(Type::Var("Acc".to_string()))
-                        .push(Type::Var("K".to_string()))
-                        .push(Type::Var("V".to_string())),
-                    StackType::RowVar("b".to_string()).push(Type::Var("Acc".to_string())),
-                )))),
-            StackType::RowVar("a".to_string()).push(Type::Var("Acc".to_string())),
+            stack!(a M Acc).push(quot(stack!(b Acc).push(ty!(K)).push(ty!(V)), stack!(b Acc))),
+            stack!(a Acc),
         ),
     );
 }

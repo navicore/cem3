@@ -3,13 +3,13 @@
 //! wrap handler; shift emits bounds checks that match the runtime's shl/shr
 //! semantics for out-of-range counts.
 
-use super::CodeGen;
+use super::codegen_word::SpecializedEmitter;
 use super::context::RegisterContext;
 use super::types::RegisterType;
 use crate::codegen::CodeGenError;
 use std::fmt::Write as _;
 
-impl CodeGen {
+impl SpecializedEmitter<'_> {
     /// Emit a safe integer division or modulo with overflow protection.
     ///
     /// Returns ( Int Int -- Int Bool ) where Bool indicates success.
@@ -18,7 +18,7 @@ impl CodeGen {
     ///
     /// Note: LLVM's sdiv has undefined behavior for INT_MIN / -1, so we must
     /// handle it explicitly. We match the runtime's wrapping_div behavior.
-    pub(super) fn emit_specialized_safe_div(
+    pub(super) fn emit_safe_div(
         &mut self,
         ctx: &mut RegisterContext,
         op: &str, // "sdiv" or "srem"
@@ -147,7 +147,7 @@ impl CodeGen {
     ///
     /// Returns 0 for negative shift or shift >= 64, otherwise performs the shift.
     /// Matches runtime behavior for shl/shr.
-    pub(super) fn emit_specialized_safe_shift(
+    pub(super) fn emit_safe_shift(
         &mut self,
         ctx: &mut RegisterContext,
         is_left: bool, // true for shl, false for shr

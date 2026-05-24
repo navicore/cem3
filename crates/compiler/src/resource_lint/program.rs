@@ -385,7 +385,6 @@ impl ProgramResourceAnalyzer {
                     self.analyze_statements_with_context(else_stmts, &mut else_state, word);
                 }
 
-                // Check for inconsistent handling
                 let merge_result = then_state.merge(&else_state);
                 for inconsistent in merge_result.inconsistent {
                     self.emit_branch_inconsistency_warning(&inconsistent, word);
@@ -404,7 +403,6 @@ impl ProgramResourceAnalyzer {
                     arm_states.push(arm_state);
                 }
 
-                // Check consistency
                 if arm_states.len() >= 2 {
                     let first = &arm_states[0];
                     for other in &arm_states[1..] {
@@ -438,7 +436,6 @@ impl ProgramResourceAnalyzer {
             dropped_resources.push(r.clone())
         });
 
-        // Emit warnings for any resources dropped without cleanup
         for r in dropped_resources {
             self.emit_drop_warning(&r, span, word);
         }
@@ -514,7 +511,8 @@ impl ProgramResourceAnalyzer {
     ) {
         let line = span
             .map(|s| s.line)
-            .unwrap_or_else(|| word.source.as_ref().map(|s| s.start_line).unwrap_or(0));
+            .or_else(|| word.source.as_ref().map(|s| s.start_line))
+            .unwrap_or(0);
         let column = span.map(|s| s.column);
 
         self.diagnostics.push(LintDiagnostic {

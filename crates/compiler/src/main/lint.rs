@@ -16,70 +16,35 @@ pub(crate) fn run_lint(
     // Load lint configuration
     let config = match config_path {
         Some(path) => {
-            let content = match fs::read_to_string(path) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Error reading lint config: {}", e);
-                    process::exit(1);
-                }
-            };
-            match lint::LintConfig::from_toml(&content) {
-                Ok(user_config) => {
-                    // Merge with defaults
-                    let mut default = match lint::LintConfig::default_config() {
-                        Ok(d) => d,
-                        Err(e) => {
-                            eprintln!("Error loading default lint config: {}", e);
-                            process::exit(1);
-                        }
-                    };
-                    default.merge(user_config);
-                    default
-                }
-                Err(e) => {
-                    eprintln!("Error parsing lint config: {}", e);
-                    process::exit(1);
-                }
-            }
+            let content = or_exit(fs::read_to_string(path), "Error reading lint config");
+            let user_config = or_exit(
+                lint::LintConfig::from_toml(&content),
+                "Error parsing lint config",
+            );
+            let mut default = or_exit(
+                lint::LintConfig::default_config(),
+                "Error loading default lint config",
+            );
+            default.merge(user_config);
+            default
         }
-        None => match lint::LintConfig::default_config() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error loading default lint config: {}", e);
-                process::exit(1);
-            }
-        },
+        None => or_exit(
+            lint::LintConfig::default_config(),
+            "Error loading default lint config",
+        ),
     };
 
-    let linter = match lint::Linter::new(&config) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("Error creating linter: {}", e);
-            process::exit(1);
-        }
-    };
+    let linter = or_exit(lint::Linter::new(&config), "Error creating linter");
 
     let mut all_diagnostics = Vec::new();
     let mut files_checked = 0;
 
     for path in paths {
         if path.is_dir() {
-            // Recursively find .seq files
+            // Recursively find .seq files. Skip files in directories with a
+            // .toml manifest — those need --ffi-manifest to type-check.
             for entry in walkdir(path) {
-                if entry.extension().is_some_and(|e| e == "seq") {
-                    // Skip files in directories with .toml manifests (require --ffi-manifest)
-                    if let Some(parent) = entry.parent() {
-                        let has_manifest = std::fs::read_dir(parent)
-                            .map(|entries| {
-                                entries
-                                    .filter_map(|e| e.ok())
-                                    .any(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
-                            })
-                            .unwrap_or(false);
-                        if has_manifest {
-                            continue;
-                        }
-                    }
+                if entry.extension().is_some_and(|e| e == "seq") && !has_sibling_manifest(&entry) {
                     lint_file(&entry, &linter, &mut all_diagnostics);
                     files_checked += 1;
                 }
@@ -295,4 +260,30 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
         }
     }
     files
+}
+
+/// Return the `Ok` value, or print `"{context}: {err}"` to stderr and exit(1).
+fn or_exit<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
+    match result {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("{}: {}", context, e);
+            process::exit(1);
+        }
+    }
+}
+
+/// Whether `entry`'s directory contains a `.toml` FFI manifest, in which case
+/// the file needs `--ffi-manifest` and is skipped by the plain lint walk.
+fn has_sibling_manifest(entry: &Path) -> bool {
+    let Some(parent) = entry.parent() else {
+        return false;
+    };
+    std::fs::read_dir(parent)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| e.path().extension().is_some_and(|ext| ext == "toml"))
+        })
+        .unwrap_or(false)
 }

@@ -5,7 +5,7 @@
 //! - Row variables (..a, ..rest)
 //! - Concrete types (Int, Bool, String)
 
-use crate::types::{StackType, Type};
+use crate::types::{Effect, StackType, Type};
 use std::collections::HashMap;
 
 /// Substitutions for type variables
@@ -138,6 +138,17 @@ fn occurs_in_stack(var: &str, stack: &StackType) -> bool {
     }
 }
 
+/// Unify two stack effects: unify inputs, then outputs under the resulting
+/// substitution, and compose. Shared by the Quotation/Closure arms of
+/// `unify_types` (captures are an implementation detail, ignored here).
+fn unify_effects(e1: &Effect, e2: &Effect) -> Result<Subst, String> {
+    let s_in = unify_stacks(&e1.inputs, &e2.inputs)?;
+    let out1 = s_in.apply_stack(&e1.outputs);
+    let out2 = s_in.apply_stack(&e2.outputs);
+    let s_out = unify_stacks(&out1, &out2)?;
+    Ok(s_in.compose(&s_out))
+}
+
 /// Unify two types, returning a substitution or an error
 pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
     match (t1, t2) {
@@ -203,22 +214,11 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
         }
 
         // Quotation types unify if their effects unify
-        (Type::Quotation(effect1), Type::Quotation(effect2)) => {
-            // Unify inputs
-            let s_in = unify_stacks(&effect1.inputs, &effect2.inputs)?;
+        (Type::Quotation(effect1), Type::Quotation(effect2)) => unify_effects(effect1, effect2),
 
-            // Apply substitution to outputs and unify
-            let out1 = s_in.apply_stack(&effect1.outputs);
-            let out2 = s_in.apply_stack(&effect2.outputs);
-            let s_out = unify_stacks(&out1, &out2)?;
-
-            // Compose substitutions
-            Ok(s_in.compose(&s_out))
-        }
-
-        // Closure types unify if their effects unify (ignoring captures)
-        // Captures are an implementation detail determined by the type checker,
-        // not part of the user-visible type
+        // Closure types unify if their effects unify. Captures are an
+        // implementation detail determined by the type checker, not part of
+        // the user-visible type.
         (
             Type::Closure {
                 effect: effect1, ..
@@ -226,34 +226,13 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Subst, String> {
             Type::Closure {
                 effect: effect2, ..
             },
-        ) => {
-            // Unify inputs
-            let s_in = unify_stacks(&effect1.inputs, &effect2.inputs)?;
+        ) => unify_effects(effect1, effect2),
 
-            // Apply substitution to outputs and unify
-            let out1 = s_in.apply_stack(&effect1.outputs);
-            let out2 = s_in.apply_stack(&effect2.outputs);
-            let s_out = unify_stacks(&out1, &out2)?;
-
-            // Compose substitutions
-            Ok(s_in.compose(&s_out))
-        }
-
-        // Closure <: Quotation (subtyping)
-        // A Closure can be used where a Quotation is expected
-        // The runtime will dispatch appropriately
+        // Closure <: Quotation (subtyping): a Closure can be used where a
+        // Quotation is expected; the runtime dispatches appropriately.
         (Type::Quotation(quot_effect), Type::Closure { effect, .. })
         | (Type::Closure { effect, .. }, Type::Quotation(quot_effect)) => {
-            // Unify the effects (ignoring captures - they're an implementation detail)
-            let s_in = unify_stacks(&quot_effect.inputs, &effect.inputs)?;
-
-            // Apply substitution to outputs and unify
-            let out1 = s_in.apply_stack(&quot_effect.outputs);
-            let out2 = s_in.apply_stack(&effect.outputs);
-            let s_out = unify_stacks(&out1, &out2)?;
-
-            // Compose substitutions
-            Ok(s_in.compose(&s_out))
+            unify_effects(quot_effect, effect)
         }
 
         // Different concrete types don't unify

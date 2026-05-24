@@ -5,6 +5,10 @@
 //! shapes. All are re-exported with `pub(super)` so category sub-modules
 //! can import them via `use super::macros::*;`.
 
+use crate::types::{Effect, StackType, Type};
+
+/// Map a type token to a `Type`: the eight concrete types, or any other
+/// identifier as a `Type::Var`.
 macro_rules! ty {
     (Int) => {
         Type::Int
@@ -30,49 +34,10 @@ macro_rules! ty {
     (Variant) => {
         Type::Variant
     };
-    // Single uppercase letter = type variable
-    (T) => {
-        Type::Var("T".to_string())
-    };
-    (U) => {
-        Type::Var("U".to_string())
-    };
-    (V) => {
-        Type::Var("V".to_string())
-    };
-    (W) => {
-        Type::Var("W".to_string())
-    };
-    (K) => {
-        Type::Var("K".to_string())
-    };
-    (M) => {
-        Type::Var("M".to_string())
-    };
-    (Q) => {
-        Type::Var("Q".to_string())
-    };
-    // Multi-char type variables (T1, T2, etc.)
-    (T1) => {
-        Type::Var("T1".to_string())
-    };
-    (T2) => {
-        Type::Var("T2".to_string())
-    };
-    (T3) => {
-        Type::Var("T3".to_string())
-    };
-    (T4) => {
-        Type::Var("T4".to_string())
-    };
-    (V2) => {
-        Type::Var("V2".to_string())
-    };
-    (M2) => {
-        Type::Var("M2".to_string())
-    };
-    (Acc) => {
-        Type::Var("Acc".to_string())
+    // Any other identifier is a type variable (T, U, …, T1, V2, Acc).
+    // The concrete-type arms above are matched first by literal token.
+    ($v:ident) => {
+        Type::Var(stringify!($v).to_string())
     };
 }
 
@@ -268,6 +233,12 @@ macro_rules! builtins_float_float_to_bool {
             builtin!($sigs, $name, (a Float Float -- a Bool));
         )+
     };
+}
+
+/// Build a quotation type `[ inputs -- outputs ]` for combinator signatures
+/// that the `builtin!` macro can't express (used by `list`/`map`).
+pub(super) fn quot(inputs: StackType, outputs: StackType) -> Type {
+    Type::Quotation(Box::new(Effect::new(inputs, outputs)))
 }
 
 pub(super) use builtin;

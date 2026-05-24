@@ -61,6 +61,33 @@ pub struct FileTestResults {
     pub compile_error: Option<String>,
 }
 
+impl FileTestResults {
+    /// Early-return shape for any compile/read/run failure: empty
+    /// tests, empty skipped, the error message stashed in
+    /// `compile_error`.
+    fn with_compile_error(path: &Path, error: String) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            tests: vec![],
+            skipped: vec![],
+            compile_error: Some(error),
+        }
+    }
+
+    /// Shape for "file parsed fine but produced no tests to run" —
+    /// either it has its own `main`, or no `test-*` words with effect
+    /// `( -- )`. `skipped` carries any name-matching helpers so the
+    /// reporter can explain the absence.
+    fn no_tests(path: &Path, skipped: Vec<SkippedTest>) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            tests: vec![],
+            skipped,
+            compile_error: None,
+        }
+    }
+}
+
 /// A `test-*` word that was discovered by name but skipped because its
 /// stack effect isn't `( -- )`. Used for diagnostics, not execution.
 #[derive(Debug, Clone)]
@@ -130,11 +157,9 @@ impl TestRunner {
     }
 
     fn is_test_file(&self, path: &Path) -> bool {
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            name.starts_with("test-") && name.ends_with(".seq")
-        } else {
-            false
-        }
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|name| name.starts_with("test-") && name.ends_with(".seq"))
     }
 
     fn discover_in_directory(&self, dir: &Path, files: &mut Vec<PathBuf>) {
@@ -215,47 +240,29 @@ impl TestRunner {
         let source = match fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
-                return FileTestResults {
-                    path: path.to_path_buf(),
-                    tests: vec![],
-                    skipped: vec![],
-                    compile_error: Some(format!("Failed to read file: {}", e)),
-                };
+                return FileTestResults::with_compile_error(
+                    path,
+                    format!("Failed to read file: {}", e),
+                );
             }
         };
 
         let (test_names, skipped, has_main) = match self.discover_test_functions(&source) {
             Ok(result) => result,
             Err(e) => {
-                return FileTestResults {
-                    path: path.to_path_buf(),
-                    tests: vec![],
-                    skipped: vec![],
-                    compile_error: Some(format!("Parse error: {}", e)),
-                };
+                return FileTestResults::with_compile_error(path, format!("Parse error: {}", e));
             }
         };
 
         // Skip files that have their own main - they are standalone test suites
         if has_main {
-            return FileTestResults {
-                path: path.to_path_buf(),
-                tests: vec![],
-                skipped,
-                compile_error: None,
-            };
+            return FileTestResults::no_tests(path, skipped);
         }
 
         if test_names.is_empty() {
-            return FileTestResults {
-                path: path.to_path_buf(),
-                tests: vec![],
-                skipped,
-                compile_error: None,
-            };
+            return FileTestResults::no_tests(path, skipped);
         }
 
-        // Compile once and run all tests in the file
         let mut results = self.run_all_tests_in_file(path, &source, &test_names);
         results.skipped = skipped;
         results
@@ -301,29 +308,20 @@ impl TestRunner {
         let binary_path = temp_dir.join(format!("seq_test_{}", file_id));
 
         if let Err(e) = fs::write(&wrapper_path, &wrapper) {
-            return FileTestResults {
-                path: path.to_path_buf(),
-                tests: vec![],
-                skipped: vec![],
-                compile_error: Some(format!("Failed to write temp file: {}", e)),
-            };
+            return FileTestResults::with_compile_error(
+                path,
+                format!("Failed to write temp file: {}", e),
+            );
         }
 
         // Compile the wrapper (ONE compilation for all tests in file)
         if let Err(e) = compile_file_with_config(&wrapper_path, &binary_path, false, &self.config) {
             let _ = fs::remove_file(&wrapper_path);
-            return FileTestResults {
-                path: path.to_path_buf(),
-                tests: vec![],
-                skipped: vec![],
-                compile_error: Some(format!("Compilation error: {}", e)),
-            };
+            return FileTestResults::with_compile_error(path, format!("Compilation error: {}", e));
         }
 
-        // Run the compiled tests
         let output = Command::new(&binary_path).output();
 
-        // Clean up temp files
         let _ = fs::remove_file(&wrapper_path);
         let _ = fs::remove_file(&binary_path);
 
@@ -363,12 +361,9 @@ impl TestRunner {
                     compile_error: None,
                 }
             }
-            Err(e) => FileTestResults {
-                path: path.to_path_buf(),
-                tests: vec![],
-                skipped: vec![],
-                compile_error: Some(format!("Failed to run tests: {}", e)),
-            },
+            Err(e) => {
+                FileTestResults::with_compile_error(path, format!("Failed to run tests: {}", e))
+            }
         }
     }
 
@@ -415,7 +410,6 @@ impl TestRunner {
         for path in test_files {
             let file_results = self.run_file(&path);
 
-            // Track compilation failures
             if file_results.compile_error.is_some() {
                 summary.compile_failures += 1;
             }
@@ -467,7 +461,6 @@ impl TestRunner {
             }
         }
 
-        // Print summary
         println!("\n========================================");
         if summary.compile_failures > 0 {
             println!(
@@ -556,9 +549,13 @@ fn format_effect_surface(eff: &Effect) -> String {
         let mut cur = st;
         loop {
             match cur {
-                StackType::Empty => return (None, types_bottom_first(types)),
+                StackType::Empty => {
+                    types.reverse();
+                    return (None, types);
+                }
                 StackType::RowVar(name) => {
-                    return (Some(name.as_str()), types_bottom_first(types));
+                    types.reverse();
+                    return (Some(name.as_str()), types);
                 }
                 StackType::Cons { rest, top } => {
                     types.push(format!("{}", top));
@@ -566,10 +563,6 @@ fn format_effect_surface(eff: &Effect) -> String {
                 }
             }
         }
-    }
-    fn types_bottom_first(mut top_down: Vec<String>) -> Vec<String> {
-        top_down.reverse();
-        top_down
     }
     let (in_rv, in_types) = split(&eff.inputs);
     let (out_rv, out_types) = split(&eff.outputs);

@@ -80,7 +80,7 @@ jobs:
       # Forgejo Actions does implement. Do NOT bump this without first
       # confirming Forgejo has added v2.0 backend support.
       - name: Upload baseline artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v3
         with:
           name: baseline-${{ github.run_number }}
           path: benchmarks/baseline/

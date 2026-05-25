@@ -283,38 +283,42 @@ impl std::fmt::Display for Value {
             // appropriate runtime op, not Display.
             Value::String(s) => write!(f, "{:?}", s.as_str_lossy()),
             Value::Symbol(s) => write!(f, ":{}", s.as_str_lossy()),
-            Value::Variant(v) => {
-                write!(f, ":{}", v.tag.as_str_lossy())?;
-                if !v.fields.is_empty() {
-                    write!(f, "(")?;
-                }
-                for (i, field) in v.fields.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", field)?;
-                }
-                if !v.fields.is_empty() {
-                    write!(f, ")")?;
-                }
-                Ok(())
-            }
-            Value::Map(m) => {
-                write!(f, "{{")?;
-                for (i, (k, v)) in m.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}: {}", k.to_value(), v)?;
-                }
-                write!(f, "}}")
-            }
+            Value::Variant(v) => fmt_variant(f, v),
+            Value::Map(m) => fmt_map(f, m),
             Value::Quotation { .. } => write!(f, "<quotation>"),
             Value::Closure { .. } => write!(f, "<closure>"),
             Value::Channel(_) => write!(f, "<channel>"),
             Value::WeaveCtx { .. } => write!(f, "<weave-ctx>"),
         }
     }
+}
+
+/// Format a variant as `:tag` or `:tag(f0, f1, …)`.
+fn fmt_variant(f: &mut std::fmt::Formatter<'_>, v: &VariantData) -> std::fmt::Result {
+    write!(f, ":{}", v.tag.as_str_lossy())?;
+    if v.fields.is_empty() {
+        return Ok(());
+    }
+    write!(f, "(")?;
+    for (i, field) in v.fields.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{}", field)?;
+    }
+    write!(f, ")")
+}
+
+/// Format a map as `{k0: v0, k1: v1, …}`.
+fn fmt_map(f: &mut std::fmt::Formatter<'_>, m: &HashMap<MapKey, Value>) -> std::fmt::Result {
+    write!(f, "{{")?;
+    for (i, (k, v)) in m.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{}: {}", k.to_value(), v)?;
+    }
+    write!(f, "}}")
 }
 
 #[cfg(test)]

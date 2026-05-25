@@ -146,17 +146,12 @@ fn format_variant(v: &VariantData, config: &SonConfig, depth: usize, buf: &mut S
 
         let field_count = v.fields.len();
 
+        for field in v.fields.iter() {
+            let child_depth = child_indent(buf, config, depth);
+            format_value(field, config, child_depth, buf);
+        }
         if config.pretty && !v.fields.is_empty() {
-            for field in v.fields.iter() {
-                newline_at_indent(buf, depth + 1, config);
-                format_value(field, config, depth + 1, buf);
-            }
             newline_at_indent(buf, depth, config);
-        } else {
-            for field in v.fields.iter() {
-                buf.push(' ');
-                format_value(field, config, depth, buf);
-            }
         }
 
         buf.push_str(&format!(" wrap-{}", field_count));
@@ -167,22 +162,10 @@ fn format_variant(v: &VariantData, config: &SonConfig, depth: usize, buf: &mut S
 fn format_list(fields: &[Value], config: &SonConfig, depth: usize, buf: &mut String) {
     buf.push_str("list-of");
 
-    if fields.is_empty() {
-        return;
-    }
-
-    if config.pretty {
-        for field in fields.iter() {
-            newline_at_indent(buf, depth + 1, config);
-            format_value(field, config, depth + 1, buf);
-            buf.push_str(" lv");
-        }
-    } else {
-        for field in fields.iter() {
-            buf.push(' ');
-            format_value(field, config, depth, buf);
-            buf.push_str(" lv");
-        }
+    for field in fields.iter() {
+        let child_depth = child_indent(buf, config, depth);
+        format_value(field, config, child_depth, buf);
+        buf.push_str(" lv");
     }
 }
 
@@ -202,22 +185,12 @@ fn format_map(map: &HashMap<MapKey, Value>, config: &SonConfig, depth: usize, bu
         s1.cmp(&s2)
     });
 
-    if config.pretty {
-        for (key, value) in entries {
-            newline_at_indent(buf, depth + 1, config);
-            format_map_key(key, buf);
-            buf.push(' ');
-            format_value(value, config, depth + 1, buf);
-            buf.push_str(" kv");
-        }
-    } else {
-        for (key, value) in entries {
-            buf.push(' ');
-            format_map_key(key, buf);
-            buf.push(' ');
-            format_value(value, config, depth, buf);
-            buf.push_str(" kv");
-        }
+    for (key, value) in entries {
+        let child_depth = child_indent(buf, config, depth);
+        format_map_key(key, buf);
+        buf.push(' ');
+        format_value(value, config, child_depth, buf);
+        buf.push_str(" kv");
     }
 }
 
@@ -250,6 +223,19 @@ fn push_indent(buf: &mut String, depth: usize, indent_size: usize) {
 fn newline_at_indent(buf: &mut String, depth: usize, config: &SonConfig) {
     buf.push('\n');
     push_indent(buf, depth, config.indent);
+}
+
+/// Emit the separator before a collection item and return the depth to format
+/// that item at: a newline + indent at `depth + 1` (pretty), or a single space
+/// at `depth` (compact).
+fn child_indent(buf: &mut String, config: &SonConfig, depth: usize) -> usize {
+    if config.pretty {
+        newline_at_indent(buf, depth + 1, config);
+        depth + 1
+    } else {
+        buf.push(' ');
+        depth
+    }
 }
 
 // ============================================================================

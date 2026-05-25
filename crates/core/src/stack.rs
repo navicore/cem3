@@ -48,6 +48,13 @@ pub const DISC_CHANNEL: u64 = 8;
 pub const DISC_WEAVECTX: u64 = 9;
 pub const DISC_SYMBOL: u64 = 10;
 
+/// True if the StackValue is an inline (non-heap) encoding: a tagged Int,
+/// `false`, or `true`. Every other bit pattern is an `Arc<Value>` heap pointer.
+#[inline]
+fn is_inline(sv: StackValue) -> bool {
+    is_tagged_int(sv) || sv == TAG_FALSE || sv == TAG_TRUE
+}
+
 /// Convert a Value to a tagged StackValue
 #[inline]
 pub fn value_to_stack_value(value: Value) -> StackValue {
@@ -107,7 +114,7 @@ pub unsafe extern "C" fn patch_seq_clone_value(src: *const StackValue, dst: *mut
 /// The StackValue must contain valid tagged data.
 #[inline]
 pub unsafe fn clone_stack_value(sv: StackValue) -> StackValue {
-    if is_tagged_int(sv) || sv == TAG_FALSE || sv == TAG_TRUE {
+    if is_inline(sv) {
         // Int or Bool — just copy
         sv
     } else {
@@ -127,7 +134,7 @@ pub unsafe fn clone_stack_value(sv: StackValue) -> StackValue {
 /// The StackValue must be valid and not previously dropped.
 #[inline]
 pub unsafe fn drop_stack_value(sv: StackValue) {
-    if is_tagged_int(sv) || sv == TAG_FALSE || sv == TAG_TRUE {
+    if is_inline(sv) {
         // Int or Bool — nothing to do
         return;
     }
@@ -256,7 +263,7 @@ pub unsafe fn heap_value_mut<'a>(slot: *mut StackValue) -> Option<&'a mut Value>
     unsafe {
         let sv = *slot;
         // All non-heap encodings: Int (odd), Bool false (0x0), Bool true (0x2)
-        if is_tagged_int(sv) || sv == TAG_FALSE || sv == TAG_TRUE {
+        if is_inline(sv) {
             return None;
         }
         // Reconstruct Arc, check sole ownership via Arc::get_mut (atomic check

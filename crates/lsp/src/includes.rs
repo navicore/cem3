@@ -126,6 +126,18 @@ fn ingest_program(
     }
 }
 
+/// Parse `content` into a `Program`, logging at debug level and returning
+/// `None` on failure. `what` names the module for the log line.
+fn parse_module(content: &str, what: &str) -> Option<Program> {
+    match Parser::new(content).parse() {
+        Ok(program) => Some(program),
+        Err(e) => {
+            debug!("Could not parse {}: {}", what, e);
+            None
+        }
+    }
+}
+
 /// Recursively resolve an include, with cycle detection and depth limit
 fn resolve_include_recursive(
     include: &Include,
@@ -154,13 +166,8 @@ fn resolve_include_recursive(
                 return;
             };
 
-            let mut parser = Parser::new(content);
-            let program = match parser.parse() {
-                Ok(p) => p,
-                Err(e) => {
-                    debug!("Could not parse stdlib {}: {}", name, e);
-                    return;
-                }
+            let Some(program) = parse_module(content, &format!("stdlib {}", name)) else {
+                return;
             };
 
             let source_label = format!("std:{}", name);
@@ -198,13 +205,8 @@ fn resolve_include_recursive(
                 }
             };
 
-            let mut parser = Parser::new(&content);
-            let program = match parser.parse() {
-                Ok(p) => p,
-                Err(e) => {
-                    debug!("Could not parse {}: {}", canonical.display(), e);
-                    return;
-                }
+            let Some(program) = parse_module(&content, &canonical.display().to_string()) else {
+                return;
             };
 
             ingest_program(&program, name, Some(&canonical), result);

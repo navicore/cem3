@@ -46,23 +46,7 @@ fn collect_builtins() -> Vec<WordGroup> {
     seqc::builtins::builtin_categories()
         .into_iter()
         .map(|(category, names)| {
-            let words = names
-                .into_iter()
-                .map(|name| {
-                    let signature = seqc::builtins::builtin_signature(&name)
-                        .as_ref()
-                        .map(format_effect)
-                        .unwrap_or_else(|| "( ? )".to_string());
-                    let doc = seqc::builtins::builtin_doc(&name)
-                        .map(str::to_string)
-                        .filter(|s| !s.is_empty());
-                    WordInfo {
-                        name,
-                        signature,
-                        doc,
-                    }
-                })
-                .collect();
+            let words = names.into_iter().map(builtin_word_info).collect();
             WordGroup {
                 name: category.to_string(),
                 words,
@@ -91,22 +75,7 @@ fn collect_stdlib() -> Vec<WordGroup> {
                 }
             };
 
-            let mut words: Vec<WordInfo> = program
-                .words
-                .iter()
-                .map(|w| {
-                    let signature = w
-                        .effect
-                        .as_ref()
-                        .map(format_effect)
-                        .unwrap_or_else(|| "( ? )".to_string());
-                    WordInfo {
-                        name: w.name.clone(),
-                        signature,
-                        doc: None,
-                    }
-                })
-                .collect();
+            let mut words: Vec<WordInfo> = program.words.iter().map(stdlib_word_info).collect();
             words.sort_by(|a, b| a.name.cmp(&b.name));
 
             Some(WordGroup {
@@ -115,6 +84,36 @@ fn collect_stdlib() -> Vec<WordGroup> {
             })
         })
         .collect()
+}
+
+/// Build a `WordInfo` for a builtin by name (signature + doc lookup).
+fn builtin_word_info(name: String) -> WordInfo {
+    let signature = seqc::builtins::builtin_signature(&name)
+        .as_ref()
+        .map(format_effect)
+        .unwrap_or_else(|| "( ? )".to_string());
+    let doc = seqc::builtins::builtin_doc(&name)
+        .map(str::to_string)
+        .filter(|s| !s.is_empty());
+    WordInfo {
+        name,
+        signature,
+        doc,
+    }
+}
+
+/// Build a `WordInfo` for a parsed stdlib word (no doc text available).
+fn stdlib_word_info(word: &seqc::ast::WordDef) -> WordInfo {
+    let signature = word
+        .effect
+        .as_ref()
+        .map(format_effect)
+        .unwrap_or_else(|| "( ? )".to_string());
+    WordInfo {
+        name: word.name.clone(),
+        signature,
+        doc: None,
+    }
 }
 
 #[cfg(test)]

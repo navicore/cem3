@@ -281,16 +281,12 @@ impl LanguageServer for SeqLanguageServer {
                         kind: MarkupKind::Markdown,
                         value: format!("```seq\n{}\n```\n\n*Quotation*", type_str),
                     }),
-                    range: Some(Range {
-                        start: Position {
-                            line: q.span.start_line as u32,
-                            character: q.span.start_column as u32,
-                        },
-                        end: Position {
-                            line: q.span.end_line as u32,
-                            character: q.span.end_column as u32,
-                        },
-                    }),
+                    range: Some(make_range(
+                        q.span.start_line as u32,
+                        q.span.start_column as u32,
+                        q.span.end_line as u32,
+                        q.span.end_column as u32,
+                    )),
                 }));
             }
         }
@@ -451,26 +447,14 @@ impl LanguageServer for SeqLanguageServer {
                     kind: SymbolKind::FUNCTION,
                     tags: None,
                     deprecated: None,
-                    range: Range {
-                        start: Position {
-                            line: word.start_line as u32,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: word.end_line as u32,
-                            character: end_char,
-                        },
-                    },
-                    selection_range: Range {
-                        start: Position {
-                            line: word.start_line as u32,
-                            character: 0,
-                        },
-                        end: Position {
-                            line: word.start_line as u32,
-                            character: word.name.len() as u32 + 2, // `: name`
-                        },
-                    },
+                    range: make_range(word.start_line as u32, 0, word.end_line as u32, end_char),
+                    // selection covers `: name`
+                    selection_range: make_range(
+                        word.start_line as u32,
+                        0,
+                        word.start_line as u32,
+                        word.name.len() as u32 + 2,
+                    ),
                     children: None,
                 }
             })
@@ -670,25 +654,46 @@ fn get_word_at_position(content: &str, position: Position) -> Option<String> {
     Some(line[start..end].to_string())
 }
 
+/// Build an LSP `Range` from 0-indexed line/character coordinates.
+fn make_range(start_line: u32, start_char: u32, end_line: u32, end_char: u32) -> Range {
+    Range {
+        start: Position {
+            line: start_line,
+            character: start_char,
+        },
+        end: Position {
+            line: end_line,
+            character: end_char,
+        },
+    }
+}
+
 /// Create a Range for a word definition (`: word-name`)
 /// Uses character count (not byte length) for proper UTF-8 support
 fn make_definition_range(start_line: usize, name: &str) -> Range {
-    Range {
-        start: Position {
-            line: start_line as u32,
-            character: 0,
-        },
-        end: Position {
-            line: start_line as u32,
-            // +2 for `: ` prefix, use chars().count() for UTF-8 correctness
-            character: (name.chars().count() + 2) as u32,
-        },
-    }
+    // +2 for `: ` prefix, use chars().count() for UTF-8 correctness
+    make_range(
+        start_line as u32,
+        0,
+        start_line as u32,
+        (name.chars().count() + 2) as u32,
+    )
 }
 
 /// Format a quotation type for display
 fn format_quotation_type(typ: &seqc::types::Type) -> String {
     completion::format_type(typ)
+}
+
+/// Build a Markdown hover with no associated range.
+fn markdown_hover(value: String) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: None,
+    }
 }
 
 /// Look up a word and return hover information
@@ -697,8 +702,6 @@ fn lookup_word_hover(
     local_words: &[includes::LocalWord],
     included_words: &[includes::IncludedWord],
 ) -> Option<Hover> {
-    use tower_lsp::lsp_types::{HoverContents, MarkupContent, MarkupKind};
-
     // Check local words first
     for local in local_words {
         if local.name == word {
@@ -708,16 +711,10 @@ fn lookup_word_hover(
                 .map(completion::format_effect)
                 .unwrap_or_else(|| "( ? )".to_string());
 
-            return Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: format!(
-                        "```seq\n: {} {}\n```\n\n*Defined in this file*",
-                        word, effect
-                    ),
-                }),
-                range: None,
-            });
+            return Some(markdown_hover(format!(
+                "```seq\n: {} {}\n```\n\n*Defined in this file*",
+                word, effect
+            )));
         }
     }
 
@@ -730,16 +727,10 @@ fn lookup_word_hover(
                 .map(completion::format_effect)
                 .unwrap_or_else(|| "( ? )".to_string());
 
-            return Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: format!(
-                        "```seq\n: {} {}\n```\n\n*From {}*",
-                        word, effect, included.source
-                    ),
-                }),
-                range: None,
-            });
+            return Some(markdown_hover(format!(
+                "```seq\n: {} {}\n```\n\n*From {}*",
+                word, effect, included.source
+            )));
         }
     }
 
@@ -753,16 +744,10 @@ fn lookup_word_hover(
             } else {
                 format!("\n\n{}", doc)
             };
-            return Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: format!(
-                        "```seq\n{} {}\n```{}\n\n*Built-in*",
-                        word, signature, doc_section
-                    ),
-                }),
-                range: None,
-            });
+            return Some(markdown_hover(format!(
+                "```seq\n{} {}\n```{}\n\n*Built-in*",
+                word, signature, doc_section
+            )));
         }
     }
 

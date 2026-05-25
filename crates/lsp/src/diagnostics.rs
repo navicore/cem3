@@ -66,6 +66,43 @@ fn single_file_workspace_edit(uri: &Url, range: Range, new_text: String) -> Work
     }
 }
 
+/// Build an LSP `Diagnostic`, defaulting the optional fields to `None`.
+fn make_diagnostic(
+    range: Range,
+    severity: DiagnosticSeverity,
+    code: &str,
+    source: &str,
+    message: String,
+) -> Diagnostic {
+    Diagnostic {
+        range,
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            code.to_string(),
+        )),
+        code_description: None,
+        source: Some(source.to_string()),
+        message,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// Build a QUICKFIX `CodeAction` with the optional fields defaulted to `None`.
+fn quickfix_action(title: String, edit: WorkspaceEdit, is_preferred: Option<bool>) -> CodeAction {
+    CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(edit),
+        command: None,
+        is_preferred,
+        disabled: None,
+        data: None,
+    }
+}
+
 /// Collect all quotation spans from a program
 fn collect_quotation_spans(program: &Program) -> HashMap<usize, QuotationSpan> {
     let mut spans = HashMap::new();
@@ -253,7 +290,7 @@ pub(crate) fn get_code_actions(
         // Check if ranges overlap
         if ranges_overlap(&diag_range, &range) {
             // Only create actions for diagnostics that have a fix
-            if let Some(action) = lint_to_code_action(lint_diag, &source, uri, &diag_range) {
+            if let Some(action) = lint_to_code_action(lint_diag, uri, &diag_range) {
                 actions.push(action);
             }
         }
@@ -337,7 +374,6 @@ fn make_lint_range(lint_diag: &lint::LintDiagnostic, source: &str) -> Range {
 /// Convert a lint diagnostic to a CodeAction if it has a fix
 fn lint_to_code_action(
     lint_diag: &lint::LintDiagnostic,
-    _source: &str,
     uri: &Url,
     range: &Range,
 ) -> Option<CodeAction> {
@@ -354,16 +390,7 @@ fn lint_to_code_action(
 
     let workspace_edit = single_file_workspace_edit(uri, *range, lint_diag.replacement.clone());
 
-    Some(CodeAction {
-        title,
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: None,
-        edit: Some(workspace_edit),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
+    Some(quickfix_action(title, workspace_edit, Some(true)))
 }
 
 /// Generate a code action for unchecked error flag diagnostics.
@@ -405,16 +432,8 @@ fn unchecked_error_code_action(
 
     let workspace_edit = single_file_workspace_edit(uri, *range, new_text);
 
-    Some(CodeAction {
-        title,
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: None,
-        edit: Some(workspace_edit),
-        command: None,
-        is_preferred: Some(false), // not preferred — user should review
-        disabled: None,
-        data: None,
-    })
+    // not preferred — user should review the generated skeleton
+    Some(quickfix_action(title, workspace_edit, Some(false)))
 }
 
 /// Typed alternatives offered for each unresolved-sugar operator.
@@ -478,16 +497,7 @@ fn sugar_code_actions(diag: &Diagnostic, uri: &Url) -> Vec<CodeAction> {
         .map(|replacement| {
             let title = format!("Replace `{}` with `{}`", op, replacement);
             let edit = single_file_workspace_edit(uri, op_range, (*replacement).to_string());
-            CodeAction {
-                title,
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: None,
-                edit: Some(edit),
-                command: None,
-                is_preferred: None,
-                disabled: None,
-                data: None,
-            }
+            quickfix_action(title, edit, None)
         })
         .collect()
 }
@@ -547,28 +557,23 @@ fn unknown_seq_allow_diagnostics(program: &Program, source: &str) -> Vec<Diagnos
                 .map(|l| l.len() as u32)
                 .unwrap_or(0);
 
-            out.push(Diagnostic {
-                range: Range {
-                    start: Position { line, character: 0 },
-                    end: Position {
-                        line,
-                        character: line_length,
-                    },
+            let range = Range {
+                start: Position { line, character: 0 },
+                end: Position {
+                    line,
+                    character: line_length,
                 },
-                severity: Some(DiagnosticSeverity::WARNING),
-                code: Some(tower_lsp::lsp_types::NumberOrString::String(
-                    "unknown-seq-allow".to_string(),
-                )),
-                code_description: None,
-                source: Some("seq-lint".to_string()),
-                message: format!(
+            };
+            out.push(make_diagnostic(
+                range,
+                DiagnosticSeverity::WARNING,
+                "unknown-seq-allow",
+                "seq-lint",
+                format!(
                     "`# seq:allow({})` references unknown lint id `{}` (annotation has no effect)",
                     id, id
                 ),
-                related_information: None,
-                tags: None,
-                data: None,
-            });
+            ));
         }
     }
 
@@ -594,19 +599,7 @@ fn lint_to_diagnostic(lint_diag: &lint::LintDiagnostic, source: &str) -> Diagnos
 
     let range = make_lint_range(lint_diag, source);
 
-    Diagnostic {
-        range,
-        severity: Some(severity),
-        code: Some(tower_lsp::lsp_types::NumberOrString::String(
-            lint_diag.id.clone(),
-        )),
-        code_description: None,
-        source: Some("seq-lint".to_string()),
-        message,
-        related_information: None,
-        tags: None,
-        data: None,
-    }
+    make_diagnostic(range, severity, &lint_diag.id, "seq-lint", message)
 }
 
 /// Convert a compiler error string to an LSP diagnostic.
@@ -624,28 +617,24 @@ fn error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
         .map(|l| l.len() as u32)
         .unwrap_or(0);
 
-    Diagnostic {
-        range: Range {
-            start: Position {
-                line: line as u32,
-                character: 0,
-            },
-            end: Position {
-                line: line as u32,
-                character: line_length,
-            },
+    let range = Range {
+        start: Position {
+            line: line as u32,
+            character: 0,
         },
-        severity: Some(DiagnosticSeverity::ERROR),
-        code: Some(tower_lsp::lsp_types::NumberOrString::String(
-            "type-error".to_string(),
-        )),
-        code_description: None,
-        source: Some("seqc".to_string()),
-        message: message.to_string(),
-        related_information: None,
-        tags: None,
-        data: None,
-    }
+        end: Position {
+            line: line as u32,
+            character: line_length,
+        },
+    };
+
+    make_diagnostic(
+        range,
+        DiagnosticSeverity::ERROR,
+        "type-error",
+        "seqc",
+        message.to_string(),
+    )
 }
 
 /// Try to extract line number information from an error message.

@@ -510,9 +510,9 @@ fn test_search_mode_enter_and_exit() -> Result<(), String> {
         .add_entry(HistoryEntry::new("second entry").with_output("2"));
 
     // In normal mode, '/' enters search mode
-    assert!(!app.search_mode);
+    assert!(!app.search.active);
     app.handle_key(KeyEvent::from(KeyCode::Char('/')));
-    assert!(app.search_mode);
+    assert!(app.search.active);
     assert!(
         app.status_message
             .as_ref()
@@ -522,7 +522,7 @@ fn test_search_mode_enter_and_exit() -> Result<(), String> {
 
     // Esc exits search mode
     app.handle_key(KeyEvent::from(KeyCode::Esc));
-    assert!(!app.search_mode);
+    assert!(!app.search.active);
 
     Ok(())
 }
@@ -542,7 +542,7 @@ fn test_search_mode_filtering() -> Result<(), String> {
 
     // Enter search mode
     app.handle_key(KeyEvent::from(KeyCode::Char('/')));
-    assert!(app.search_mode);
+    assert!(app.search.active);
 
     // Type "dup" to search
     app.handle_key(KeyEvent::from(KeyCode::Char('d')));
@@ -550,7 +550,7 @@ fn test_search_mode_filtering() -> Result<(), String> {
     app.handle_key(KeyEvent::from(KeyCode::Char('p')));
 
     // Should have 2 matches (entries containing "dup")
-    assert_eq!(app.search_matches.len(), 2);
+    assert_eq!(app.search.matches.len(), 2);
     // Preview shows most recent match
     assert_eq!(app.repl_state.input, "dup dup");
     assert!(
@@ -586,7 +586,7 @@ fn test_search_mode_accept() -> Result<(), String> {
     app.handle_key(KeyEvent::from(KeyCode::Enter));
 
     // Should be out of search mode with input kept
-    assert!(!app.search_mode);
+    assert!(!app.search.active);
     assert_eq!(app.repl_state.input, "first");
 
     Ok(())
@@ -619,7 +619,7 @@ fn test_search_mode_cancel_restores_input() -> Result<(), String> {
 
     // Cancel with Esc - should restore original
     app.handle_key(KeyEvent::from(KeyCode::Esc));
-    assert!(!app.search_mode);
+    assert!(!app.search.active);
     assert_eq!(app.repl_state.input, "my input");
 
     Ok(())
@@ -645,24 +645,24 @@ fn test_search_mode_navigate_matches() -> Result<(), String> {
     }
 
     // Should have 3 matches, starting at index 0 (most recent first: test3)
-    assert_eq!(app.search_matches.len(), 3);
-    assert_eq!(app.search_match_index, 0);
+    assert_eq!(app.search.matches.len(), 3);
+    assert_eq!(app.search.match_index, 0);
     // Preview shows first match
     assert_eq!(app.repl_state.input, "test3");
 
     // Tab goes to next match
     app.handle_key(KeyEvent::from(KeyCode::Tab));
-    assert_eq!(app.search_match_index, 1);
+    assert_eq!(app.search.match_index, 1);
     assert_eq!(app.repl_state.input, "test2");
 
     // Shift+Tab goes to previous match
     app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
-    assert_eq!(app.search_match_index, 0);
+    assert_eq!(app.search.match_index, 0);
     assert_eq!(app.repl_state.input, "test3");
 
     // Shift+Tab wraps around to last match
     app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
-    assert_eq!(app.search_match_index, 2);
+    assert_eq!(app.search.match_index, 2);
     assert_eq!(app.repl_state.input, "test1");
 
     Ok(())
@@ -686,16 +686,16 @@ fn test_search_mode_backspace() -> Result<(), String> {
     for c in "dup".chars() {
         app.handle_key(KeyEvent::from(KeyCode::Char(c)));
     }
-    assert_eq!(app.search_pattern, "dup");
-    assert_eq!(app.search_matches.len(), 1);
+    assert_eq!(app.search.pattern, "dup");
+    assert_eq!(app.search.matches.len(), 1);
 
     // Backspace removes last char
     app.handle_key(KeyEvent::from(KeyCode::Backspace));
-    assert_eq!(app.search_pattern, "du");
+    assert_eq!(app.search.pattern, "du");
 
     // With "du", should match both "dup" (d-u-p) - wait, "drop" doesn't match "du"
     // Actually only "dup" matches "du"
-    assert_eq!(app.search_matches.len(), 1);
+    assert_eq!(app.search.matches.len(), 1);
 
     Ok(())
 }
@@ -720,7 +720,7 @@ fn test_search_mode_case_insensitive() -> Result<(), String> {
     }
 
     // Should match all 3 (case insensitive)
-    assert_eq!(app.search_matches.len(), 3);
+    assert_eq!(app.search.matches.len(), 3);
 
     Ok(())
 }
@@ -758,7 +758,7 @@ fn test_search_not_in_insert_mode() -> Result<(), String> {
 
     // '/' in insert mode should insert '/', not enter search mode
     app.handle_key(KeyEvent::from(KeyCode::Char('/')));
-    assert!(!app.search_mode);
+    assert!(!app.search.active);
     assert_eq!(app.repl_state.input, "/");
 
     Ok(())

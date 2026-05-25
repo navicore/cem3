@@ -59,12 +59,6 @@ impl StackValue {
             Self::Rest(s) => format!("..{}", s),
         }
     }
-
-    /// Check if this is a rest variable
-    #[allow(dead_code)]
-    fn is_rest(&self) -> bool {
-        matches!(self, Self::Rest(_))
-    }
 }
 
 impl fmt::Display for StackValue {
@@ -87,8 +81,8 @@ impl Stack {
         Self { values }
     }
 
-    /// Create an empty stack
-    #[allow(dead_code)]
+    /// Create an empty stack — test-only.
+    #[cfg(test)]
     pub fn empty() -> Self {
         Self { values: vec![] }
     }
@@ -104,18 +98,6 @@ impl Stack {
     pub fn push(mut self, value: StackValue) -> Self {
         self.values.push(value);
         self
-    }
-
-    /// Get all values (bottom to top)
-    #[allow(dead_code)]
-    pub fn values(&self) -> &[StackValue] {
-        &self.values
-    }
-
-    /// Check if the stack has values (excluding rest)
-    #[allow(dead_code)]
-    pub fn has_concrete_values(&self) -> bool {
-        self.values.iter().any(|v| !v.is_rest())
     }
 
     /// Get the width needed to display this stack
@@ -259,10 +241,10 @@ pub fn render_transition(effect: &StackEffect, before: &Stack, after: &Stack) ->
     result
 }
 
-/// Render a sequence of operations showing the stack evolving
+/// Render a sequence of operations showing the stack evolving — test-only.
 ///
 /// Each step shows: word name, input stack → output stack
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn render_sequence(steps: &[(StackEffect, Stack, Stack)]) -> Vec<String> {
     if steps.is_empty() {
         return vec![];

@@ -189,60 +189,64 @@ impl<'a> IrPane<'a> {
     fn style_stack_art(&self, lines: &[String]) -> Vec<Line<'a>> {
         lines
             .iter()
-            .map(|line| {
-                let mut spans = Vec::new();
-                let chars: Vec<char> = line.chars().collect();
-                let mut i = 0;
-
-                while i < chars.len() {
-                    let ch = chars[i];
-                    // Box drawing characters in cyan
-                    if "┌┐└┘├┤─│".contains(ch) {
-                        spans.push(Span::styled(
-                            ch.to_string(),
-                            Style::default().fg(Color::Cyan),
-                        ));
-                        i += 1;
-                    }
-                    // Arrow in yellow
-                    else if ch == '→' {
-                        spans.push(Span::styled(
-                            "→",
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::BOLD),
-                        ));
-                        i += 1;
-                    }
-                    // Type names (capitalized words) in green
-                    else if ch.is_uppercase() {
-                        let start = i;
-                        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                            i += 1;
-                        }
-                        let word: String = chars[start..i].iter().collect();
-                        spans.push(Span::styled(word, Style::default().fg(Color::Green)));
-                    }
-                    // Rest variables (..a) in magenta
-                    else if ch == '.' && i + 1 < chars.len() && chars[i + 1] == '.' {
-                        let start = i;
-                        i += 2; // Skip ..
-                        while i < chars.len() && chars[i].is_alphanumeric() {
-                            i += 1;
-                        }
-                        let word: String = chars[start..i].iter().collect();
-                        spans.push(Span::styled(word, Style::default().fg(Color::Magenta)));
-                    }
-                    // Default
-                    else {
-                        spans.push(Span::raw(ch.to_string()));
-                        i += 1;
-                    }
-                }
-
-                Line::from(spans)
-            })
+            .map(|line| self.style_stack_art_line(line))
             .collect()
+    }
+
+    /// Syntax-highlight one stack-art line: box-drawing chars cyan, `→` yellow,
+    /// type names (capitalized) green, rest variables (`..a`) magenta.
+    fn style_stack_art_line(&self, line: &str) -> Line<'a> {
+        let mut spans = Vec::new();
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            let ch = chars[i];
+            // Box drawing characters in cyan
+            if "┌┐└┘├┤─│".contains(ch) {
+                spans.push(Span::styled(
+                    ch.to_string(),
+                    Style::default().fg(Color::Cyan),
+                ));
+                i += 1;
+            }
+            // Arrow in yellow
+            else if ch == '→' {
+                spans.push(Span::styled(
+                    "→",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                i += 1;
+            }
+            // Type names (capitalized words) in green
+            else if ch.is_uppercase() {
+                let start = i;
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                let word: String = chars[start..i].iter().collect();
+                spans.push(Span::styled(word, Style::default().fg(Color::Green)));
+            }
+            // Rest variables (..a) in magenta
+            else if ch == '.' && i + 1 < chars.len() && chars[i + 1] == '.' {
+                let start = i;
+                i += 2; // Skip ..
+                while i < chars.len() && chars[i].is_alphanumeric() {
+                    i += 1;
+                }
+                let word: String = chars[start..i].iter().collect();
+                spans.push(Span::styled(word, Style::default().fg(Color::Magenta)));
+            }
+            // Default
+            else {
+                spans.push(Span::raw(ch.to_string()));
+                i += 1;
+            }
+        }
+
+        Line::from(spans)
     }
 
     /// Style AST content
@@ -429,59 +433,64 @@ impl<'a> IrPane<'a> {
     fn compact_content(&self, lines: &[String], available_width: usize) -> Vec<Line<'a>> {
         lines
             .iter()
-            .filter_map(|line| {
-                // Skip decorative box lines (help header box)
-                if ['╭', '╮', '╰', '╯'].iter().any(|c| line.contains(*c)) {
-                    return None;
-                }
-                // Convert box header content to plain text
-                if line.starts_with('│') && line.ends_with('│') {
-                    let inner = line.trim_start_matches('│').trim_end_matches('│').trim();
-                    if !inner.is_empty() {
-                        return Some(Line::from(Span::styled(
-                            inner.to_string(),
-                            Style::default()
-                                .fg(Color::Cyan)
-                                .add_modifier(Modifier::BOLD),
-                        )));
-                    }
-                    return None;
-                }
-
-                // Skip ASCII art stack boxes if too wide
-                let has_box_chars = ['┌', '┐', '└', '┘', '├', '┤']
-                    .iter()
-                    .any(|c| line.contains(*c));
-
-                if has_box_chars && line.chars().count() > available_width {
-                    // For stack art, extract just the effect signature
-                    if line.contains('(') && line.contains(')') {
-                        // This is likely a signature line like "swap ( ..a x y -- ..a y x )"
-                        return Some(Line::from(Span::styled(
-                            line.clone(),
-                            Style::default().fg(Color::Yellow),
-                        )));
-                    }
-                    return None;
-                }
-
-                // Truncate other long lines
-                let display = if line.chars().count() > available_width {
-                    let truncated: String = line
-                        .chars()
-                        .take(available_width.saturating_sub(1))
-                        .collect();
-                    format!("{}…", truncated)
-                } else {
-                    line.clone()
-                };
-
-                Some(Line::from(Span::styled(
-                    display,
-                    Style::default().fg(Color::White),
-                )))
-            })
+            .filter_map(|line| self.compact_line(line, available_width))
             .collect()
+    }
+
+    /// Render one line in compact mode: drop decorative box borders, unwrap a
+    /// box header to plain text, drop too-wide stack-art boxes (keeping
+    /// signature lines), and truncate other over-long lines. `None` drops it.
+    fn compact_line(&self, line: &str, available_width: usize) -> Option<Line<'a>> {
+        // Skip decorative box lines (help header box)
+        if ['╭', '╮', '╰', '╯'].iter().any(|c| line.contains(*c)) {
+            return None;
+        }
+        // Convert box header content to plain text
+        if line.starts_with('│') && line.ends_with('│') {
+            let inner = line.trim_start_matches('│').trim_end_matches('│').trim();
+            if !inner.is_empty() {
+                return Some(Line::from(Span::styled(
+                    inner.to_string(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )));
+            }
+            return None;
+        }
+
+        // Skip ASCII art stack boxes if too wide
+        let has_box_chars = ['┌', '┐', '└', '┘', '├', '┤']
+            .iter()
+            .any(|c| line.contains(*c));
+
+        if has_box_chars && line.chars().count() > available_width {
+            // For stack art, extract just the effect signature
+            if line.contains('(') && line.contains(')') {
+                // This is likely a signature line like "swap ( ..a x y -- ..a y x )"
+                return Some(Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+            return None;
+        }
+
+        // Truncate other long lines
+        let display = if line.chars().count() > available_width {
+            let truncated: String = line
+                .chars()
+                .take(available_width.saturating_sub(1))
+                .collect();
+            format!("{}…", truncated)
+        } else {
+            line.to_string()
+        };
+
+        Some(Line::from(Span::styled(
+            display,
+            Style::default().fg(Color::White),
+        )))
     }
 }
 

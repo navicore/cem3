@@ -86,6 +86,36 @@ fn push_range(tokens: &mut Vec<Token>, chars: &[char], start: usize, end: usize,
     tokens.push(Token::new(kind, start, end, text));
 }
 
+/// Lex a number literal at `start` (a digit, or `-` followed by a digit).
+/// Returns the end index and whether it parsed as `Integer` or `Float`.
+fn lex_number(chars: &[char], start: usize) -> (usize, TokenKind) {
+    let mut pos = start;
+    // Optional leading minus
+    if chars[pos] == '-' {
+        pos += 1;
+    }
+
+    // Consume digits
+    while pos < chars.len() && chars[pos].is_ascii_digit() {
+        pos += 1;
+    }
+
+    // Check for float
+    if pos < chars.len()
+        && chars[pos] == '.'
+        && pos + 1 < chars.len()
+        && chars[pos + 1].is_ascii_digit()
+    {
+        pos += 1; // Skip dot
+        while pos < chars.len() && chars[pos].is_ascii_digit() {
+            pos += 1;
+        }
+        (pos, TokenKind::Float)
+    } else {
+        (pos, TokenKind::Integer)
+    }
+}
+
 /// Tokenize Seq source code for syntax highlighting
 pub(crate) fn tokenize(source: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
@@ -180,30 +210,9 @@ pub(crate) fn tokenize(source: &str) -> Vec<Token> {
         if ch.is_ascii_digit()
             || (ch == '-' && pos + 1 < chars.len() && chars[pos + 1].is_ascii_digit())
         {
-            let is_negative = ch == '-';
-            if is_negative {
-                pos += 1;
-            }
-
-            // Consume digits
-            while pos < chars.len() && chars[pos].is_ascii_digit() {
-                pos += 1;
-            }
-
-            // Check for float
-            if pos < chars.len()
-                && chars[pos] == '.'
-                && pos + 1 < chars.len()
-                && chars[pos + 1].is_ascii_digit()
-            {
-                pos += 1; // Skip dot
-                while pos < chars.len() && chars[pos].is_ascii_digit() {
-                    pos += 1;
-                }
-                push_range(&mut tokens, &chars, start, pos, TokenKind::Float);
-            } else {
-                push_range(&mut tokens, &chars, start, pos, TokenKind::Integer);
-            }
+            let (end, kind) = lex_number(&chars, start);
+            push_range(&mut tokens, &chars, start, end, kind);
+            pos = end;
             continue;
         }
 

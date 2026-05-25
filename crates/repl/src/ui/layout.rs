@@ -163,11 +163,7 @@ impl StatusContent {
     /// Format for display
     pub fn format(&self, width: u16) -> String {
         let left = format!(" {} ", self.filename);
-        let middle = if let Some(msg) = &self.message {
-            msg.clone()
-        } else {
-            String::new()
-        };
+        let middle = self.message.as_deref().unwrap_or("");
         let right = format!(" {} | {} ", self.mode, self.ir_view);
 
         let padding_needed = (width as usize)

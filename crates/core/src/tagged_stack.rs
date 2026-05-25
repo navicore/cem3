@@ -96,10 +96,17 @@ pub struct TaggedStack {
     pub capacity: usize,
 }
 
+/// Memory layout for a stack of `capacity` `StackValue`s. Centralized so
+/// `alloc`/`realloc`/`dealloc` always compute an identical layout (required
+/// for sound deallocation).
+fn stack_layout(capacity: usize) -> Layout {
+    Layout::array::<StackValue>(capacity).expect("stack layout overflow")
+}
+
 impl TaggedStack {
     /// Create a new tagged stack with the given capacity
     pub fn new(capacity: usize) -> Self {
-        let layout = Layout::array::<StackValue>(capacity).expect("stack layout overflow");
+        let layout = stack_layout(capacity);
         let base = unsafe { alloc(layout) as *mut StackValue };
         if base.is_null() {
             handle_alloc_error(layout);
@@ -138,8 +145,8 @@ impl TaggedStack {
     /// Grow the stack to accommodate more values
     pub fn grow(&mut self, min_capacity: usize) {
         let new_capacity = (self.capacity * 2).max(min_capacity);
-        let old_layout = Layout::array::<StackValue>(self.capacity).expect("old layout overflow");
-        let new_layout = Layout::array::<StackValue>(new_capacity).expect("new layout overflow");
+        let old_layout = stack_layout(self.capacity);
+        let new_layout = stack_layout(new_capacity);
 
         let new_base = unsafe {
             realloc(self.base as *mut u8, old_layout, new_layout.size()) as *mut StackValue
@@ -208,7 +215,7 @@ impl TaggedStack {
     pub fn clone_stack(&self) -> Self {
         use crate::stack::clone_stack_value;
 
-        let layout = Layout::array::<StackValue>(self.capacity).expect("layout overflow");
+        let layout = stack_layout(self.capacity);
         let new_base = unsafe { alloc(layout) as *mut StackValue };
         if new_base.is_null() {
             handle_alloc_error(layout);
@@ -242,7 +249,7 @@ impl Drop for TaggedStack {
         }
 
         if !self.base.is_null() {
-            let layout = Layout::array::<StackValue>(self.capacity).expect("layout overflow");
+            let layout = stack_layout(self.capacity);
             unsafe {
                 dealloc(self.base as *mut u8, layout);
             }

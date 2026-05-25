@@ -75,6 +75,17 @@ pub struct MemoryStatsRegistry {
     pub overflow_count: AtomicU64,
 }
 
+/// Atomically raise `target` to `value` if `value` is larger (compare-and-max).
+fn atomic_max(target: &AtomicU64, value: u64) {
+    let mut current = target.load(Ordering::Relaxed);
+    while value > current {
+        match target.compare_exchange_weak(current, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(c) => current = c,
+        }
+    }
+}
+
 impl MemoryStatsRegistry {
     /// Create a new registry with the given capacity
     fn new(capacity: usize) -> Self {
@@ -118,20 +129,8 @@ impl MemoryStatsRegistry {
         if let Some(slot) = self.slots.get(slot_idx) {
             let bytes = arena_bytes as u64;
             slot.arena_bytes.store(bytes, Ordering::Relaxed);
-
-            // Update peak via CAS loop (same pattern as PEAK_STRANDS in scheduler.rs)
-            let mut peak = slot.peak_arena_bytes.load(Ordering::Relaxed);
-            while bytes > peak {
-                match slot.peak_arena_bytes.compare_exchange_weak(
-                    peak,
-                    bytes,
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => break,
-                    Err(current) => peak = current,
-                }
-            }
+            // Raise the high-water mark (same compare-and-max as PEAK_STRANDS in scheduler.rs).
+            atomic_max(&slot.peak_arena_bytes, bytes);
         }
     }
 

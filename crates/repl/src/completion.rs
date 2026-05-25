@@ -95,18 +95,23 @@ impl CompletionManager {
         self.index = 0;
     }
 
+    /// Reset selection to the first item and show the popup, if any items exist.
+    fn show_items(&mut self) {
+        if !self.items.is_empty() {
+            self.index = 0;
+            self.visible = true;
+        }
+    }
+
     /// Request completions for the given input and cursor position.
     ///
     /// Returns a status message if completions couldn't be provided.
     pub fn request(&mut self, input: &str, cursor: usize, session_path: &Path) -> Option<String> {
         // Find word start for replacement
-        let word_start = input[..cursor]
-            .rfind(|c: char| c.is_whitespace())
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        let start = word_start(input, cursor);
 
         // Get the prefix the user has typed
-        let prefix = &input[word_start..cursor];
+        let prefix = &input[start..cursor];
 
         // Don't show completions for empty prefix - too noisy
         if prefix.is_empty() {
@@ -184,10 +189,7 @@ impl CompletionManager {
             .take(10)
             .collect();
 
-        if !self.items.is_empty() {
-            self.index = 0;
-            self.visible = true;
-        }
+        self.show_items();
 
         true // LSP was available, even if no completions
     }
@@ -208,10 +210,7 @@ impl CompletionManager {
             })
             .collect();
 
-        if !self.items.is_empty() {
-            self.index = 0;
-            self.visible = true;
-        }
+        self.show_items();
     }
 
     /// Accept the current completion and return the replacement text.
@@ -221,15 +220,12 @@ impl CompletionManager {
         let item = self.items.get(self.index)?;
 
         // Find start of current word
-        let word_start = input[..cursor]
-            .rfind(|c: char| c.is_whitespace())
-            .map(|i| i + 1)
-            .unwrap_or(0);
+        let start = word_start(input, cursor);
 
         let completion = item.label.clone();
         self.hide();
 
-        Some((word_start, completion))
+        Some((start, completion))
     }
 }
 
@@ -237,6 +233,15 @@ impl Default for CompletionManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Byte index where the word under `cursor` begins (just after the last
+/// whitespace before it, or 0 if there is none).
+fn word_start(input: &str, cursor: usize) -> usize {
+    input[..cursor]
+        .rfind(|c: char| c.is_whitespace())
+        .map(|i| i + 1)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

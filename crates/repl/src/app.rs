@@ -140,6 +140,21 @@ const HELP_LINES: &[&str] = &[
     "  Esc           Cancel search",
 ];
 
+/// State for vim `/` history search, grouped so `App` stays lean.
+#[derive(Default)]
+struct SearchState {
+    /// Whether search mode is active.
+    active: bool,
+    /// Current search pattern.
+    pattern: String,
+    /// Indices of history entries matching `pattern`.
+    matches: Vec<usize>,
+    /// Current match index (into `matches`).
+    match_index: usize,
+    /// Input before search started (restored on cancel).
+    original_input: String,
+}
+
 /// Main application state
 pub(crate) struct App {
     /// REPL state (history, input, cursor)
@@ -168,16 +183,8 @@ pub(crate) struct App {
     _temp_file: Option<NamedTempFile>,
     /// Completion manager (handles LSP and builtin completions)
     completions: CompletionManager,
-    /// Whether in search mode (vim `/` search)
-    search_mode: bool,
-    /// Current search pattern
-    search_pattern: String,
-    /// Indices of history entries matching search pattern
-    search_matches: Vec<usize>,
-    /// Current match index (into search_matches)
-    search_match_index: usize,
-    /// Original input before search started (for cancellation)
-    search_original_input: String,
+    /// Vim `/` history-search state.
+    search: SearchState,
     /// In-progress Tab cycle for the `:` command line.
     cmdline_cycle: Option<CmdlineCycle>,
 }
@@ -218,11 +225,7 @@ impl App {
             session_path,
             _temp_file: Some(temp_file),
             completions,
-            search_mode: false,
-            search_pattern: String::new(),
-            search_matches: Vec::new(),
-            search_match_index: 0,
-            search_original_input: String::new(),
+            search: SearchState::default(),
             cmdline_cycle: None,
         };
         app.load_history();
@@ -270,11 +273,7 @@ impl App {
             session_path: path,
             _temp_file: None,
             completions,
-            search_mode: false,
-            search_pattern: String::new(),
-            search_matches: Vec::new(),
-            search_match_index: 0,
-            search_original_input: String::new(),
+            search: SearchState::default(),
             cmdline_cycle: None,
         };
         app.load_history();
@@ -369,184 +368,27 @@ impl App {
         // Clear status message on any key
         self.status_message = None;
 
-        // Handle completion popup navigation first
-        if self.completions.is_visible() {
-            match key.code {
-                KeyCode::Esc => {
-                    self.completions.hide();
-                    return;
-                }
-                KeyCode::Up | KeyCode::Char('k') if self.is_normal_mode() => {
-                    self.completions.up();
-                    return;
-                }
-                KeyCode::Down | KeyCode::Char('j') if self.is_normal_mode() => {
-                    self.completions.down();
-                    return;
-                }
-                KeyCode::Up => {
-                    self.completions.up();
-                    return;
-                }
-                KeyCode::Down => {
-                    self.completions.down();
-                    return;
-                }
-                KeyCode::Tab => {
-                    self.completions.down();
-                    return;
-                }
-                KeyCode::Enter => {
-                    self.accept_completion();
-                    return;
-                }
-                _ => {
-                    // Any other key hides completions and continues
-                    self.completions.hide();
-                }
-            }
-        }
-
-        // Handle search mode (vim `/` search)
-        if self.search_mode {
-            match key.code {
-                KeyCode::Esc => {
-                    // Cancel search - restore original input
-                    self.repl_state.input = self.search_original_input.clone();
-                    self.sync_editor_to_input();
-                    self.search_mode = false;
-                    self.search_pattern.clear();
-                    self.search_matches.clear();
-                    self.status_message = None;
-                    return;
-                }
-                KeyCode::Enter => {
-                    // Accept current match (input already shows preview)
-                    self.search_mode = false;
-                    self.search_pattern.clear();
-                    self.search_matches.clear();
-                    return;
-                }
-                KeyCode::Backspace => {
-                    // Delete from search pattern
-                    self.search_pattern.pop();
-                    self.update_search_matches();
-                    self.preview_current_match();
-                    self.update_search_status();
-                    return;
-                }
-                KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                    // Previous match (Shift+Tab)
-                    if !self.search_matches.is_empty() {
-                        self.search_match_index = if self.search_match_index == 0 {
-                            self.search_matches.len() - 1
-                        } else {
-                            self.search_match_index - 1
-                        };
-                        self.preview_current_match();
-                        self.update_search_status();
-                    }
-                    return;
-                }
-                KeyCode::Tab | KeyCode::BackTab => {
-                    // Next match (Tab) or previous (BackTab for terminals that send it)
-                    if !self.search_matches.is_empty() {
-                        if key.code == KeyCode::BackTab {
-                            self.search_match_index = if self.search_match_index == 0 {
-                                self.search_matches.len() - 1
-                            } else {
-                                self.search_match_index - 1
-                            };
-                        } else {
-                            self.search_match_index =
-                                (self.search_match_index + 1) % self.search_matches.len();
-                        }
-                        self.preview_current_match();
-                        self.update_search_status();
-                    }
-                    return;
-                }
-                KeyCode::Char(c) => {
-                    // Add to search pattern
-                    self.search_pattern.push(c);
-                    self.update_search_matches();
-                    self.preview_current_match();
-                    self.update_search_status();
-                    return;
-                }
-                _ => return,
-            }
-        }
-
-        // Enter search mode with `/` in normal mode
-        if key.code == KeyCode::Char('/') && self.is_normal_mode() {
-            self.search_mode = true;
-            self.search_original_input = self.repl_state.input.clone();
-            self.search_pattern.clear();
-            self.search_matches.clear();
-            self.search_match_index = 0;
-            self.update_search_status();
+        // Each handler returns `true` when it fully consumes the key. Order
+        // matters: the completion popup and `/` search are modal and take
+        // precedence over normal editing.
+        if self.handle_completion_popup_key(key) {
             return;
         }
-
-        // Global shortcuts (work in any mode)
-        if key.modifiers.contains(KeyModifiers::CONTROL) {
-            match key.code {
-                KeyCode::Char('c') | KeyCode::Char('d') | KeyCode::Char('q') => {
-                    // Ctrl+C, Ctrl+D (EOF), Ctrl+Q all quit
-                    self.should_quit = true;
-                    return;
-                }
-                KeyCode::Char('l') => {
-                    // Clear screen / refresh
-                    return;
-                }
-                KeyCode::Char('n') => {
-                    // Cycle IR view modes (when visible)
-                    if self.show_ir_pane {
-                        self.ir_mode = self.ir_mode.next();
-                    }
-                    return;
-                }
-                _ => {}
-            }
+        if self.search.active {
+            self.handle_search_key(key);
+            return;
         }
-
-        // Function keys toggle IR pane views (F1=Stack, F2=AST, F3=LLVM)
-        match key.code {
-            KeyCode::F(1) => {
-                self.toggle_ir_view(IrViewMode::StackArt);
-                return;
-            }
-            KeyCode::F(2) => {
-                self.toggle_ir_view(IrViewMode::TypedAst);
-                return;
-            }
-            KeyCode::F(3) => {
-                self.toggle_ir_view(IrViewMode::LlvmIr);
-                return;
-            }
-            _ => {}
+        if self.try_enter_search(key) {
+            return;
         }
-
-        // CommandLine mode owns Tab / Shift+Tab for cycling REPL command
-        // completions. Any other key while in CommandLine resets the cycle
-        // so the next Tab re-derives matches from the new buffer.
-        if self.editor.command_line_buffer().is_some() {
-            let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-            match key.code {
-                KeyCode::Tab => {
-                    self.cycle_command_completion(shift);
-                    return;
-                }
-                KeyCode::BackTab => {
-                    self.cycle_command_completion(true);
-                    return;
-                }
-                _ => {
-                    self.cmdline_cycle = None;
-                }
-            }
+        if self.handle_ctrl_shortcut(key) {
+            return;
+        }
+        if self.handle_function_key(key) {
+            return;
+        }
+        if self.handle_command_line_tab(key) {
+            return;
         }
 
         // Tab triggers main-buffer completion (before vim-line, which
@@ -556,59 +398,221 @@ impl App {
             return;
         }
 
-        // Shift+Enter in Insert mode inserts a newline
-        // Terminals report Shift+Enter differently:
-        // - Some as Enter with SHIFT modifier
-        // - Some as Enter with ALT modifier (e.g., macOS Terminal/iTerm)
-        // - Some as Char('\n')
+        if self.handle_insert_enter(key) {
+            return;
+        }
+        if self.handle_normal_jk(key) {
+            return;
+        }
+
+        // Default: hand the key to vim-line and apply its edits/actions.
+        self.dispatch_to_editor(key);
+    }
+
+    /// Completion-popup navigation. Returns `true` if the key was consumed; a
+    /// non-navigation key hides the popup and returns `false` so the key still
+    /// reaches the normal handlers.
+    fn handle_completion_popup_key(&mut self, key: KeyEvent) -> bool {
+        if !self.completions.is_visible() {
+            return false;
+        }
+        match key.code {
+            KeyCode::Esc => self.completions.hide(),
+            KeyCode::Up | KeyCode::Char('k') if self.is_normal_mode() => self.completions.up(),
+            KeyCode::Down | KeyCode::Char('j') if self.is_normal_mode() => self.completions.down(),
+            KeyCode::Up => self.completions.up(),
+            KeyCode::Down | KeyCode::Tab => self.completions.down(),
+            KeyCode::Enter => self.accept_completion(),
+            _ => {
+                // Any other key hides completions and continues to normal handling.
+                self.completions.hide();
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Handle a key while in vim `/` search mode. Always consumes the key.
+    fn handle_search_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Esc => {
+                // Cancel search - restore original input
+                self.repl_state.input = self.search.original_input.clone();
+                self.sync_editor_to_input();
+                self.search.active = false;
+                self.search.pattern.clear();
+                self.search.matches.clear();
+                self.status_message = None;
+            }
+            KeyCode::Enter => {
+                // Accept current match (input already shows preview)
+                self.search.active = false;
+                self.search.pattern.clear();
+                self.search.matches.clear();
+            }
+            KeyCode::Backspace => {
+                self.search.pattern.pop();
+                self.refresh_search();
+            }
+            KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.step_search_match(true);
+            }
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.step_search_match(key.code == KeyCode::BackTab);
+            }
+            KeyCode::Char(c) => {
+                self.search.pattern.push(c);
+                self.refresh_search();
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Recompute matches for the current pattern and preview the first hit.
+    fn refresh_search(&mut self) {
+        self.update_search_matches();
+        self.preview_current_match();
+        self.update_search_status();
+    }
+
+    /// Move to the previous (`backward`) or next search match and preview it.
+    fn step_search_match(&mut self, backward: bool) {
+        if self.search.matches.is_empty() {
+            return;
+        }
+        self.search.match_index = if backward {
+            if self.search.match_index == 0 {
+                self.search.matches.len() - 1
+            } else {
+                self.search.match_index - 1
+            }
+        } else {
+            (self.search.match_index + 1) % self.search.matches.len()
+        };
+        self.preview_current_match();
+        self.update_search_status();
+    }
+
+    /// Enter vim `/` search mode when `/` is pressed in normal mode.
+    fn try_enter_search(&mut self, key: KeyEvent) -> bool {
+        if key.code == KeyCode::Char('/') && self.is_normal_mode() {
+            self.search.active = true;
+            self.search.original_input = self.repl_state.input.clone();
+            self.search.pattern.clear();
+            self.search.matches.clear();
+            self.search.match_index = 0;
+            self.update_search_status();
+            return true;
+        }
+        false
+    }
+
+    /// Ctrl-modified global shortcuts (quit, refresh, cycle IR view).
+    fn handle_ctrl_shortcut(&mut self, key: KeyEvent) -> bool {
+        if !key.modifiers.contains(KeyModifiers::CONTROL) {
+            return false;
+        }
+        match key.code {
+            KeyCode::Char('c') | KeyCode::Char('d') | KeyCode::Char('q') => {
+                // Ctrl+C, Ctrl+D (EOF), Ctrl+Q all quit
+                self.should_quit = true;
+                true
+            }
+            KeyCode::Char('l') => true, // clear screen / refresh
+            KeyCode::Char('n') => {
+                // Cycle IR view modes (when visible)
+                if self.show_ir_pane {
+                    self.ir_mode = self.ir_mode.next();
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Function keys toggle IR pane views (F1=Stack, F2=AST, F3=LLVM).
+    fn handle_function_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::F(1) => self.toggle_ir_view(IrViewMode::StackArt),
+            KeyCode::F(2) => self.toggle_ir_view(IrViewMode::TypedAst),
+            KeyCode::F(3) => self.toggle_ir_view(IrViewMode::LlvmIr),
+            _ => return false,
+        }
+        true
+    }
+
+    /// CommandLine mode owns Tab / Shift+Tab for cycling REPL command
+    /// completions. Any other key resets the cycle so the next Tab re-derives
+    /// matches from the new buffer (returns `false` so the key keeps flowing).
+    fn handle_command_line_tab(&mut self, key: KeyEvent) -> bool {
+        if self.editor.command_line_buffer().is_none() {
+            return false;
+        }
+        match key.code {
+            KeyCode::Tab => {
+                self.cycle_command_completion(key.modifiers.contains(KeyModifiers::SHIFT))
+            }
+            KeyCode::BackTab => self.cycle_command_completion(true),
+            _ => {
+                self.cmdline_cycle = None;
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Insert/submit handling for Enter in INSERT mode: Shift/Alt-Enter and
+    /// `\n` insert a literal newline; a plain Enter submits.
+    fn handle_insert_enter(&mut self, key: KeyEvent) -> bool {
+        if self.editor.status() != "INSERT" {
+            return false;
+        }
+        // Terminals report Shift+Enter differently: Enter+SHIFT, Enter+ALT
+        // (macOS Terminal/iTerm), or Char('\n').
         let is_modified_enter = key.code == KeyCode::Enter
             && (key.modifiers.contains(KeyModifiers::SHIFT)
                 || key.modifiers.contains(KeyModifiers::ALT));
-        let is_newline_char = key.code == KeyCode::Char('\n');
-
-        if (is_modified_enter || is_newline_char) && self.editor.status() == "INSERT" {
+        if is_modified_enter || key.code == KeyCode::Char('\n') {
             let cursor = self.editor.cursor();
             self.repl_state.input.insert(cursor, '\n');
             self.editor.set_cursor(cursor + 1, &self.repl_state.input);
             self.repl_state.cursor = self.editor.cursor();
-            return;
+            return true;
         }
-
-        // Enter in Insert mode submits (REPL behavior, not vim's newline insertion)
-        if key.code == KeyCode::Enter && self.editor.status() == "INSERT" {
+        // Plain Enter submits (REPL behavior, not vim's newline insertion).
+        if key.code == KeyCode::Enter {
             self.execute_input();
-            return;
+            return true;
         }
+        false
+    }
 
-        // Context-aware j/k in Normal mode: navigate history when at buffer boundaries
-        // This makes j/k intuitive for single-line inputs (the common case) while
-        // still supporting multi-line navigation when there are multiple lines
-        if self.editor.status() == "NORMAL" {
-            let input = &self.repl_state.input;
-            let cursor = floor_char_boundary(input, self.editor.cursor());
-
-            match key.code {
-                KeyCode::Char('k') => {
-                    // k at top line (or single line) → history prev
-                    let on_first_line = !input[..cursor].contains('\n');
-                    if on_first_line {
-                        self.navigate_history_prev();
-                        return;
-                    }
-                }
-                KeyCode::Char('j') => {
-                    // j at bottom line (or single line) → history next
-                    let on_last_line = !input[cursor..].contains('\n');
-                    if on_last_line {
-                        self.navigate_history_next();
-                        return;
-                    }
-                }
-                _ => {}
+    /// Context-aware j/k in Normal mode: navigate history when the cursor is
+    /// on the first line (k) or last line (j). Multi-line inputs fall through
+    /// to vim-line for in-buffer movement.
+    fn handle_normal_jk(&mut self, key: KeyEvent) -> bool {
+        if self.editor.status() != "NORMAL" {
+            return false;
+        }
+        let input = &self.repl_state.input;
+        let cursor = floor_char_boundary(input, self.editor.cursor());
+        match key.code {
+            KeyCode::Char('k') if !input[..cursor].contains('\n') => {
+                self.navigate_history_prev();
+                true
             }
+            KeyCode::Char('j') if !input[cursor..].contains('\n') => {
+                self.navigate_history_next();
+                true
+            }
+            _ => false,
         }
+    }
 
-        // Convert to vim-line key and process
+    /// Default key path: hand the key to vim-line, apply its text edits, sync
+    /// the cursor, run any resulting action, and refresh the IR preview.
+    fn dispatch_to_editor(&mut self, key: KeyEvent) {
         let vl_key = convert_key(key);
         let result = self.editor.handle_key(vl_key, &self.repl_state.input);
 
@@ -684,6 +688,26 @@ impl App {
         self.try_expression(&input);
     }
 
+    /// Compile the session file to a sibling binary (the session path with its
+    /// extension stripped). Returns the binary path on success — the caller is
+    /// responsible for removing it — or the compiler error as a string.
+    fn compile_session(&self) -> Result<PathBuf, String> {
+        let output_path = self.session_path.with_extension("");
+        seqc::compile_file(&self.session_path, &output_path, false)
+            .map(|_| output_path)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Compile and run the session under the REPL timeout, removing the binary
+    /// afterward. `Err` is a compile failure; a runtime failure/timeout is
+    /// carried in the returned `RunResult`.
+    fn compile_and_run(&self) -> Result<RunResult, String> {
+        let output_path = self.compile_session()?;
+        let result = run_with_timeout(&output_path);
+        let _ = fs::remove_file(&output_path);
+        Ok(result)
+    }
+
     /// Try adding a word definition to the session file
     fn try_definition(&mut self, def: &str) {
         // Save current content for rollback
@@ -701,9 +725,8 @@ impl App {
         }
 
         // Try to compile
-        let output_path = self.session_path.with_extension("");
-        match seqc::compile_file(&self.session_path, &output_path, false) {
-            Ok(_) => {
+        match self.compile_session() {
+            Ok(output_path) => {
                 let _ = fs::remove_file(&output_path);
                 self.repl_state
                     .add_entry(HistoryEntry::new(def).with_output("Defined."));
@@ -712,7 +735,7 @@ impl App {
             Err(e) => {
                 // Rollback
                 self.rollback_session(&original);
-                self.add_error_entry(def, &e.to_string());
+                self.add_error_entry(def, &e);
             }
         }
     }
@@ -756,13 +779,8 @@ impl App {
         }
 
         // Try to compile and run
-        let output_path = self.session_path.with_extension("");
-        match seqc::compile_file(&self.session_path, &output_path, false) {
-            Ok(_) => {
-                // Run with timeout to prevent hanging on blocked operations
-                let result = run_with_timeout(&output_path);
-                let _ = fs::remove_file(&output_path);
-
+        match self.compile_and_run() {
+            Ok(result) => {
                 match result {
                     RunResult::Success { stdout } => {
                         // Update IR from the session file - only on success
@@ -808,7 +826,7 @@ impl App {
             Err(e) => {
                 // Rollback
                 self.rollback_session(&original);
-                self.add_error_entry(expr, &e.to_string());
+                self.add_error_entry(expr, &e);
             }
         }
     }
@@ -954,9 +972,8 @@ impl App {
         }
 
         // Try to compile
-        let output_path = self.session_path.with_extension("");
-        match seqc::compile_file(&self.session_path, &output_path, false) {
-            Ok(_) => {
+        match self.compile_session() {
+            Ok(output_path) => {
                 let _ = fs::remove_file(&output_path);
                 self.status_message = Some(format!("Included '{}'.", module));
             }
@@ -1104,34 +1121,26 @@ impl App {
     /// Compile session and show current stack (used by :stack command)
     /// The command parameter is the actual command string (e.g., ":stack") for history
     fn compile_and_show_stack(&mut self, command: &str) {
-        let output_path = self.session_path.with_extension("");
-        match seqc::compile_file(&self.session_path, &output_path, false) {
-            Ok(_) => {
-                let result = run_with_timeout(&output_path);
-                let _ = fs::remove_file(&output_path);
-
-                match result {
-                    RunResult::Success { stdout } => {
-                        let output_text = stdout.trim();
-                        // Add command to history with stack output
-                        if !output_text.is_empty() {
-                            self.repl_state
-                                .add_entry(HistoryEntry::new(command).with_output(output_text));
-                        } else {
-                            self.repl_state
-                                .add_entry(HistoryEntry::new(command).with_output("(empty)"));
-                        }
-                    }
-                    RunResult::Timeout { timeout_secs } => {
-                        self.status_message = Some(format!(
-                            "Timeout after {}s while showing stack",
-                            timeout_secs
-                        ));
-                    }
-                    _ => {
-                        // Failed or Error - just ignore for stack display
-                    }
+        match self.compile_and_run() {
+            Ok(RunResult::Success { stdout }) => {
+                let output_text = stdout.trim();
+                // Add command to history with stack output
+                if !output_text.is_empty() {
+                    self.repl_state
+                        .add_entry(HistoryEntry::new(command).with_output(output_text));
+                } else {
+                    self.repl_state
+                        .add_entry(HistoryEntry::new(command).with_output("(empty)"));
                 }
+            }
+            Ok(RunResult::Timeout { timeout_secs }) => {
+                self.status_message = Some(format!(
+                    "Timeout after {}s while showing stack",
+                    timeout_secs
+                ));
+            }
+            Ok(_) => {
+                // Failed or Error - just ignore for stack display
             }
             Err(e) => {
                 self.status_message = Some(format!("Compile error: {}", e));
@@ -1141,67 +1150,53 @@ impl App {
 
     /// Show current stack in IR pane without adding to history (for informational display)
     fn show_stack_in_ir_pane(&mut self) {
-        let output_path = self.session_path.with_extension("");
-        match seqc::compile_file(&self.session_path, &output_path, false) {
-            Ok(_) => {
-                let result = run_with_timeout(&output_path);
-                let _ = fs::remove_file(&output_path);
-
-                match result {
-                    RunResult::Success { stdout } => {
-                        let output_text = stdout.trim();
-                        let mut lines = vec!["Stack:".to_string()];
-                        if !output_text.is_empty() {
-                            lines.extend(output_text.lines().map(String::from));
-                        } else {
-                            lines.push("(empty)".to_string());
-                        }
-                        self.ir_content = IrContent {
-                            stack_art: lines,
-                            typed_ast: vec![],
-                            llvm_ir: vec![],
-                            errors: vec![],
-                        };
-                        self.ir_mode = IrViewMode::StackArt;
-                        self.show_ir_pane = true;
-                    }
-                    _ => {
-                        // Timeout or error - ignore for display
-                    }
-                }
+        // Only a successful compile + run updates the pane; everything else
+        // (compile error, runtime failure, timeout) is silently ignored here.
+        if let Ok(RunResult::Success { stdout }) = self.compile_and_run() {
+            let output_text = stdout.trim();
+            let mut lines = vec!["Stack:".to_string()];
+            if !output_text.is_empty() {
+                lines.extend(output_text.lines().map(String::from));
+            } else {
+                lines.push("(empty)".to_string());
             }
-            Err(_) => {
-                // Compile error - ignore for display
-            }
+            self.ir_content = IrContent {
+                stack_art: lines,
+                typed_ast: vec![],
+                llvm_ir: vec![],
+                errors: vec![],
+            };
+            self.ir_mode = IrViewMode::StackArt;
+            self.show_ir_pane = true;
         }
     }
 
     /// Update search matches based on current search pattern
     fn update_search_matches(&mut self) {
-        self.search_matches.clear();
-        self.search_match_index = 0;
+        self.search.matches.clear();
+        self.search.match_index = 0;
 
-        if self.search_pattern.is_empty() {
+        if self.search.pattern.is_empty() {
             return;
         }
 
-        let pattern = self.search_pattern.to_lowercase();
+        let pattern = self.search.pattern.to_lowercase();
         // Search in reverse order (most recent first)
         for (i, entry) in self.repl_state.history.iter().enumerate().rev() {
             if entry.input.to_lowercase().contains(&pattern) {
-                self.search_matches.push(i);
+                self.search.matches.push(i);
             }
         }
     }
 
     /// Preview the current search match in the input line
     fn preview_current_match(&mut self) {
-        if self.search_matches.is_empty() {
+        if self.search.matches.is_empty() {
             // No matches - show original input
-            self.repl_state.input = self.search_original_input.clone();
+            self.repl_state.input = self.search.original_input.clone();
         } else {
             // Show current match
-            let idx = self.search_matches[self.search_match_index];
+            let idx = self.search.matches[self.search.match_index];
             if let Some(entry) = self.repl_state.history.get(idx) {
                 self.repl_state.input = entry.input.clone();
             }
@@ -1211,18 +1206,18 @@ impl App {
 
     /// Update status message to show search state
     fn update_search_status(&mut self) {
-        if self.search_matches.is_empty() {
-            if self.search_pattern.is_empty() {
+        if self.search.matches.is_empty() {
+            if self.search.pattern.is_empty() {
                 self.status_message = Some("/".to_string());
             } else {
-                self.status_message = Some(format!("/{} (no matches)", self.search_pattern));
+                self.status_message = Some(format!("/{} (no matches)", self.search.pattern));
             }
         } else {
-            let match_num = self.search_match_index + 1;
-            let total = self.search_matches.len();
+            let match_num = self.search.match_index + 1;
+            let total = self.search.matches.len();
             self.status_message = Some(format!(
                 "/{} ({}/{})",
-                self.search_pattern, match_num, total
+                self.search.pattern, match_num, total
             ));
         }
     }

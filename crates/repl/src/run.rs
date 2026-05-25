@@ -61,20 +61,16 @@ pub(crate) fn run_with_timeout(path: &Path) -> RunResult {
         match child.try_wait() {
             Ok(Some(status)) => {
                 // Process exited - read the stream we'll actually keep.
-                let stream = if status.success() {
-                    drain_pipe(child.stdout.take())
+                return if status.success() {
+                    RunResult::Success {
+                        stdout: drain_pipe(child.stdout.take()),
+                    }
                 } else {
-                    drain_pipe(child.stderr.take())
-                };
-
-                if status.success() {
-                    return RunResult::Success { stdout: stream };
-                } else {
-                    return RunResult::Failed {
-                        stderr: stream,
+                    RunResult::Failed {
+                        stderr: drain_pipe(child.stderr.take()),
                         status,
-                    };
-                }
+                    }
+                };
             }
             Ok(None) => {
                 // Still running - check timeout

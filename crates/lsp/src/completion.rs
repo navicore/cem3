@@ -179,6 +179,14 @@ fn is_in_seq_allow(comment: &str) -> bool {
     !after_hash.is_empty() && "seq:allow(".starts_with(after_hash)
 }
 
+/// Wrap Markdown text as completion-item `Documentation`.
+fn markdown_doc(value: String) -> Documentation {
+    Documentation::MarkupContent(MarkupContent {
+        kind: MarkupKind::Markdown,
+        value,
+    })
+}
+
 /// Build completions for a `seq:allow` context. Two shapes:
 ///
 /// - **Pre-paren** (`# seq:`, `# seq:allow`, etc.): a single snippet
@@ -212,10 +220,10 @@ fn get_lint_allow_completions(line_prefix: &str) -> Vec<CompletionItem> {
                 label: lint.id.clone(),
                 kind: Some(CompletionItemKind::ENUM_MEMBER),
                 detail: Some(severity.to_string()),
-                documentation: Some(Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: format!("**{}** *({})*\n\n{}", lint.id, severity, lint.message),
-                })),
+                documentation: Some(markdown_doc(format!(
+                    "**{}** *({})*\n\n{}",
+                    lint.id, severity, lint.message
+                ))),
                 ..Default::default()
             }
         })
@@ -230,12 +238,11 @@ fn lint_allow_snippet_item() -> CompletionItem {
         label: "seq:allow(...)".to_string(),
         kind: Some(CompletionItemKind::SNIPPET),
         detail: Some("suppress a specific lint for the next word".to_string()),
-        documentation: Some(Documentation::MarkupContent(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: "Annotate the next word definition to suppress a specific lint.\n\n\
+        documentation: Some(markdown_doc(
+            "Annotate the next word definition to suppress a specific lint.\n\n\
                     ```seq\n# seq:allow(lint-id)\n: my-word ( -- ) ... ;\n```"
                 .to_string(),
-        })),
+        )),
         insert_text: Some("seq:allow($0)".to_string()),
         insert_text_format: Some(InsertTextFormat::SNIPPET),
         // filter_text lets editors that match the typed prefix against
@@ -288,10 +295,10 @@ fn get_include_module_completions(line_prefix: &str) -> Vec<CompletionItem> {
                 label: full_name.clone(),
                 kind: Some(CompletionItemKind::MODULE),
                 detail: Some(desc.to_string()),
-                documentation: Some(Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: format!("```seq\ninclude {}\n```\n\n{}", full_name, desc),
-                })),
+                documentation: Some(markdown_doc(format!(
+                    "```seq\ninclude {}\n```\n\n{}",
+                    full_name, desc
+                ))),
                 ..Default::default()
             });
         }
@@ -312,10 +319,10 @@ fn get_include_std_completions(line_prefix: &str) -> Vec<CompletionItem> {
             label: name.to_string(),
             kind: Some(CompletionItemKind::MODULE),
             detail: Some(desc.to_string()),
-            documentation: Some(Documentation::MarkupContent(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: format!("```seq\ninclude std:{}\n```\n\n{}", name, desc),
-            })),
+            documentation: Some(markdown_doc(format!(
+                "```seq\ninclude std:{}\n```\n\n{}",
+                name, desc
+            ))),
             ..Default::default()
         })
         .collect()
@@ -364,10 +371,7 @@ fn make_word_completion(
         // is FUNCTION/METHOD; OPERATOR keeps the inserted text bare.
         kind: Some(CompletionItemKind::OPERATOR),
         detail: Some(detail),
-        documentation: Some(Documentation::MarkupContent(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: doc_value,
-        })),
+        documentation: Some(markdown_doc(doc_value)),
         sort_text: Some(format!("{}{}", sort_prefix, name)),
         ..Default::default()
     }
@@ -418,10 +422,7 @@ fn get_builtin_completions() -> Vec<CompletionItem> {
             // OPERATOR — see make_word_completion for rationale.
             kind: Some(CompletionItemKind::OPERATOR),
             detail: Some(signature),
-            documentation: Some(Documentation::MarkupContent(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: doc_value,
-            })),
+            documentation: Some(markdown_doc(doc_value)),
             sort_text: Some(format!("2_{}", name)), // Sort builtins after local/included
             ..Default::default()
         });

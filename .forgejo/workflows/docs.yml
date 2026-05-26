@@ -24,19 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # mdbook / mdbook-mermaid aren't in the runner image; cache the installed
-      # binaries so this is a no-op on subsequent runs.
-      - name: Cache mdBook tools
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/mdbook
-            ~/.cargo/bin/mdbook-mermaid
-          key: navicore-rust-mdbook-tools-v1
-
-      - name: Install mdBook
-        run: cargo install --locked mdbook mdbook-mermaid
-
+      # mdbook + mdbook-mermaid are baked into the navicore-rust runner image
+      # (see ../navicore-forgejo-runner), so there is no per-run install.
       - name: Build docs
         run: just docs # gen-docs + mdbook build -> ./book
 

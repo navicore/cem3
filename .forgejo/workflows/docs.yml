@@ -11,9 +11,11 @@ on:
 # runs-on: navicore-rust — the custom runner image (Rust 1.95.0 + just
 # pre-installed). See ../navicore-forgejo-runner for the image definition.
 #
-# Required repo secrets: DOCS_CLIENT_ID, DOCS_CLIENT_SECRET (the anz service
-# account registered for this repo). The slug below must match what navidocs'
-# policy allows that client to publish.
+# Required repo secrets (the anz service account registered for this repo):
+#   DOCS_CLIENT_ID     — the client's NAME (e.g. "patch-seq-ci"), used as the
+#                        OAuth client_id. NOT anz's internal UUID.
+#   DOCS_CLIENT_SECRET — that client's secret.
+# The slug below must match what navidocs' policy allows that client to publish.
 
 jobs:
   publish-docs:

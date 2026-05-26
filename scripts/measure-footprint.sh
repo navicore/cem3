@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 #
-# Measure the binary footprint of a compiled Seq program against a bare
-# Rust binary on the *current* platform, and record the result in
-# docs/footprint-measurements.md.
+# Measure the optimized, *stripped* production binary size of a hello-world
+# program — for bare Rust, Seq, and Go — on the current platform, and record
+# it as one row in docs/footprint-measurements.md.
 #
-# Why this exists: binary sizes vary significantly across OS/arch
-# (notably, Linux embeds DWARF in the binary while macOS keeps it in a
-# separate .dSYM bundle), so hand-quoted numbers in prose go stale and
-# misrepresent platforms they were never measured on. This records real,
-# reproducible numbers per platform.
+# "Production size" = the artifact you actually ship: release-optimized with
+# debug info stripped.
+#   - Rust and Seq use this repo's [profile.release] (opt-level 3 + LTO +
+#     codegen-units=1), then `strip`.
+#   - Go uses `go build -ldflags="-s -w"`, its idiomatic minimal build.
+# Go is included for perspective: it is another runtime-bearing language, so
+# it anchors the upper end of "reasonable" for a self-contained binary.
 #
-# The report is idempotent per platform: re-running on a platform refreshes
-# only that platform's section, leaving other platforms' sections intact.
-# Run it on each platform you care about and commit the result.
+# The much larger default `seqc build` output is almost entirely DWARF debug
+# info (embedded in the binary on Linux, kept in a separate .dSYM bundle on
+# macOS); it is stripped before shipping, so it is not what this records.
 #
-# Sizes are reported in decimal units (1 KB = 1000 bytes) to match `ls`
-# --si and common intuition, with the exact byte count alongside as the
-# unambiguous source of truth.
+# Idempotent per platform: re-running refreshes only the current platform's
+# row, leaving other platforms' rows intact. Run it on each platform you ship
+# to and commit the result.
+#
+# Sizes use decimal units (1 KB = 1000 bytes) to match `ls --si`.
 
 set -euo pipefail
 
@@ -41,7 +45,6 @@ human() {
 }
 
 PLATFORM="$(uname -s) $(uname -m)"
-KEY="$(printf '%s' "$PLATFORM" | tr ' ' '-')"
 RUSTC="$(rustc --version | awk '{print $2}')"
 SEQC_VER="$("$SEQC" --version | awk '{print $NF}')"
 DATE="$(date -u +%Y-%m-%d)"
@@ -51,24 +54,15 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "Measuring on $PLATFORM (rustc $RUSTC, seqc $SEQC_VER)..."
 
-# --- Seq binary ---
+# Seq: build, strip, measure.
 SEQ_BIN="$WORK/hello-seq"
 "$SEQC" build "$EXAMPLE" -o "$SEQ_BIN" >/dev/null
-SEQ_DEFAULT=$(bytes "$SEQ_BIN")
-cp "$SEQ_BIN" "$SEQ_BIN.stripped"
-strip "$SEQ_BIN.stripped"
-SEQ_STRIPPED=$(bytes "$SEQ_BIN.stripped")
+strip "$SEQ_BIN"
+SEQ=$(human "$(bytes "$SEQ_BIN")")
 
-# --- Bare Rust binary ---
-# Two profiles: cargo's default release (opt-level 3, no LTO), and the
-# same with LTO + codegen-units=1, which is exactly this repo's release
-# profile (Cargo.toml [profile.release]) and the apples-to-apples
-# comparison for the Seq binary above.
+# Bare Rust: build with this repo's release profile, strip, measure.
 RHW="$WORK/rhw"
 cargo new --bin "$RHW" >/dev/null 2>&1
-( cd "$RHW" && cargo build --release >/dev/null 2>&1 )
-RUST_DEFAULT=$(bytes "$RHW/target/release/rhw")
-
 cat >> "$RHW/Cargo.toml" <<'PROFILE'
 
 [profile.release]
@@ -77,59 +71,71 @@ lto = true
 codegen-units = 1
 PROFILE
 ( cd "$RHW" && cargo build --release >/dev/null 2>&1 )
-RUST_LTO=$(bytes "$RHW/target/release/rhw")
-cp "$RHW/target/release/rhw" "$WORK/rhw.stripped"
-strip "$WORK/rhw.stripped"
-RUST_LTO_STRIPPED=$(bytes "$WORK/rhw.stripped")
+strip "$RHW/target/release/rhw"
+RUST=$(human "$(bytes "$RHW/target/release/rhw")")
 
-OVERHEAD=$((SEQ_STRIPPED - RUST_LTO_STRIPPED))
-EMBEDDED=$((SEQ_DEFAULT - SEQ_STRIPPED))
+# Go: idiomatic minimal build (-s strips the symbol table, -w omits DWARF).
+GO="—"
+GO_TOOLCHAIN=""
+if command -v go >/dev/null 2>&1; then
+    GHW="$WORK/ghw"
+    mkdir -p "$GHW"
+    cat > "$GHW/main.go" <<'GO_SRC'
+package main
 
-# --- Emit the per-platform block ---
-BLOCK="$WORK/block.md"
-BEGIN="<!-- BEGIN $KEY -->"
-END="<!-- END $KEY -->"
-{
-    echo "$BEGIN"
-    echo "### $PLATFORM"
-    echo ""
-    echo "_Measured $DATE · rustc $RUSTC · seqc ${SEQC_VER}_"
-    echo ""
-    echo "| Artifact | Size | Bytes |"
-    echo "|---|---:|---:|"
-    printf '| %s | %s | %s |\n' "\`seqc build\` hello-world (default)"            "$(human "$SEQ_DEFAULT")"       "$SEQ_DEFAULT"
-    printf '| %s | %s | %s |\n' "\`seqc build\`, stripped"                        "$(human "$SEQ_STRIPPED")"      "$SEQ_STRIPPED"
-    printf '| %s | %s | %s |\n' "bare Rust \`--release\` (opt-level 3)"           "$(human "$RUST_DEFAULT")"      "$RUST_DEFAULT"
-    printf '| %s | %s | %s |\n' "bare Rust \`--release\` + LTO (Seq's profile)"   "$(human "$RUST_LTO")"          "$RUST_LTO"
-    printf '| %s | %s | %s |\n' "bare Rust + LTO, stripped"                       "$(human "$RUST_LTO_STRIPPED")" "$RUST_LTO_STRIPPED"
-    echo ""
-    echo "- Runtime overhead (stripped Seq − stripped Rust): **$(human "$OVERHEAD")**"
-    echo "- Debug info / symbols carried in the default binary (default − stripped): **$(human "$EMBEDDED")**"
-    echo "$END"
-} > "$BLOCK"
+import "fmt"
 
-if [ -f "$REPORT" ] && grep -qF "$BEGIN" "$REPORT"; then
-    # Replace this platform's existing block in place.
-    awk -v begin="$BEGIN" -v end="$END" -v blockfile="$BLOCK" '
-        $0 == begin { while ((getline line < blockfile) > 0) print line; skip = 1; next }
-        $0 == end   { skip = 0; next }
-        skip != 1   { print }
+func main() {
+	fmt.Println("Hello, World!")
+}
+GO_SRC
+    ( cd "$GHW" && go mod init hello >/dev/null 2>&1 && go build -ldflags="-s -w" -o hello . >/dev/null 2>&1 )
+    GO=$(human "$(bytes "$GHW/hello")")
+    GO_TOOLCHAIN=" · go $(go version | awk '{print $3}' | sed 's/^go//')"
+fi
+
+ROW="| $PLATFORM | $RUST | $SEQ | $GO | $DATE · rustc $RUSTC · seqc $SEQC_VER$GO_TOOLCHAIN |"
+PREFIX="| $PLATFORM |"
+
+if [ ! -f "$REPORT" ]; then
+    {
+        echo "# Binary Footprint Measurements"
+        echo ""
+        echo "Optimized, **stripped** production binary size of a hello-world"
+        echo "program — the artifact you actually ship. Rust and Seq are built"
+        echo "with this repo's \`[profile.release]\` (opt-level 3 + LTO +"
+        echo "codegen-units=1) then stripped; Go uses \`go build -ldflags=\"-s -w\"\`."
+        echo "Go is shown for perspective as another runtime-bearing language."
+        echo ""
+        echo "The much larger default \`seqc build\` output is almost all DWARF"
+        echo "debug info (embedded in the binary on Linux, a separate \`.dSYM\` on"
+        echo "macOS) and is stripped before shipping, so it is not shown here."
+        echo ""
+        echo "Generated by \`just footprint\` (scripts/measure-footprint.sh); each"
+        echo "platform's row is refreshed when you run the recipe on that platform."
+        echo ""
+        echo "<!-- ANCHOR: table -->"
+        echo "| Platform | Rust | Seq | Go | Measured |"
+        echo "|---|---:|---:|---:|---|"
+        echo "$ROW"
+        echo "<!-- ANCHOR_END: table -->"
+        echo ""
+        echo "\`—\` = not yet measured on that platform; run \`just footprint\` there."
+    } > "$REPORT"
+elif grep -qF "$PREFIX" "$REPORT"; then
+    # Replace this platform's existing row in place.
+    awk -v prefix="$PREFIX" -v row="$ROW" '
+        index($0, prefix) == 1 { print row; next }
+        { print }
     ' "$REPORT" > "$WORK/report.md"
     mv "$WORK/report.md" "$REPORT"
 else
-    if [ ! -f "$REPORT" ]; then
-        {
-            echo "# Binary Footprint Measurements"
-            echo ""
-            echo "Generated by \`just footprint\` (scripts/measure-footprint.sh)."
-            echo "One section per platform; re-running on a platform refreshes its"
-            echo "section. Exact byte counts are the source of truth; the Size column"
-            echo "is a decimal-unit (1 KB = 1000 bytes) convenience."
-            echo ""
-        } > "$REPORT"
-    fi
-    echo "" >> "$REPORT"
-    cat "$BLOCK" >> "$REPORT"
+    # New platform: insert a row just before the closing table anchor.
+    awk -v row="$ROW" '
+        /<!-- ANCHOR_END: table -->/ { print row }
+        { print }
+    ' "$REPORT" > "$WORK/report.md"
+    mv "$WORK/report.md" "$REPORT"
 fi
 
-echo "Wrote $PLATFORM section to $REPORT"
+echo "Updated $PLATFORM row in $REPORT"

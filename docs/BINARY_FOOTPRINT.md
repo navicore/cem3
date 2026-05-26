@@ -31,8 +31,11 @@ of them; the link removes what's unreferenced. See
 
 ## What's in the binary
 
-Excluding DWARF and the symbol table, the ~700K of code splits into
-four groups:
+Excluding DWARF and the symbol table, the stripped code splits into
+four groups. The sizes below are for Linux x86\_64, where the stripped
+hello-world binary is ~730K; a macOS arm64 binary is larger (~1.4 MB)
+because its toolchain and `strip` retain more, but the categories are
+the same:
 
 ### Backtrace symbolizer (~250K)
 
@@ -77,17 +80,20 @@ slice/string operations that any Rust binary carries. Not Seq-specific
 
 ## DWARF and the backtrace tradeoff
 
-`seqc build` passes `-g` to clang on every build. This embeds DWARF
-debug sections that account for ~5.4M of the default 6.4M binary
-size.
+`seqc build` passes `-g` to clang on every build, embedding DWARF
+debug sections. On Linux that DWARF lives *inside* the binary and
+dominates the default artifact — about 6 MB of the ~6.7 MB hello-world
+build. On macOS the debug info goes into a separate `.dSYM` bundle
+instead, so the default binary is already small (~1.7 MB) and
+stripping it barely changes the size.
 
 The DWARF is what lets a panic from generated Seq code resolve back
 to a source line in your `.seq` file rather than a hex address. It's
 metadata only — no runtime cost — but it is large.
 
 If a deployment target is size-constrained and you don't need
-`.seq:line` resolution in panic traces, `strip` removes DWARF and the
-symbol table:
+`.seq:line` resolution in panic traces, `strip` removes the symbol
+table (and, on Linux, the embedded DWARF):
 
 ```bash
 seqc build prog.seq -o prog

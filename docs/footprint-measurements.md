@@ -16,7 +16,7 @@ platform's row is refreshed when you run the recipe on that platform.
 <!-- ANCHOR: table -->
 | Platform | Rust | Seq | Go | Measured |
 |---|---:|---:|---:|---|
-| Linux x86_64 | 305 KB | 732 KB | — | 2026-05-26 · rustc 1.95.0 · seqc 7.5.6 |
+| Linux x86_64 | 305 KB | 732 KB | 1.50 MB | 2026-05-26 · rustc 1.95.0 · seqc 7.5.6 · go 1.25.9 |
 | Darwin arm64 | 303 KB | 1.38 MB | 1.66 MB | 2026-05-26 · rustc 1.95.0 · seqc 7.5.6 · go 1.26.3 |
 <!-- ANCHOR_END: table -->
 

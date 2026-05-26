@@ -121,6 +121,18 @@ The key insight: instead of multiple threads reading/writing shared variables (a
 
 ---
 
+## DWARF
+
+The debugging data format embedded in compiled binaries. It maps machine-code addresses back to the original source — file, line, function, variable names, and types — so a debugger or crash handler can describe where execution is in *your* code rather than at a raw hex address.
+
+**Why it matters in Seq:** `seqc build` compiles your `.seq` program down through LLVM to a native binary, so a runtime panic happens in generated machine code. The embedded DWARF is what lets the panic handler print a `your-program.seq:42` location instead of an unhelpful address. Seq's runtime even carries an in-process DWARF parser (`gimli` / `addr2line`) so it can read its *own* debug info at panic time. DWARF is metadata only — no runtime speed cost — but it is large: on Linux it accounts for the bulk of the default `seqc build` output, which is why stripping it is the main lever on binary size. See [Binary Footprint](./BINARY_FOOTPRINT.md).
+
+**History:** DWARF was designed in the late 1980s alongside the **ELF** executable format for Unix System V Release 4. The name is a fantasy-creature pun on ELF; only later was it backronymed to "Debugging With Attributed Record Formats." It's maintained by the DWARF Debugging Information Format Committee, with DWARF 5 (2017) the current major version.
+
+**Where you'll see it:** Essentially every native toolchain emits DWARF on Linux and the BSDs — C, C++, Rust, Go, and Seq all produce it. Platforms differ in *where* it lives: Linux embeds DWARF sections directly in the binary, macOS keeps it in a separate `.dSYM` bundle, and Windows uses a different format entirely (PDB files). That platform split is exactly why a default Seq binary looks huge on Linux but compact on macOS.
+
+---
+
 ## Fiber
 
 See [Strand](#strand-green-thread).

@@ -20,7 +20,7 @@ language — for perspective. Bare Rust is the floor: the cost of being a
 compiled native binary at all.
 
 The *default* `seqc build` output is much larger (e.g. ~6.7 MB on
-Linux) because it embeds DWARF debug info. That is metadata you strip
+Linux) because it embeds [DWARF](GLOSSARY.md#dwarf) debug info. That is metadata you strip
 before shipping, not code — see [the DWARF
 tradeoff](#dwarf-and-the-backtrace-tradeoff) below.
 

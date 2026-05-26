@@ -13,12 +13,13 @@ For `examples/basics/hello-world.seq` on Linux x86\_64, rustc 1.95:
 |--------------------------------------------------|------:|
 | Default `seqc build`                             | 6.4M  |
 | `seqc build` then `strip` (no DWARF, no symbols) | ~700K |
-| Pure Rust `--release` hello world (for comparison) | ~500K |
+| Pure Rust `--release` hello world (for comparison) | ~430K |
+| Same, `opt-level = 3`                            | ~375K |
 
 The dominant cost in the default build is **DWARF debug info**
 (~5.4M). It is intentional, and there's a tradeoff documented below.
 The actual code and data the runtime contributes is ~700K — roughly
-200K above a comparable Rust hello world.
+300K above a comparable Rust hello world.
 
 Programs that don't reference HTTP, regex, crypto, or compression do
 not pay for those subsystems' code. The runtime archive contains all

@@ -77,6 +77,11 @@ build-examples: build
     echo "✅ Examples built in target/examples/"
     ls -lh target/examples/
 
+# Measure binary footprint (Seq vs bare Rust) on this platform and record
+# it in docs/footprint-measurements.md. Run on each platform you ship to.
+footprint: build-runtime build-compiler
+    @bash scripts/measure-footprint.sh
+
 # Run all Rust unit tests
 # seq-repl tests spawn seq-lsp subprocesses and deadlock under parallel cargo
 # test threads, so run that crate serially and the rest in parallel.

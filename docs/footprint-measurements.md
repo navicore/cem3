@@ -22,3 +22,20 @@ _Measured 2026-05-26 · rustc 1.95.0 · seqc 7.5.6_
 - Runtime overhead (stripped Seq − stripped Rust): **1.07 MB**
 - Debug info / symbols carried in the default binary (default − stripped): **346 KB**
 <!-- END Darwin-arm64 -->
+
+<!-- BEGIN Linux-x86_64 -->
+### Linux x86_64
+
+_Measured 2026-05-26 · rustc 1.95.0 · seqc 7.5.6_
+
+| Artifact | Size | Bytes |
+|---|---:|---:|
+| `seqc build` hello-world (default) | 6.68 MB | 6681008 |
+| `seqc build`, stripped | 732 KB | 731632 |
+| bare Rust `--release` (opt-level 3) | 447 KB | 446624 |
+| bare Rust `--release` + LTO (Seq's profile) | 375 KB | 375264 |
+| bare Rust + LTO, stripped | 305 KB | 304784 |
+
+- Runtime overhead (stripped Seq − stripped Rust): **427 KB**
+- Debug info / symbols carried in the default binary (default − stripped): **5.95 MB**
+<!-- END Linux-x86_64 -->

@@ -4,7 +4,7 @@ use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 
-use rand::{RngCore, rng};
+use rand::{Rng, rng};
 use uuid::Uuid;
 
 /// Generate cryptographically secure random bytes

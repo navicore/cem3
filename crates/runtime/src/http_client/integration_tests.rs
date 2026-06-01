@@ -455,9 +455,11 @@ fn build_tls_test_pair() -> (Arc<rustls::ServerConfig>, Arc<rustls::ClientConfig
     // Self-signed cert with SAN=DNS:localhost. The CN matters because
     // the client SNI is "localhost" (see the target below); rustls
     // validates that one SAN entry covers the SNI.
-    let rcgen::CertifiedKey { cert, key_pair } =
-        rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("generate self-signed cert");
+    let rcgen::CertifiedKey {
+        cert,
+        signing_key: key_pair,
+    } = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+        .expect("generate self-signed cert");
 
     let cert_der: rustls::pki_types::CertificateDer<'static> = cert.der().clone();
     let key_der: rustls::pki_types::PrivateKeyDer<'static> =

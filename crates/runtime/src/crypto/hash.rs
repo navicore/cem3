@@ -4,6 +4,7 @@ use crate::seqstring::global_string;
 use crate::stack::{Stack, pop, push};
 use crate::value::Value;
 
+use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -54,8 +55,8 @@ pub unsafe extern "C" fn patch_seq_hmac_sha256(stack: Stack) -> Stack {
 
     match (msg_value, key_value) {
         (Value::String(msg), Value::String(key)) => {
-            let mut mac =
-                <HmacSha256 as Mac>::new_from_slice(key.as_bytes()).expect("HMAC can take any key");
+            let mut mac = <HmacSha256 as KeyInit>::new_from_slice(key.as_bytes())
+                .expect("HMAC can take any key");
             mac.update(msg.as_bytes());
             let result = mac.finalize();
             let hex_sig = hex::encode(result.into_bytes());

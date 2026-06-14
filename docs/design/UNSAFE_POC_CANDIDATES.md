@@ -77,20 +77,39 @@ separate, unrelated exercise. Different lessons; do not bundle.
 
 ## Constraints
 
-- Not for production. Feature-gated and default-off. `just ci` keeps
-  exercising the safe path.
-- Must not weaken or delete an existing test — per CLAUDE.md, if a test
-  fails, the unsafe path is wrong, not the test.
-- Must pass `cargo +nightly miri test -p seq-compiler` for candidate 1
-  and `-p seq-core` for candidate 2.
-- Must come with a criterion bench showing the unsafe path is at least
-  faster than safe. "Same speed but unsafe" is a regression.
-- Stays inside one crate per POC; no FFI surface change.
-- No public-API change. The safe wrapper preserves today's
-  `Subst::apply_*` / `TaggedStack::push` signatures.
-- Out of scope: rewriting the runtime allocator, touching `SeqString`'s
-  refcount, changing `Value`'s layout, any "while we're in there"
-  cleanup. POC means POC.
+These are the bars the POC must clear *to be considered for
+graduation*, not a fence keeping it out of production forever. They're
+the same bars any unsafe code in the runtime should be held to.
+
+- **Tests stay honest.** Must not weaken or delete an existing test —
+  per CLAUDE.md, if a test fails the unsafe path is wrong, not the
+  test. The existing unification / stack test suites are the
+  correctness backstop; the POC must add to them, never subtract.
+- **Miri clean.** `cargo +nightly miri test` passes for the chosen
+  crate, including the new tests. Non-negotiable for graduation.
+- **Single-module unsafe core.** All `unsafe` lives in one module with
+  a written invariants block at the top. Each `unsafe { … }` block
+  carries a `// SAFETY:` comment tied to those invariants. This is
+  *the* comment-worth-writing case from CLAUDE.md — removing it would
+  confuse the next reader.
+- **Safe wrapper, stable API.** The wrapper preserves today's
+  `Subst::apply_*` / `TaggedStack::push` signatures. Callers don't
+  learn that anything changed.
+- **Bench-justified.** A criterion bench shows a real improvement on a
+  representative workload (`Subst::compose` driven by stdlib
+  typechecking; `TaggedStack::push/pop` driven by an inner-loop
+  microbench). "Same speed but unsafe" is not graduation-worthy and
+  should be reverted; "faster on benches but not on stdlib typecheck
+  wall-clock" is a useful signal too.
+- **Single-crate scope per POC.** Candidate 1 stays inside
+  `seq-compiler`; candidate 2 stays inside `seq-core`. No FFI surface
+  change, no `Value` layout change, no `SeqString` rework.
+- **Graduation path is gradual.** Land first as a default-off
+  feature flag so trunk stays on the safe path while the unsafe one
+  bakes. Once it has soaked in CI + at least one benchmark cycle and
+  cleared the bars above, flip the default. Once the default has held
+  for a release without regressions, delete the safe path. "POC" and
+  "production" are the endpoints of one road, not separate roads.
 
 ## Domain Events
 
@@ -99,17 +118,24 @@ produce no events, consume no events, and have no observable behaviour
 change beyond performance. Worth stating because in some past
 discussions this has been the spot where scope quietly grew — if a
 candidate starts producing user-visible events, it has stopped being a
-POC and become a feature.
+data-structure rewrite and become a feature, and the design needs
+revisiting.
 
 ## Checkpoints
 
-1. Existing test suites pass unchanged with feature off (default).
-2. Existing test suites pass with feature on.
-3. `cargo +nightly miri test` is clean for the chosen crate.
-4. Criterion bench (new, small) shows a measurable improvement for
-   `Subst::compose` (candidate 1) or `TaggedStack::push`/`pop`
-   (candidate 2). If not, the POC concludes "unsafe did not pay" and
-   the code is deleted, not merged behind a flag.
-5. The unsafe core fits in a single module with a written invariants
-   block at the top — the kind of comment that *is* worth writing,
-   because removing it would confuse the next reader.
+Roughly in the order they need to clear:
+
+1. Existing test suites pass with the feature off (default on landing).
+2. Existing test suites pass with the feature on.
+3. `cargo +nightly miri test` is clean for the affected crate.
+4. Criterion bench shows a measurable improvement on a representative
+   workload, not just a microbench.
+5. Soak: at least one release cycle with the feature available but
+   default-off, no reported regressions.
+6. Flip the default to on; safe path stays available behind the flag
+   for one more cycle as an escape hatch.
+7. Delete the safe path. Graduation complete.
+
+If checkpoint 4 fails after honest effort, the POC concludes "unsafe
+did not pay here" and the branch is dropped — the *learning* still
+graduated even if the code didn't.

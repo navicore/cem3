@@ -144,6 +144,20 @@ pub(super) fn move_word_end(cursor: usize, text: &str) -> usize {
     pos
 }
 
+/// True when `cursor` is on the first line of `text` — i.e. there is no
+/// newline at or before the byte preceding the cursor. A single-line
+/// buffer is always on the first line.
+pub(super) fn is_on_first_line(cursor: usize, text: &str) -> bool {
+    !text[..cursor.min(text.len())].contains('\n')
+}
+
+/// True when `cursor` is on the last line of `text` — i.e. there is no
+/// newline at or after the cursor. A single-line buffer is always on the
+/// last line.
+pub(super) fn is_on_last_line(cursor: usize, text: &str) -> bool {
+    !text[cursor.min(text.len())..].contains('\n')
+}
+
 /// Move cursor up one line (k).
 pub(super) fn move_up(cursor: usize, text: &str) -> usize {
     // Find current line start

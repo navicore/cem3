@@ -228,6 +228,20 @@ impl VimLineEditor {
 
     /// Handle key in Normal mode.
     fn handle_normal(&mut self, key: Key, text: &str) -> EditResult {
+        // History at line boundaries: `k` on the first line and `j` on the
+        // last line become history navigation (matching readline vi-mode and
+        // most REPL muscle memory). Off-boundary, both stay as line motions
+        // via `dispatch_motion` below, so multi-line buffers keep working.
+        match key.code {
+            KeyCode::Char('k') if motions::is_on_first_line(self.cursor, text) => {
+                return EditResult::action(Action::HistoryPrev);
+            }
+            KeyCode::Char('j') if motions::is_on_last_line(self.cursor, text) => {
+                return EditResult::action(Action::HistoryNext);
+            }
+            _ => {}
+        }
+
         // Shared motions (h/l/j/k/0/$/^/w/b/e/%/Left/Right/Home/End).
         // Up/Down are NOT motions in Normal — they're history navigation below.
         if self.dispatch_motion(key.code, text) {

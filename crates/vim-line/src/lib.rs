@@ -32,6 +32,9 @@
 
 mod vim;
 
+#[cfg(feature = "history")]
+pub mod history;
+
 pub use vim::VimLineEditor;
 
 use std::ops::Range;
@@ -116,10 +119,28 @@ impl EditResult {
 pub enum Action {
     /// User wants to submit the current input.
     Submit,
-    /// User wants previous history entry.
+    /// User wants previous history entry. Emitted by `Up` in any mode and
+    /// by `k` in Normal mode when the cursor is on the first line of the
+    /// buffer (single-line REPL inputs are always at the first line).
     HistoryPrev,
-    /// User wants next history entry.
+    /// User wants next history entry. Emitted by `Down` in any mode and by
+    /// `j` in Normal mode when the cursor is on the last line of the buffer.
     HistoryNext,
+    /// User is incrementally building a history-search query. The string is
+    /// the *current full query*, not a delta — hosts feed it to
+    /// `history::Store::search` and preview the top match.
+    ///
+    /// Reserved for a future search sub-mode; not currently emitted by
+    /// `vim-line` itself. Hosts that ship their own `/` input loop can
+    /// emit this from their dispatch to keep the contract single-vocabulary.
+    HistorySearch(String),
+    /// User accepted the previewed history match. Reserved for the future
+    /// search sub-mode; not currently emitted by `vim-line`.
+    HistoryAccept,
+    /// User canceled a history search and wants the pre-search input
+    /// restored. Reserved for the future search sub-mode; not currently
+    /// emitted by `vim-line`.
+    HistoryCancel,
     /// User wants to cancel/abort.
     Cancel,
     /// User submitted an Ex-style command line (without the leading `:`).

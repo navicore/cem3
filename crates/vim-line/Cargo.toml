@@ -10,6 +10,16 @@ readme = "README.md"
 keywords = ["vim", "editor", "tui", "line-editor"]
 categories = ["text-editors", "command-line-utilities"]
 
+[features]
+# Default-off so the core stays I/O-free and zero-dep for hosts that only
+# need the line editor.
+default = []
+# Opt-in command-history store (see `vim_line::history`). Hosts wanting
+# `prev`/`next`/`search`/draft-stash flip this on; arrow / `j` / `k`
+# keymap behavior is unchanged either way — only the store availability
+# differs.
+history = []
+
 [dependencies]
 # Intentionally minimal - this crate should be self-contained
 

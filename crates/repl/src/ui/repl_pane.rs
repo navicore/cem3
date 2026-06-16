@@ -13,6 +13,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Widget, Wrap},
 };
+use vim_line::history::{Recall, Store as HistoryStore};
 
 /// Prompt shown for continuation lines in multiline input
 const CONTINUATION_PROMPT: &str = ".... ";
@@ -81,19 +82,27 @@ impl HistoryEntry {
     }
 }
 
-/// The REPL pane state
+/// The REPL pane state.
+///
+/// Two related-but-distinct collections live here:
+///
+/// - `history` is the *rendered transcript* — every input with its output /
+///   error, drawn by [`ReplPane`]. Duplicates and failures are preserved
+///   so the user sees their session as it actually happened.
+/// - `store` is the *navigation store* — a deduped ring of just the input
+///   strings, owning recall (`k`/`j`, arrows), search, and the draft stash.
+///   It is the [`vim_line::history::Store`] shared with other vim-line
+///   consumers; persistence reads/writes it.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ReplState {
-    /// Command history
+    /// Rendered transcript of past inputs + outputs.
     pub(crate) history: Vec<HistoryEntry>,
+    /// Navigation/search store backing `k`/`j`/`/`.
+    pub(crate) store: HistoryStore,
     /// Current input line
     pub(crate) input: String,
     /// Cursor position in the input
     pub(crate) cursor: usize,
-    /// History navigation index (None = current input, Some(i) = browsing history)
-    history_index: Option<usize>,
-    /// Saved input when browsing history
-    saved_input: String,
 }
 
 impl ReplState {
@@ -102,17 +111,19 @@ impl ReplState {
         Self::default()
     }
 
-    /// Add a history entry
+    /// Append `entry` to the transcript and record its input in the
+    /// navigation store. The store handles dedup/bounds internally.
     pub(crate) fn add_entry(&mut self, entry: HistoryEntry) {
+        self.store.push(entry.input.clone());
         self.history.push(entry);
     }
 
-    /// Clear the current input and reset history navigation
+    /// Clear the current input and abandon any in-progress history browse,
+    /// restoring the draft via the store.
     pub(crate) fn clear_input(&mut self) {
+        let _ = self.store.cancel_recall();
         self.input.clear();
         self.cursor = 0;
-        self.history_index = None;
-        self.saved_input.clear();
     }
 
     /// Get the current input
@@ -120,50 +131,27 @@ impl ReplState {
         &self.input
     }
 
-    /// Navigate to previous command in history (up arrow / k)
+    /// Navigate to the previous command in history (up arrow / k at first line).
     pub(crate) fn history_up(&mut self) {
-        if self.history.is_empty() {
-            return;
+        if let Some(Recall::Entry(entry)) = self.store.prev(&self.input) {
+            self.input = entry.to_string();
+            self.cursor = self.input.len();
         }
-
-        match self.history_index {
-            None => {
-                // First time navigating up - save current input and go to last history entry
-                self.saved_input = self.input.clone();
-                let last_idx = self.history.len() - 1;
-                self.history_index = Some(last_idx);
-                self.input = self.history[last_idx].input.clone();
-            }
-            Some(idx) if idx > 0 => {
-                // Navigate further back
-                self.history_index = Some(idx - 1);
-                self.input = self.history[idx - 1].input.clone();
-            }
-            Some(_) => {
-                // Already at oldest entry
-            }
-        }
-        self.cursor = self.input.len();
     }
 
-    /// Navigate to next command in history (down arrow / j)
+    /// Navigate to the next command in history (down arrow / j at last line).
     pub(crate) fn history_down(&mut self) {
-        match self.history_index {
-            Some(idx) if idx + 1 < self.history.len() => {
-                // Navigate forward in history
-                self.history_index = Some(idx + 1);
-                self.input = self.history[idx + 1].input.clone();
+        match self.store.next() {
+            Some(Recall::Entry(entry)) => {
+                self.input = entry.to_string();
+                self.cursor = self.input.len();
             }
-            Some(_) => {
-                // At newest history entry - restore saved input
-                self.history_index = None;
-                self.input = std::mem::take(&mut self.saved_input);
+            Some(Recall::Draft(draft)) => {
+                self.input = draft.to_string();
+                self.cursor = self.input.len();
             }
-            None => {
-                // Already at current input, nothing to do
-            }
+            None => {} // not browsing — leave input alone
         }
-        self.cursor = self.input.len();
     }
 }
 

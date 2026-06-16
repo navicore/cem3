@@ -11,7 +11,6 @@ use crate::engine::{AnalysisResult, analyze, analyze_expression};
 use crate::ir::stack_art::{Stack, StackEffect, render_transition};
 use crate::keys::convert_key;
 use crate::run::{RunResult, run_with_timeout};
-use crate::text_utils::floor_char_boundary;
 use crate::ui::ir_pane::{IrContent, IrPane, IrViewMode};
 use crate::ui::layout::{ComputedLayout, LayoutConfig, StatusContent};
 use crate::ui::repl_pane::{HistoryEntry, ReplPane, ReplState};
@@ -309,7 +308,9 @@ impl App {
         }
     }
 
-    /// Save history to file
+    /// Save history to file. Reads from the navigation store (the
+    /// authoritative deduped/bounded source) rather than the rendered
+    /// transcript, so repeated commands don't bloat the saved file.
     pub(crate) fn save_history(&self) {
         if let Some(path) = Self::history_file_path() {
             // Ensure parent directory exists
@@ -322,10 +323,8 @@ impl App {
 
             match fs::File::create(&path) {
                 Ok(mut file) => {
-                    // Save the last 1000 entries
-                    let start = self.repl_state.history.len().saturating_sub(1000);
-                    for entry in &self.repl_state.history[start..] {
-                        if let Err(e) = writeln!(file, "{}", entry.input) {
+                    for entry in self.repl_state.store.entries() {
+                        if let Err(e) = writeln!(file, "{}", entry) {
                             eprintln!("Warning: could not write history entry: {e}");
                             return;
                         }
@@ -401,11 +400,11 @@ impl App {
         if self.handle_insert_enter(key) {
             return;
         }
-        if self.handle_normal_jk(key) {
-            return;
-        }
 
         // Default: hand the key to vim-line and apply its edits/actions.
+        // vim-line emits `HistoryPrev/Next` for `k`/`j` at the line boundary
+        // and for `Up`/`Down` arrows — there's no need for a host-side
+        // boundary shim anymore.
         self.dispatch_to_editor(key);
     }
 
@@ -588,28 +587,6 @@ impl App {
         false
     }
 
-    /// Context-aware j/k in Normal mode: navigate history when the cursor is
-    /// on the first line (k) or last line (j). Multi-line inputs fall through
-    /// to vim-line for in-buffer movement.
-    fn handle_normal_jk(&mut self, key: KeyEvent) -> bool {
-        if self.editor.status() != "NORMAL" {
-            return false;
-        }
-        let input = &self.repl_state.input;
-        let cursor = floor_char_boundary(input, self.editor.cursor());
-        match key.code {
-            KeyCode::Char('k') if !input[..cursor].contains('\n') => {
-                self.navigate_history_prev();
-                true
-            }
-            KeyCode::Char('j') if !input[cursor..].contains('\n') => {
-                self.navigate_history_next();
-                true
-            }
-            _ => false,
-        }
-    }
-
     /// Default key path: hand the key to vim-line, apply its text edits, sync
     /// the cursor, run any resulting action, and refresh the IR preview.
     fn dispatch_to_editor(&mut self, key: KeyEvent) {
@@ -647,6 +624,13 @@ impl App {
                 Action::Cancel => {
                     self.should_quit = true;
                 }
+                // History-search vocabulary is reserved for a future search
+                // sub-mode inside vim-line. seqr currently runs its own `/`
+                // input loop above (see `handle_search_key`), so these
+                // intents are not emitted by the editor today — we just
+                // exhaustively match so adding emission later is a no-op
+                // on this side.
+                Action::HistorySearch(_) | Action::HistoryAccept | Action::HistoryCancel => {}
                 Action::SubmitCommand(cmd) => {
                     // CommandLine submitted — re-attach the leading `:` so
                     // handle_command's existing dispatch matches the same
@@ -1171,34 +1155,23 @@ impl App {
         }
     }
 
-    /// Update search matches based on current search pattern
+    /// Update search matches based on current search pattern. Matches come
+    /// from the shared `vim_line::history::Store` so the matching rules
+    /// (case-insensitive substring, most-recent first) are identical to
+    /// what every other vim-line consumer gets.
     fn update_search_matches(&mut self) {
-        self.search.matches.clear();
         self.search.match_index = 0;
-
-        if self.search.pattern.is_empty() {
-            return;
-        }
-
-        let pattern = self.search.pattern.to_lowercase();
-        // Search in reverse order (most recent first)
-        for (i, entry) in self.repl_state.history.iter().enumerate().rev() {
-            if entry.input.to_lowercase().contains(&pattern) {
-                self.search.matches.push(i);
-            }
-        }
+        self.search.matches = self.repl_state.store.search(&self.search.pattern);
     }
 
-    /// Preview the current search match in the input line
+    /// Preview the current search match in the input line.
     fn preview_current_match(&mut self) {
         if self.search.matches.is_empty() {
-            // No matches - show original input
             self.repl_state.input = self.search.original_input.clone();
         } else {
-            // Show current match
             let idx = self.search.matches[self.search.match_index];
-            if let Some(entry) = self.repl_state.history.get(idx) {
-                self.repl_state.input = entry.input.clone();
+            if let Some(entry) = self.repl_state.store.at(idx) {
+                self.repl_state.input = entry.to_string();
             }
         }
         self.sync_editor_to_input();

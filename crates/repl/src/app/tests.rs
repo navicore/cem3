@@ -530,7 +530,7 @@ fn test_search_mode_enter_and_exit() -> Result<(), String> {
 #[test]
 fn test_search_mode_filtering() -> Result<(), String> {
     let mut app = App::new()?;
-    app.repl_state.history.clear(); // Clear any loaded history
+    app.repl_state = ReplState::new(); // Clear any loaded history
 
     // Add history with different content
     app.repl_state
@@ -628,7 +628,7 @@ fn test_search_mode_cancel_restores_input() -> Result<(), String> {
 #[test]
 fn test_search_mode_navigate_matches() -> Result<(), String> {
     let mut app = App::new()?;
-    app.repl_state.history.clear(); // Clear any loaded history
+    app.repl_state = ReplState::new(); // Clear any loaded history
 
     // Add history with same prefix
     app.repl_state
@@ -671,7 +671,7 @@ fn test_search_mode_navigate_matches() -> Result<(), String> {
 #[test]
 fn test_search_mode_backspace() -> Result<(), String> {
     let mut app = App::new()?;
-    app.repl_state.history.clear(); // Clear any loaded history
+    app.repl_state = ReplState::new(); // Clear any loaded history
 
     // Add history
     app.repl_state
@@ -703,7 +703,7 @@ fn test_search_mode_backspace() -> Result<(), String> {
 #[test]
 fn test_search_mode_case_insensitive() -> Result<(), String> {
     let mut app = App::new()?;
-    app.repl_state.history.clear(); // Clear any loaded history
+    app.repl_state = ReplState::new(); // Clear any loaded history
 
     // Add history with mixed case
     app.repl_state

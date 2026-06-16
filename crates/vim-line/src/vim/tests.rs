@@ -535,3 +535,76 @@ fn test_command_line_backspace_and_arrows() {
 
     assert_eq!(text, "ignored");
 }
+
+#[test]
+fn normal_k_on_single_line_emits_history_prev() {
+    let mut editor = VimLineEditor::new();
+    let text = "hello";
+    let result = editor.handle_key(Key::char('k'), text);
+    assert_eq!(result.action, Some(Action::HistoryPrev));
+}
+
+#[test]
+fn normal_j_on_single_line_emits_history_next() {
+    let mut editor = VimLineEditor::new();
+    let text = "hello";
+    let result = editor.handle_key(Key::char('j'), text);
+    assert_eq!(result.action, Some(Action::HistoryNext));
+}
+
+#[test]
+fn normal_kj_in_middle_of_multiline_moves_between_lines() {
+    let mut editor = VimLineEditor::new();
+    let text = "alpha\nbeta\ngamma";
+
+    // Cursor on the middle line ('b' of "beta", index 6).
+    editor.set_cursor(6, text);
+    let result = editor.handle_key(Key::char('k'), text);
+    assert!(
+        result.action.is_none(),
+        "k off-boundary is a motion, not history"
+    );
+    assert_eq!(editor.cursor(), 0, "moved up to 'a' of \"alpha\"");
+
+    // From "alpha", k again IS at the first line → history.
+    let result = editor.handle_key(Key::char('k'), text);
+    assert_eq!(result.action, Some(Action::HistoryPrev));
+
+    // Cursor back to middle line, then j off-boundary moves down.
+    editor.set_cursor(6, text);
+    let result = editor.handle_key(Key::char('j'), text);
+    assert!(
+        result.action.is_none(),
+        "j off-boundary is a motion, not history"
+    );
+    assert_eq!(editor.cursor(), 11, "moved down to 'g' of \"gamma\"");
+
+    // From "gamma", j again IS at the last line → history.
+    let result = editor.handle_key(Key::char('j'), text);
+    assert_eq!(result.action, Some(Action::HistoryNext));
+}
+
+#[test]
+fn normal_arrows_still_emit_history_unchanged() {
+    let mut editor = VimLineEditor::new();
+    let text = "alpha\nbeta\ngamma";
+    editor.set_cursor(6, text);
+    // Up/Down arrows in Normal mode are always history nav regardless of
+    // line position — preserving existing behavior.
+    let up = editor.handle_key(Key::code(KeyCode::Up), text);
+    assert_eq!(up.action, Some(Action::HistoryPrev));
+    let down = editor.handle_key(Key::code(KeyCode::Down), text);
+    assert_eq!(down.action, Some(Action::HistoryNext));
+}
+
+#[test]
+fn visual_kj_remains_motion_only() {
+    let mut editor = VimLineEditor::new();
+    let text = "one\ntwo";
+    editor.handle_key(Key::char('v'), text);
+    // In Visual mode, j/k still move the cursor and never emit a history
+    // intent — only Normal mode has the boundary fall-through.
+    let result = editor.handle_key(Key::char('j'), text);
+    assert!(result.action.is_none());
+    assert_eq!(editor.cursor(), 4);
+}

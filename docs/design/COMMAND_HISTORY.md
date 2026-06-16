@@ -118,3 +118,11 @@ recalled text is just normal editable buffer). On submit,
 - **Store ↔ editor only via the host.** Store returns `&str`; never
   calls into `vim-line`. Enforced by absence of a `vim-line` dep in
   the store module's imports.
+- **Persisted history file becomes deduped.** Hosts that read
+  `store.entries()` to save (seqr does; plgr should) will write only
+  consecutive-dup-collapsed inputs, matching the in-memory ring. The
+  newline-delimited on-disk format is unchanged so old files load
+  intact — only fresh saves dedup. This is the intended invariant
+  (bash/zsh do the same) and was load-bearing for the "navigation
+  store = authoritative" framing; flagging it here so plgr's
+  migration inherits the same semantics without rediscovering them.

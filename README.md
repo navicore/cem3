@@ -6,7 +6,11 @@
 
 A concatenative, stack-based programming language that compiles to native executables. Seq combines the elegance of stack-based programming with a sophisticated type system, guaranteed tail call optimization, and CSP-style concurrency.
 
-**Resources:** [Documentation](https://docs.navicore.tech/patch-seq) | [GitHub Repository](https://github.com/navicore/patch-seq)
+**Home Code Repository** is at [git.navicore.tech](https://git.navicore.tech/navicore/patch-seq)
+
+**PRs and issues** welcome at [codeberg.org mirror](https://codeberg.org/navicore/patch-seq)
+
+[Documentation](https://docs.navicore.tech/patch-seq)
 
 > **Naming guide:** The GitHub repository is `patch-seq`. On [crates.io](https://crates.io), the packages are published as `seq-compiler`, `seq-repl`, and `seq-lsp`. Once installed, the binaries are `seqc`, `seqr`, and `seq-lsp`.
 

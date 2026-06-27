@@ -11,8 +11,8 @@ build-dir = "book"
 [output.html]
 default-theme = "rust"
 preferred-dark-theme = "ayu"
-git-repository-url = "https://github.com/navicore/patch-seq"
-edit-url-template = "https://github.com/navicore/patch-seq/edit/main/docs/{path}"
+git-repository-url = "https://git.navicore.tech/navicore/patch-seq"
+edit-url-template = "https://git.navicore.tech/navicore/patch-seq/_edit/main/docs/{path}"
 site-url = "/patch-seq/"
 additional-js = ["mdbook-assets/mermaid.min.js", "mdbook-assets/mermaid-init.js"]
 

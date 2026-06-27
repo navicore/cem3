@@ -7,6 +7,7 @@ version = "7.6.0"
 edition = "2024"
 authors = ["Ed Sweeney <ed@onextent.com>"]
 license = "MIT"
+documentation = "https://docs.navicore.tech/patch-seq/"
 
 [workspace.dependencies]
 # Concurrency

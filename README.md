@@ -12,6 +12,9 @@ A concatenative, stack-based programming language that compiles to native execut
 
 [Documentation](https://docs.navicore.tech/patch-seq)
 
+**API docs (rustdoc)** per crate on docs.rs:
+[seq-core](https://docs.rs/seq-core) · [seq-runtime](https://docs.rs/seq-runtime) · [seq-compiler](https://docs.rs/seq-compiler) · [seq-lsp](https://docs.rs/seq-lsp) · [seq-repl](https://docs.rs/seq-repl) · [vim-line](https://docs.rs/vim-line)
+
 > **Naming guide:** The GitHub repository is `patch-seq`. On [crates.io](https://crates.io), the packages are published as `seq-compiler`, `seq-repl`, and `seq-lsp`. Once installed, the binaries are `seqc`, `seqr`, and `seq-lsp`.
 
 ```seq

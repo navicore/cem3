@@ -145,7 +145,7 @@ cargo test --all
 
 New to concatenative programming? Start with the [Glossary](docs/GLOSSARY.md) - it explains concepts like stack effects, quotations, row polymorphism, and CSP in plain terms.
 
-Learn by doing: Work through [seqlings](https://github.com/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
+Learn by doing: Work through [seqlings](https://git.navicore.tech/navicore/seqlings) - hands-on exercises that teach the language step by step, covering stack operations, arithmetic, control flow, quotations, and more. Each exercise includes hints and automatic verification.
 
 ---
 
@@ -249,7 +249,7 @@ The `seq-lsp` language server provides IDE features in your editor.
 
 Install: `cargo install seq-lsp`
 
-Neovim: Use [patch-seq.nvim](https://github.com/navicore/patch-seq.nvim) with Lazy:
+Neovim: Use [patch-seq.nvim](https://git.navicore.tech/navicore/patch-seq.nvim) with Lazy:
 ```lua
 { "navicore/patch-seq.nvim", ft = "seq", opts = {} }
 ```

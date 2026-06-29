@@ -14,10 +14,14 @@ use std::fmt::Write as _;
 impl CodeGen {
     /// Generate code for a word definition
     pub(super) fn codegen_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
-        // Detect the loop-lowering pattern up front: a loop-lowered word must
-        // NOT also get a specialized musttail variant, or non-tail callers
-        // would dispatch to the specialized version and bypass the loop
-        // entirely (see docs/design/LOOP_LOWERING.md).
+        // Detect the loop-lowering pattern up front. A loop-lowered word keeps
+        // its stack-based `seq_<name>` function but the body becomes a native
+        // loop instead of a musttail recursion. Specialization is independent:
+        // if the word is also specializable, BOTH paths are emitted and the
+        // call-site dispatcher picks the specialized (register) variant when
+        // types match. Loop-lowering only affects the stack-based fallback,
+        // so it never competes with specialization (see
+        // docs/design/LOOP_LOWERING.md).
         let loop_pattern = if self.loop_opt_enabled {
             self.call_graph
                 .as_ref()
@@ -27,10 +31,7 @@ impl CodeGen {
         };
 
         // Try to generate a specialized register-based version first.
-        // Skipped for loop-lowered words (see above).
-        if loop_pattern.is_none()
-            && let Some(sig) = self.can_specialize(word)
-        {
+        if let Some(sig) = self.can_specialize(word) {
             self.codegen_specialized_word(word, &sig)?;
         }
 

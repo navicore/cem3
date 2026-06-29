@@ -6,10 +6,10 @@ use crate::value::Value;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 // Ed25519's `SigningKey::generate` requires a `CryptoRngCore` from
-// `rand_core` 0.6. The runtime already depends on `aes_gcm`, which
-// re-exports a 0.6-compatible `OsRng` — reuse it rather than pull a
-// duplicate `rand_core` version.
-use aes_gcm::aead::OsRng;
+// `rand_core` 0.6 (the version ed25519-dalek 2.x is built against). We
+// pull `OsRng` directly from `rand_core` 0.6 rather than the old
+// `aes_gcm::aead::OsRng` re-export, which was removed in aead 0.6.
+use rand_core::OsRng;
 
 // ============================================================================
 // Ed25519 Digital Signatures

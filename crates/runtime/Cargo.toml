@@ -36,6 +36,7 @@ crypto = [
     "dep:aes-gcm",
     "dep:pbkdf2",
     "dep:ed25519-dalek",
+    "dep:rand_core",
 ]
 http = ["dep:url"]
 regex = ["dep:regex"]
@@ -71,6 +72,10 @@ subtle = { workspace = true, optional = true }
 aes-gcm = { workspace = true, optional = true }
 pbkdf2 = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true, optional = true }
+# `rand_core` 0.6 is required by `ed25519-dalek` 2.x (`SigningKey::generate`
+# needs a 0.6 `CryptoRngCore`) and provides `OsRng` for the AES-GCM nonce.
+# Keep this pinned to 0.6 (NOT the newer 0.10) to match ed25519-dalek.
+rand_core = { workspace = true, optional = true }
 
 # URL parsing for the http_client feature (SSRF validation and request-line target).
 # The HTTP client itself is hand-rolled over TCP/TLS now; ureq is gone.

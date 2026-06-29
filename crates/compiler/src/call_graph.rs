@@ -80,6 +80,18 @@ impl CallGraph {
         self.recursive_sccs.iter().any(|scc| scc.contains(word))
     }
 
+    /// Check if a word calls itself directly (self-tail-recursion).
+    ///
+    /// This is stricter than `is_recursive`: mutual recursion (e.g. `ping`/
+    /// `pong`) is *not* self-recursive. Used by loop lowering
+    /// (`docs/design/LOOP_LOWERING.md`) to find candidates for native loop
+    /// codegen — only direct self-recursion can be lowered to a single loop.
+    pub fn is_self_recursive(&self, word: &str) -> bool {
+        self.edges
+            .get(word)
+            .is_some_and(|callees| callees.contains(word))
+    }
+
     /// Check if two words are in the same recursive cycle (mutually recursive).
     pub fn are_mutually_recursive(&self, word1: &str, word2: &str) -> bool {
         self.recursive_sccs

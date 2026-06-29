@@ -1355,3 +1355,353 @@ fn test_no_instrument_no_counters() {
         "Should not emit report_init when instrument=false"
     );
 }
+
+// =========================================================================
+// Loop lowering (--loop-opt) tests. See docs/design/LOOP_LOWERING.md.
+// =========================================================================
+
+/// Generate IR for `program` with loop-opt enabled (cadence 1024) and a call
+/// graph wired in. Mirrors the CLI path: the flag flows through config into
+/// `prepare_program_state`.
+fn codegen_loop_opt_ir(program: &Program) -> String {
+    let config = CompilerConfig::default().with_loop_opt();
+    let mut codegen = CodeGen::new();
+    codegen.set_call_graph(crate::call_graph::CallGraph::build(program));
+    codegen
+        .codegen_program_with_config(program, HashMap::new(), HashMap::new(), &config)
+        .unwrap()
+}
+
+#[test]
+fn test_loop_opt_is_off_by_default() {
+    // Default config: loop_opt must be false, cadence 1024.
+    let config = CompilerConfig::default();
+    assert!(!config.loop_opt);
+    assert_eq!(config.loop_yield_cadence, 1024);
+}
+
+#[test]
+fn test_loop_opt_emits_native_loop_for_tail_recursive_word() {
+    // Phase 1 pattern: single if with base (then) and self-tail-call (else).
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![
+            WordDef {
+                name: "countdown".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(0),
+                    Statement::WordCall {
+                        name: "i.<=".to_string(),
+                        span: None,
+                    },
+                    Statement::If {
+                        then_branch: vec![Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        }],
+                        else_branch: Some(vec![
+                            Statement::IntLiteral(1),
+                            Statement::WordCall {
+                                name: "i.-".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "countdown".to_string(),
+                                span: None,
+                            },
+                        ]),
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            },
+            WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "countdown".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+        ],
+    };
+
+    let ir = codegen_loop_opt_ir(&program);
+
+    // The loop header and back-edge blocks must be present.
+    assert!(
+        ir.contains("loop_base"),
+        "loop-opt should emit a base block; got:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("loop_cont"),
+        "loop-opt should emit a continue block; got:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains("loop_yield"),
+        "loop-opt should emit a yield block; got:\n{}",
+        ir
+    );
+    // The self-call must be gone — replaced by the back-edge.
+    let countdown_fn = ir
+        .find("define tailcc ptr @seq_countdown")
+        .expect("countdown function should exist");
+    let countdown_body = &ir[countdown_fn..];
+    assert!(
+        !countdown_body.contains("musttail"),
+        "loop-lowered word must not musttail-call itself"
+    );
+    // Yield happens on a cadence, not every iteration: maybe_yield appears in
+    // its own block, gated by the AND-mask compare.
+    assert!(countdown_body.contains("and i64"));
+}
+
+#[test]
+fn test_loop_opt_disabled_falls_back_to_musttail() {
+    // Same program, but loop-opt OFF → musttail self-call, no loop blocks.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![
+            WordDef {
+                name: "countdown".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(0),
+                    Statement::WordCall {
+                        name: "i.<=".to_string(),
+                        span: None,
+                    },
+                    Statement::If {
+                        then_branch: vec![Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        }],
+                        else_branch: Some(vec![
+                            Statement::IntLiteral(1),
+                            Statement::WordCall {
+                                name: "i.-".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "countdown".to_string(),
+                                span: None,
+                            },
+                        ]),
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            },
+            WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "countdown".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+        ],
+    };
+
+    let mut codegen = CodeGen::new(); // loop-opt off
+    codegen.set_call_graph(crate::call_graph::CallGraph::build(&program));
+    let ir = codegen
+        .codegen_program(&program, HashMap::new(), HashMap::new())
+        .unwrap();
+
+    assert!(
+        ir.contains("musttail call tailcc ptr @seq_countdown"),
+        "without loop-opt, countdown must musttail-call itself"
+    );
+}
+
+#[test]
+fn test_loop_opt_skips_mutual_recursion() {
+    // Mutual recursion (ping/pong) must NOT be lowered — it's not self-tail.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![
+            WordDef {
+                name: "ping".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "pong".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+            WordDef {
+                name: "pong".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "ping".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+            WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "ping".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+        ],
+    };
+
+    let ir = codegen_loop_opt_ir(&program);
+
+    // Neither ping nor pong should be loop-lowered.
+    assert!(
+        !ir.contains("loop_base"),
+        "mutual recursion must not be loop-lowered"
+    );
+    assert!(ir.contains("musttail"), "mutual recursion keeps musttail");
+}
+
+#[test]
+fn test_loop_opt_skips_both_branches_recurse() {
+    // If BOTH branches end in a self-call (Phase 3 fibonacci pattern), Phase 1
+    // must NOT lower it.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![
+            WordDef {
+                name: "fib".to_string(),
+                effect: None,
+                body: vec![Statement::If {
+                    then_branch: vec![Statement::WordCall {
+                        name: "fib".to_string(),
+                        span: None,
+                    }],
+                    else_branch: Some(vec![Statement::WordCall {
+                        name: "fib".to_string(),
+                        span: None,
+                    }]),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+            WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "fib".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+        ],
+    };
+
+    let ir = codegen_loop_opt_ir(&program);
+
+    assert!(
+        !ir.contains("loop_base"),
+        "both-branches-recurse is Phase 3, not Phase 1"
+    );
+}
+
+#[test]
+fn test_loop_opt_yield_cadence_mask() {
+    // A custom cadence (256) produces an AND mask of 255.
+    let program = Program {
+        includes: vec![],
+        unions: vec![],
+        words: vec![
+            WordDef {
+                name: "countdown".to_string(),
+                effect: None,
+                body: vec![
+                    Statement::WordCall {
+                        name: "dup".to_string(),
+                        span: None,
+                    },
+                    Statement::IntLiteral(0),
+                    Statement::WordCall {
+                        name: "i.<=".to_string(),
+                        span: None,
+                    },
+                    Statement::If {
+                        then_branch: vec![Statement::WordCall {
+                            name: "drop".to_string(),
+                            span: None,
+                        }],
+                        else_branch: Some(vec![
+                            Statement::IntLiteral(1),
+                            Statement::WordCall {
+                                name: "i.-".to_string(),
+                                span: None,
+                            },
+                            Statement::WordCall {
+                                name: "countdown".to_string(),
+                                span: None,
+                            },
+                        ]),
+                        span: None,
+                    },
+                ],
+                source: None,
+                allowed_lints: vec![],
+            },
+            WordDef {
+                name: "main".to_string(),
+                effect: None,
+                body: vec![Statement::WordCall {
+                    name: "countdown".to_string(),
+                    span: None,
+                }],
+                source: None,
+                allowed_lints: vec![],
+            },
+        ],
+    };
+
+    let config = CompilerConfig::default()
+        .with_loop_opt()
+        .with_loop_yield_cadence(256);
+    let mut codegen = CodeGen::new();
+    codegen.set_call_graph(crate::call_graph::CallGraph::build(&program));
+    let ir = codegen
+        .codegen_program_with_config(&program, HashMap::new(), HashMap::new(), &config)
+        .unwrap();
+
+    assert!(
+        ir.contains("and i64 %loop_iter_next_"),
+        "cadence 256 should produce an AND mask on the iter counter; got:\n{}",
+        ir
+    );
+    assert!(
+        ir.contains(", 255"),
+        "cadence 256 should produce AND mask 255; got:\n{}",
+        ir
+    );
+}

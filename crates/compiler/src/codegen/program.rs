@@ -127,6 +127,8 @@ impl CodeGen {
             .collect();
 
         self.instrument = config.instrument;
+        self.loop_opt_enabled = config.loop_opt;
+        self.loop_yield_cadence = config.loop_yield_cadence;
         if self.instrument {
             for (id, word) in program.words.iter().enumerate() {
                 self.word_instrument_ids.insert(word.name.clone(), id);

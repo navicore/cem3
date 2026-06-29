@@ -14,8 +14,23 @@ use std::fmt::Write as _;
 impl CodeGen {
     /// Generate code for a word definition
     pub(super) fn codegen_word(&mut self, word: &WordDef) -> Result<(), CodeGenError> {
-        // Try to generate a specialized register-based version first
-        if let Some(sig) = self.can_specialize(word) {
+        // Detect the loop-lowering pattern up front: a loop-lowered word must
+        // NOT also get a specialized musttail variant, or non-tail callers
+        // would dispatch to the specialized version and bypass the loop
+        // entirely (see docs/design/LOOP_LOWERING.md).
+        let loop_pattern = if self.loop_opt_enabled {
+            self.call_graph
+                .as_ref()
+                .and_then(|cg| super::loop_lowering::detect_loop_pattern(word, cg))
+        } else {
+            None
+        };
+
+        // Try to generate a specialized register-based version first.
+        // Skipped for loop-lowered words (see above).
+        if loop_pattern.is_none()
+            && let Some(sig) = self.can_specialize(word)
+        {
             self.codegen_specialized_word(word, &sig)?;
         }
 
@@ -106,17 +121,27 @@ impl CodeGen {
         self.current_word_name = Some(word.name.clone());
         self.current_stmt_index = 0;
 
-        // Generate code for all statements with pattern detection for inline loops
-        stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
+        // Loop lowering (--loop-opt): emit a native LLVM loop when the word
+        // matched the Phase 1 pattern (detected at the top of codegen_word).
+        // `is_main` is already excluded by detect_loop_pattern.
+        let lowered_as_loop = loop_pattern.is_some();
+        if let Some(pattern) = loop_pattern {
+            self.codegen_loop_body(&stack_var, &pattern)?;
+        } else {
+            // Generate code for all statements with pattern detection for inline loops
+            stack_var = self.codegen_statements(&word.body, &stack_var, true)?;
+        }
 
         self.current_word_name = None;
 
         // Only emit ret if the last statement wasn't a tail call
-        // (tail calls emit their own ret)
-        if !word
-            .body
-            .last()
-            .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail))
+        // (tail calls emit their own ret). A loop-lowered word emits its own
+        // ret from the base-case block, so skip this entirely.
+        if !lowered_as_loop
+            && !word
+                .body
+                .last()
+                .is_some_and(|s| self.will_emit_tail_call(s, TailPosition::Tail))
         {
             // Spill any remaining virtual registers before return (Issue #189)
             let stack_var = self.spill_virtual_stack(&stack_var)?;

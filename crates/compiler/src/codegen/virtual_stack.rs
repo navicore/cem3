@@ -21,6 +21,19 @@ impl CodeGen {
         name
     }
 
+    /// Generate a fresh *named* SSA value, e.g. `loop_sp_12`.
+    ///
+    /// Unlike `fresh_temp` (which yields numbered `%N` values that LLVM
+    /// requires to be defined in ascending order within a function), named
+    /// values may be referenced before their definition in textual order
+    /// (as phi operands are). Used by loop lowering for SSA values defined
+    /// in the loop back-edge but referenced by the loop-header phis.
+    pub(super) fn fresh_named(&mut self, prefix: &str) -> String {
+        let name = format!("{}_{}", prefix, self.temp_counter);
+        self.temp_counter += 1;
+        name
+    }
+
     /// Spill all virtual register values to memory (Issue #189).
     ///
     /// This must be called before:

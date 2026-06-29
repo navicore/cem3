@@ -6,9 +6,10 @@ use crate::value::Value;
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit as AesKeyInit, OsRng, rand_core::RngCore as AeadRngCore},
+    aead::{Aead, KeyInit as AesKeyInit},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use rand_core::{OsRng, RngCore};
 
 use super::{AES_GCM_TAG_SIZE, AES_KEY_SIZE, AES_NONCE_SIZE};
 
@@ -112,10 +113,10 @@ pub(super) fn aes_gcm_encrypt(plaintext: &[u8], key_hex: &str) -> Option<String>
     // Generate random nonce
     let mut nonce_bytes = [0u8; AES_NONCE_SIZE];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::try_from(&nonce_bytes[..]).expect("nonce is fixed-length");
 
     // Encrypt
-    let ciphertext = cipher.encrypt(nonce, plaintext).ok()?;
+    let ciphertext = cipher.encrypt(&nonce, plaintext).ok()?;
 
     // Combine: nonce || ciphertext (tag is appended by aes-gcm)
     let mut combined = Vec::with_capacity(AES_NONCE_SIZE + ciphertext.len());
@@ -145,9 +146,9 @@ pub(super) fn aes_gcm_decrypt(ciphertext_b64: &str, key_hex: &str) -> Option<Vec
 
     // Split nonce and ciphertext
     let (nonce_bytes, ciphertext) = combined.split_at(AES_NONCE_SIZE);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes).expect("nonce is fixed-length");
 
     // Create cipher and decrypt
     let cipher = Aes256Gcm::new_from_slice(&key_bytes).ok()?;
-    cipher.decrypt(nonce, ciphertext).ok()
+    cipher.decrypt(&nonce, ciphertext).ok()
 }

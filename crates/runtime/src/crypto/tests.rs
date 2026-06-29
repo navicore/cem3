@@ -6,7 +6,7 @@ use crate::seqstring::global_string;
 use crate::stack::{pop, push};
 use crate::value::Value;
 use ::ed25519_dalek::SigningKey;
-use aes_gcm::aead::OsRng;
+use rand_core::OsRng;
 
 #[test]
 fn test_sha256() {

@@ -69,7 +69,7 @@ hmac = "0.13"
 rand = "0.10"
 uuid = { version = "1.11", features = ["v4"] }
 subtle = "2.6"  # Constant-time comparison
-aes-gcm = "0.10"  # AES-256-GCM authenticated encryption
+aes-gcm = "0.11"  # AES-256-GCM authenticated encryption
 pbkdf2 = "0.13"   # Password-based key derivation
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }  # Ed25519 digital signatures
 

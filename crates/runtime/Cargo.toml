@@ -44,7 +44,7 @@ compression = ["dep:flate2", "dep:zstd"]
 
 [dependencies]
 # Core runtime primitives (shared foundation for stack-based languages)
-seq-core = { path = "../core", version = "=7.6.1" }
+seq-core = { path = "../core", version = "=7.7.0" }
 
 # May - Erlang-style green threads / coroutines for CSP concurrency
 may.workspace = true

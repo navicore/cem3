@@ -1203,9 +1203,9 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.12"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9155a582abd142abc056962c29e3ce5ff2ad5469f4246b537ed42c5deba857da"
+checksum = "818356c5132c1fede50f837ca96afbe78ff42413047f4abb886217845e1b6c8c"
 dependencies = [
  "typenum",
 ]
@@ -2321,7 +2321,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "seq-compiler"
-version = "7.6.1"
+version = "7.7.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2336,7 +2336,7 @@ dependencies = [
 
 [[package]]
 name = "seq-core"
-version = "7.6.1"
+version = "7.7.0"
 dependencies = [
  "bumpalo",
  "may",
@@ -2344,7 +2344,7 @@ dependencies = [
 
 [[package]]
 name = "seq-lsp"
-version = "7.6.1"
+version = "7.7.0"
 dependencies = [
  "seq-compiler",
  "serde",
@@ -2357,7 +2357,7 @@ dependencies = [
 
 [[package]]
 name = "seq-repl"
-version = "7.6.1"
+version = "7.7.0"
 dependencies = [
  "clap",
  "crossterm",
@@ -2374,7 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "seq-runtime"
-version = "7.6.1"
+version = "7.7.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -3207,7 +3207,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vim-line"
-version = "7.6.1"
+version = "7.7.0"
 
 [[package]]
 name = "virtue"

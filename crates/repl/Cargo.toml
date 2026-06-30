@@ -17,12 +17,12 @@ path = "src/main.rs"
 
 [dependencies]
 # Seq compiler - version must EXACTLY match workspace version (enforced by CI)
-seq-compiler = { path = "../compiler", version = "=7.6.1" }
+seq-compiler = { path = "../compiler", version = "=7.7.0" }
 
 # Vim-style line editing - version must EXACTLY match workspace version (enforced by CI)
 # `history` feature pulls in the shared command-history store (ring + prev/next +
 # search + draft stash) so seqr doesn't reinvent its own.
-vim-line = { path = "../vim-line", version = "=7.6.1", features = ["history"] }
+vim-line = { path = "../vim-line", version = "=7.7.0", features = ["history"] }
 
 # CLI
 clap.workspace = true

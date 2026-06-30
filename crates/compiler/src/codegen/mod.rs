@@ -82,6 +82,7 @@ mod ffi_wrappers;
 mod globals;
 mod inline;
 mod layout;
+mod loop_lowering;
 mod platform;
 mod program;
 mod runtime;

@@ -324,6 +324,7 @@ pub fn compile_file_with_config(
     codegen.set_quotation_aux_slot_counts(quotation_aux_depths);
     codegen.set_resolved_sugar(resolved_sugar);
     codegen.set_source_file(source_path.to_path_buf());
+    codegen.set_call_graph(call_graph);
     let ir = codegen
         .codegen_program_with_ffi(
             &program,
@@ -469,6 +470,9 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
 
     type_checker.check_program(&program)?;
 
+    // Build the call graph for self-recursion classification (loop lowering).
+    let call_graph = call_graph::CallGraph::build(&program);
+
     let quotation_types = type_checker.take_quotation_types();
     let statement_types = type_checker.take_statement_top_types();
     let aux_max_depths = type_checker.take_aux_max_depths();
@@ -479,6 +483,7 @@ pub fn compile_to_ir_with_config(source: &str, config: &CompilerConfig) -> Resul
     codegen.set_aux_slot_counts(aux_max_depths);
     codegen.set_quotation_aux_slot_counts(quotation_aux_depths);
     codegen.set_resolved_sugar(resolved_sugar);
+    codegen.set_call_graph(call_graph);
     codegen
         .codegen_program_with_config(&program, quotation_types, statement_types, config)
         .map_err(|e| e.to_string())

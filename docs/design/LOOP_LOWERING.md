@@ -131,7 +131,60 @@ loop:
 - **Spill cost** — Stack operations move 8-byte tagged pointers through
   memory when the virtual stack spills.
 
-## Checkpoints
+## Status: Resolved by Specialization (2026-06)
+
+While implementing Phase 1, investigation revealed that the **register-based
+specialization** system (`codegen/specialization/`) already solves the
+performance problem this design targeted.
+
+Specialization emits a parallel register-register variant for self-recursive
+words whose effects use only primitive types (Int/Float/Bool): values flow in
+CPU registers instead of the tagged stack, the recursive self-call uses
+`musttail`, and LLVM then performs tail-call elimination, register promotion,
+and (8x) unrolling on that variant automatically. The specialization module
+documents an 8–11x speedup for numeric-intensive code.
+
+All five checkpoint benchmarks (fib, sum_squares, primes, leibniz_pi, the
+recursive examples) are self-recursive loops over Int/Float, so they all
+specialize. Measurement confirmed `fib-fast(200M)` is identical with and
+without `--loop-opt` because `fib-loop` specializes and the stack-based
+function becomes dead code. The design predates (or didn't account for)
+specialization.
+
+### What landed anyway
+
+Phase 1 detection + memory-only loop emission is implemented and gated behind
+`--loop-opt` (off by default). It is correct, covered by unit tests, and
+clean under clippy/fmt. It does **not** beat the status quo:
+
+- **Specializable loops** — neutral (loop-lowering is dead code; the
+  specialized variant wins).
+- **Non-specializable loops** — within measurement noise vs `musttail`+TCE,
+  because LLVM already tail-call-elimimates the `musttail` self-recursion
+  into an equivalent memory loop.
+
+### Why register promotion was not built
+
+The "Virtual Stack in Loops" follow-up (phi nodes for live virtual-register
+values across the back-edge) would only help non-specializable loops whose
+loop-carried values are primitives but whose *bodies* are non-specializable
+(e.g. a tight loop calling a non-specialized helper). That is a narrower and
+less common case than the original intent, and no concrete hot loop of that
+shape has been identified in real code to justify the implementation cost
+(liveness tracking across the back-edge, spill handling when the body exceeds
+`MAX_VIRTUAL_STACK`).
+
+### When to revisit
+
+If a non-specializable tight loop with primitive loop-carried state becomes a
+measured bottleneck, register promotion can be layered onto the existing
+Phase 1 scaffold. The detector and loop skeleton are already in place; the
+remaining work is virtual-stack phi emission across the back-edge.
+
+## Checkpoints (historical)
+
+These targets were the original success criteria. Specialization meets them
+without loop-lowering, so they are no longer the gate for this feature.
 
 1. **fib(40) under 500ms** (currently 2200ms) — fibonacci is the classic
    self-recursive benchmark

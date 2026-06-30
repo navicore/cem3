@@ -141,7 +141,7 @@ impl ExternalBuiltin {
 ///
 /// Allows external projects to extend the compiler with additional
 /// builtins and configuration options.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CompilerConfig {
     /// External builtins to include in compilation
     pub external_builtins: Vec<ExternalBuiltin>,
@@ -171,6 +171,30 @@ pub struct CompilerConfig {
     /// When true, each word entry point gets an `atomicrmw add` counter.
     /// Use with `SEQ_REPORT=words` to see call counts at exit.
     pub instrument: bool,
+
+    /// Lower self-tail-recursive words to native LLVM loops instead of
+    /// `musttail` calls. See `docs/design/LOOP_LOWERING.md`. Opt-in.
+    pub loop_opt: bool,
+
+    /// Iterations between cooperative yields inside a lowered loop.
+    /// Must be a power of two (used as an AND mask). Default 1024.
+    pub loop_yield_cadence: u32,
+}
+
+impl Default for CompilerConfig {
+    fn default() -> Self {
+        CompilerConfig {
+            external_builtins: Vec::new(),
+            library_paths: Vec::new(),
+            libraries: Vec::new(),
+            ffi_manifest_paths: Vec::new(),
+            pure_inline_test: false,
+            optimization_level: OptimizationLevel::default(),
+            instrument: false,
+            loop_opt: false,
+            loop_yield_cadence: 1024,
+        }
+    }
 }
 
 impl CompilerConfig {
@@ -221,6 +245,26 @@ impl CompilerConfig {
     /// Set the optimization level for compilation
     pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
         self.optimization_level = level;
+        self
+    }
+
+    /// Enable loop lowering for self-tail-recursive words.
+    pub fn with_loop_opt(mut self) -> Self {
+        self.loop_opt = true;
+        self
+    }
+
+    /// Set the loop-opt yield cadence. Must be a power of two greater than 0.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cadence` is not a power of two.
+    pub fn with_loop_yield_cadence(mut self, cadence: u32) -> Self {
+        assert!(
+            cadence > 0 && cadence.is_power_of_two(),
+            "loop yield cadence must be a power of two, got {cadence}"
+        );
+        self.loop_yield_cadence = cadence;
         self
     }
 

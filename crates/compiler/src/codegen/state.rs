@@ -198,6 +198,16 @@ pub struct CodeGen {
     pub(super) current_aux_sp: usize,
     /// Whether to emit per-word atomic call counters (--instrument)
     pub(super) instrument: bool,
+    /// Enable loop lowering for self-tail-recursive words (--loop-opt).
+    /// See `docs/design/LOOP_LOWERING.md`.
+    pub(super) loop_opt_enabled: bool,
+    /// Iterations between cooperative yields inside a lowered loop.
+    /// Must be a power of two (used as an AND mask). Default 1024.
+    pub(super) loop_yield_cadence: u32,
+    /// Call graph built from the program, used by loop lowering to classify
+    /// self-recursive words. `None` disables loop lowering regardless of
+    /// `loop_opt_enabled`.
+    pub(super) call_graph: Option<crate::call_graph::CallGraph>,
     /// True if the user's `main` word has effect `( -- Int )`.
     /// Determines whether `seq_main` writes the top-of-stack int to the
     /// global exit code before freeing the stack. (Issue #355)
@@ -283,6 +293,9 @@ impl CodeGen {
             current_aux_slots: Vec::new(),
             current_aux_sp: 0,
             instrument: false,
+            loop_opt_enabled: false,
+            loop_yield_cadence: 1024,
+            call_graph: None,
             word_instrument_ids: HashMap::new(),
             main_returns_int: false,
             dbg_source: None,
@@ -333,5 +346,16 @@ impl CodeGen {
     /// Look up the resolved name for an arithmetic sugar op by source location
     pub(super) fn resolve_sugar_at(&self, line: usize, column: usize) -> Option<&str> {
         self.resolved_sugar.get(&(line, column)).map(|s| s.as_str())
+    }
+
+    /// Enable loop lowering and set the yield cadence (power of two).
+    pub fn set_loop_opt(&mut self, enabled: bool, cadence: u32) {
+        self.loop_opt_enabled = enabled;
+        self.loop_yield_cadence = cadence;
+    }
+
+    /// Provide the program call graph for self-recursion classification.
+    pub fn set_call_graph(&mut self, cg: crate::call_graph::CallGraph) {
+        self.call_graph = Some(cg);
     }
 }

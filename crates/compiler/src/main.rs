@@ -61,6 +61,17 @@ enum Commands {
         /// Use with SEQ_REPORT=words to see call counts at exit.
         #[arg(long)]
         instrument: bool,
+
+        /// Lower self-tail-recursive loops to native LLVM loops (experimental).
+        /// See docs/design/LOOP_LOWERING.md. When set, `loop_yield_cadence`
+        /// (if present) overrides the default yield cadence.
+        #[arg(long = "loop-opt")]
+        loop_opt: bool,
+
+        /// Iterations between cooperative yields inside a loop-opt loop.
+        /// Must be a power of two. [default: 1024]
+        #[arg(long = "loop-yield-cadence", value_name = "N")]
+        loop_yield_cadence: Option<u32>,
     },
 
     /// Run lint checks on .seq files
@@ -143,6 +154,8 @@ fn main() {
             ffi_manifests,
             pure_inline,
             instrument,
+            loop_opt,
+            loop_yield_cadence,
         } => {
             let output = output.unwrap_or_else(|| {
                 // Default: input filename without .seq extension
@@ -156,6 +169,7 @@ fn main() {
                 &ffi_manifests,
                 pure_inline,
                 instrument,
+                loop_opt.then(|| loop_yield_cadence.unwrap_or(1024)),
             );
         }
         Commands::Lint {

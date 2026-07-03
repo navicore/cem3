@@ -85,12 +85,136 @@ pub(super) fn move_line_end_insert(cursor: usize, text: &str) -> usize {
     line_end(cursor, text, true)
 }
 
-/// Move cursor forward by word (w).
+/// Vim word class. Every byte of the buffer belongs to exactly one of
+/// these; a "word" (lowercase `w`/`b`/`e`) is a maximal run of one class.
+/// Whitespace-only breaks define vim WORDs (`W`/`B`/`E`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Class {
+    Whitespace,
+    Keyword,
+    Punctuation,
+}
+
+/// Classify a single byte into a vim word class.
+///
+/// - **Keyword**: ASCII alphanumeric + `_` (vim's default `iskeyword`).
+/// - **Whitespace**: ASCII whitespace.
+/// - **Punctuation**: any other byte (includes `(`, `)`, `,`, `:`, `-`,
+///   and continuation bytes of multibyte chars, which are treated as
+///   punctuation runs — matching the byte-oriented motion style of the
+///   rest of this module).
+fn class_of(b: u8) -> Class {
+    if b.is_ascii_whitespace() {
+        Class::Whitespace
+    } else if b.is_ascii_alphanumeric() || b == b'_' {
+        Class::Keyword
+    } else {
+        Class::Punctuation
+    }
+}
+
+/// Move cursor forward by word (w) — vim *word* semantics.
+///
+/// Lands on the start of the next word, where a word is a maximal run of
+/// one class (keyword / punctuation / whitespace). Punctuation runs are
+/// their own words, so `foo,bar` jumps `f→,→b`.
 pub(super) fn move_word_forward(cursor: usize, text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut pos = cursor;
 
-    // Skip current word (non-whitespace)
+    if pos < bytes.len() {
+        // Skip the rest of the current word-class run (no-op if we're
+        // already on whitespace).
+        let start_class = class_of(bytes[pos]);
+        if start_class != Class::Whitespace {
+            while pos < bytes.len() && class_of(bytes[pos]) == start_class {
+                pos += 1;
+            }
+        }
+        // Skip any whitespace separating words.
+        while pos < bytes.len() && class_of(bytes[pos]) == Class::Whitespace {
+            pos += 1;
+        }
+    }
+
+    pos
+}
+
+/// Move cursor backward by word (b) — vim *word* semantics.
+///
+/// Lands on the start of the current/previous word.
+///
+/// Note: vim-line permits the normal-mode cursor to rest at `text.len()`
+/// (one past the last char) — e.g. after `w` consumes a final word. Real
+/// vim's cursor is always *on* a character, so we clamp the start to the
+/// last char. Without this, `b` from EOB would land on a trailing
+/// punctuation word (like the `,` in `foo,`) instead of skipping back to
+/// the previous keyword, diverging from vim.
+pub(super) fn move_word_backward(cursor: usize, text: &str) -> usize {
+    let bytes = text.as_bytes();
+    if bytes.is_empty() {
+        return 0;
+    }
+    // Treat a cursor sitting at EOB as "on the last char" (see doc above).
+    let mut pos = cursor.min(bytes.len() - 1);
+    if pos == 0 {
+        return 0;
+    }
+    pos -= 1;
+    // Skip whitespace before the target word.
+    while pos > 0 && class_of(bytes[pos]) == Class::Whitespace {
+        pos -= 1;
+    }
+    if class_of(bytes[pos]) == Class::Whitespace {
+        // Entire prefix is whitespace.
+        return 0;
+    }
+    // Walk to the start of this word-class run.
+    let target = class_of(bytes[pos]);
+    while pos > 0 && class_of(bytes[pos - 1]) == target {
+        pos -= 1;
+    }
+
+    pos
+}
+
+/// Move cursor to end of word (e) — vim *word* semantics.
+///
+/// Lands on the last byte of the current/next word.
+pub(super) fn move_word_end(cursor: usize, text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut pos = cursor;
+
+    if pos >= bytes.len() {
+        return pos;
+    }
+    // Move at least one character forward.
+    pos += 1;
+    // Skip whitespace.
+    while pos < bytes.len() && class_of(bytes[pos]) == Class::Whitespace {
+        pos += 1;
+    }
+    if pos >= bytes.len() {
+        return bytes.len();
+    }
+    // Walk to the last byte of this word-class run.
+    let target = class_of(bytes[pos]);
+    while pos + 1 < bytes.len() && class_of(bytes[pos + 1]) == target {
+        pos += 1;
+    }
+
+    pos
+}
+
+/// Move cursor forward by WORD (W) — vim *WORD* semantics.
+///
+/// A WORD is a maximal run of non-whitespace. This is the classic
+/// whitespace-only motion.
+pub(super) fn move_word_forward_word(cursor: usize, text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut pos = cursor;
+
+    // Skip current WORD (non-whitespace)
     while pos < bytes.len() && !bytes[pos].is_ascii_whitespace() {
         pos += 1;
     }
@@ -102,8 +226,8 @@ pub(super) fn move_word_forward(cursor: usize, text: &str) -> usize {
     pos
 }
 
-/// Move cursor backward by word (b).
-pub(super) fn move_word_backward(cursor: usize, text: &str) -> usize {
+/// Move cursor backward by WORD (B) — vim *WORD* semantics.
+pub(super) fn move_word_backward_word(cursor: usize, text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut pos = cursor;
 
@@ -111,7 +235,7 @@ pub(super) fn move_word_backward(cursor: usize, text: &str) -> usize {
     while pos > 0 && bytes[pos - 1].is_ascii_whitespace() {
         pos -= 1;
     }
-    // Skip word (non-whitespace)
+    // Skip WORD (non-whitespace)
     while pos > 0 && !bytes[pos - 1].is_ascii_whitespace() {
         pos -= 1;
     }
@@ -119,8 +243,8 @@ pub(super) fn move_word_backward(cursor: usize, text: &str) -> usize {
     pos
 }
 
-/// Move cursor to end of word (e).
-pub(super) fn move_word_end(cursor: usize, text: &str) -> usize {
+/// Move cursor to end of WORD (E) — vim *WORD* semantics.
+pub(super) fn move_word_end_word(cursor: usize, text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut pos = cursor;
 
@@ -132,11 +256,11 @@ pub(super) fn move_word_end(cursor: usize, text: &str) -> usize {
     while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
         pos += 1;
     }
-    // Move to end of word
+    // Move to end of WORD
     while pos < bytes.len() && !bytes[pos].is_ascii_whitespace() {
         pos += 1;
     }
-    // Back up one (end of word, not start of next)
+    // Back up one (end of WORD, not start of next)
     if pos > cursor + 1 {
         pos -= 1;
     }

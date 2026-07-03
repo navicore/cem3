@@ -608,3 +608,247 @@ fn visual_kj_remains_motion_only() {
     assert!(result.action.is_none());
     assert_eq!(editor.cursor(), 4);
 }
+
+// ----- vim word vs WORD motions (issue #540) ---------------------------
+//
+// `w`/`b`/`e` now use vim *word* semantics: a word is a maximal run of
+// one class (keyword / punctuation / whitespace). `W`/`B`/`E` keep the
+// classic whitespace-only WORD semantics.
+
+/// Helper: drive a sequence of single-char Normal-mode keys and return the
+/// resulting cursor. Starts each editor fresh on `text` at column 0.
+fn walk(text: &str, keys: &str) -> usize {
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(0, text);
+    for c in keys.chars() {
+        editor.handle_key(Key::char(c), text);
+    }
+    editor.cursor()
+}
+
+#[test]
+fn w_stops_on_punctuation_run() {
+    // foo,bar — from `f`, w lands on `,` then on `b` of bar.
+    let text = "foo,bar";
+    assert_eq!(walk(text, "w"), 3, "w from f lands on the comma");
+    assert_eq!(walk(text, "ww"), 4, "second w lands on b of bar");
+}
+
+#[test]
+fn w_walks_foo_comma_space_bar_baz() {
+    // `foo, bar baz` — w hops foo -> , -> (skip space) bar -> baz.
+    let text = "foo, bar baz";
+    assert_eq!(walk(text, "w"), 3, "on comma");
+    assert_eq!(walk(text, "ww"), 5, "on b of bar");
+    assert_eq!(walk(text, "www"), 9, "on b of baz");
+}
+
+#[test]
+fn w_past_open_paren_lands_on_arg() {
+    // The motivating case: jump to the first non-blank after `(` or `,`.
+    // `foo(bar)` from `f`: w -> ( -> b -> ) .
+    let text = "foo(bar)";
+    assert_eq!(walk(text, "w"), 3, "on (");
+    assert_eq!(walk(text, "ww"), 4, "on b of bar");
+    assert_eq!(walk(text, "www"), 7, "on )");
+}
+
+#[test]
+fn w_on_colon_dash_punctuation() {
+    // `:-x` — `:-` is a single punctuation run; w from `:` skips the
+    // whole run and lands on `x`.
+    let text = ":-x";
+    assert_eq!(walk(text, "w"), 2, "w lands on x");
+    assert_eq!(walk(text, "ww"), 3, "second w reaches EOB");
+}
+
+#[test]
+fn b_walks_back_through_punctuation() {
+    // `foo,bar` cursor on `b` (index 4): b -> , -> f.
+    let text = "foo,bar";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(4, text);
+    editor.handle_key(Key::char('b'), text);
+    assert_eq!(editor.cursor(), 3, "b lands on comma");
+    editor.handle_key(Key::char('b'), text);
+    assert_eq!(editor.cursor(), 0, "b lands on f");
+}
+
+#[test]
+fn b_from_within_word_goes_to_start() {
+    // Cursor mid-keyword lands on the keyword's start.
+    let text = "hello world";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(3, text); // on 2nd l
+    editor.handle_key(Key::char('b'), text);
+    assert_eq!(editor.cursor(), 0);
+}
+
+#[test]
+fn e_lands_on_last_char_of_word() {
+    // `foo,bar` from `f`: e -> o (idx 2) -> , (idx 3) -> r (idx 6).
+    let text = "foo,bar";
+    assert_eq!(walk(text, "e"), 2, "on last o of foo");
+    assert_eq!(walk(text, "ee"), 3, "on comma");
+    assert_eq!(walk(text, "eee"), 6, "on last r of bar");
+}
+
+#[test]
+fn e_skips_leading_whitespace() {
+    // Cursor on whitespace: e jumps to end of next word.
+    let text = "foo bar";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(3, text); // on the space
+    editor.handle_key(Key::char('e'), text);
+    assert_eq!(editor.cursor(), 6, "on r of bar");
+}
+
+#[test]
+fn w_at_end_of_buffer_stays_put() {
+    let text = "foo";
+    assert_eq!(walk(text, "w"), text.len());
+    // a second w must not overshoot.
+    assert_eq!(walk(text, "ww"), text.len());
+}
+
+#[test]
+fn b_at_start_of_buffer_stays_put() {
+    let text = "foo";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(0, text);
+    editor.handle_key(Key::char('b'), text);
+    assert_eq!(editor.cursor(), 0);
+}
+
+#[test]
+fn b_from_eob_skips_trailing_punctuation() {
+    // Regression: vim-line lets the normal-mode cursor sit at EOB (e.g.
+    // after `w` eats a final word). `b` from there must behave like `b`
+    // from the last char — skipping a trailing punctuation word back to
+    // the previous keyword — instead of landing on the `,`.
+    let text = "foo,";
+    let mut editor = VimLineEditor::new();
+    // Drive to EOB: w -> comma (3), w -> EOB (4).
+    editor.handle_key(Key::char('w'), text);
+    assert_eq!(editor.cursor(), 3);
+    editor.handle_key(Key::char('w'), text);
+    assert_eq!(editor.cursor(), text.len());
+    // b from EOB lands on `foo` start, not the comma.
+    editor.handle_key(Key::char('b'), text);
+    assert_eq!(editor.cursor(), 0);
+}
+
+#[test]
+fn b_from_eob_skips_trailing_punctuation_in_phrase() {
+    // `foo bar,` — after walking to EOB, b lands on `bar`, not the `,`.
+    let text = "foo bar,";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(0, text);
+    // w: foo->space-skip->bar(4); w: bar->comma(7); w: comma->EOB(8)
+    for _ in 0..3 {
+        editor.handle_key(Key::char('w'), text);
+    }
+    assert_eq!(editor.cursor(), text.len());
+    editor.handle_key(Key::char('b'), text);
+    assert_eq!(editor.cursor(), 4, "lands on start of bar, not the comma");
+}
+
+#[test]
+fn e_at_end_of_buffer_stays_put() {
+    let text = "foo";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(text.len(), text);
+    editor.handle_key(Key::char('e'), text);
+    assert_eq!(editor.cursor(), text.len());
+}
+
+// --- WORD motions (W/B/E): whitespace-only, the pre-#540 behavior ---
+
+#[test]
+fn word_uppercase_w_skips_punctuation_to_next_space_token() {
+    // `foo,bar` — W treats the whole run as one WORD, so a single W jumps
+    // past it to EOB.
+    let text = "foo,bar";
+    assert_eq!(walk(text, "W"), text.len());
+}
+
+#[test]
+fn word_uppercase_wbe_on_mixed_text() {
+    let text = "foo, bar baz";
+    // W: foo, -> bar -> baz
+    assert_eq!(walk(text, "W"), 5, "W lands on b of bar");
+    assert_eq!(walk(text, "WW"), 9, "W lands on b of baz");
+    // B from baz lands on bar, then on foo,
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(9, text);
+    editor.handle_key(Key::char('B'), text);
+    assert_eq!(editor.cursor(), 5, "B lands on bar");
+    editor.handle_key(Key::char('B'), text);
+    assert_eq!(editor.cursor(), 0, "B lands on foo,");
+    // E: from start, E lands on last char of `foo,` (the comma, idx 3).
+    assert_eq!(walk(text, "E"), 3, "E lands on comma");
+    assert_eq!(walk(text, "EE"), 7, "E lands on r of bar");
+}
+
+#[test]
+fn word_uppercase_w_from_whitespace_lands_on_next_token() {
+    let text = "foo bar";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(3, text); // on the space
+    editor.handle_key(Key::char('W'), text);
+    assert_eq!(editor.cursor(), 4, "on b of bar");
+}
+
+#[test]
+fn cw_on_punctuation_only_changes_punct_run() {
+    // `foo,bar` — cw from `f` changes only `foo` (cw==ce quirk), stopping
+    // before the comma.
+    let mut editor = VimLineEditor::new();
+    let mut text = String::from("foo,bar");
+    editor.handle_key(Key::char('c'), &text);
+    let result = editor.handle_key(Key::char('w'), &text);
+    assert_eq!(editor.mode(), Mode::Insert);
+    for edit in result.edits.into_iter().rev() {
+        edit.apply(&mut text);
+    }
+    assert_eq!(text, ",bar");
+}
+
+#[test]
+fn c_uppercase_word_behaves_like_c_uppercase_e() {
+    // `foo, bar` — cW from `f` changes `foo,` (to end of WORD), mirroring
+    // the cw->ce quirk at the WORD level.
+    let mut editor = VimLineEditor::new();
+    let mut text = String::from("foo, bar");
+    editor.handle_key(Key::char('c'), &text);
+    let result = editor.handle_key(Key::char('W'), &text);
+    assert_eq!(editor.mode(), Mode::Insert);
+    for edit in result.edits.into_iter().rev() {
+        edit.apply(&mut text);
+    }
+    assert_eq!(text, " bar");
+}
+
+#[test]
+fn d_uppercase_w_deletes_through_whitespace() {
+    // `foo, bar` — dW from `f` deletes `foo, ` (whole WORD + trailing ws).
+    let mut editor = VimLineEditor::new();
+    let mut text = String::from("foo, bar");
+    editor.handle_key(Key::char('d'), &text);
+    let result = editor.handle_key(Key::char('W'), &text);
+    for edit in result.edits.into_iter().rev() {
+        edit.apply(&mut text);
+    }
+    assert_eq!(text, "bar");
+}
+
+#[test]
+fn visual_uppercase_w_extends_selection() {
+    let mut editor = VimLineEditor::new();
+    let text = "foo, bar baz";
+    editor.handle_key(Key::char('v'), text);
+    editor.handle_key(Key::char('W'), text);
+    let sel = editor.selection().unwrap();
+    assert_eq!(sel.start, 0);
+    assert_eq!(sel.end, 6, "selection spans `foo, ` up to bar");
+}

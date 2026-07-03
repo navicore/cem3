@@ -181,6 +181,21 @@ impl VimLineEditor {
         self.cursor = motions::move_word_end(self.cursor, text);
     }
 
+    /// Move cursor forward by WORD (W).
+    fn move_word_forward_word(&mut self, text: &str) {
+        self.cursor = motions::move_word_forward_word(self.cursor, text);
+    }
+
+    /// Move cursor backward by WORD (B).
+    fn move_word_backward_word(&mut self, text: &str) {
+        self.cursor = motions::move_word_backward_word(self.cursor, text);
+    }
+
+    /// Move cursor to end of WORD (E).
+    fn move_word_end_word(&mut self, text: &str) {
+        self.cursor = motions::move_word_end_word(self.cursor, text);
+    }
+
     /// Move cursor up one line (k).
     fn move_up(&mut self, text: &str) {
         self.cursor = motions::move_up(self.cursor, text);
@@ -220,6 +235,9 @@ impl VimLineEditor {
             KeyCode::Char('w') => self.move_word_forward(text),
             KeyCode::Char('b') => self.move_word_backward(text),
             KeyCode::Char('e') => self.move_word_end(text),
+            KeyCode::Char('W') => self.move_word_forward_word(text),
+            KeyCode::Char('B') => self.move_word_backward_word(text),
+            KeyCode::Char('E') => self.move_word_end_word(text),
             KeyCode::Char('%') => self.move_to_matching_bracket(text),
             _ => return false,
         }
@@ -494,6 +512,26 @@ impl VimLineEditor {
                     self.cursor += 1;
                 }
             }
+            KeyCode::Char('W') => {
+                // Mirror the `cw`->`ce` quirk: `cW` behaves like `cE`
+                // (change to end of WORD, not including trailing space).
+                if op == Operator::Change {
+                    self.move_word_end_word(text);
+                    if self.cursor < text.len() {
+                        self.cursor += 1;
+                    }
+                } else {
+                    self.move_word_forward_word(text);
+                }
+            }
+            KeyCode::Char('B') => self.move_word_backward_word(text),
+            KeyCode::Char('E') => {
+                self.move_word_end_word(text);
+                // Include the character at cursor for delete/change
+                if self.cursor < text.len() {
+                    self.cursor += 1;
+                }
+            }
             KeyCode::Char('0') | KeyCode::Home => self.move_line_start(text),
             KeyCode::Char('$') | KeyCode::End => self.move_line_end(text),
             KeyCode::Char('^') => self.move_first_non_blank(text),
@@ -562,6 +600,18 @@ impl VimLineEditor {
             }
             KeyCode::Char('e') => {
                 self.move_word_end(text);
+                EditResult::cursor_only()
+            }
+            KeyCode::Char('W') => {
+                self.move_word_forward_word(text);
+                EditResult::cursor_only()
+            }
+            KeyCode::Char('B') => {
+                self.move_word_backward_word(text);
+                EditResult::cursor_only()
+            }
+            KeyCode::Char('E') => {
+                self.move_word_end_word(text);
                 EditResult::cursor_only()
             }
             KeyCode::Char('0') | KeyCode::Home => {

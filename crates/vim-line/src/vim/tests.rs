@@ -656,10 +656,11 @@ fn w_past_open_paren_lands_on_arg() {
 #[test]
 fn w_on_colon_dash_punctuation() {
     // `:-x` — `:-` is a single punctuation run; w from `:` skips the
-    // whole run and lands on `x`.
+    // whole run and lands on `x`. A second w is clamped onto `x` (#541),
+    // it can't move past the buffer.
     let text = ":-x";
     assert_eq!(walk(text, "w"), 2, "w lands on x");
-    assert_eq!(walk(text, "ww"), 3, "second w reaches EOB");
+    assert_eq!(walk(text, "ww"), 2, "second w stays clamped on x");
 }
 
 #[test]
@@ -704,11 +705,12 @@ fn e_skips_leading_whitespace() {
 }
 
 #[test]
-fn w_at_end_of_buffer_stays_put() {
+fn w_at_end_of_buffer_lands_on_last_char() {
+    // vim Normal-mode invariant (#541): `w` on the final word can't move
+    // past the buffer, so it lands ON the last character, not at len.
     let text = "foo";
-    assert_eq!(walk(text, "w"), text.len());
-    // a second w must not overshoot.
-    assert_eq!(walk(text, "ww"), text.len());
+    assert_eq!(walk(text, "w"), 2, "lands on last 'o', not past it");
+    assert_eq!(walk(text, "ww"), 2, "stays clamped on the last char");
 }
 
 #[test]
@@ -726,28 +728,28 @@ fn b_from_eob_skips_trailing_punctuation() {
     // after `w` eats a final word). `b` from there must behave like `b`
     // from the last char — skipping a trailing punctuation word back to
     // the previous keyword — instead of landing on the `,`.
+    //
+    // Note: #541 makes EOB unreachable via Normal-mode input (forward
+    // motions clamp onto the last char), so we force the cursor to len
+    // with `set_cursor` to exercise the defensive clamp in `motions.rs`,
+    // which protects non-Normal / host-driven callers.
     let text = "foo,";
     let mut editor = VimLineEditor::new();
-    // Drive to EOB: w -> comma (3), w -> EOB (4).
-    editor.handle_key(Key::char('w'), text);
-    assert_eq!(editor.cursor(), 3);
-    editor.handle_key(Key::char('w'), text);
+    editor.set_cursor(text.len(), text);
     assert_eq!(editor.cursor(), text.len());
-    // b from EOB lands on `foo` start, not the comma.
+    // b from a forced-EOB position lands on `foo` start, not the comma.
     editor.handle_key(Key::char('b'), text);
     assert_eq!(editor.cursor(), 0);
 }
 
 #[test]
 fn b_from_eob_skips_trailing_punctuation_in_phrase() {
-    // `foo bar,` — after walking to EOB, b lands on `bar`, not the `,`.
+    // `foo bar,` — from a forced-EOB position, b lands on `bar`, not the `,`.
+    // (EOB is unreachable via Normal input after #541; we force it to keep
+    // coverage of the defensive clamp in `motions.rs`.)
     let text = "foo bar,";
     let mut editor = VimLineEditor::new();
-    editor.set_cursor(0, text);
-    // w: foo->space-skip->bar(4); w: bar->comma(7); w: comma->EOB(8)
-    for _ in 0..3 {
-        editor.handle_key(Key::char('w'), text);
-    }
+    editor.set_cursor(text.len(), text);
     assert_eq!(editor.cursor(), text.len());
     editor.handle_key(Key::char('b'), text);
     assert_eq!(editor.cursor(), 4, "lands on start of bar, not the comma");
@@ -755,11 +757,15 @@ fn b_from_eob_skips_trailing_punctuation_in_phrase() {
 
 #[test]
 fn e_at_end_of_buffer_stays_put() {
+    // After #541 the Normal-mode cursor can't rest past the last char, so
+    // "at end" means on the last char. `e` from there stays put (vim:
+    // no further word-end to move to). We force len via `set_cursor` to
+    // confirm the clamp defends host-driven positions too.
     let text = "foo";
     let mut editor = VimLineEditor::new();
     editor.set_cursor(text.len(), text);
     editor.handle_key(Key::char('e'), text);
-    assert_eq!(editor.cursor(), text.len());
+    assert_eq!(editor.cursor(), 2, "clamped onto last 'o', not past it");
 }
 
 // --- WORD motions (W/B/E): whitespace-only, the pre-#540 behavior ---
@@ -767,9 +773,9 @@ fn e_at_end_of_buffer_stays_put() {
 #[test]
 fn word_uppercase_w_skips_punctuation_to_next_space_token() {
     // `foo,bar` — W treats the whole run as one WORD, so a single W jumps
-    // past it to EOB.
+    // to the end; clamped onto the last char (#541), not past it.
     let text = "foo,bar";
-    assert_eq!(walk(text, "W"), text.len());
+    assert_eq!(walk(text, "W"), text.len() - 1);
 }
 
 #[test]
@@ -851,4 +857,109 @@ fn visual_uppercase_w_extends_selection() {
     let sel = editor.selection().unwrap();
     assert_eq!(sel.start, 0);
     assert_eq!(sel.end, 6, "selection spans `foo, ` up to bar");
+}
+
+// ----- #541: Normal-mode cursor clamps to the last character ---------
+//
+// vim's Normal-mode cursor is always ON a character, never past the final
+// one. Forward motions that exhaust the buffer (`w`/`e`/`W`/`E`/`l`/Right)
+// must snap back onto the last char. Edit-producing commands and Insert
+// transitions are intentionally excluded.
+
+#[test]
+fn normal_l_at_last_char_does_not_overshoot() {
+    let text = "abc";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(2, text); // on 'c'
+    editor.handle_key(Key::char('l'), text);
+    assert_eq!(editor.cursor(), 2, "l stays clamped on the last char");
+
+    editor.handle_key(Key::code(KeyCode::Right), text);
+    assert_eq!(editor.cursor(), 2, "Right stays clamped on the last char");
+}
+
+#[test]
+fn normal_e_from_last_char_stays_put() {
+    let text = "foo";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(2, text); // on last 'o'
+    editor.handle_key(Key::char('e'), text);
+    assert_eq!(editor.cursor(), 2, "e on last word-end stays on last char");
+}
+
+#[test]
+fn normal_uppercase_e_at_end_lands_on_last_char() {
+    let text = "foo bar";
+    // E moves one WORD-end per press: end of `foo` (2), then end of `bar` (6).
+    assert_eq!(walk(text, "E"), 2, "E lands on end of first WORD");
+    assert_eq!(walk(text, "EE"), 6, "EE lands on end of last WORD");
+    // No further WORD: a third E is clamped onto 'r' (6), not past it.
+    assert_eq!(walk(text, "EEE"), 6);
+}
+
+#[test]
+fn normal_w_clamps_on_multibyte_last_char() {
+    // Char-boundary safety: last char is 4-byte emoji; clamp must land on
+    // the emoji's start byte (index 1), not a mid-codepoint position.
+    let text = "a\u{1F600}"; // 'a' (1 byte) + emoji (4 bytes) => len 5
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(0, text);
+    editor.handle_key(Key::char('w'), text);
+    assert_eq!(editor.cursor(), 1, "clamped to start of the emoji");
+    assert!(text.is_char_boundary(editor.cursor()));
+}
+
+#[test]
+fn normal_w_on_empty_buffer_stays_at_zero() {
+    let text = "";
+    let mut editor = VimLineEditor::new();
+    editor.handle_key(Key::char('w'), text);
+    assert_eq!(editor.cursor(), 0);
+}
+
+#[test]
+fn dw_on_last_word_still_deletes_whole_word() {
+    // Operator semantics must NOT regress: `dw` on the final word deletes
+    // the entire word even though the motion target is clamped for pure
+    // cursor movement. The operator uses the unclamped target for its range.
+    let mut editor = VimLineEditor::new();
+    let mut text = String::from("foo bar");
+    // cursor on 'b' of bar (index 4)
+    editor.set_cursor(4, &text);
+    editor.handle_key(Key::char('d'), &text);
+    let result = editor.handle_key(Key::char('w'), &text);
+    for edit in result.edits.into_iter().rev() {
+        edit.apply(&mut text);
+    }
+    assert_eq!(text, "foo ", "dw deleted the whole last word 'bar'");
+    assert_eq!(editor.mode(), Mode::Normal);
+    // cursor clamped onto the trailing space (last char of the *old* text
+    // representation at the delete start region).
+    assert!(editor.cursor() <= 4);
+}
+
+#[test]
+fn append_at_last_char_keeps_past_end_for_insert() {
+    // `a` at the last char enters Insert with cursor past the end so the
+    // host can append — the clamp must NOT affect Insert transitions.
+    let text = "abc";
+    let mut editor = VimLineEditor::new();
+    editor.set_cursor(2, text); // on 'c'
+    editor.handle_key(Key::char('a'), text);
+    assert_eq!(editor.mode(), Mode::Insert);
+    assert_eq!(editor.cursor(), 3, "append sits past the last char");
+}
+
+#[test]
+fn insert_mode_cursor_can_rest_at_len() {
+    // Insert mode legitimately uses cursor == len (e.g. after `A`); the
+    // #541 clamp is Normal-mode only.
+    let text = "abc";
+    let mut editor = VimLineEditor::new();
+    editor.handle_key(Key::char('A'), text);
+    assert_eq!(editor.mode(), Mode::Insert);
+    assert_eq!(editor.cursor(), 3);
+    // moving right in Insert at the end stays at len (no clamp here).
+    editor.handle_key(Key::code(KeyCode::Right), text);
+    assert_eq!(editor.cursor(), 3);
 }

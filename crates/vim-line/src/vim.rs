@@ -136,6 +136,32 @@ impl VimLineEditor {
         self.cursor = self.cursor.min(text.len());
     }
 
+    /// Enforce vim's Normal-mode invariant: the cursor is always *on* a
+    /// character, never past the final one. Forward motions (`w`/`e`/`W`/`E`
+    /// and `l`/`Right`) naturally run to `text.len()` when they exhaust the
+    /// buffer; this snaps them back onto the last character.
+    ///
+    /// Scoped to pure cursor motion — callers must NOT invoke this after an
+    /// edit-producing command (`p`/`P`/`x`/operators), because those compute
+    /// the cursor against the *post-edit* text while we only hold the
+    /// pre-edit buffer here. Mode transitions into Insert (`a`/`A`/`o`/`C`)
+    /// are likewise excluded since Insert legitimately uses `cursor == len`
+    /// to append.
+    ///
+    /// Char-boundary safe: walks back to the start of the last character
+    /// for multi-byte text. No-op on an empty buffer.
+    fn clamp_to_last_char(&mut self, text: &str) {
+        if text.is_empty() {
+            self.cursor = 0;
+        } else if self.cursor >= text.len() {
+            let mut p = text.len() - 1;
+            while p > 0 && !text.is_char_boundary(p) {
+                p -= 1;
+            }
+            self.cursor = p;
+        }
+    }
+
     /// Move cursor left by one character.
     fn move_left(&mut self, text: &str) {
         self.cursor = motions::move_left(self.cursor, text);
@@ -263,6 +289,11 @@ impl VimLineEditor {
         // Shared motions (h/l/j/k/0/$/^/w/b/e/%/Left/Right/Home/End).
         // Up/Down are NOT motions in Normal — they're history navigation below.
         if self.dispatch_motion(key.code, text) {
+            // Pure cursor motion: enforce the vim Normal-mode invariant
+            // that the cursor sits on a character, never past the last one.
+            // (Edits and Insert transitions are excluded — see
+            // `clamp_to_last_char`.)
+            self.clamp_to_last_char(text);
             return EditResult::cursor_only();
         }
 

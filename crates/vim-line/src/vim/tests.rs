@@ -765,7 +765,7 @@ fn e_at_end_of_buffer_stays_put() {
 // --- WORD motions (W/B/E): whitespace-only, the pre-#540 behavior ---
 
 #[test]
-fn word_W_skips_punctuation_to_next_space_token() {
+fn word_uppercase_w_skips_punctuation_to_next_space_token() {
     // `foo,bar` — W treats the whole run as one WORD, so a single W jumps
     // past it to EOB.
     let text = "foo,bar";
@@ -773,7 +773,7 @@ fn word_W_skips_punctuation_to_next_space_token() {
 }
 
 #[test]
-fn word_W_B_E_on_mixed_text() {
+fn word_uppercase_wbe_on_mixed_text() {
     let text = "foo, bar baz";
     // W: foo, -> bar -> baz
     assert_eq!(walk(text, "W"), 5, "W lands on b of bar");
@@ -791,7 +791,7 @@ fn word_W_B_E_on_mixed_text() {
 }
 
 #[test]
-fn word_W_from_whitespace_lands_on_next_token() {
+fn word_uppercase_w_from_whitespace_lands_on_next_token() {
     let text = "foo bar";
     let mut editor = VimLineEditor::new();
     editor.set_cursor(3, text); // on the space
@@ -815,7 +815,7 @@ fn cw_on_punctuation_only_changes_punct_run() {
 }
 
 #[test]
-fn cWORD_behaves_like_cE() {
+fn c_uppercase_word_behaves_like_c_uppercase_e() {
     // `foo, bar` — cW from `f` changes `foo,` (to end of WORD), mirroring
     // the cw->ce quirk at the WORD level.
     let mut editor = VimLineEditor::new();
@@ -830,7 +830,7 @@ fn cWORD_behaves_like_cE() {
 }
 
 #[test]
-fn dW_deletes_through_whitespace() {
+fn d_uppercase_w_deletes_through_whitespace() {
     // `foo, bar` — dW from `f` deletes `foo, ` (whole WORD + trailing ws).
     let mut editor = VimLineEditor::new();
     let mut text = String::from("foo, bar");
@@ -843,7 +843,7 @@ fn dW_deletes_through_whitespace() {
 }
 
 #[test]
-fn visual_W_extends_selection() {
+fn visual_uppercase_w_extends_selection() {
     let mut editor = VimLineEditor::new();
     let text = "foo, bar baz";
     editor.handle_key(Key::char('v'), text);

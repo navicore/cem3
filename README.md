@@ -8,7 +8,7 @@ A concatenative, stack-based programming language that compiles to native execut
 
 **Home Code Repository** is at [git.navicore.tech](https://git.navicore.tech/navicore/patch-seq)
 
-**PRs and issues** welcome at [codeberg.org mirror](https://codeberg.org/navicore/patch-seq)
+**PRs and issues** welcome at the [GitHub mirror](https://github.com/navicore/patch-seq)
 
 [Documentation](https://docs.navicore.tech/patch-seq)
 

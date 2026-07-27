@@ -57,7 +57,7 @@ signal-hook = "0.4"
 
 # Testing
 tempfile = "3"
-serial_test = "3"
+serial_test = "4"
 
 # Encoding
 base64 = "0.22"
